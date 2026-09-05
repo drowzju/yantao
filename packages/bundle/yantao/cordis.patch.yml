@@ -1,0 +1,32 @@
+# The dsh-yantao bundle patch: the yantao profile's provider layer over
+# dsh-base and dsh-headless. It registers the intranet GLM gateway as a pi-ai
+# provider route and makes that route the default model selection, so the
+# one-shot headless runner inherited from the earlier layers answers through
+# the gateway. A patch replaces the targeted row's whole `config` rather than
+# merging into it, and the base row for `llm-pi-ai` carries no config of its
+# own (it mounts dormant), so the route set below is complete as stated.
+#
+# The API key is never inlined: the route names the GLM_GATEWAY_API_KEY
+# credential reference, which the credentials service resolves per request
+# from the inherited process environment over the managed credential store.
+
+- id: llm-pi-ai
+  config:
+    providers:
+      glm-gateway:
+        displayName: 内网 GLM 网关
+        apiKeyEnv: GLM_GATEWAY_API_KEY
+        api: openai-completions
+        baseURL: https://aicodemarket.dahuatech.com/rd-soft-tools/glm/v1
+        compat:
+          thinkingFormat: deepseek
+        models:
+          - id: GLM5.1
+            name: inner-glm5.1
+            contextWindow: 131072
+            maxTokens: 32768
+
+- id: agent-default-model
+  config:
+    provider: glm-gateway
+    model: GLM5.1
