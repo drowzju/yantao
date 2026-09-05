@@ -1,10 +1,12 @@
-# The dsh-yantao bundle patch: the yantao profile's provider layer over
-# dsh-base and dsh-headless. It registers the intranet GLM gateway as a pi-ai
-# provider route and makes that route the default model selection, so the
-# one-shot headless runner inherited from the earlier layers answers through
-# the gateway. A patch replaces the targeted row's whole `config` rather than
-# merging into it, and the base row for `llm-pi-ai` carries no config of its
-# own (it mounts dormant), so the route set below is complete as stated.
+# The dsh-yantao bundle patch: the yantao profile's provider and domain layer
+# over dsh-base and dsh-headless. It registers the intranet GLM gateway as a
+# pi-ai provider route, makes that route the default model selection, mounts
+# the PARA+P knowledge-base tool family, and — completing the ADR-0004 trust
+# boundary — strips every generic write capability from the composed tree:
+# the kb_ tools become the agent's only write path into the knowledge base.
+# A patch replaces the targeted row's whole `config` rather than merging into
+# it, and the base row for `llm-pi-ai` carries no config of its own (it
+# mounts dormant), so the route set below is complete as stated.
 #
 # The API key is never inlined: the route names the GLM_GATEWAY_API_KEY
 # credential reference, which the credentials service resolves per request
@@ -30,3 +32,42 @@
   config:
     provider: glm-gateway
     model: GLM5.1
+
+# The deployment persona, in Chinese: the assistant is yantao's personal
+# knowledge-workbench assistant, and the trust boundary is stated as hard
+# rules — the State section is human-only, KB access goes through kb_ tools,
+# and kb_append_log only appends to the Log section.
+- id: system-prompt
+  config:
+    persona: >-
+      你是 yantao 的个人知识工作台助手，运行于 {{model}}。
+      工作目录是 {{cwd}}。规则：实体文件的『状态』区是人类专属，你绝不能修改；
+      读写知识库只能使用 kb_ 系列工具；kb_append_log 只能向『流水』区追加。
+      用中文回答。
+
+# The PARA+P domain plugin: kb_init / kb_create_entity / kb_append_log /
+# kb_read_entity / kb_list_entities / kb_register_resource.
+- insert:
+    - id: yantao-kb
+      name: '@deepseek-ai/dsh-yantao-kb'
+
+# Trust boundary (ADR-0004): no generic write capability. The shell tools and
+# the string-replace editor give the model arbitrary write paths (shell
+# commands, direct file edits), so all three are disabled on every platform —
+# the base rows gate the bash tool off on win32 and the pwsh tool off
+# elsewhere, and here both are off everywhere. The sandbox backends
+# (bash-sandbox / pwsh-sandbox) are NOT disabled: they register no
+# model-facing tool, dsh-permission-presets injects ctx.shell and would never
+# activate without a provider, and the backends double as the file-effect
+# boundary confining tool-fs writes. Read/search stay: tool-fs keeps read
+# (its write/edit are separately confined by the workspace sandbox and fail
+# closed against the out-of-workspace KB root), and tool-fs-search keeps
+# grep/glob.
+- id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true
+
+- id: tool-str-replace-editor
+  disabled: true

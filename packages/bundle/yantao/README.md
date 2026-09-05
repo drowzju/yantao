@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-yantao` is the provider layer of the `yantao` profile: `dsh --profile yantao "your task"` boots the one-shot headless surface and answers through the intranet GLM gateway (GLM5.1) instead of the default DeepSeek route. The bundle is a static patch document — it registers the gateway as a pi-ai provider route and selects that route as the default model, while the shared core and the one-shot runner come unchanged from the earlier `dsh-base` and `dsh-headless` layers. The API key is never inlined: the route names the `GLM_GATEWAY_API_KEY` credential reference, resolved per request from the launching environment or the managed credential store.
+`dsh-yantao` is the provider and domain layer of the `yantao` profile: `dsh --profile yantao "your task"` boots the one-shot headless surface, answers through the intranet GLM gateway (GLM5.1) instead of the default DeepSeek route, and gives the agent a PARA+P personal knowledge base as its only write target. The bundle is a static patch document — it registers the gateway as a pi-ai provider route, selects that route as the default model, mounts the six `kb_` tools from `dsh-yantao-kb`, sets the Chinese workbench persona, and disables the generic write tools (shell, editor) so the kb_ family is the agent's only write path — while the shared core and the one-shot runner come unchanged from the earlier `dsh-base` and `dsh-headless` layers. The API key is never inlined: the route names the `GLM_GATEWAY_API_KEY` credential reference, resolved per request from the launching environment or the managed credential store.
 
 ## Table of Contents
 
@@ -37,12 +37,15 @@ The run behaves exactly like the headless surface — provider reasoning streams
 
 ### What the bundle changes
 
-The patch overrides two base rows by id, each replacement stated in full:
+The patch overrides base rows by id and mounts one plugin, each replacement stated in full:
 
 | Row | Override | Effect |
 |---|---|---|
 | `llm-pi-ai` | `providers.glm-gateway` | Registers the intranet GLM gateway route: the OpenAI-completions protocol against the gateway endpoint, one `GLM5.1` model entry, and the `deepseek` thinking wire format |
 | `agent-default-model` | `provider: glm-gateway`, `model: GLM5.1` | Agents created without an explicit selection — the headless runner's among them — use the gateway route |
+| `system-prompt` | Chinese persona | States the workbench identity and the trust boundary as hard rules: the State section is human-only, KB access goes through kb_ tools, `kb_append_log` only appends to the Log section |
+| `yantao-kb` (inserted) | `@deepseek-ai/dsh-yantao-kb` | Mounts the six kb_ tools — the agent's only write path into the knowledge base |
+| `tool-bash`, `tool-pwsh`, `tool-str-replace-editor` | `disabled: true` | Removes every generic write capability (shell commands, the editor); read/search stay |
 
 ### Changing the defaults
 
@@ -66,6 +69,10 @@ The base `llm-pi-ai` row mounts the pi-ai adapter dormant — no routes until co
 
 The `agent-default-model` row carries the transport-independent default for Agents created by entry points; the headless runner reads that selection when it creates its one-shot Agent. This layer's composition entry points the selection at `glm-gateway`/`GLM5.1`. A saved selection in the user-settings document still wins over the composition entry, as it does for every profile.
 
+### The trust boundary
+
+One inserted row mounts the [`dsh-yantao-kb`](../../yantao/kb/README.md) tool family, and three id-patches disable the rows that would give the agent a generic write path: the two shell tools (which run arbitrary commands) and the string-replace editor. The shell sandbox backends stay mounted — they register no model-facing tool, `dsh-permission-presets` injects `ctx.shell` and would never activate without a provider, and they double as the file-effect boundary confining `tool-fs` writes. What remains is deliberate: `tool-fs` keeps `read` (its `write`/`edit` are confined by the workspace sandbox and fail closed against the out-of-workspace KB root in headless), `tool-fs-search` keeps grep/glob, and the kb_ family owns every write into the KB. The Chinese persona states the same boundary to the model as hard rules.
+
 ### Source map
 
 | File | Role |
@@ -88,6 +95,7 @@ No invariant companion is published because the package is a static patch-list c
 Read these pages when you want to go deeper into the layers this bundle rides on or the packages that own the configured rows.
 
 - [Bundle package map](../README.md) — the surfaces built on the same core.
+- [dsh-yantao-kb](../../yantao/kb/README.md) — the PARA+P knowledge-base tool family this bundle mounts.
 - [dsh-base](../base/README.md) — the shared core the yantao profile builds on.
 - [dsh-headless](../headless/README.md) — the one-shot surface the profile reuses unchanged.
 - [dsh-llm-pi-ai](../../llm/llm-pi-ai/README.md) — the adapter that owns the provider-route configuration shape.
@@ -99,7 +107,7 @@ Read these pages when you want to go deeper into the layers this bundle rides on
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through the two rows it configures, whose owning packages own every model-facing behavior.
+Indirectly, through the rows it configures and the plugin it mounts, whose owning packages own every model-facing behavior.
 
 #### KV Cache effect
 

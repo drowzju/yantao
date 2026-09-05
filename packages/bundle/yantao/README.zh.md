@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-`dsh-yantao` 是 `yantao` profile 的提供方层：`dsh --profile yantao "你的任务"` 启动一次性 headless 表层，并通过内网 GLM 网关（GLM5.1）而非默认的 DeepSeek 路由作答。这个 bundle 是一份静态 patch 文档——它把网关注册为 pi-ai 提供方路由，并把该路由选为默认模型；共享核心与一次性 runner 则原样来自更早的 `dsh-base` 与 `dsh-headless` 层。API key 永不内联：该路由只点名 `GLM_GATEWAY_API_KEY` 凭据引用，每次请求时从启动环境或受管凭据存储解析。
+`dsh-yantao` 是 `yantao` profile 的提供方与领域层：`dsh --profile yantao "你的任务"` 启动一次性 headless 表层，通过内网 GLM 网关（GLM5.1）而非默认的 DeepSeek 路由作答，并把一个 PARA+P 个人知识库作为 agent 的唯一写入目标。这个 bundle 是一份静态 patch 文档——它把网关注册为 pi-ai 提供方路由，把该路由选为默认模型，挂载来自 `dsh-yantao-kb` 的六个 `kb_` 工具，设定中文工作台 persona，并禁用通用写入工具（shell、编辑器），使 kb_ 工具族成为 agent 的唯一写入口；共享核心与一次性 runner 则原样来自更早的 `dsh-base` 与 `dsh-headless` 层。API key 永不内联：该路由只点名 `GLM_GATEWAY_API_KEY` 凭据引用，每次请求时从启动环境或受管凭据存储解析。
 
 ## 目录
 
@@ -37,12 +37,15 @@ GLM_GATEWAY_API_KEY=<key> dsh --profile yantao "run the tests"
 
 ### 本 bundle 改动了什么
 
-patch 按 id 覆盖两个 base 配置项，每处替换都完整重述：
+patch 按 id 覆盖 base 配置项并挂载一个插件，每处替换都完整重述：
 
 | 配置项 | 覆盖内容 | 效果 |
 |---|---|---|
 | `llm-pi-ai` | `providers.glm-gateway` | 注册内网 GLM 网关路由：对网关端点使用 OpenAI completions 协议，单个 `GLM5.1` 模型条目，以及 `deepseek` 推理有线格式 |
 | `agent-default-model` | `provider: glm-gateway`、`model: GLM5.1` | 未显式选择模型而创建的 Agent——包括 headless runner 的那个——使用网关路由 |
+| `system-prompt` | 中文 persona | 以硬规则陈述工作台身份与信任边界：『状态』区是人类专属，读写知识库只能使用 kb_ 工具，`kb_append_log` 只能向『流水』区追加 |
+| `yantao-kb`（插入） | `@deepseek-ai/dsh-yantao-kb` | 挂载六个 kb_ 工具——agent 写入知识库的唯一途径 |
+| `tool-bash`、`tool-pwsh`、`tool-str-replace-editor` | `disabled: true` | 移除所有通用写能力（shell 命令、编辑器）；读与搜索保留 |
 
 ### 修改默认值
 
@@ -66,6 +69,10 @@ base 的 `llm-pi-ai` 配置项以休眠方式挂载 pi-ai 适配器——在配�
 
 `agent-default-model` 配置项承载入口点创建 Agent 时与传输无关的默认选择；headless runner 创建其一次性 Agent 时读取该选择。本层的组合条目把选择指向 `glm-gateway`/`GLM5.1`。与所有 profile 一样，用户设置文档中已保存的选择仍然优先于组合条目。
 
+### 信任边界
+
+一个插入的配置项挂载 [`dsh-yantao-kb`](../../yantao/kb/README.zh.md) 工具族，另有三条按 id 的 patch 禁用会为 agent 提供通用写入路径的配置项：两个 shell 工具（可执行任意命令）与字符串替换编辑器。shell 沙箱后端保持挂载——它们不注册模型侧工具，`dsh-permission-presets` 注入了 `ctx.shell`、没有提供方就永远无法激活，而且它们同时是约束 `tool-fs` 写入的文件效果边界。留下的是刻意为之的：`tool-fs` 保留 `read`（其 `write`/`edit` 受工作区沙箱约束，对在工作区之外的知识库根目录会失败关闭），`tool-fs-search` 保留 grep/glob，知识库的一切写入都归 kb_ 工具族。中文 persona 把同一条边界以硬规则陈述给模型。
+
 ### 源码地图
 
 | 文件 | 职责 |
@@ -88,6 +95,7 @@ base 的 `llm-pi-ai` 配置项以休眠方式挂载 pi-ai 适配器——在配�
 当你想深入了解本 bundle 所叠加的层，或拥有被配置项的包时，阅读这些页面。
 
 - [bundle 包地图](../README.zh.md)——构建在同一核心之上的各个表层。
+- [dsh-yantao-kb](../../yantao/kb/README.zh.md)——本 bundle 挂载的 PARA+P 知识库工具族。
 - [dsh-base](../base/README.zh.md)——yantao profile 所基于的共享核心。
 - [dsh-headless](../headless/README.zh.md)——该 profile 原样复用的一次性表层。
 - [dsh-llm-pi-ai](../../llm/llm-pi-ai/README.zh.md)——拥有提供方路由配置形状的适配器。
@@ -99,7 +107,7 @@ base 的 `llm-pi-ai` 配置项以休眠方式挂载 pi-ai 适配器——在配�
 <a id="model-experience"></a>
 ## 模型体验
 
-间接地，通过它所配置的两个配置项，其所属包拥有所有面向模型的行为。
+间接地，通过它所配置的配置项与挂载的插件，其所属包拥有所有面向模型的行为。
 
 #### KV Cache 影响
 

@@ -3316,6 +3316,22 @@ export interface Config {
 
 Source: [`packages/workflow/workflow-worker-thread/src/index.ts:32`](../packages/workflow/workflow-worker-thread/src/index.ts)
 
+<a id="deepseek-aidsh-yantao-kb"></a>
+
+## `@deepseek-ai/dsh-yantao-kb`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Plugin config; `kbRoot` is the only knob. */
+export interface Config {
+  /** Knowledge-base root directory (created by kb_init). Defaults to `~/yantao-kb`. */
+  kbRoot?: string
+}
+```
+
+Source: [`packages/yantao/kb/src/index.ts:26`](../packages/yantao/kb/src/index.ts)
+
 ## Loadable plugins with no config
 
 These load from a `cordis.yml` entry with no `config:` block; they declare no configuration API.
@@ -3471,3 +3487,4 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-util-values` ([`packages/util/values/src/index.ts`](../packages/util/values/src/index.ts))
 - `@deepseek-ai/dsh-util-workspace-path` ([`packages/util/workspace-path/src/index.ts`](../packages/util/workspace-path/src/index.ts))
 - `@deepseek-ai/dsh-win32-process` ([`packages/subprocess/win32-process/src/index.ts`](../packages/subprocess/win32-process/src/index.ts))
+- `@deepseek-ai/dsh-yantao` ([`packages/bundle/yantao/src/index.ts`](../packages/bundle/yantao/src/index.ts))
