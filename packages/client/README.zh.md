@@ -42,6 +42,7 @@ kind: "package-group"
 | [`ui-attachment/`](ui-attachment/README.zh.md) | 注册输入框与消息图片的附件呈现 | — |
 | [`ui-layout/`](ui-layout/README.zh.md) | 排列应用的主要区域 | — |
 | [`ui-sidebar/`](ui-sidebar/README.zh.md) | 展示工作区与会话导航 | — |
+| [`ui-yantao/`](ui-yantao/README.zh.md) | 基于 `ctx.remote` 的自研 yantao 工作台 UI（ADR-0009） | — |
 | [`ui-yantao-kb/`](ui-yantao-kb/README.zh.md) | 展示 yantao 知识库树侧栏与 Markdown 编辑器 | — |
 | [`ui-brand-official/`](ui-brand-official/README.zh.md) | 用官方名称与标记填充通用浏览器品牌 slot | — |
 | [`ui-workspace/`](ui-workspace/README.zh.md) | 提供工作区选择与创建界面 | — |

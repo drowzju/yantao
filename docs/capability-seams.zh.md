@@ -222,6 +222,12 @@ flowchart LR
   pkg_cordis_host_runner["cordis-host-runner"]
   svc_dynamicCordisRunner["ctx.dynamicCordisRunner<br/>Dynamic Cordis package host runner"]
   svc_cordisInspect["ctx.cordisInspect<br/>Dynamic Cordis inspect registry"]
+  pkg_yantao_kb["yantao-kb"]
+  svc_yantaoKb["ctx.yantaoKb<br/>yantao KB root share"]
+  pkg_yantao_kb_controller["yantao-kb-controller"]
+  pkg_api_yantao_kb_controller["api-yantao-kb-controller"]
+  svc_yantaoKbController["ctx.yantaoKbController<br/>yantao workbench KB Remote controller"]
+  pkg_ui_yantao_kb["ui-yantao-kb"]
   pkg_agent --> svc_agents
   pkg_agent_default_model --> svc_agentDefaultModel
   pkg_agent_loop --> svc_agentLoop
@@ -234,6 +240,7 @@ flowchart LR
   pkg_api_settings_controller --> svc_settingsController
   pkg_api_workspace_controller --> svc_directoryPickerController
   pkg_api_workspace_controller --> svc_workspaceController
+  pkg_api_yantao_kb_controller --> svc_yantaoKbController
   pkg_attachment --> svc_attachments
   pkg_attachment_local --> svc_attachments
   pkg_authorization --> svc_authorization
@@ -339,6 +346,7 @@ flowchart LR
   pkg_workflow --> svc_workflowEngine
   pkg_workflow_worker_thread --> svc_workflowEngine
   pkg_workspace --> svc_workspaceRegistry
+  pkg_yantao_kb --> svc_yantaoKb
   svc_agentDefaultModel --> pkg_api_session_controller
   svc_agentDefaultModel --> pkg_headless
   svc_agentLoop --> pkg_base
@@ -466,6 +474,8 @@ flowchart LR
   svc_workflowEngine --> pkg_tool_workflow
   svc_workspaceRegistry --> pkg_api_session_controller
   svc_workspaceRegistry --> pkg_api_workspace_controller
+  svc_yantaoKb --> pkg_yantao_kb_controller
+  svc_yantaoKbController --> pkg_ui_yantao_kb
   svc_fs -. event gate .-> pkg_fs_observation_policy
 ```
 
@@ -541,5 +551,7 @@ flowchart LR
 | `ctx.lsp` | `seam` | [`lsp`](../packages/lsp/lsp) | [`lsp-stdio`](../packages/lsp/lsp-stdio) | [`tool-lsp`](../packages/lsp/tool-lsp) | - | 提供方注册与选择，加上恰好四种操作的标准化查询执行；该 seam 不提供协议逃生口，后端必须转换为标准化请求和结果。 |
 | `ctx.dynamicCordisRunner` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | 拥有内存定义注册表、Host 半的 vm 沙箱和 request-run 往返流程；浏览器页面通过其 Remote 命名空间在线访问同一服务。 |
 | `ctx.cordisInspect` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | 注册 Host inspect 提供方、镜像 Client 提供方 manifest，并通过动态 Cordis 传输路由 Client 查询。 |
+| `ctx.yantaoKb` | `core` | [`yantao-kb`](../packages/yantao/kb) | - | `yantao-kb-controller` | - | kb 插件发布已解析的 kbRoot，使 Host 侧消费方共享同一配置点而非各自复制。 |
+| `ctx.yantaoKbController` | `core` | [`api-yantao-kb-controller`](../packages/api/yantao-kb-controller) | - | `ui-yantao-kb` | - | 拥有受 kbRoot 约束的 tree/read/write 通道，工作台 UI 经由生成的 yantaoKb Remote 命名空间使用。 |
 
 维护模式：混合模式。服务从 Cordis 声明中发现；接口、实现和消费方角色在 `scripts/gen-doc-graphs.ts` 中分类，并设有完整性守卫。

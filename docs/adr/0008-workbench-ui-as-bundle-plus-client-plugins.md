@@ -1,3 +1,7 @@
+---
+status: superseded
+---
+
 # 工作台 UI 形态：bundle + client 插件组合，复用 apps/web 的 dist
 
 （已被 ADR-0009 取代：前端改为自研，dsh 退居后端。保留本文以记录为何先试这条路、又为何放弃。)

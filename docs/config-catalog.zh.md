@@ -3318,6 +3318,49 @@ export interface Config {
 
 来源：[`packages/workflow/workflow-worker-thread/src/index.ts:32`](../packages/workflow/workflow-worker-thread/src/index.ts)
 
+<a id="deepseek-aidsh-yantao-kb"></a>
+
+## `@deepseek-ai/dsh-yantao-kb`
+
+需要：`tools`
+
+```ts config-catalog
+/** Plugin config; `kbRoot` is the only knob. */
+export interface Config {
+  /** Knowledge-base root directory (created by kb_init). Defaults to `~/yantao-kb`. */
+  kbRoot?: string
+}
+```
+
+来源：[`packages/yantao/kb/src/index.ts:26`](../packages/yantao/kb/src/index.ts)
+
+<a id="deepseek-aidsh-yantao-web-app"></a>
+
+## `@deepseek-ai/dsh-yantao-web-app`
+
+需要：`webServer`
+
+```ts config-catalog
+/** Plugin config: composed deployment settings plus per-invocation command-line values. */
+export interface Config {
+  /** Permit default-browser handoff after the Loader tree settles; an SSH launch suppresses it. */
+  openBrowser: boolean
+  /** Print the URL line on activation; a non-interactive layer can turn it off. */
+  printUrl: boolean
+  /**
+   * Register the model-visible surface context (the `app:web-surface` prompt
+   * section and the `DSH_WEB_URL` bash variable). A one-shot non-interactive
+   * layer can turn it off when its user is not in the GUI, so the
+   * orientation text would be false.
+   */
+  surfaceContext: boolean
+  /** Explicit `--trusted-host` authorities from this invocation. */
+  trustedHosts: string[]
+}
+```
+
+来源：[`packages/bundle/yantao-web-app/src/index.ts:44`](../packages/bundle/yantao-web-app/src/index.ts)
+
 ## 无配置的可加载插件
 
 这些插件通过 `cordis.yml` 中不含 `config:` 块的条目加载；它们未声明任何配置接口。
@@ -3326,6 +3369,7 @@ export interface Config {
 - `@deepseek-ai/dsh-agent`（[`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts)）
 - `@deepseek-ai/dsh-api-remotes` — 需要 `typertGateway`（[`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts)）
 - `@deepseek-ai/dsh-api-workspace-controller` — 需要 `typert` · `workspaceRegistry`（[`packages/api/workspace-controller/src/index.ts`](../packages/api/workspace-controller/src/index.ts)）
+- `@deepseek-ai/dsh-api-yantao-kb-controller` — 需要 `yantaoKb`（[`packages/api/yantao-kb-controller/src/index.ts`](../packages/api/yantao-kb-controller/src/index.ts)）
 - `@deepseek-ai/dsh-authorization` — 需要 `credentials`（[`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts)）
 - `@deepseek-ai/dsh-client-file-upload` — 需要 `agents` · `attachments` · `commands` · `connection`（[`packages/client/file-upload/src/index.ts`](../packages/client/file-upload/src/index.ts)）
 - `@deepseek-ai/dsh-client-locale`（[`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts)）
@@ -3367,6 +3411,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-user-questions`（[`packages/client/ui-user-questions/src/index.ts`](../packages/client/ui-user-questions/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-workflow-run`（[`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-workspace`（[`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts)）
+- `@deepseek-ai/dsh-client-ui-yantao-kb`（[`packages/client/ui-yantao-kb/src/index.ts`](../packages/client/ui-yantao-kb/src/index.ts)）
 - `@deepseek-ai/dsh-command-compact` — 需要 `commands` · `compact`（[`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts)）
 - `@deepseek-ai/dsh-command-feedback` — 需要 `commands`（[`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts)）
 - `@deepseek-ai/dsh-command-goal` — 需要 `commands` · `goals`（[`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts)）
@@ -3472,3 +3517,4 @@ export interface Config {
 - `@deepseek-ai/dsh-util-values`（[`packages/util/values/src/index.ts`](../packages/util/values/src/index.ts)）
 - `@deepseek-ai/dsh-util-workspace-path`（[`packages/util/workspace-path/src/index.ts`](../packages/util/workspace-path/src/index.ts)）
 - `@deepseek-ai/dsh-win32-process`（[`packages/subprocess/win32-process/src/index.ts`](../packages/subprocess/win32-process/src/index.ts)）
+- `@deepseek-ai/dsh-yantao`（[`packages/bundle/yantao/src/index.ts`](../packages/bundle/yantao/src/index.ts)）
