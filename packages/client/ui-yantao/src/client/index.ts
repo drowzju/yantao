@@ -25,15 +25,10 @@ function kbRemote(ctx: Context): KbRemoteView | undefined {
 }
 
 export function apply(ctx: Context): void {
-  // Spike slice: render beside the stock shell into our own container instead
-  // of #root, so the two UIs cannot clobber each other while we prove the
-  // wiring. The bespoke UI takes #root once the shared shell rows are dropped.
-  let container = document.getElementById('yantao-probe')
-  if (container === null) {
-    container = document.createElement('div')
-    container.id = 'yantao-probe'
-    document.body.appendChild(container)
-  }
+  // The shared shell rows are disabled on this surface (ADR-0009), so #root
+  // belongs to the workbench.
+  const container = document.getElementById('root')
+  if (container === null) throw new Error('ui-yantao: missing #root')
   createRoot(container).render(createElement(WorkbenchProbe, { ctx }))
 }
 
