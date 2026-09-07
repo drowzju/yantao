@@ -1,5 +1,5 @@
 ---
-description: "yantao profile bundle：叠加在 dsh-base 与 dsh-headless 之上的 patch 层，把一次性表层路由到内网 GLM 网关，供需要对网关运行 dsh 的用户使用。"
+description: "yantao profile bundle：叠加在 dsh-base 与 dsh-headless 之上的 patch 层，把一次性表层路由到内网模型网关，供需要对网关运行 dsh 的用户使用。"
 kind: "package-bundle"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-`dsh-yantao` 是 `yantao` profile 的提供方与领域层：`dsh --profile yantao "你的任务"` 启动一次性 headless 表层，通过内网 GLM 网关（GLM5.1）而非默认的 DeepSeek 路由作答，并把一个 PARA+P 个人知识库作为 agent 的唯一写入目标。这个 bundle 是一份静态 patch 文档——它把网关注册为 pi-ai 提供方路由，把该路由选为默认模型，挂载来自 `dsh-yantao-kb` 的六个 `kb_` 工具，设定中文工作台 persona，并禁用通用写入工具（shell、编辑器），使 kb_ 工具族成为 agent 的唯一写入口；共享核心与一次性 runner 则原样来自更早的 `dsh-base` 与 `dsh-headless` 层。API key 永不内联：该路由只点名 `GLM_GATEWAY_API_KEY` 凭据引用，每次请求时从启动环境或受管凭据存储解析。
+`dsh-yantao` 是 `yantao` profile 的提供方与领域层：`dsh --profile yantao "你的任务"` 启动一次性 headless 表层，通过内网模型网关（GLM5.1）而非默认的 DeepSeek 路由作答，并把一个 PARA+P 个人知识库作为 agent 的唯一写入目标。这个 bundle 是一份静态 patch 文档——它把网关注册为 pi-ai 提供方路由，把该路由选为默认模型，挂载来自 `dsh-yantao-kb` 的六个 `kb_` 工具，设定中文工作台 persona，并禁用通用写入工具（shell、编辑器），使 kb_ 工具族成为 agent 的唯一写入口；共享核心与一次性 runner 则原样来自更早的 `dsh-base` 与 `dsh-headless` 层。API key 永不内联：该路由只点名 `MODEL_GATEWAY_API_KEY` 凭据引用，每次请求时从启动环境或受管凭据存储解析。
 
 ## 目录
 
@@ -30,7 +30,7 @@ kind: "package-bundle"
 ### 运行一次性任务
 
 ```sh
-GLM_GATEWAY_API_KEY=<key> dsh --profile yantao "run the tests"
+MODEL_GATEWAY_API_KEY=<key> dsh --profile yantao "run the tests"
 ```
 
 运行行为与 headless 表层完全一致——提供方推理流式写入 stderr，最终答案打印到 stdout，退出码报告结果——只是每个模型请求都发往本 bundle 注册的网关路由。缺少 key 时请求会以 missing-credential 错误失败；请在启动环境中提供，或通过凭据界面存入。
@@ -41,8 +41,8 @@ patch 按 id 覆盖 base 配置项并挂载一个插件，每处替换都完整�
 
 | 配置项 | 覆盖内容 | 效果 |
 |---|---|---|
-| `llm-pi-ai` | `providers.glm-gateway` | 注册内网 GLM 网关路由：对网关端点使用 OpenAI completions 协议，单个 `GLM5.1` 模型条目，以及 `deepseek` 推理有线格式 |
-| `agent-default-model` | `provider: glm-gateway`、`model: GLM5.1` | 未显式选择模型而创建的 Agent——包括 headless runner 的那个——使用网关路由 |
+| `llm-pi-ai` | `providers.model-gateway` | 注册内网模型网关路由：对网关端点使用 OpenAI completions 协议，单个 `GLM5.1` 模型条目，以及 `deepseek` 推理有线格式 |
+| `agent-default-model` | `provider: model-gateway`、`model: GLM5.1` | 未显式选择模型而创建的 Agent——包括 headless runner 的那个——使用网关路由 |
 | `system-prompt` | 中文 persona | 以硬规则陈述工作台身份与信任边界：『状态』区是人类专属，读写知识库只能使用 kb_ 工具，`kb_append_log` 只能向『流水』区追加 |
 | `yantao-kb`（插入） | `@deepseek-ai/dsh-yantao-kb` | 挂载六个 kb_ 工具——agent 写入知识库的唯一途径 |
 | `tool-bash`、`tool-pwsh`、`tool-str-replace-editor` | `disabled: true` | 移除所有通用写能力（shell 命令、编辑器）；读与搜索保留 |
@@ -63,11 +63,11 @@ patch 按 id 覆盖 base 配置项并挂载一个插件，每处替换都完整�
 
 ### 提供方路由
 
-base 的 `llm-pi-ai` 配置项以休眠方式挂载 pi-ai 适配器——在配置提供 provider profile 之前没有任何路由。本层提供了一个。`glm-gateway` 路由不指名任何已安装的 pi-ai 目录提供方，因此该 profile 就是完整的提供方声明：`openai-completions` 有线协议、网关端点、单条目模型目录（`GLM5.1`，上下文窗口 131,072 token、输出能力 32,768 token），以及 `deepseek` 推理格式兼容开关。`GLM_GATEWAY_API_KEY` 引用在每次请求时经 `ctx.credentials` 解析，其中继承的进程环境优先于受管凭据文档，所以 `GLM_GATEWAY_API_KEY=… dsh --profile yantao …` 无需任何已存状态即可完成认证。
+base 的 `llm-pi-ai` 配置项以休眠方式挂载 pi-ai 适配器——在配置提供 provider profile 之前没有任何路由。本层提供了一个。`model-gateway` 路由不指名任何已安装的 pi-ai 目录提供方，因此该 profile 就是完整的提供方声明：`openai-completions` 有线协议、网关端点、单条目模型目录（`GLM5.1`，上下文窗口 131,072 token、输出能力 32,768 token），以及 `deepseek` 推理格式兼容开关。`MODEL_GATEWAY_API_KEY` 引用在每次请求时经 `ctx.credentials` 解析，其中继承的进程环境优先于受管凭据文档，所以 `MODEL_GATEWAY_API_KEY=… dsh --profile yantao …` 无需任何已存状态即可完成认证。
 
 ### 默认选择
 
-`agent-default-model` 配置项承载入口点创建 Agent 时与传输无关的默认选择；headless runner 创建其一次性 Agent 时读取该选择。本层的组合条目把选择指向 `glm-gateway`/`GLM5.1`。与所有 profile 一样，用户设置文档中已保存的选择仍然优先于组合条目。
+`agent-default-model` 配置项承载入口点创建 Agent 时与传输无关的默认选择；headless runner 创建其一次性 Agent 时读取该选择。本层的组合条目把选择指向 `model-gateway`/`GLM5.1`。与所有 profile 一样，用户设置文档中已保存的选择仍然优先于组合条目。
 
 ### 信任边界
 
@@ -119,7 +119,7 @@ base 的 `llm-pi-ai` 配置项以休眠方式挂载 pi-ai 适配器——在配�
 
 这些限制告诉你 yantao 层何时需要额外留意，或覆盖应当写到哪里。它们是本包当前的约束，不是泛泛的比较或任务清单。
 
-- **key 必须存在于 bundle 之外**——`GLM_GATEWAY_API_KEY` 在启动环境与受管凭据存储中都未设置时，每个网关请求都会以 missing-credential 错误失败；bundle 自身从不存储 key。
+- **key 必须存在于 bundle 之外**——`MODEL_GATEWAY_API_KEY` 在启动环境与受管凭据存储中都未设置时，每个网关请求都会以 missing-credential 错误失败；bundle 自身从不存储 key。
 - **覆盖会整体替换设置块**——之后的 patch 层一旦触及 `llm-pi-ai` 或 `agent-default-model`，就会替换该配置项的全部配置，因此必须完整重述路由或选择。
 - **一条路由、一个模型**——本 bundle 只声明网关路由与 `GLM5.1`；更多提供方或模型属于用户设置文档或其他 bundle 层，不属于这里。
 

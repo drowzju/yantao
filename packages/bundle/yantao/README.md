@@ -1,5 +1,5 @@
 ---
-description: "The yantao profile bundle: a patch layer over dsh-base and dsh-headless that routes the one-shot surface through the intranet GLM gateway, for users running dsh against that gateway."
+description: "The yantao profile bundle: a patch layer over dsh-base and dsh-headless that routes the one-shot surface through the intranet model gateway, for users running dsh against that gateway."
 kind: "package-bundle"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-yantao` is the provider and domain layer of the `yantao` profile: `dsh --profile yantao "your task"` boots the one-shot headless surface, answers through the intranet GLM gateway (GLM5.1) instead of the default DeepSeek route, and gives the agent a PARA+P personal knowledge base as its only write target. The bundle is a static patch document — it registers the gateway as a pi-ai provider route, selects that route as the default model, mounts the six `kb_` tools from `dsh-yantao-kb`, sets the Chinese workbench persona, and disables the generic write tools (shell, editor) so the kb_ family is the agent's only write path — while the shared core and the one-shot runner come unchanged from the earlier `dsh-base` and `dsh-headless` layers. The API key is never inlined: the route names the `GLM_GATEWAY_API_KEY` credential reference, resolved per request from the launching environment or the managed credential store.
+`dsh-yantao` is the provider and domain layer of the `yantao` profile: `dsh --profile yantao "your task"` boots the one-shot headless surface, answers through the intranet model gateway (GLM5.1) instead of the default DeepSeek route, and gives the agent a PARA+P personal knowledge base as its only write target. The bundle is a static patch document — it registers the gateway as a pi-ai provider route, selects that route as the default model, mounts the six `kb_` tools from `dsh-yantao-kb`, sets the Chinese workbench persona, and disables the generic write tools (shell, editor) so the kb_ family is the agent's only write path — while the shared core and the one-shot runner come unchanged from the earlier `dsh-base` and `dsh-headless` layers. The API key is never inlined: the route names the `MODEL_GATEWAY_API_KEY` credential reference, resolved per request from the launching environment or the managed credential store.
 
 ## Table of Contents
 
@@ -30,7 +30,7 @@ Run one task through the gateway, get the final answer, and exit. The first `dsh
 ### Running a one-shot task
 
 ```sh
-GLM_GATEWAY_API_KEY=<key> dsh --profile yantao "run the tests"
+MODEL_GATEWAY_API_KEY=<key> dsh --profile yantao "run the tests"
 ```
 
 The run behaves exactly like the headless surface — provider reasoning streams to stderr, the final answer prints on stdout, and the exit code reports the outcome — except every model request goes to the gateway route this bundle registers. A missing key fails the request with a missing-credential error; supply it in the launching environment or store it through the credentials surface.
@@ -41,8 +41,8 @@ The patch overrides base rows by id and mounts one plugin, each replacement stat
 
 | Row | Override | Effect |
 |---|---|---|
-| `llm-pi-ai` | `providers.glm-gateway` | Registers the intranet GLM gateway route: the OpenAI-completions protocol against the gateway endpoint, one `GLM5.1` model entry, and the `deepseek` thinking wire format |
-| `agent-default-model` | `provider: glm-gateway`, `model: GLM5.1` | Agents created without an explicit selection — the headless runner's among them — use the gateway route |
+| `llm-pi-ai` | `providers.model-gateway` | Registers the intranet model gateway route: the OpenAI-completions protocol against the gateway endpoint, one `GLM5.1` model entry, and the `deepseek` thinking wire format |
+| `agent-default-model` | `provider: model-gateway`, `model: GLM5.1` | Agents created without an explicit selection — the headless runner's among them — use the gateway route |
 | `system-prompt` | Chinese persona | States the workbench identity and the trust boundary as hard rules: the State section is human-only, KB access goes through kb_ tools, `kb_append_log` only appends to the Log section |
 | `yantao-kb` (inserted) | `@deepseek-ai/dsh-yantao-kb` | Mounts the six kb_ tools — the agent's only write path into the knowledge base |
 | `tool-bash`, `tool-pwsh`, `tool-str-replace-editor` | `disabled: true` | Removes every generic write capability (shell commands, the editor); read/search stay |
@@ -63,11 +63,11 @@ The bundle is a static patch document: two id-targeted config patches over the `
 
 ### The provider route
 
-The base `llm-pi-ai` row mounts the pi-ai adapter dormant — no routes until configuration supplies provider profiles. This layer supplies one. The `glm-gateway` route names no installed pi-ai catalog provider, so the profile is the whole provider declaration: the `openai-completions` wire protocol, the gateway endpoint, a one-entry model catalog (`GLM5.1`, sized at a 131,072-token context window and 32,768-token output capability), and the `deepseek` thinking-format compatibility switch. The `GLM_GATEWAY_API_KEY` reference resolves per request through `ctx.credentials`, where the inherited process environment ranks above the managed credential document, so `GLM_GATEWAY_API_KEY=… dsh --profile yantao …` authenticates without any stored state.
+The base `llm-pi-ai` row mounts the pi-ai adapter dormant — no routes until configuration supplies provider profiles. This layer supplies one. The `model-gateway` route names no installed pi-ai catalog provider, so the profile is the whole provider declaration: the `openai-completions` wire protocol, the gateway endpoint, a one-entry model catalog (`GLM5.1`, sized at a 131,072-token context window and 32,768-token output capability), and the `deepseek` thinking-format compatibility switch. The `MODEL_GATEWAY_API_KEY` reference resolves per request through `ctx.credentials`, where the inherited process environment ranks above the managed credential document, so `MODEL_GATEWAY_API_KEY=… dsh --profile yantao …` authenticates without any stored state.
 
 ### The default selection
 
-The `agent-default-model` row carries the transport-independent default for Agents created by entry points; the headless runner reads that selection when it creates its one-shot Agent. This layer's composition entry points the selection at `glm-gateway`/`GLM5.1`. A saved selection in the user-settings document still wins over the composition entry, as it does for every profile.
+The `agent-default-model` row carries the transport-independent default for Agents created by entry points; the headless runner reads that selection when it creates its one-shot Agent. This layer's composition entry points the selection at `model-gateway`/`GLM5.1`. A saved selection in the user-settings document still wins over the composition entry, as it does for every profile.
 
 ### The trust boundary
 
@@ -119,7 +119,7 @@ The bundle itself adds no request prefix; it only selects which provider route a
 
 These limits tell you when the yantao layer needs extra care or where an override must go. They are current package constraints, not a general comparison or a task backlog.
 
-- **The key must exist outside the bundle** — `GLM_GATEWAY_API_KEY` unset in both the launching environment and the managed credential store fails every gateway request with a missing-credential error; the bundle never stores a key itself.
+- **The key must exist outside the bundle** — `MODEL_GATEWAY_API_KEY` unset in both the launching environment and the managed credential store fails every gateway request with a missing-credential error; the bundle never stores a key itself.
 - **Overrides replace whole settings blocks** — a later patch layer that touches `llm-pi-ai` or `agent-default-model` replaces that row's entire configuration, so it must restate the route or the selection in full.
 - **One route, one model** — the bundle declares exactly the gateway route and `GLM5.1`; additional providers or models belong to the user-settings document or another bundle layer, not here.
 

@@ -30,7 +30,7 @@ Serve the workbench, get the printed URL, and open it. The first `dsh --profile 
 ### Running the workbench
 
 ```sh
-GLM_GATEWAY_API_KEY=<key> dsh --profile yantao-web
+MODEL_GATEWAY_API_KEY=<key> dsh --profile yantao-web
 ```
 
 The command prints `dsh web: <url>` and opens the default browser (pass `--no-open` to suppress; `--port` and `--host` work as on the stock surface). The page is the stock web shell; the workbench is the roster behind it: KB tree on the left, chat in the center, KB markdown editor on the right.

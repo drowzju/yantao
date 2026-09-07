@@ -30,7 +30,7 @@ kind: "package-bundle"
 ### 运行工作台
 
 ```sh
-GLM_GATEWAY_API_KEY=<key> dsh --profile yantao-web
+MODEL_GATEWAY_API_KEY=<key> dsh --profile yantao-web
 ```
 
 命令会打印 `dsh web: <url>` 并打开默认浏览器（用 `--no-open` 抑制；`--port` 与 `--host` 与 stock 表层相同）。页面是 stock web shell；工作台是它背后的 roster：左侧知识库树，中间聊天，右侧知识库 Markdown 编辑器。

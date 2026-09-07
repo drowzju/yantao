@@ -1,24 +1,31 @@
 # The dsh-yantao bundle patch: the yantao profile's provider and domain layer
-# over dsh-base and dsh-headless. It registers the intranet GLM gateway as a
-# pi-ai provider route, makes that route the default model selection, mounts
-# the PARA+P knowledge-base tool family, and — completing the ADR-0004 trust
-# boundary — strips every generic write capability from the composed tree:
-# the kb_ tools become the agent's only write path into the knowledge base.
+# over dsh-base and dsh-headless. It registers the intranet model gateway
+# (CONTEXT.md: LLM 网关 / Model Gateway) as a pi-ai provider route — named by
+# ROLE, not by vendor; the endpoint, model id and vendor below are simply this
+# deployment's instance, swapped in place to move to another model — makes that
+# route the default model selection, mounts the PARA+P knowledge-base tool
+# family, and — completing the ADR-0004 trust boundary — strips every generic
+# write capability from the composed tree: the kb_ tools become the agent's
+# only write path into the knowledge base.
 # A patch replaces the targeted row's whole `config` rather than merging into
 # it, and the base row for `llm-pi-ai` carries no config of its own (it
 # mounts dormant), so the route set below is complete as stated.
 #
-# The API key is never inlined: the route names the GLM_GATEWAY_API_KEY
+# The API key is never inlined: the route names the MODEL_GATEWAY_API_KEY
 # credential reference, which the credentials service resolves per request
-# from the inherited process environment over the managed credential store.
+# from the inherited process environment over the managed credential store
+# (and the cwd/home .env fallbacks).
 
 - id: llm-pi-ai
   config:
     providers:
-      glm-gateway:
-        displayName: 内网 GLM 网关
-        apiKeyEnv: GLM_GATEWAY_API_KEY
+      model-gateway:
+        displayName: 内网模型网关
+        apiKeyEnv: MODEL_GATEWAY_API_KEY
         api: openai-completions
+        # Deployment instance: the endpoint and the model id are whatever this
+        # gateway serves today. Moving to another model means these two lines
+        # and the `model` in agent-default-model below — nothing else.
         baseURL: https://aicodemarket.dahuatech.com/rd-soft-tools/glm/v1
         compat:
           thinkingFormat: deepseek
@@ -30,7 +37,7 @@
 
 - id: agent-default-model
   config:
-    provider: glm-gateway
+    provider: model-gateway
     model: GLM5.1
 
 # The deployment persona, in Chinese: the assistant is yantao's personal
