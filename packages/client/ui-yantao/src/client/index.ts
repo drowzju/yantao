@@ -11,9 +11,10 @@ import { createRoot } from 'react-dom/client'
 import type { Context } from '@deepseek-ai/cordis'
 
 export const name = 'ui-yantao'
-// Cordis forbids reading an undeclared service: touching ctx.remote without
-// this entry throws "cannot get property remote without inject".
-export const inject = ['remote']
+// Cordis forbids reading an undeclared service, and a Remote namespace counts
+// as one of its own: both the `remote` face and this namespace must be listed
+// or the accessor throws "cannot get property remote.yantaoKb without inject".
+export const inject = ['remote', 'remote.yantaoKb']
 
 /** The slice of ctx.remote this slice needs, narrowed defensively. */
 interface KbRemoteView {
