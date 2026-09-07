@@ -14,6 +14,7 @@
 | 给 UI 的 `yantaoKb` Typert Remote(`tree` / `read` / `write`) | `packages/api/yantao-kb-controller/` |
 | 由 dsh 伺服的自研前端 + 我们的客户端插件打通 `ctx.remote.yantaoKb` | `apps/yantao/`、`packages/client/ui-yantao/`,ADR-0009 |
 | 启动/停止脚本(常驻,无超时) | `scripts/yantao-web-{start,stop}.ps1` |
+| 工作区已清理:`packages/*/src` 下 297 个生成文件已删除 | 单包 `tsc -b` 留下的 `.js` / `.d.ts` / `.map`;上游在那里只跟踪 `.ts`/`.tsx` |
 
 ## next
 
@@ -31,7 +32,7 @@
 | 提炼闭环 v1(人触发 → agent 提议 → 人批准) | 真正的价值所在;需要先有编辑器面板与提议 UI |
 | 会话转写落 `sessions/` | dsh 已经把每个会话事件溯源(`session.vN.jsonl`),这活儿应变成"投影"而非新机制 |
 | FTS 与 backlinks 索引 | 等知识库有真实内容后再定存储(drift/sqlite 还是 dsh `session-query`) |
-| 清理 `packages/client/*/src` 下约 296 个未跟踪构建产物 | 属破坏性操作,需明确同意。它们是 `tsc -b` 残留,未跟踪且不需要。 |
+| *(已移入 done)* —— 注意:单包 `tsc -b` 会**重新生成**这些残留 | 用仓库自带的 `pnpm run clean` 再清,或先 `git clean -n -- packages` 预览、再 `git clean -f -- packages` |
 | 精简 profile(减少 base 行)以缩短约 35 秒启动 | 先测量;等 UI 完全归我们再做 |
 | `docs/config-catalog.md` 已重新生成但中文侧未同步 | 生成页;在中文侧重新生成或加入豁免前,该对的配对检查是红的。未随本次文档工作提交。 |
 

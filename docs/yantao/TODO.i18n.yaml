@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/yantao/TODO.md
-TODO.md: 9e4251754ebc553f93d9f72f05964dd4ccb95e2f
-TODO.zh.md: f6e5dd243a9d9c033e6cccbbc3cfbdbaa1cdf9d3
+TODO.md: 3b99f2cb31f917f826f759fac320480031245dd0
+TODO.zh.md: 5716b7c323d0abeb8c2cd816e2f7887881fe8776

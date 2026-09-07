@@ -14,6 +14,7 @@ Living backlog. Status words: **done** (merged on `main`), **next** (queued), **
 | `yantaoKb` Typert Remote (`tree` / `read` / `write`) for the UI | `packages/api/yantao-kb-controller/` |
 | Bespoke frontend served by dsh + our client plugin reaching `ctx.remote.yantaoKb` | `apps/yantao/`, `packages/client/ui-yantao/`, ADR-0009 |
 | Run/stop scripts (persistent server, no timeout) | `scripts/yantao-web-{start,stop}.ps1` |
+| Working tree cleaned: 297 generated files removed from `packages/*/src` | `.js` / `.d.ts` / `.map` left by per-package `tsc -b`; upstream tracks only `.ts`/`.tsx` there |
 
 ## next
 
@@ -33,7 +34,7 @@ Living backlog. Status words: **done** (merged on `main`), **next** (queued), **
 | Refine loop v1 (human triggers → agent proposes → human approves) | the real product value; needs the editor pane first, and a proposal UI |
 | Session transcripts into `sessions/` | dsh already event-sources every session (`session.vN.jsonl`); this becomes a projection, not new machinery |
 | FTS + backlinks index | needs a storage decision (drift/sqlite vs dsh `session-query`) once the KB has real content |
-| Cleanup of ~296 untracked build artifacts under `packages/client/*/src` | destructive; needs an explicit ok. They are `tsc -b` residue, untracked and unwanted. |
+| *(moved to done)* — note: a per-package `tsc -b` **recreates** this residue | re-clean with the repo's own `pnpm run clean`, or `git clean -f -- packages` after checking `git clean -n -- packages` |
 | Slimming the profile (fewer base rows) to cut the ~35s boot | measure first; only after the UI is ours |
 | `docs/config-catalog.md` regenerated but its Chinese twin was not | generated page; its pairing check is red until the zh side is regenerated or the pair is exempted. Not staged with our doc work. |
 
