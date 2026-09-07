@@ -67,7 +67,7 @@ base 的 `llm-pi-ai` 配置项以休眠方式挂载 pi-ai 适配器——在配�
 
 ### 默认选择
 
-`agent-default-model` 配置项承载入口点创建 Agent 时与传输无关的默认选择；headless runner 创建其一次性 Agent 时读取该选择。本层的组合条目把选择指向 `model-gateway`/`GLM5.1`。网关地址、模型 id 与显示名都是 `!!js process.env … ?? 默认值` 表达式，因此这里写明的只是当前默认值：在环境（或 `.env`,见 `.env.example`)中设置 `MODEL_GATEWAY_URL`、`MODEL_GATEWAY_MODEL_ID`、`MODEL_GATEWAY_MODEL_NAME`、`MODEL_GATEWAY_NAME` 即可换到另一个模型，无需改动本 bundle。与所有 profile 一样，用户设置文档中已保存的选择仍然优先于组合条目。
+`agent-default-model` 配置项承载入口点创建 Agent 时与传输无关的默认选择；headless runner 创建其一次性 Agent 时读取该选择。本层的组合条目把选择指向 `model-gateway`/`GLM5.1`。网关地址、模型 id 与显示名在这里是字面量，这是刻意的：它们是开箱即用的实例值，换模型应当在你自己的 profile patch(`~/.dsh/profiles/yantao/cordis.patch.yml`)里覆盖本行，或在「设置 → 模型」中添加提供方，而不是改动本 bundle。只有密钥走环境——`apiKeyEnv` 是凭据引用而非密钥本身（见 `.env.example`)。与所有 profile 一样，用户设置文档中已保存的选择仍然优先于组合条目。
 
 ### 信任边界
 
