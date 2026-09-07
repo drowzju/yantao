@@ -11,9 +11,9 @@ import { createRoot } from 'react-dom/client'
 import type { Context } from '@deepseek-ai/cordis'
 
 export const name = 'ui-yantao'
-// No `inject`: a UI shell must render even while the remote surface is still
-// coming up, so the workbench never shows a blank page waiting on RPC.
-export const inject: readonly string[] = []
+// Cordis forbids reading an undeclared service: touching ctx.remote without
+// this entry throws "cannot get property remote without inject".
+export const inject = ['remote']
 
 /** The slice of ctx.remote this slice needs, narrowed defensively. */
 interface KbRemoteView {
@@ -27,10 +27,14 @@ function kbRemote(ctx: Context): KbRemoteView | undefined {
 }
 
 export function apply(ctx: Context): void {
-  // The shared shell rows are disabled on this surface (ADR-0009), so #root
-  // belongs to the workbench.
-  const container = document.getElementById('root')
-  if (container === null) throw new Error('ui-yantao: missing #root')
+  // The shared shell still owns #root (we step it aside one row at a time,
+  // verifying after each), so the workbench renders into its own container.
+  let container = document.getElementById('yantao-probe')
+  if (container === null) {
+    container = document.createElement('div')
+    container.id = 'yantao-probe'
+    document.body.appendChild(container)
+  }
   createRoot(container).render(createElement(WorkbenchProbe, { ctx }))
 }
 
