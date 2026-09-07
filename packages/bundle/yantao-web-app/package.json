@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-yantao-web-app",
-  "description": "The yantao workbench browser-surface bundle: the yantao-web patch layer over dsh-yantao plus the runtime glue plugin (frontend dist serving, web-surface prompt, URL line) — reusing the stock web frontend dist with a KB workbench roster",
+  "description": "The yantao workbench browser-surface bundle: the yantao-web patch layer over dsh-yantao plus the runtime glue plugin (frontend dist serving, web-surface prompt, URL line) — serving the bespoke yantao frontend dist with a workbench roster",
   "version": "0.1.3-alpha.1",
   "publishConfig": {
     "access": "public"
@@ -82,7 +82,7 @@
     "@deepseek-ai/dsh-code-runtime-worker-thread": "workspace:^",
     "@deepseek-ai/dsh-cordis-client-runner": "workspace:^",
     "@deepseek-ai/dsh-cordis-host-runner": "workspace:^",
-    "@deepseek-ai/dsh-web-frontend": "workspace:^",
+    "@deepseek-ai/dsh-yantao-frontend": "workspace:^",
     "@deepseek-ai/dsh-host-frontend-static": "workspace:^",
     "@deepseek-ai/dsh-host-directory-picker-auto": "workspace:^",
     "@deepseek-ai/dsh-host-directory-picker-browse": "workspace:^",

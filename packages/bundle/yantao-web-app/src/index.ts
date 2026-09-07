@@ -170,11 +170,13 @@ function localWebUrl(ctx: Context): string {
  */
 function resolveDistIndex(): string {
   const require = createRequire(import.meta.url)
+  // The yantao workbench ships its own frontend: a bespoke UI that uses dsh
+  // only as a backend (ADR-0009). The stock shell remains a separate package.
   try {
-    return join(dirname(require.resolve('@deepseek-ai/dsh-web-frontend/package.json')), 'dist', 'index.html')
+    return join(dirname(require.resolve('@deepseek-ai/dsh-yantao-frontend/package.json')), 'dist', 'index.html')
   } catch {
     /* v8 ignore next 2 -- reachable only when the frontend package is absent from the checkout */
-    throw new Error('yantao-web-app: @deepseek-ai/dsh-web-frontend is not resolvable from this composition')
+    throw new Error('yantao-web-app: @deepseek-ai/dsh-yantao-frontend is not resolvable from this composition')
   }
 }
 
