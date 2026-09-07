@@ -41,7 +41,7 @@ The patch overrides base rows by id and mounts one plugin, each replacement stat
 
 | Row | Override | Effect |
 |---|---|---|
-| `llm-pi-ai` | `providers.model-gateway` | Registers the intranet model gateway route: the OpenAI-completions protocol against the gateway endpoint, one `GLM5.1` model entry, and the `deepseek` thinking wire format |
+| `llm-pi-ai` | `providers.model-gateway` | Registers the intranet model gateway route: the OpenAI-completions protocol against the gateway endpoint, `GLM5.1` plus the `GLM` and `glm52` aliases, and the `deepseek` thinking wire format |
 | `agent-default-model` | `provider: model-gateway`, `model: GLM5.1` | Agents created without an explicit selection — the headless runner's among them — use the gateway route |
 | `system-prompt` | Chinese persona | States the workbench identity and the trust boundary as hard rules: the State section is human-only, KB access goes through kb_ tools, `kb_append_log` only appends to the Log section |
 | `yantao-kb` (inserted) | `@deepseek-ai/dsh-yantao-kb` | Mounts the six kb_ tools — the agent's only write path into the knowledge base |
@@ -121,7 +121,7 @@ These limits tell you when the yantao layer needs extra care or where an overrid
 
 - **The key must exist outside the bundle** — `MODEL_GATEWAY_API_KEY` unset in both the launching environment and the managed credential store fails every gateway request with a missing-credential error; the bundle never stores a key itself.
 - **Overrides replace whole settings blocks** — a later patch layer that touches `llm-pi-ai` or `agent-default-model` replaces that row's entire configuration, so it must restate the route or the selection in full.
-- **One route, one model** — the bundle declares exactly the gateway route and `GLM5.1`; additional providers or models belong to the user-settings document or another bundle layer, not here.
+- **One route, one model** — the bundle declares the gateway route and that model under the spellings the gateway accepts (`GLM5.1`, `GLM`, `glm52`); additional providers or models belong to the user-settings document or another bundle layer, not here.
 
 <a id="dev-note"></a>
 ### Dev Note

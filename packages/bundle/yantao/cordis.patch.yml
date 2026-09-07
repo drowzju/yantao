@@ -38,6 +38,18 @@
             name: inner-glm5.1
             contextWindow: 131072
             maxTokens: 32768
+          # The gateway answers to several spellings of the same model (all are
+          # served as glm52), so they are declared here as aliases: picking or
+          # typing any of them resolves instead of failing with "no configured
+          # model". Keep them in sync when the gateway's model changes.
+          - id: GLM
+            name: inner-glm5.1（别名 GLM）
+            contextWindow: 131072
+            maxTokens: 32768
+          - id: glm52
+            name: inner-glm5.1（别名 glm52）
+            contextWindow: 131072
+            maxTokens: 32768
 
 - id: agent-default-model
   config:
