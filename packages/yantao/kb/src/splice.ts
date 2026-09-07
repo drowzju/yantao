@@ -80,6 +80,9 @@ export function appendToLogSection(content: string, lines: readonly string[], di
  * Build one log bullet block: the first text line rides on the
  * `- YYYY-MM-DD ` bullet and every continuation line is indented two spaces
  * so the markdown list item stays intact.
+ * @param date - the date stamp prefixed onto the bullet (YYYY-MM-DD).
+ * @param text - the log text; newlines become indented continuation lines.
+ * @returns the bullet block as an array of lines.
  */
 export function logBullet(date: string, text: string): string[] {
   const parts = text.split('\n')

@@ -2035,6 +2035,41 @@
       "doc": "packages/client/ui-conversation/README.md",
       "symbol": "ComposerChainProps",
       "source": "packages/client/ui-conversation/src/client/contract/slots.ts"
+    },
+    {
+      "doc": "docs/subsystems/yantao.md",
+      "symbol": "YantaoKbService",
+      "source": "packages/yantao/kb/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/yantao.md",
+      "symbol": "KbTreeFile",
+      "source": "packages/api/yantao-kb-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/yantao.md",
+      "symbol": "KbTreeSectionId",
+      "source": "packages/api/yantao-kb-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/yantao.md",
+      "symbol": "KbTreeSection",
+      "source": "packages/api/yantao-kb-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/yantao.md",
+      "symbol": "KbTree",
+      "source": "packages/api/yantao-kb-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/yantao.md",
+      "symbol": "KbFileContent",
+      "source": "packages/api/yantao-kb-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/yantao.md",
+      "symbol": "KbWriteResult",
+      "source": "packages/api/yantao-kb-controller/src/types.ts"
     }
   ]
 }

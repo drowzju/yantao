@@ -11,6 +11,11 @@ import type { EntityType, PersonRelation } from './types.ts'
  * The entity file layout: frontmatter, a blank line, the human-only
  * `## 状态` section, two blank lines, the append-only `## 流水` section, a
  * blank line, and the creation bullet.
+ * @param type - the entity kind (project adds `areas`, person adds `relation`).
+ * @param name - the entity display name written into frontmatter and the creation bullet.
+ * @param date - the creation date stamp (YYYY-MM-DD).
+ * @param relation - person-to-owner relation (default subordinate), only meaningful for person.
+ * @returns the complete canonical entity file content.
  */
 export function entityFileContent(type: EntityType, name: string, date: string, relation?: PersonRelation): string {
   const fields = [`type: ${type}`]
@@ -20,7 +25,11 @@ export function entityFileContent(type: EntityType, name: string, date: string, 
   return `---\n${fields.join('\n')}\n---\n\n## 状态\n\n\n## 流水\n\n- ${date} 创建 ${name}\n`
 }
 
-/** The shadow-note skeleton living beside a registered resource file. */
+/** The shadow-note skeleton living beside a registered resource file.
+ * @param source - the resource's sanitized basename (the frontmatter `source` field).
+ * @param date - the creation date stamp (YYYY-MM-DD).
+ * @returns the complete shadow-note file content.
+ */
 export function shadowNoteContent(source: string, date: string): string {
   return `---\ntype: resource\nsource: ${source}\ncreated: ${date}\ntags: []\n---\n\n## 摘要\n\n\n## 提炼记录\n`
 }

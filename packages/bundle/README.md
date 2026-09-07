@@ -29,6 +29,7 @@ This group maps the installable patch layers used by `dsh --profile`. Each packa
 | [`sdk-app`](sdk-app/README.md) | SDK JSON-RPC stdio application over base | mounts the SDK server |
 | [`sdk-minimal`](sdk-minimal/README.md) | Standalone minimal SDK application without base or Web | — (complete patch tree) |
 | [`yantao`](yantao/README.md) | Intranet GLM gateway provider layer for the yantao headless profile | — (patch only) |
+| [`yantao-web-app`](yantao-web-app/README.md) | yantao workbench browser surface over base + yantao (stock dist, KB roster) | mounts Web rows |
 
 In-box bundles resolve from the dsh installation; out-of-tree bundles install into a profile through `dsh plugin --profile <name> add <package>`.
 

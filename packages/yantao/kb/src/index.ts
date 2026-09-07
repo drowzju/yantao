@@ -35,15 +35,37 @@ export const Config: z<Config> = z.object({
 /** The shape after schemastery applied the defaults. */
 type ResolvedConfig = Required<Config>
 
+/**
+ * The resolved KB root, published while the yantao-kb plugin is mounted so
+ * host-side consumers (the yantao-kb-controller Remote) share this one
+ * configuration point instead of duplicating it.
+ */
+export interface YantaoKbService {
+  /** Resolved knowledge-base root directory. */
+  readonly root: string
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Resolved KB root, provided by the mounted yantao-kb plugin. */
+    yantaoKb: YantaoKbService
+  }
+}
+
 const ENTITY_TYPE_PARAM = {
   type: 'string',
   enum: ['project', 'area', 'person'],
   description: '实体类型：project（项目）/ area（领域）/ person（人物）',
 } as const
 
-/** Register the six kb_ tools; disposal of the plugin fiber unregisters them. */
+/** Register the six kb_ tools and publish the resolved KB root; disposal unregisters both. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = config as ResolvedConfig
+
+  ctx.effect(
+    () => ctx.provide('yantaoKb', { root: resolved.kbRoot } satisfies YantaoKbService),
+    'yantao-kb: provide KB root service',
+  )
 
   ctx.tools.register(defineTool({
     name: 'kb_init',
@@ -207,3 +229,14 @@ export function apply(ctx: Context, config: Config): void {
     execute: args => registerResource(resolved.kbRoot, args.path),
   }))
 }
+
+// Host-side consumers (the yantao-kb-controller Remote) reuse the filesystem
+// operations and path confinement through these public re-exports; the
+// plugin above remains the model-facing shell over the same operations.
+export { appendLog, createEntity, initKb, listEntities, readEntity, registerResource } from './core.ts'
+export type { InitKbResult, ListedEntity } from './core.ts'
+export { resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
+export { appendToLogSection, logBullet } from './splice.ts'
+export { entityFileContent, KB_README, shadowNoteContent } from './templates.ts'
+export { ENTITY_DIRS, ENTITY_TYPES, KbError, PERSON_RELATIONS } from './types.ts'
+export type { EntityType, PersonRelation } from './types.ts'

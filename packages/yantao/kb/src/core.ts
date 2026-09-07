@@ -47,6 +47,8 @@ export interface InitKbResult {
  * Create the KB layout (idempotent): the directory tree, the root README
  * (only when absent), and the owner entity `entities/people/我自己.md`
  * (only when no person carries `relation: self`).
+ * @param kbRoot - the knowledge-base root directory to initialize.
+ * @returns the resolved root with the paths this run created versus those already present.
  */
 export async function initKb(kbRoot: string): Promise<InitKbResult> {
   const root = resolveWithinKb(kbRoot)
@@ -100,7 +102,13 @@ export async function initKb(kbRoot: string): Promise<InitKbResult> {
   return { kbRoot: root, created, existing }
 }
 
-/** Create one entity file from the canonical template, refusing to overwrite. */
+/** Create one entity file from the canonical template, refusing to overwrite.
+ * @param kbRoot - the knowledge-base root the entity lives under.
+ * @param type - the entity kind: project, area, or person.
+ * @param name - the entity display name (sanitized before it becomes the file name).
+ * @param relation - person-to-owner relation, only meaningful for person entities (default subordinate).
+ * @returns the KB-relative path of the created file.
+ */
 export async function createEntity(
   kbRoot: string,
   type: EntityType,
@@ -123,6 +131,10 @@ export async function createEntity(
  * located by `type:name` or by path; the frontmatter must parse and the
  * anchor must exist exactly once — everything else about the file stays
  * byte-for-byte intact.
+ * @param kbRoot - the knowledge-base root the entity lives under.
+ * @param locator - entity locator: `type:name` (plural spellings accepted) or an entity file path.
+ * @param text - the log text; continuation lines are indented two spaces.
+ * @returns the KB-relative path and the exact inserted bullet block.
  */
 export async function appendLog(kbRoot: string, locator: string, text: string): Promise<{ path: string; appended: string }> {
   const root = resolveWithinKb(kbRoot)
@@ -136,7 +148,12 @@ export async function appendLog(kbRoot: string, locator: string, text: string): 
   return { path: display, appended: bullet.join('\n') }
 }
 
-/** Return one entity file's complete content. */
+/** Return one entity file's complete content.
+ * @param kbRoot - the knowledge-base root the entity lives under.
+ * @param type - the entity kind: project, area, or person.
+ * @param name - the entity display name (file basename, without `.md`).
+ * @returns the KB-relative path and the file's complete content.
+ */
 export async function readEntity(kbRoot: string, type: EntityType, name: string): Promise<{ path: string; content: string }> {
   const root = resolveWithinKb(kbRoot)
   const { content, display } = await readEntityFile(root, entityFilePath(root, type, name))
@@ -156,6 +173,10 @@ export interface ListedEntity {
  * List entity display names (file basename minus `.md`), newest-frontmatter-
  * first per directory read order. Entities whose frontmatter carries
  * `archive: true` are hidden unless `includeArchived` is set.
+ * @param kbRoot - the knowledge-base root to list.
+ * @param type - restrict to one entity kind; omit to list all three.
+ * @param includeArchived - also list entities whose frontmatter declares `archive: true`.
+ * @returns the listed entity rows with archive flags (and person relations).
  */
 export async function listEntities(kbRoot: string, type?: EntityType, includeArchived = false): Promise<{ entities: ListedEntity[] }> {
   const root = resolveWithinKb(kbRoot)
@@ -194,6 +215,9 @@ export async function listEntities(kbRoot: string, type?: EntityType, includeArc
  * Register one original material: copy it into `resources/` under its
  * sanitized basename (never overwriting) and write its shadow-note skeleton
  * beside it. The source path must name an existing regular file.
+ * @param kbRoot - the knowledge-base root the resource is registered into.
+ * @param absolutePath - absolute path of the source file to copy.
+ * @returns the KB-relative paths of the copied resource and its shadow note.
  */
 export async function registerResource(kbRoot: string, absolutePath: string): Promise<{ resource: string; note: string }> {
   const root = resolveWithinKb(kbRoot)

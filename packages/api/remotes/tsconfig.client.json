@@ -76,6 +76,9 @@
       "path": "../workspace-controller/tsconfig.client.json"
     },
     {
+      "path": "../yantao-kb-controller"
+    },
+    {
       "path": "../../typert/protocol"
     }
   ]

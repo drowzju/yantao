@@ -672,6 +672,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     consumers: ['tool-cordis'],
     note: 'Registers host inspect providers, mirrors the client provider manifest, and routes client queries through the dynamic Cordis transport.',
   },
+  {
+    key: 'yantaoKb',
+    pkg: 'yantao-kb',
+    title: 'yantao KB root share',
+    mode: 'core',
+    consumers: ['yantao-kb-controller'],
+    note: 'The kb plugin publishes the resolved kbRoot so host-side consumers share the one configuration point instead of duplicating it.',
+  },
+  {
+    key: 'yantaoKbController',
+    pkg: 'api-yantao-kb-controller',
+    title: 'yantao workbench KB Remote controller',
+    mode: 'core',
+    consumers: ['ui-yantao-kb'],
+    note: 'Owns the kbRoot-confined tree/read/write channel the workbench UI rides, over the generated yantaoKb Remote namespace.',
+  },
 ]
 
 function generatedHeader(title: string): string[] {

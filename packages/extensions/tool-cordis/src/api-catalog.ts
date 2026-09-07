@@ -2933,6 +2933,43 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
     ],
   },
+  {
+    key: 'yantaoKb',
+    summary: 'The resolved KB root, published while the yantao-kb plugin is mounted so host-side consumers (the yantao-kb-controller Remote) share this one configuration point instead of duplicating it.',
+    description: 'The resolved KB root, published while the yantao-kb plugin is mounted so host-side consumers (the yantao-kb-controller Remote) share this one configuration point instead of duplicating it.',
+    methods: [
+      {
+        signature: 'readonly root: string',
+        description: 'Resolved knowledge-base root directory.',
+        parameters: [],
+      },
+    ],
+  },
+  {
+    key: 'yantaoKbController',
+    summary: 'UI-direct KB operations over the `yantaoKb` Remote namespace.',
+    description: 'UI-direct KB operations over the `yantaoKb` Remote namespace.',
+    methods: [
+      {
+        signature: '@Remote(\'tree\') async tree(): Promise<KbTree>',
+        description: 'The five-section KB tree; every section is present even when its directory is absent or empty.',
+        parameters: [],
+        returns: 'the five sections in display order, resource rows pairing their shadow notes and entity rows carrying flags.',
+      },
+      {
+        signature: '@Remote(\'read\') async read(path: string): Promise<KbFileContent>',
+        description: 'Read one KB file\'s complete content.',
+        parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }],
+        returns: 'the path and the file\'s complete UTF-8 content.',
+      },
+      {
+        signature: '@Remote(\'write\') async write(path: string, content: string): Promise<KbWriteResult>',
+        description: 'Write one KB file\'s complete content (the human channel\'s full-file write; missing parent directories are created). The file is not validated — the human owns its structure, and the agent\'s tools re-validate on their next read.',
+        parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }, { name: 'content', description: 'the complete new UTF-8 content.' }],
+        returns: 'the written path.',
+      },
+    ],
+  },
 ]
 
 /** Every harness event, sorted by name. */
@@ -4368,6 +4405,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
+  },
+  {
+    name: 'KbFileContent',
+    declaration: 'export interface KbFileContent {\n    readonly path: string;\n    readonly content: string;\n}',
+  },
+  {
+    name: 'KbTree',
+    declaration: 'export interface KbTree {\n    readonly sections: readonly KbTreeSection[];\n}',
+  },
+  {
+    name: 'KbTreeFile',
+    declaration: 'export interface KbTreeFile {\n    readonly name: string;\n    readonly path: string;\n    readonly archived?: boolean;\n    readonly notePath?: string;\n    readonly relation?: string;\n}',
+  },
+  {
+    name: 'KbTreeSection',
+    declaration: 'export interface KbTreeSection {\n    readonly id: KbTreeSectionId;\n    readonly files: readonly KbTreeFile[];\n}',
+  },
+  {
+    name: 'KbTreeSectionId',
+    declaration: 'export type KbTreeSectionId = \'resources\' | \'projects\' | \'areas\' | \'people\' | \'sessions\';',
+  },
+  {
+    name: 'KbWriteResult',
+    declaration: 'export interface KbWriteResult {\n    readonly path: string;\n}',
   },
   {
     name: 'KnobState',

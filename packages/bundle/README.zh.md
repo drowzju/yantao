@@ -29,6 +29,7 @@ kind: "package-group"
 | [`sdk-app`](sdk-app/README.zh.md) | 基于 base 的 SDK JSON-RPC stdio 应用 | 挂载 SDK server |
 | [`sdk-minimal`](sdk-minimal/README.zh.md) | 不使用 base 或 Web 的独立极简 SDK 应用 | —（完整 patch 树） |
 | [`yantao`](yantao/README.zh.md) | yantao headless profile 的内网 GLM 网关提供方层 | —（仅 patch） |
+| [`yantao-web-app`](yantao-web-app/README.zh.md) | 基于 base + yantao 的 yantao 工作台浏览器表层（stock dist、KB roster） | 挂载 Web 配置项 |
 
 内置组合包从 dsh 安装目录解析；树外（out-of-tree）组合包通过 `dsh plugin --profile <name> add <package>` 安装进 profile。
 

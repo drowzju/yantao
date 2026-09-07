@@ -54,6 +54,8 @@
       "@deepseek-ai/dsh-api-workspace-controller": ["./packages/api/workspace-controller/src/index.ts"],
       "@deepseek-ai/dsh-api-workspace-controller/client": ["./packages/api/workspace-controller/src/client/index.ts"],
       "@deepseek-ai/dsh-api-workspace-controller/types": ["./packages/api/workspace-controller/src/types.ts"],
+      "@deepseek-ai/dsh-api-yantao-kb-controller": ["./packages/api/yantao-kb-controller/src/index.ts"],
+      "@deepseek-ai/dsh-api-yantao-kb-controller/types": ["./packages/api/yantao-kb-controller/src/types.ts"],
       "@deepseek-ai/dsh-typert-protocol": ["./packages/typert/protocol/src/index.ts"],
       "@deepseek-ai/dsh-typert-protocol/types": ["./packages/typert/protocol/src/types.ts"],
       "@deepseek-ai/dsh-typert-loader": ["./packages/typert/loader/src/index.ts"],
@@ -171,6 +173,8 @@
       "@deepseek-ai/dsh-client-test-runtime": ["./packages/test-support/client-runtime/src"],
       "@deepseek-ai/dsh-client-ui-layout": ["./packages/client/ui-layout/src"],
       "@deepseek-ai/dsh-client-ui-sidebar": ["./packages/client/ui-sidebar/src"],
+      "@deepseek-ai/dsh-client-ui-yantao-kb": ["./packages/client/ui-yantao-kb/src"],
+      "@deepseek-ai/dsh-client-ui-yantao-kb/client": ["./packages/client/ui-yantao-kb/src/client/index.ts"],
       "@deepseek-ai/dsh-client-ui-brand-official": ["./packages/client/ui-brand-official/src"],
       "@deepseek-ai/dsh-client-ui-approval": ["./packages/client/ui-approval/src"],
       "@deepseek-ai/dsh-client-ui-approval/client": ["./packages/client/ui-approval/src/client/index.ts"],
@@ -434,7 +438,8 @@
       "@deepseek-ai/dsh-workflow-worker-thread": ["./packages/workflow/workflow-worker-thread/src"],
       "@deepseek-ai/dsh-workspace": ["./packages/workspace/workspace/src"],
       "@deepseek-ai/dsh-workspace/invariant": ["./packages/workspace/workspace/src/invariant.ts"],
-      "@deepseek-ai/dsh-yantao": ["./packages/bundle/yantao/src"]
+      "@deepseek-ai/dsh-yantao": ["./packages/bundle/yantao/src"],
+      "@deepseek-ai/dsh-yantao-web-app": ["./packages/bundle/yantao-web-app/src"]
       // END generated package aliases
     }
   }

@@ -220,6 +220,12 @@ flowchart LR
   pkg_cordis_host_runner["cordis-host-runner"]
   svc_dynamicCordisRunner["ctx.dynamicCordisRunner<br/>Dynamic Cordis package host runner"]
   svc_cordisInspect["ctx.cordisInspect<br/>Dynamic Cordis inspect registry"]
+  pkg_yantao_kb["yantao-kb"]
+  svc_yantaoKb["ctx.yantaoKb<br/>yantao KB root share"]
+  pkg_yantao_kb_controller["yantao-kb-controller"]
+  pkg_api_yantao_kb_controller["api-yantao-kb-controller"]
+  svc_yantaoKbController["ctx.yantaoKbController<br/>yantao workbench KB Remote controller"]
+  pkg_ui_yantao_kb["ui-yantao-kb"]
   pkg_agent --> svc_agents
   pkg_agent_default_model --> svc_agentDefaultModel
   pkg_agent_loop --> svc_agentLoop
@@ -232,6 +238,7 @@ flowchart LR
   pkg_api_settings_controller --> svc_settingsController
   pkg_api_workspace_controller --> svc_directoryPickerController
   pkg_api_workspace_controller --> svc_workspaceController
+  pkg_api_yantao_kb_controller --> svc_yantaoKbController
   pkg_attachment --> svc_attachments
   pkg_attachment_local --> svc_attachments
   pkg_authorization --> svc_authorization
@@ -337,6 +344,7 @@ flowchart LR
   pkg_workflow --> svc_workflowEngine
   pkg_workflow_worker_thread --> svc_workflowEngine
   pkg_workspace --> svc_workspaceRegistry
+  pkg_yantao_kb --> svc_yantaoKb
   svc_agentDefaultModel --> pkg_api_session_controller
   svc_agentDefaultModel --> pkg_headless
   svc_agentLoop --> pkg_base
@@ -464,6 +472,8 @@ flowchart LR
   svc_workflowEngine --> pkg_tool_workflow
   svc_workspaceRegistry --> pkg_api_session_controller
   svc_workspaceRegistry --> pkg_api_workspace_controller
+  svc_yantaoKb --> pkg_yantao_kb_controller
+  svc_yantaoKbController --> pkg_ui_yantao_kb
   svc_fs -. event gate .-> pkg_fs_observation_policy
 ```
 
@@ -539,5 +549,7 @@ flowchart LR
 | `ctx.lsp` | `seam` | [`lsp`](../packages/lsp/lsp) | [`lsp-stdio`](../packages/lsp/lsp-stdio) | [`tool-lsp`](../packages/lsp/tool-lsp) | - | Provider registration and selection plus normalized query execution over exactly four operations; the seam offers no protocol escape hatch, so a backend translates into the normalized request and result. |
 | `ctx.dynamicCordisRunner` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | Owns the in-memory definition registry, the vm sandbox for host halves, and the request-run round trip; browser pages reach the same service over the wire through its remote namespace. |
 | `ctx.cordisInspect` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | Registers host inspect providers, mirrors the client provider manifest, and routes client queries through the dynamic Cordis transport. |
+| `ctx.yantaoKb` | `core` | [`yantao-kb`](../packages/yantao/kb) | - | `yantao-kb-controller` | - | The kb plugin publishes the resolved kbRoot so host-side consumers share the one configuration point instead of duplicating it. |
+| `ctx.yantaoKbController` | `core` | [`api-yantao-kb-controller`](../packages/api/yantao-kb-controller) | - | `ui-yantao-kb` | - | Owns the kbRoot-confined tree/read/write channel the workbench UI rides, over the generated yantaoKb Remote namespace. |
 
 Maintenance mode: hybrid: services are discovered from Cordis declarations; interface/implementation/consumer roles are classified in `scripts/gen-doc-graphs.ts` with a completeness guard.

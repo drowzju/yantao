@@ -1,0 +1,3 @@
+name: yantao 工作台
+description: 个人知识工作台 Agent：只有 kb_ 系列工具读写知识库，没有 shell、编辑器或任何通用写入能力。
+order: 4

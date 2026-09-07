@@ -1,0 +1,63 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--dsh-surface-2, #14161a);
+  color: var(--dsh-text-1, #e6e8eb);
+  border-right: 1px solid var(--dsh-border-1, #262a31);
+  overflow: hidden;
+}
+
+.sidebarRail {
+  align-items: center;
+  padding-top: 8px;
+  gap: 8px;
+}
+
+.brandRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--dsh-border-1, #262a31);
+}
+
+.brandFallback {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.collapseButton,
+.railButton {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.railButton {
+  margin-left: 0;
+}
+
+.collapseButton:hover,
+.railButton:hover {
+  background: var(--dsh-surface-3, #1d2127);
+}
+
+.treeScroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.foot {
+  border-top: 1px solid var(--dsh-border-1, #262a31);
+  padding: 6px 8px;
+}

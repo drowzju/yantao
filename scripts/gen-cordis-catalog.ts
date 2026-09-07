@@ -124,6 +124,8 @@ export const SERVICE_PAGE: Record<string, string> = {
   workspaceRegistry: 'workspace.md',
   workspaceController: 'workspace.md',
   directoryPickerController: 'workspace.md',
+  yantaoKb: 'yantao.md',
+  yantaoKbController: 'yantao.md',
 }
 
 /**
@@ -175,6 +177,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   slots: 'client-side interface-typed browser service — packages/client/ui-renderer/README.md owns the API',
   theme: 'client-side interface-typed browser service — packages/client/ui-theme/README.md owns the API',
   workspaces: 'client-side interface-typed browser service — packages/api/workspace-controller/README.md owns the API',
+  yantaoKbWorkbench: 'client-side workbench selection and tree service — packages/client/ui-yantao-kb/README.md owns the API',
 }
 
 /**
@@ -685,6 +688,9 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   AgentPresetDocument: 'preset composition view is owned by packages/preset/agent-presets/README.md',
   AgentPresetComposition: 'flattened composition rows are owned by packages/preset/agent-presets/README.md',
   PresetMetadata: 'preset display text is owned by packages/preset/agent-presets/README.md',
+  KbTree: 'wire tree payload is owned by packages/api/yantao-kb-controller/README.md',
+  KbFileContent: 'wire read result is owned by packages/api/yantao-kb-controller/README.md',
+  KbWriteResult: 'wire write result is owned by packages/api/yantao-kb-controller/README.md',
   BashEnvContributor: 'service-local extension type is owned by packages/shell/tool-bash/src/index.ts',
   BashEnvVariableInfo: 'service-local metadata type is owned by packages/shell/tool-bash/src/index.ts',
   CompactionAgentContext: 'compaction service input is owned by packages/compaction/compaction/src/index.ts',

@@ -23,6 +23,9 @@ const ENVELOPE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t\r]*(?:\r?\n|$)/
  * Parse the leading `---` envelope of a KB file. A missing envelope, invalid
  * YAML, or a non-mapping document is a hard `malformed-frontmatter` error —
  * the tools never repair or recreate structure.
+ * @param content - the complete file text.
+ * @param displayPath - path used in error prose.
+ * @returns the decoded YAML mapping and the untouched remainder after the closing fence.
  */
 export function parseFrontmatter(content: string, displayPath: string): Frontmatter {
   const match = ENVELOPE.exec(content)

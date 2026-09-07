@@ -1,0 +1,124 @@
+.tree {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0 16px;
+  font-size: 13px;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 10px 4px;
+}
+
+.toolButton {
+  border: none;
+  background: transparent;
+  color: var(--dsh-text-2, #9aa3ad);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 5px;
+}
+
+.toolButton:hover {
+  background: var(--dsh-surface-3, #1d2127);
+  color: var(--dsh-text-1, #e6e8eb);
+}
+
+.section {
+  margin-top: 10px;
+}
+
+.sectionTitle {
+  margin: 0;
+  padding: 2px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--dsh-text-3, #6e7883);
+  text-transform: uppercase;
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--dsh-text-1, #e6e8eb);
+  text-align: left;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.fileRow:hover {
+  background: var(--dsh-surface-3, #1d2127);
+}
+
+.fileRowSelected {
+  background: var(--dsh-accent-soft, #233449);
+}
+
+.fileRowActive {
+  color: var(--dsh-accent, #7aa2f7);
+}
+
+.fileName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  flex: none;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--dsh-surface-3, #1d2127);
+  color: var(--dsh-text-2, #9aa3ad);
+}
+
+.emptyRow {
+  padding: 2px 12px;
+  color: var(--dsh-text-3, #6e7883);
+  font-size: 12px;
+}
+
+.errorRow {
+  margin: 4px 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--dsh-danger-soft, #3a2226);
+  color: var(--dsh-danger, #f38ba8);
+  font-size: 12px;
+}
+
+.sessionBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 4px;
+}
+
+.newSessionButton {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 2px 8px 4px;
+  padding: 6px 10px;
+  border: 1px dashed var(--dsh-border-1, #262a31);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsh-text-2, #9aa3ad);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+
+.newSessionButton:hover {
+  background: var(--dsh-surface-3, #1d2127);
+  color: var(--dsh-text-1, #e6e8eb);
+}
