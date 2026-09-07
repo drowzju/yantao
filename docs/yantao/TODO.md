@@ -24,7 +24,11 @@ Living backlog. Status words: **done** (merged on `main`), **next** (queued), **
    people / project / area. All data via `yantaoKb.tree/read/write`.
 3. **Step the shared shell aside, one row at a time** — disable a single `ui-*` row, reboot, confirm the page still loads, repeat.
    `slots` is runtime infrastructure, not UI: it must stay until nothing needs it.
-4. **Documentation finish-up** — keep every bilingual pair re-recorded; regenerate doc graphs/catalogs when pages move.
+4. **Bring the two generated catalogs' Chinese sides along.** `docs/config-catalog.md` and `docs/capability-seams.md` were
+   regenerated (our kb plugin and web-app entries were added) but their `.zh.md` twins were not, so both pairs are red: catalog
+   wants 2 new sections + 2 TOC bullets + 3 list entries; capability-seams wants 2 table rows, a mermaid tweak, and one link.
+   Patch the Chinese sides to match, then re-record with `pnpm run verify-translation-pairing --write <file>`. Their pairing
+   records are deliberately left untouched until then.
 
 ## deferred (with reason)
 

@@ -22,7 +22,10 @@
 2. **三栏骨架** —— 左:resources + sessions;中:agent(默认 tab)与编辑器 tab;右:people / project / area。数据全部走
    `yantaoKb.tree/read/write`。
 3. **逐行让共享 shell 退场** —— 每次只禁用一个 `ui-*` 行,重启,确认页面正常,再继续。`slots` 是运行时基础设施,不是 UI,必须留到无人需要为止。
-4. **文档收尾** —— 每个双语对都要重新记录;页面移动时重新生成 doc graphs/catalogs。
+4. **补齐两篇生成目录的中文侧。** `docs/config-catalog.md` 与 `docs/capability-seams.md` 已重新生成(加入了我们的 kb 插件与
+   web-app 条目),但对应的 `.zh.md` 没有跟上,于是两对都是红的:config-catalog 缺 2 个新章节 + 2 个目录条目 + 3 个列表项;
+   capability-seams 缺 2 行表格、一处 mermaid 差异和 1 个链接。先把中文侧补到一致,再
+   `pnpm run verify-translation-pairing --write <文件>` 重新记录。在此之前,这两个配对记录刻意保持不动。
 
 ## deferred(附原因)
 
