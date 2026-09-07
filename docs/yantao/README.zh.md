@@ -16,6 +16,7 @@ yantao 是一个**个人知识工作台**:以纯 Markdown 存放 PARA+P 知识�
 | 本仓库是什么 | `deepseek-harness` 本身(上游:`github.com/deepseek-ai/deepseek-harness`),不是复制式分叉 |
 | 我们在哪工作 | 本地分支 `main`,自上游 `master` 的 `d347e70390` 切出(发布版 `0.1.3-alpha.1`) |
 | 上游跟踪 | `origin/master` 仍指向上游;我们**钉版本**、按节奏刻意升级(ADR-0002)——上游每周都有破坏性变更 |
+| 远端 | `origin` = 上游 dsh(只 fetch,永不 push)。`yantao` = **你自己的远端**,本地 `main` 推到这里。`master` 跟踪 `origin`,`main` 跟踪 `yantao`。 |
 | 我们的原则 | yantao 需要的一切都**增量添加**(新包、新 profile 模板),或在上游文件里做**有据可查的一行登记**。绝不重构上游内部。 |
 | agent 运行时 | 用 dsh 自己的:agent loop、工具、session 事件日志、Typert RPC。我们只加插件与 profile,不分叉引擎。 |
 

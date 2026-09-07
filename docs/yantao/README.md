@@ -17,6 +17,7 @@ For day-to-day work (build, run, stop, tests, gates, pitfalls) see [development.
 | What this repo is | `deepseek-harness` itself (upstream: `github.com/deepseek-ai/deepseek-harness`), not a fork by copy |
 | Where we work | local branch `main`, cut from upstream `master` at `d347e70390` (release `0.1.3-alpha.1`) |
 | Upstream tracking | `origin/master` still points at upstream; we **pin** and upgrade deliberately (ADR-0002) — upstream ships breaking changes weekly |
+| Remotes | `origin` = upstream dsh (fetch only, never push). `yantao` = **your own remote**, where local `main` is pushed. `master` tracks `origin`; `main` tracks `yantao`. |
 | Our rule | Everything yantao needs is **additive** (new packages, new profile templates), or a **documented one-line registration** in an upstream file. We never redesign upstream internals. |
 | Agent runtime | dsh's own: agent loop, tools, session event log, Typert RPC. We add plugins and profiles; we do not fork the engine. |
 

@@ -25,8 +25,9 @@ carrying the **yantao** personal knowledge workbench on a local branch `main`. U
    `clientBuildEnvironmentDefines(process.env)`, which stubs `process.env` as `{}`. Dropping it yields a blank page.
 5. **Never commit secrets.** The model key comes from `.env` (see `.env.example`) or the credentials store; `apiKeyEnv` names a
    credential reference, never a literal.
-6. **Branch `main` is local-only. Do not push.** Upstream tracking stays on `origin/master`; we pin and upgrade deliberately
-   (ADR-0002).
+6. **Two remotes, two branches.** `master` tracks **upstream** (`origin`, github.com/deepseek-ai/deepseek-harness) and is only ever
+   fetched — it is our upgrade source. `main` carries our work and is pushed **only to your own remote** (called `yantao` below).
+   Never push `main` to `origin`, and never push `master` anywhere. We pin upstream and upgrade deliberately (ADR-0002).
 
 ## Everyday commands
 
