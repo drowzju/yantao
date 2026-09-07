@@ -108,6 +108,15 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 
 ## 6. 文档地图
 
+**入口文件归我们,上游的以 `_dsh` 后缀保留。**
+
+根目录的 [README.md](../../README.zh.md) 与 [AGENTS.md](../../AGENTS.md) 描述的是 **yantao**,不是上游 dsh。上游原文件原样保留为
+[docs/upstream/README_dsh.md](../upstream/README_dsh.zh.md) / `README_dsh.zh.md`,以及 [AGENTS_dsh.md](../../AGENTS_dsh.md)。
+
+为什么 `_dsh` 副本放在 `docs/upstream/` 而不是根目录:双语配对门(`scripts/verify-translation-pairing.ts` 及其清单)把**改名后的根
+README** 视为范围外,于是根级 `README_dsh.md` 无法作为一对被记录,提交会被拒绝;放在 `docs/` 下则是范围内,可以正常记录。以后移动文档
+请记住:**文件放在哪,决定了它能不能成为一对。**
+
 **我们的**
 
 | 文档 | 内容 |
@@ -123,7 +132,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 
 | 文档 | 内容 |
 |---|---|
-| [README_dsh.md](../../README_dsh.md) · [README_dsh.zh.md](../../README_dsh.zh.md) | 上游项目 README(原样保留) |
+| [README_dsh.zh.md](../upstream/README_dsh.zh.md) | 上游项目 README(原样保留) |
 | [AGENTS_dsh.md](../../AGENTS_dsh.md) | 上游 agent/开发指引(原样保留) |
 | [../architecture.md](../architecture.zh.md) | dsh 架构:profile、bundle、能力接缝 |
 | [../cordis-primer.md](../cordis-primer.zh.md) · [../cordis-tutorial/](../cordis-tutorial/) | Cordis loader、配置与 patch 语言 |

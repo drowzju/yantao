@@ -110,6 +110,16 @@ Full build/verify commands, gates, and pitfalls: [development.md](development.md
 
 ## 6. Documentation map
 
+**Entry files are ours; upstream's are preserved with a `_dsh` suffix.**
+
+The root [README.md](../../README.md) and [AGENTS.md](../../AGENTS.md) describe **yantao**, not upstream dsh. Upstream's originals are
+kept verbatim as [docs/upstream/README_dsh.md](../upstream/README_dsh.md) / `README_dsh.zh.md` and [AGENTS_dsh.md](../../AGENTS_dsh.md).
+
+Why the `_dsh` copies live under `docs/upstream/` rather than at the root: the bilingual pairing gate
+(`scripts/verify-translation-pairing.ts` and its manifest) treats a *renamed* root `README` as out of scope, so root-level
+`README_dsh.md` cannot be recorded as a pair and the commit is rejected. Inside `docs/` the same pair is in scope and records cleanly.
+Keep this in mind before moving documentation: **where a file lives decides whether it can be a pair.**
+
 **Ours**
 
 | Document | What it holds |
@@ -125,7 +135,7 @@ Full build/verify commands, gates, and pitfalls: [development.md](development.md
 
 | Document | What it holds |
 |---|---|
-| [README_dsh.md](../../README_dsh.md) · [README_dsh.zh.md](../../README_dsh.zh.md) | upstream project README (verbatim) |
+| [README_dsh.md](../upstream/README_dsh.md) | upstream project README (verbatim) |
 | [AGENTS_dsh.md](../../AGENTS_dsh.md) | upstream agent/development instructions (verbatim) |
 | [../architecture.md](../architecture.md) | dsh architecture: profiles, bundles, capability seams |
 | [../cordis-primer.md](../cordis-primer.md) · [../cordis-tutorial/](../cordis-tutorial/) | the Cordis loader, config, and patch language |
