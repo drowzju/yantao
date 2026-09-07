@@ -20,25 +20,26 @@
   config:
     providers:
       model-gateway:
-        displayName: 内网模型网关
+        # Deployment instance, all overridable from the environment (.env):
+        # the gateway URL, the model id the gateway expects, and its display
+        # name. What is hardcoded below is only today's default, so switching
+        # model never means editing this committed file — see .env.example.
+        displayName: !!js process.env.MODEL_GATEWAY_NAME ?? '内网模型网关'
         apiKeyEnv: MODEL_GATEWAY_API_KEY
         api: openai-completions
-        # Deployment instance: the endpoint and the model id are whatever this
-        # gateway serves today. Moving to another model means these two lines
-        # and the `model` in agent-default-model below — nothing else.
-        baseURL: https://aicodemarket.dahuatech.com/rd-soft-tools/glm/v1
+        baseURL: !!js process.env.MODEL_GATEWAY_URL ?? 'https://aicodemarket.dahuatech.com/rd-soft-tools/glm/v1'
         compat:
           thinkingFormat: deepseek
         models:
-          - id: GLM5.1
-            name: inner-glm5.1
+          - id: !!js process.env.MODEL_GATEWAY_MODEL_ID ?? 'GLM5.1'
+            name: !!js process.env.MODEL_GATEWAY_MODEL_NAME ?? 'inner-glm5.1'
             contextWindow: 131072
             maxTokens: 32768
 
 - id: agent-default-model
   config:
     provider: model-gateway
-    model: GLM5.1
+    model: !!js process.env.MODEL_GATEWAY_MODEL_ID ?? 'GLM5.1'
 
 # The deployment persona, in Chinese: the assistant is yantao's personal
 # knowledge-workbench assistant, and the trust boundary is stated as hard

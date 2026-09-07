@@ -67,7 +67,7 @@ The base `llm-pi-ai` row mounts the pi-ai adapter dormant — no routes until co
 
 ### The default selection
 
-The `agent-default-model` row carries the transport-independent default for Agents created by entry points; the headless runner reads that selection when it creates its one-shot Agent. This layer's composition entry points the selection at `model-gateway`/`GLM5.1`. A saved selection in the user-settings document still wins over the composition entry, as it does for every profile.
+The `agent-default-model` row carries the transport-independent default for Agents created by entry points; the headless runner reads that selection when it creates its one-shot Agent. This layer's composition entry points the selection at `model-gateway`/`GLM5.1`. The gateway URL, the model id and the display names are `!!js process.env … ?? default` expressions, so the values named here are today's defaults: setting `MODEL_GATEWAY_URL`, `MODEL_GATEWAY_MODEL_ID`, `MODEL_GATEWAY_MODEL_NAME` or `MODEL_GATEWAY_NAME` in the environment (or a `.env`, see `.env.example`) moves the deployment to another model without editing this bundle. A saved selection in the user-settings document still wins over the composition entry, as it does for every profile.
 
 ### The trust boundary
 
