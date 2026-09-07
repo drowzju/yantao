@@ -11,7 +11,9 @@ import { createRoot } from 'react-dom/client'
 import type { Context } from '@deepseek-ai/cordis'
 
 export const name = 'ui-yantao'
-export const inject = ['remote']
+// No `inject`: a UI shell must render even while the remote surface is still
+// coming up, so the workbench never shows a blank page waiting on RPC.
+export const inject: readonly string[] = []
 
 /** The slice of ctx.remote this slice needs, narrowed defensively. */
 interface KbRemoteView {
