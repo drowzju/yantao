@@ -8,7 +8,15 @@
  */
 
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
-import type { KbFileContent, KbTree, KbWriteResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type {
+  KbCreateEntityArgs,
+  KbCreateEntityResult,
+  KbFileContent,
+  KbRootResult,
+  KbSetRootResult,
+  KbTree,
+  KbWriteResult,
+} from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
 
 /** The yantaoKb namespace's callable surface, structurally satisfied by the mounted contribution. */
@@ -17,6 +25,9 @@ export interface KbRpc {
   workspaceTree(): Promise<RemoteResult<KbTree>>
   read(path: string): Promise<RemoteResult<KbFileContent>>
   write(path: string, content: string): Promise<RemoteResult<KbWriteResult>>
+  root(): Promise<RemoteResult<KbRootResult>>
+  setRoot(path: string): Promise<RemoteResult<KbSetRootResult>>
+  createEntity(args: KbCreateEntityArgs): Promise<RemoteResult<KbCreateEntityResult>>
 }
 
 /** The workbench's published state. */

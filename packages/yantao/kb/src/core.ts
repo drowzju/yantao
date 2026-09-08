@@ -192,15 +192,19 @@ export async function writeState(kbRoot: string, locator: string, text: string):
   return { path: display, state: text }
 }
 
-/** Return one entity file's complete content.
+/**
+ * Return one entity file's complete content. The entity is located like
+ * {@link appendLog}, so a meeting is found by its bare name even though its
+ * file carries the meeting's own date as a prefix.
  * @param kbRoot - the knowledge-base root the entity lives under.
- * @param type - the entity kind: project, area, or person.
- * @param name - the entity display name (file basename, without `.md`).
+ * @param type - the entity kind.
+ * @param name - the entity display name (file basename, without `.md`); a meeting's file
+ *   basename is `<YYYY-MM-DD> <name>`, which this lookup also matches.
  * @returns the KB-relative path and the file's complete content.
  */
 export async function readEntity(kbRoot: string, type: EntityType, name: string): Promise<{ path: string; content: string }> {
   const root = resolveWithinKb(kbRoot)
-  const { content, display } = await readEntityFile(root, entityFilePath(root, type, name))
+  const { content, display } = await readEntityFile(root, resolveEntityLocator(root, `${type}:${name}`))
   parseFrontmatter(content, display)
   return { path: display, content }
 }

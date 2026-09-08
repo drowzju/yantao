@@ -423,6 +423,19 @@ describe('kb_read_entity', () => {
     expect(result.path).toBe('entities/areas/健康.md')
     expect(result.content).toBe(entityFileContent('area', '健康', TODAY))
   })
+
+  it('finds a dated meeting by its bare name, title still clean', async () => {
+    await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-09' })
+    const result = await readEntity(kbRoot, 'meeting', '周会')
+    expect(result.path).toBe('entities/meetings/2026-09-09 周会.md')
+    expect(result.content).toContain('title: 周会\n')
+  })
+
+  it('refuses an ambiguous meeting name', async () => {
+    await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-09' })
+    await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-16' })
+    await expect(readEntity(kbRoot, 'meeting', '周会')).rejects.toThrowError(/匹配到多个会议文件/)
+  })
 })
 
 describe('kb_list_entities', () => {

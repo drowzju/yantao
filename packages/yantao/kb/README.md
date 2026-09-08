@@ -43,7 +43,7 @@ The agent calls `kb_init` (layout + root README + the owner entity「我自己�
 | `kb_create_entity` | `(type, name, relation?, date?)` | Write one entity file from the template (a meeting's file name is prefixed with its own date, `<YYYY-MM-DD> <name>`); refuses an existing file and the `todo` singleton |
 | `kb_append_log` | `(entity, text)` | Append a dated bullet at the end of the entity's `## 流水` section |
 | `kb_write_state` | `(entity, text)` | Replace the whole `## 状态` section body; Log and frontmatter are preserved |
-| `kb_read_entity` | `(type, name)` | Return the entity file's complete content |
+| `kb_read_entity` | `(type, name)` | Return the entity file's complete content; a meeting is found by its bare name, dated file name and all |
 | `kb_list_entities` | `(type?, includeArchived?)` | List entity names; `archive: true` frontmatter hides unless asked |
 | `kb_register_resource` | `(path)` | Copy an original into `resources/` and write its shadow-note skeleton |
 

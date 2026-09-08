@@ -43,7 +43,7 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 | `kb_create_entity` | `(type, name, relation?, date?)` | 按模板写入一个实体文件（会议文件名会冠以它自己的日期，`<YYYY-MM-DD> <name>`）；文件已存在时拒绝，`todo` 单例也拒绝 |
 | `kb_append_log` | `(entity, text)` | 在实体的『流水』区末尾追加一条带日期的日志 |
 | `kb_write_state` | `(entity, text)` | 整体替换『状态』区正文；『流水』区与 frontmatter 原样保留 |
-| `kb_read_entity` | `(type, name)` | 返回实体文件的完整内容 |
+| `kb_read_entity` | `(type, name)` | 返回实体文件的完整内容；会议按裸名即可找到，即使文件名带日期前缀 |
 | `kb_list_entities` | `(type?, includeArchived?)` | 列出实体名；frontmatter 含 `archive: true` 的默认隐藏 |
 | `kb_register_resource` | `(path)` | 把原始材料复制进 `resources/` 并创建影子笔记骨架 |
 
