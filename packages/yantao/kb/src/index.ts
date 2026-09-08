@@ -1,7 +1,8 @@
 /**
  * The yantao KB cordis plugin: registers the kb_ tools that are the
  * agent's ONLY write path into the knowledge base. The plugin owns no
- * service and no state beyond the resolved kbRoot; every operation re-reads
+ * service and no state beyond the live kbRoot (the persisted override when
+ * the workbench has chosen one, otherwise the config default); every operation re-reads
  * the files it touches, so a human editing the same KB between calls always
  * wins. Pair with the yantao profile patch, which removes the generic write
  * tools (shell, editor) — this family is deliberately all that remains.
@@ -14,6 +15,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, writeState } from './core.ts'
+import { readKbRootOverride, writeKbRootOverride } from './root-store.ts'
 import { ENTITY_TYPES, PERSON_RELATIONS } from './types.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -36,13 +38,49 @@ export const Config: z<Config> = z.object({
 type ResolvedConfig = Required<Config>
 
 /**
- * The resolved KB root, published while the yantao-kb plugin is mounted so
+ * The live KB root, published while the yantao-kb plugin is mounted so
  * host-side consumers (the yantao-kb-controller Remote) share this one
- * configuration point instead of duplicating it.
+ * configuration point instead of duplicating it. The root starts as the
+ * persisted override when the workbench has chosen one, and otherwise as the
+ * config default; `setRoot` retargets the whole host at a new root.
  */
 export interface YantaoKbService {
   /** Resolved knowledge-base root directory. */
   readonly root: string
+  /** True when the root comes from a persisted override rather than the config default. */
+  readonly configured: boolean
+  /** Retarget the live KB at `next` and persist it as the override. */
+  setRoot(next: string): void
+}
+
+/**
+ * The live root: the persisted override when there is one, the config
+ * default otherwise, and always the one value every host-side consumer
+ * reads. Persisting a new root is fire-and-forget — the in-process root is
+ * already correct, and a failed write only costs the next boot.
+ */
+class LiveKbRoot implements YantaoKbService {
+  constructor(
+    private current: string,
+    private persisted: boolean,
+    private readonly onPersistFailure: (message: string) => void,
+  ) {}
+
+  get root(): string {
+    return this.current
+  }
+
+  get configured(): boolean {
+    return this.persisted
+  }
+
+  setRoot(next: string): void {
+    this.current = next
+    this.persisted = true
+    void writeKbRootOverride(next).catch((error: unknown) => {
+      this.onPersistFailure((error as Error).message)
+    })
+  }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -69,8 +107,17 @@ const CREATABLE_ENTITY_TYPE_PARAM = {
 export function apply(ctx: Context, config: Config): void {
   const resolved = config as ResolvedConfig
 
+  const override = readKbRootOverride()
+  const liveRoot = new LiveKbRoot(
+    override ?? resolved.kbRoot,
+    override !== undefined,
+    (message) => {
+      ctx.logger.warn(`yantao-kb: 无法持久化知识库根目录：${message}`)
+    },
+  )
+
   ctx.effect(
-    () => ctx.provide('yantaoKb', { root: resolved.kbRoot } satisfies YantaoKbService),
+    () => ctx.provide('yantaoKb', liveRoot satisfies YantaoKbService),
     'yantao-kb: provide KB root service',
   )
 
@@ -97,7 +144,7 @@ export function apply(ctx: Context, config: Config): void {
           + `已存在 ${value.existing.length} 项`,
       }],
     },
-    execute: () => initKb(resolved.kbRoot),
+    execute: () => initKb(liveRoot.root),
   }))
 
   ctx.tools.register(defineTool({
@@ -130,7 +177,7 @@ export function apply(ctx: Context, config: Config): void {
       },
       render: (_args, value) => [{ type: 'text', text: `已创建实体：${value.path}` }],
     },
-    execute: args => createEntity(resolved.kbRoot, args.type, args.name, {
+    execute: args => createEntity(liveRoot.root, args.type, args.name, {
       ...args.relation !== undefined ? { relation: args.relation } : {},
       ...args.date !== undefined ? { meetingDate: args.date } : {},
     }),
@@ -158,7 +205,7 @@ export function apply(ctx: Context, config: Config): void {
       },
       render: (_args, value) => [{ type: 'text', text: `已追加到 ${value.path} 的『流水』区：\n${value.appended}` }],
     },
-    execute: args => appendLog(resolved.kbRoot, args.entity, args.text),
+    execute: args => appendLog(liveRoot.root, args.entity, args.text),
   }))
 
   ctx.tools.register(defineTool({
@@ -183,7 +230,7 @@ export function apply(ctx: Context, config: Config): void {
       },
       render: (_args, value) => [{ type: 'text', text: `已更新 ${value.path} 的『状态』区：\n${value.state}` }],
     },
-    execute: args => writeState(resolved.kbRoot, args.entity, args.text),
+    execute: args => writeState(liveRoot.root, args.entity, args.text),
   }))
 
   ctx.tools.register(defineTool({
@@ -204,7 +251,7 @@ export function apply(ctx: Context, config: Config): void {
       },
       render: (_args, value) => [{ type: 'text', text: value.content }],
     },
-    execute: args => readEntity(resolved.kbRoot, args.type, args.name),
+    execute: args => readEntity(liveRoot.root, args.type, args.name),
   }))
 
   ctx.tools.register(defineTool({
@@ -246,7 +293,7 @@ export function apply(ctx: Context, config: Config): void {
             .join('\n'),
       }],
     },
-    execute: args => listEntities(resolved.kbRoot, args.type, args.includeArchived ?? false),
+    execute: args => listEntities(liveRoot.root, args.type, args.includeArchived ?? false),
   }))
 
   ctx.tools.register(defineTool({
@@ -268,7 +315,7 @@ export function apply(ctx: Context, config: Config): void {
       },
       render: (_args, value) => [{ type: 'text', text: `已登记资源：${value.resource}\n影子笔记：${value.note}` }],
     },
-    execute: args => registerResource(resolved.kbRoot, args.path),
+    execute: args => registerResource(liveRoot.root, args.path),
   }))
 }
 
@@ -278,6 +325,7 @@ export function apply(ctx: Context, config: Config): void {
 export { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, writeState } from './core.ts'
 export type { InitKbResult, ListedEntity } from './core.ts'
 export { entityDisplayPath, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
+export { kbRootStatePath, readKbRootOverride, writeKbRootOverride } from './root-store.ts'
 export { appendToLogSection, logBullet, replaceStateSection } from './splice.ts'
 export { entityFileContent, KB_README, shadowNoteContent, todoFileContent } from './templates.ts'
 export type { EntityTemplateOptions } from './templates.ts'

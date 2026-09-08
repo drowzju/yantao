@@ -40,7 +40,7 @@ The agent calls `kb_init` (layout + root README + the owner entity「我自己�
 | Tool | Signature | Effect |
 |---|---|---|
 | `kb_init` | `()` | Create the KB layout, root README, owner entity, and todo singleton (idempotent) |
-| `kb_create_entity` | `(type, name, relation?, date?)` | Write one entity file from the template; refuses an existing file and the `todo` singleton |
+| `kb_create_entity` | `(type, name, relation?, date?)` | Write one entity file from the template (a meeting's file name is prefixed with its own date, `<YYYY-MM-DD> <name>`); refuses an existing file and the `todo` singleton |
 | `kb_append_log` | `(entity, text)` | Append a dated bullet at the end of the entity's `## 流水` section |
 | `kb_write_state` | `(entity, text)` | Replace the whole `## 状态` section body; Log and frontmatter are preserved |
 | `kb_read_entity` | `(type, name)` | Return the entity file's complete content |
@@ -60,6 +60,9 @@ Override it in the profile's own `cordis.patch.yml` (the patch replaces the plug
   config:
     kbRoot: D:/path/to/your-kb
 ```
+
+The workbench can override this at runtime: a root it chooses is persisted as
+`{ "root": … }` in `~/.dsh/yantao-kb.json` and wins over `kbRoot` from then on.
 
 -----
 
@@ -83,11 +86,13 @@ The plugin is stateless: it keeps only the resolved `kbRoot` and every operation
 | [`src/core.ts`](src/core.ts) | The seven filesystem operations behind the tools |
 | [`src/splice.ts`](src/splice.ts) | The State/Log section splicer and bullet builder |
 | [`src/frontmatter.ts`](src/frontmatter.ts) | Read-only frontmatter envelope parsing (js-yaml) |
-| [`src/paths.ts`](src/paths.ts) | `sanitizeFileName`, date stamps, kbRoot-confined path resolution |
+| [`src/paths.ts`](src/paths.ts) | `sanitizeFileName`, date stamps, kbRoot-confined path resolution, and the dated-meeting locator |
+| [`src/root-store.ts`](src/root-store.ts) | The persisted KB root override (`~/.dsh/yantao-kb.json`) |
 | [`src/templates.ts`](src/templates.ts) | The canonical entity / shadow-note / root-README file layouts |
 | [`src/types.ts`](src/types.ts) | Entity taxonomy and `KbError` |
 | — | No runtime invariant companion is published; the plugin is a stateless tool family whose mutation contract (template-once creation, byte-preserving State rewrites and Log appends) is covered by the package's unit tests. |
 | [`tests/kb.spec.ts`](tests/kb.spec.ts) | Splicer, template, and operation coverage over real temp directories |
+| [`tests/root-store.spec.ts`](tests/root-store.spec.ts) | The persisted root override, over a throwaway dsh home |
 
 ### Invariant ownership
 
@@ -137,7 +142,7 @@ These limits define where the KB tools need human care by design. They are curre
 - **The todo singleton has no sections** — `entities/todos.md` is a plain checkbox list, so `kb_append_log` and `kb_write_state` refuse it; the agent reads it with `kb_read_entity` and the human edits it as a whole file.
 - **No archive mutation tool** — archiving is a human frontmatter edit (`archive: true`); the tools only read the flag, so the agent cannot archive or unarchive an entity.
 - **Resources are copied, never moved or deduplicated by content** — the original stays in place, and a second registration of the same basename is refused even when it names a different source file.
-- **One KB root per mounted instance** — multiple KBs require separate profiles or a config patch swap; there is no per-call root override.
+- **One KB root per mounted instance** — the root can be re-chosen at runtime (persisted under `~/.dsh`) and every tool then follows it, but there is no per-call root override; several KBs at once still need separate profiles.
 - **Entity references inside prose are not validated** — `areas: []` and free-text mentions in Log bullets are plain text; link checking and backreferences are deferred.
 
 <a id="dev-note"></a>

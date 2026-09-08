@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-api-yantao-kb-controller` 是 yantao 工作台 UI 背后的 Typert Remote 控制器：`yantaoKb` 命名空间下的三个一元方法——`tree`、`read`、`write`——让浏览器直接列出和编辑知识库。所有路径都是知识库相对路径，并被限制在 `yantao-kb` 插件以 `yantaoKb` 服务发布的 kbRoot 之内，因此控制器共享插件的唯一配置点，绝不重复配置。UI 是人类通道，所以 `write` 是整文件写入；ADR-0004 信任边界只约束 agent 的 `kb_` 工具，从不约束本表面。
+`dsh-api-yantao-kb-controller` 是 yantao 工作台 UI 背后的 Typert Remote 控制器：`yantaoKb` 命名空间下的七个一元方法——`intakeTree`、`workspaceTree`、`read`、`write`、`root`、`setRoot`、`createEntity`——让浏览器直接列出、编辑与扩充知识库。所有路径都是知识库相对路径，并被限制在 `yantao-kb` 插件以 `yantaoKb` 服务发布的 kbRoot 之内，因此控制器共享插件的唯一配置点，绝不重复配置；`setRoot` 则重新指向这个唯一的根目录。UI 是人类通道，所以 `write` 是整文件写入；ADR-0004 信任边界只约束 agent 的 `kb_` 工具，从不约束本表面。
 
 ## 目录
 
@@ -31,11 +31,17 @@ kind: "package-reference"
 
 | 方法 | 签名 | 结果 |
 |---|---|---|
-| `yantaoKb.tree` | `()` | 五节树（`resources`、`projects`、`areas`、`people`、`sessions`）；资源行配对影子笔记，实体行携带 `archived`/`relation` 标记 |
+| `yantaoKb.intakeTree` | `()` | 收集侧的小节（`resources`、`meetings`、`todos`）；资源行配对影子笔记，实体行携带 `archived`/`relation` 标记 |
+| `yantaoKb.workspaceTree` | `()` | 工作侧的小节（`projects`、`areas`、`people`）；行结构与上面相同 |
 | `yantaoKb.read` | `(path)` | `{ path, content }`——文件完整 UTF-8 内容 |
 | `yantaoKb.write` | `(path, content)` | `{ path }`——整文件写入，自动创建缺失的父目录 |
+| `yantaoKb.root` | `()` | `{ root, configured }`——当前生效的知识库根目录，以及人类是否已经选过 |
+| `yantaoKb.setRoot` | `(path)` | `{ root, configured, created, existing }`——把 `path` 初始化为知识库、设为当前根目录并记住它 |
+| `yantaoKb.createEntity` | `({ type, name, date? })` | `{ path }`——按 canonical 模板创建一个实体笔记 |
 
-失败是 `RemoteError`：路径没有对应文件时为 `yantao-kb/not-found`；路径逃逸、目标不是文件或 I/O 拒绝时为 `yantao-kb/rejected`——两者的 `details` 都携带出问题的 `path`。
+`setRoot` 只接受绝对路径（相对或空路径会被拒绝），并把它交给 `yantaoKb` 服务——服务负责把选择持久化到 `~/.dsh` 之下。`createEntity` 接受 `project`、`area`、`person`、`meeting`；会议文件名会冠以它自己的日期。
+
+失败是 `RemoteError`：路径没有对应文件时为 `yantao-kb/not-found`；路径逃逸、目标不是文件、I/O 拒绝或知识库领域拒绝（实体已存在、`todo` 单例）时为 `yantao-kb/rejected`——两者的 `details` 都携带出问题的 `path`。
 
 ### Client 消费
 
@@ -58,7 +64,7 @@ kind: "package-reference"
 | [`src/index.ts`](src/index.ts) | 控制器：服务声明、路径限制与三个方法 |
 | [`src/types.ts`](src/types.ts) | wire 载荷词汇（树节、文件行、读写结果） |
 | — | 不发布运行时不变量伴生包；控制器是无状态适配器，其限制与树形契约由包内单元测试覆盖。 |
-| [`tests/controller.spec.ts`](tests/controller.spec.ts) | 基于真实临时目录的树形、读写往返、not-found 归类与逃逸拒绝覆盖 |
+| [`tests/controller.spec.ts`](tests/controller.spec.ts) | 基于真实临时目录的树形、读写往返、root/setRoot/createEntity、not-found 归类与逃逸拒绝覆盖 |
 
 ### 不变量归属
 

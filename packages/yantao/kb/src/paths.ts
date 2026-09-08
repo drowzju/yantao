@@ -5,7 +5,8 @@
  * @module @deepseek-ai/dsh-yantao-kb/paths
  */
 
-import { isAbsolute, resolve, sep } from 'node:path'
+import { existsSync, readdirSync } from 'node:fs'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { EntityType } from './types.ts'
 import { ENTITY_DIRS, ENTITY_TYPES, KbError, SINGLETON_FILES } from './types.ts'
 
@@ -93,13 +94,49 @@ export function normalizeEntityType(spelling: string): EntityType {
 }
 
 /**
+ * Find a meeting file whose name carries the date prefix `createEntity`
+ * writes (`<YYYY-MM-DD> <name>`), when the literal `<name>.md` is absent:
+ * the bare basename or exactly one ` <name>`-suffixed basename resolves,
+ * several candidates are an ambiguity the caller must spell out, and no
+ * candidate falls back to the literal path (the caller then reports it as
+ * not found).
+ * @param literal - the literal `<name>.md` path, returned when nothing better is found.
+ * @param name - the meeting name as written in the locator.
+ * @returns the absolute path of the meeting file to open.
+ */
+function matchDatedMeeting(literal: string, name: string): string {
+  const dir = dirname(literal)
+  let files: string[]
+  try {
+    files = readdirSync(dir)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return literal
+    throw error
+  }
+  const matches = files
+    .filter(file => file.endsWith('.md'))
+    .map(file => file.slice(0, -'.md'.length))
+    .filter(base => base === name || base.endsWith(` ${name}`))
+  if (matches.length === 1) return join(dir, `${matches[0] as string}.md`)
+  if (matches.length > 1) {
+    throw new KbError(
+      'ambiguous-entity',
+      `「${name}」匹配到多个会议文件（${matches.join('、')}）；请用带日期前缀的完整文件名定位`,
+    )
+  }
+  return literal
+}
+
+/**
  * Resolve the `kb_append_log` entity locator: either the `type:name` form
  * (`project:dsh 学习`, plural spellings accepted) or an entity file path —
  * KB-relative (`entities/projects/dsh 学习.md`) or absolute under kbRoot.
  * Every entity kind is accepted, so `todo:todos` and `meeting:周会` resolve
  * like any other locator. A Windows absolute path contains a drive colon, so
  * the `type:` match only fires on a known type spelling and absolute paths
- * are probed first.
+ * are probed first. A meeting note is filed under `<YYYY-MM-DD> <name>`, so
+ * when the literal `meeting:<name>` file is absent the meetings directory is
+ * searched for the one dated file that carries that name.
  * @param kbRoot - the knowledge-base root directory.
  * @param locator - the locator string from the caller.
  * @returns the confined absolute path of the entity file.
@@ -118,7 +155,10 @@ export function resolveEntityLocator(kbRoot: string, locator: string): string {
   if (typeMatch !== null) {
     const prefix = typeMatch[1] as string
     if (/^(project|projects|area|areas|person|people|meeting|meetings|todo|todos)$/i.test(prefix)) {
-      return entityFilePath(kbRoot, normalizeEntityType(prefix), (typeMatch[2] as string).trim())
+      const type = normalizeEntityType(prefix)
+      const name = (typeMatch[2] as string).trim()
+      const target = entityFilePath(kbRoot, type, name)
+      return type === 'meeting' && !existsSync(target) ? matchDatedMeeting(target, name) : target
     }
   }
   return resolveWithinKb(kbRoot, trimmed)

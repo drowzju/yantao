@@ -40,7 +40,7 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 | 工具 | 签名 | 作用 |
 |---|---|---|
 | `kb_init` | `()` | 创建知识库目录结构、根 README、库主实体与待办单例（幂等） |
-| `kb_create_entity` | `(type, name, relation?, date?)` | 按模板写入一个实体文件；文件已存在时拒绝，`todo` 单例也拒绝 |
+| `kb_create_entity` | `(type, name, relation?, date?)` | 按模板写入一个实体文件（会议文件名会冠以它自己的日期，`<YYYY-MM-DD> <name>`）；文件已存在时拒绝，`todo` 单例也拒绝 |
 | `kb_append_log` | `(entity, text)` | 在实体的『流水』区末尾追加一条带日期的日志 |
 | `kb_write_state` | `(entity, text)` | 整体替换『状态』区正文；『流水』区与 frontmatter 原样保留 |
 | `kb_read_entity` | `(type, name)` | 返回实体文件的完整内容 |
@@ -60,6 +60,8 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
   config:
     kbRoot: D:/path/to/your-kb
 ```
+
+工作台可以在运行时覆盖它：它选定的根目录会以 `{ "root": … }` 持久化到 `~/.dsh/yantao-kb.json`，此后优先于 `kbRoot`。
 
 -----
 
@@ -83,11 +85,13 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 | [`src/core.ts`](src/core.ts) | 工具背后的七个文件系统操作 |
 | [`src/splice.ts`](src/splice.ts) | 『状态』/『流水』区拼接器与日志条目构造 |
 | [`src/frontmatter.ts`](src/frontmatter.ts) | 只读的 frontmatter 信封解析（js-yaml） |
-| [`src/paths.ts`](src/paths.ts) | `sanitizeFileName`、日期戳、限制在 kbRoot 内的路径解析 |
+| [`src/paths.ts`](src/paths.ts) | `sanitizeFileName`、日期戳、限制在 kbRoot 内的路径解析，以及带日期的会议定位 |
+| [`src/root-store.ts`](src/root-store.ts) | 持久化的知识库根目录覆盖（`~/.dsh/yantao-kb.json`） |
 | [`src/templates.ts`](src/templates.ts) | canonical 实体 / 影子笔记 / 根 README 文件布局 |
 | [`src/types.ts`](src/types.ts) | 实体分类与 `KbError` |
 | — | 不发布运行时不变量伴生包；本插件是无状态工具族，其修改契约（仅一次模板创建、逐字节保留的『状态』改写与『流水』追加）由包内单元测试覆盖。 |
 | [`tests/kb.spec.ts`](tests/kb.spec.ts) | 基于真实临时目录的拼接器、模板与操作覆盖 |
+| [`tests/root-store.spec.ts`](tests/root-store.spec.ts) | 基于一次性 dsh home 的持久化根目录覆盖 |
 
 ### 不变量归属
 
@@ -137,7 +141,7 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 - **待办单例没有区段结构**——`entities/todos.md` 是一个纯复选框清单，`kb_append_log` 与 `kb_write_state` 都会拒绝它；agent 用 `kb_read_entity` 阅读，人类则整体编辑这个文件。
 - **没有归档修改工具**——归档是人类对 frontmatter 的编辑（`archive: true`）；工具只读取该标记，agent 无法归档或取消归档实体。
 - **资源只复制、不移动、也不按内容去重**——原文件保留在原处；同名资源即使来自不同源文件，第二次登记也会被拒绝。
-- **每个挂载实例一个知识库根目录**——多个知识库需要分开的 profile 或更换配置 patch；没有按次调用的根目录覆盖。
+- **每个挂载实例一个知识库根目录**——根目录可以在运行时改选（持久化在 `~/.dsh` 之下），之后所有工具都跟随它；但没有按次调用的根目录覆盖，同时使用多个知识库仍需分开的 profile。
 - **正文中的实体引用不做校验**——`areas: []` 与『流水』条目里的自由文本提及都是纯文本；链接检查与反向引用属于延期工作。
 
 <a id="dev-note"></a>

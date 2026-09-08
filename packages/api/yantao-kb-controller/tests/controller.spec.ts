@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import { entityFileContent, todayStamp, todoFileContent } from '@deepseek-ai/dsh-yantao-kb'
-import type { KbTreeSection } from '../src/types.ts'
+import type { YantaoKbService } from '@deepseek-ai/dsh-yantao-kb'
+import type { KbCreateEntityArgs, KbTreeSection } from '../src/types.ts'
 import YantaoKbController from '../src/index.ts'
 
 let kbRoot: string
@@ -20,10 +21,29 @@ async function seedFile(relative: string, content: string): Promise<void> {
   await writeFile(target, content, 'utf8')
 }
 
+// The real plugin owns the live root and persists the override; these tests
+// stand in a service that behaves like it, without touching the developer's
+// `~/.dsh`.
+let liveRoot: string
+let configured: boolean
+
 beforeEach(async () => {
   kbRoot = await mkdtemp(join(tmpdir(), 'yantao-kb-controller-'))
+  liveRoot = kbRoot
+  configured = false
   ctx = new Context()
-  ctx.provide('yantaoKb', { root: kbRoot })
+  ctx.provide('yantaoKb', {
+    get root(): string {
+      return liveRoot
+    },
+    get configured(): boolean {
+      return configured
+    },
+    setRoot(next: string): void {
+      liveRoot = next
+      configured = true
+    },
+  } satisfies YantaoKbService)
   fiber = await ctx.plugin(YantaoKbController)
 })
 
@@ -122,5 +142,81 @@ describe('yantaoKb.write', () => {
     const failure = await ctx.yantaoKbController.write('../escape-victim.md', 'x').catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
     await expect(readFile(escapeTarget, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+})
+
+describe('yantaoKb.root', () => {
+  it('reports the live root and an unconfigured state', async () => {
+    expect(await ctx.yantaoKbController.root()).toEqual({ root: kbRoot, configured: false })
+  })
+})
+
+describe('yantaoKb.setRoot', () => {
+  it('creates the skeleton, then reports it as existing on a second call', async () => {
+    const chosen = await mkdtemp(join(tmpdir(), 'yantao-kb-chosen-'))
+    try {
+      const first = await ctx.yantaoKbController.setRoot(chosen)
+      expect(first.root).toBe(chosen)
+      expect(first.configured).toBe(true)
+      expect(first.created).toContain('README.md')
+      expect(first.created).toContain('entities/todos.md')
+      expect(first.created).toContain('entities/meetings')
+      expect(await ctx.yantaoKbController.root()).toEqual({ root: chosen, configured: true })
+
+      const second = await ctx.yantaoKbController.setRoot(chosen)
+      expect(second.root).toBe(chosen)
+      expect(second.created).toEqual([])
+      expect(second.existing).toContain('README.md')
+      expect(second.existing).toContain('entities/todos.md')
+    } finally {
+      await rm(chosen, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a relative or empty path', async () => {
+    for (const bad of ['', '   ', 'kb', './kb']) {
+      const failure = await ctx.yantaoKbController.setRoot(bad).catch((error: unknown) => error)
+      expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected', details: { path: bad } })
+    }
+  })
+
+  it('rejects a path it cannot initialize', async () => {
+    await seedFile('entities/todos.md', todoFileContent(TODAY))
+    const blocked = join(kbRoot, 'entities/todos.md', 'nested')
+    const failure = await ctx.yantaoKbController.setRoot(blocked).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected', details: { path: blocked } })
+  })
+})
+
+describe('yantaoKb.createEntity', () => {
+  it('files a meeting under its date and every other kind under its name', async () => {
+    const meeting = await ctx.yantaoKbController.createEntity({ type: 'meeting', name: '周会', date: '2026-09-09' })
+    expect(meeting.path).toBe('entities/meetings/2026-09-09 周会.md')
+    expect(await readFile(join(kbRoot, meeting.path), 'utf8')).toBe(
+      entityFileContent('meeting', '周会', TODAY, { meetingDate: '2026-09-09' }),
+    )
+    const project = await ctx.yantaoKbController.createEntity({ type: 'project', name: 'dsh 学习' })
+    expect(project.path).toBe('entities/projects/dsh 学习.md')
+    expect(await readFile(join(kbRoot, project.path), 'utf8')).toBe(entityFileContent('project', 'dsh 学习', TODAY))
+  })
+
+  it('defaults the meeting date to today', async () => {
+    const { path } = await ctx.yantaoKbController.createEntity({ type: 'meeting', name: '周会' })
+    expect(path).toBe(`entities/meetings/${TODAY} 周会.md`)
+  })
+
+  it('rejects the todo singleton and an entity that already exists', async () => {
+    const singleton = { type: 'todo', name: 'todos' } as unknown as KbCreateEntityArgs
+    const failure = await ctx.yantaoKbController.createEntity(singleton).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected', details: { path: 'entities/todos.md' } })
+    expect((failure as Error).message).toMatch(/单例实体/)
+
+    await ctx.yantaoKbController.createEntity({ type: 'area', name: '健康' })
+    const duplicate = await ctx.yantaoKbController.createEntity({ type: 'area', name: '健康' })
+      .catch((error: unknown) => error)
+    expect(remoteErrorOf(duplicate)).toMatchObject({
+      code: 'yantao-kb/rejected',
+      details: { path: 'entities/areas/健康.md' },
+    })
   })
 })

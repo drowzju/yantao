@@ -4,19 +4,31 @@
  * `workspaceTree` the workspace side (projects, areas, people);
  * `read`/`write` address single files by KB-relative path, always confined
  * to the kbRoot the yantao-kb plugin publishes as the `yantaoKb` service —
- * one configuration point, no duplicated config. The UI is the human
+ * one configuration point, no duplicated config. `root`/`setRoot` answer and
+ * choose that root — the service persists the choice under `~/.dsh` — and `createEntity`
+ * files a new note from the KB's canonical template. The UI is the human
  * channel, so `write` is a full-file write; the ADR-0004 trust boundary
  * binds only the agent's kb_ tools, never this surface.
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
  */
 
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import { entityDisplayPath, KbError, listEntities, resolveWithinKb } from '@deepseek-ai/dsh-yantao-kb'
+import { createEntity, entityDisplayPath, initKb, KbError, listEntities, resolveWithinKb, todayStamp } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
-import type { KbFileContent, KbTree, KbTreeFile, KbTreeSection, KbWriteResult } from './types.ts'
+import type {
+  KbCreateEntityArgs,
+  KbCreateEntityResult,
+  KbFileContent,
+  KbRootResult,
+  KbSetRootResult,
+  KbTree,
+  KbTreeFile,
+  KbTreeSection,
+  KbWriteResult,
+} from './types.ts'
 
 export type * from './types.ts'
 
@@ -69,14 +81,15 @@ export class YantaoKbController extends TypertRemoteService {
     super(ctx, 'yantaoKbController', { namespace: 'yantaoKb' })
   }
 
-  private get root(): string {
+  /** The one KB root, read per call so a re-chosen root takes effect at once. */
+  private get kbRoot(): string {
     return this.ctx.yantaoKb.root
   }
 
   /** Confine one wire path to the KB root, classifying an escape as `yantao-kb/rejected`. */
   private confine(path: string, display: string): string {
     try {
-      return resolveWithinKb(this.root, path)
+      return resolveWithinKb(this.kbRoot, path)
     } catch (error) {
       if (error instanceof KbError) {
         throw new RemoteError('yantao-kb/rejected', error.message, { path: display }, { cause: error })
@@ -106,7 +119,7 @@ export class YantaoKbController extends TypertRemoteService {
 
   /** The `resources` section: originals with their shadow-note pairing (`.md` notes are not rows). */
   private async resourceSection(): Promise<KbTreeSection> {
-    const resourceNames = await readdirFiles(join(this.root, 'resources'))
+    const resourceNames = await readdirFiles(join(this.kbRoot, 'resources'))
     const resourceSet = new Set(resourceNames)
     const resources: KbTreeFile[] = resourceNames
       .filter(name => !name.endsWith('.md'))
@@ -124,7 +137,7 @@ export class YantaoKbController extends TypertRemoteService {
   ): Promise<KbTreeSection[]> {
     const built: KbTreeSection[] = []
     for (const { id, type } of sections) {
-      const { entities } = await listEntities(this.root, type, true)
+      const { entities } = await listEntities(this.kbRoot, type, true)
       built.push({
         id,
         files: entities.map(entity => ({
@@ -154,6 +167,60 @@ export class YantaoKbController extends TypertRemoteService {
         throw new RemoteError('yantao-kb/not-found', `找不到知识库文件：${path}`, { path }, { cause: error })
       }
       throw new RemoteError('yantao-kb/rejected', `无法读取知识库文件 ${path}：${(error as Error).message}`, { path }, { cause: error })
+    }
+  }
+
+  /**
+   * The live KB root and whether the human has chosen one yet.
+   * @returns the root in force and `configured` — true when a persisted root override exists.
+   */
+  @Remote('root')
+  root(): Promise<KbRootResult> {
+    return Promise.resolve({ root: this.kbRoot, configured: this.ctx.yantaoKb.configured })
+  }
+
+  /**
+   * Choose the knowledge base: initialize `path` as a KB and hand it to the
+   * `yantaoKb` service, which makes it the live root for every host-side
+   * consumer and persists it as the root override.
+   * @param path - absolute path of the knowledge-base root directory.
+   * @returns the root now in force plus what the initialization created or found.
+   */
+  @Remote('setRoot')
+  async setRoot(path: string): Promise<KbSetRootResult> {
+    const target = path.trim()
+    if (target === '' || !isAbsolute(target)) {
+      throw new RemoteError('yantao-kb/rejected', `知识库根目录必须是绝对路径：${path}`, { path })
+    }
+    try {
+      const { kbRoot, created, existing } = await initKb(target)
+      this.ctx.yantaoKb.setRoot(kbRoot)
+      return { root: kbRoot, configured: true, created, existing }
+    } catch (error) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `无法把 ${target} 初始化为知识库：${(error as Error).message}`,
+        { path: target },
+        { cause: error },
+      )
+    }
+  }
+
+  /**
+   * Create one entity note from the canonical template.
+   * @param args - the entity kind, its display name, and the meeting's own date.
+   * @returns the KB-relative path of the created file.
+   */
+  @Remote('createEntity')
+  async createEntity(args: KbCreateEntityArgs): Promise<KbCreateEntityResult> {
+    const display = entityDisplayPath(args.type, args.name)
+    try {
+      return await createEntity(this.kbRoot, args.type, args.name, { meetingDate: args.date ?? todayStamp() })
+    } catch (error) {
+      const message = error instanceof KbError
+        ? error.message
+        : `无法创建实体「${args.name}」：${(error as Error).message}`
+      throw new RemoteError('yantao-kb/rejected', message, { path: display }, { cause: error })
     }
   }
 

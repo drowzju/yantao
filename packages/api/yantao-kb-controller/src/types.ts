@@ -53,3 +53,42 @@ export interface KbWriteResult {
   /** The KB-relative path that was written. */
   readonly path: string
 }
+
+/** Result of `yantaoKb.root`. */
+export interface KbRootResult {
+  /** The live knowledge-base root directory. */
+  readonly root: string
+  /** True when the root comes from a persisted override rather than the plugin's config default. */
+  readonly configured: boolean
+}
+
+/** Result of `yantaoKb.setRoot`. */
+export interface KbSetRootResult {
+  /** The knowledge-base root now in force. */
+  readonly root: string
+  /** Always true: a successful `setRoot` persists the override. */
+  readonly configured: boolean
+  /** KB-relative paths this initialization created. */
+  readonly created: readonly string[]
+  /** KB-relative paths that were already there. */
+  readonly existing: readonly string[]
+}
+
+/** An entity kind the UI may create; `todo` is the singleton `kb_init` owns. */
+export type KbCreatableEntityType = 'project' | 'area' | 'person' | 'meeting'
+
+/** Parameters of `yantaoKb.createEntity`. */
+export interface KbCreateEntityArgs {
+  /** The entity kind to create. */
+  readonly type: KbCreatableEntityType
+  /** The entity display name; a meeting's file name is prefixed with its date. */
+  readonly name: string
+  /** The meeting's own date (YYYY-MM-DD); defaults to today. */
+  readonly date?: string
+}
+
+/** Result of `yantaoKb.createEntity`. */
+export interface KbCreateEntityResult {
+  /** The KB-relative path of the created entity file. */
+  readonly path: string
+}

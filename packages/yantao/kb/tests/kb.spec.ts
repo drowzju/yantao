@@ -290,10 +290,20 @@ describe('kb_create_entity', () => {
     expect(path).toBe('entities/areas/工作_生活.md')
   })
 
-  it('creates a meeting with the given date', async () => {
+  it('files a meeting under its own date, keeping the frontmatter name clean', async () => {
     const { path } = await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-09' })
-    expect(path).toBe('entities/meetings/周会.md')
+    expect(path).toBe('entities/meetings/2026-09-09 周会.md')
     expect(await read(path)).toBe(entityFileContent('meeting', '周会', TODAY, { meetingDate: '2026-09-09' }))
+    const content = await read(path)
+    expect(content).toContain('title: 周会\n')
+    expect(content).toContain(`- ${TODAY} 创建 周会\n`)
+  })
+
+  it('files a meeting without a date under today, and refuses a second one that day', async () => {
+    const { path } = await createEntity(kbRoot, 'meeting', '周会')
+    expect(path).toBe(`entities/meetings/${TODAY} 周会.md`)
+    expect(await read(path)).toContain(`date: ${TODAY}\ntitle: 周会\n`)
+    await expect(createEntity(kbRoot, 'meeting', '周会')).rejects.toThrowError(/已存在/)
   })
 
   it('refuses to create the todo singleton', async () => {
@@ -317,14 +327,38 @@ describe('kb_write_state', () => {
   it('accepts plural spellings and paths, and errors on a singleton without a State section', async () => {
     await createEntity(kbRoot, 'meeting', '周会')
     await writeState(kbRoot, 'meetings:周会', '已确认')
-    await writeState(kbRoot, 'entities/meetings/周会.md', '已改期')
-    expect(await read('entities/meetings/周会.md')).toContain('## 状态\n\n已改期\n')
+    await writeState(kbRoot, `entities/meetings/${TODAY} 周会.md`, '已改期')
+    expect(await read(`entities/meetings/${TODAY} 周会.md`)).toContain('## 状态\n\n已改期\n')
     await initKb(kbRoot)
     await expect(writeState(kbRoot, 'todo:todos', 'x')).rejects.toThrowError(/缺少『## 状态』锚点/)
   })
 
   it('rejects locators escaping the KB root', async () => {
     await expect(writeState(kbRoot, '../outside.md', 'x')).rejects.toThrowError(/越出了知识库根目录/)
+  })
+
+  it('finds a dated meeting file from its bare name', async () => {
+    await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-09' })
+    const result = await writeState(kbRoot, 'meeting:周会', '已确认')
+    expect(result.path).toBe('entities/meetings/2026-09-09 周会.md')
+    expect(await read('entities/meetings/2026-09-09 周会.md')).toContain('## 状态\n\n已确认\n')
+  })
+
+  it('still resolves a meeting whose locator carries the date prefix', async () => {
+    await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-09' })
+    await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-16' })
+    const result = await writeState(kbRoot, 'meetings:2026-09-16 周会', '第二周')
+    expect(result.path).toBe('entities/meetings/2026-09-16 周会.md')
+  })
+
+  it('refuses an ambiguous meeting name instead of guessing', async () => {
+    await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-09' })
+    await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-16' })
+    await expect(writeState(kbRoot, 'meeting:周会', 'x')).rejects.toThrowError(/匹配到多个会议文件/)
+  })
+
+  it('reports a missing meeting as not found', async () => {
+    await expect(writeState(kbRoot, 'meeting:周会', 'x')).rejects.toThrowError(/找不到实体文件/)
   })
 
   it('errors on a missing entity with a not-found message', async () => {
@@ -413,7 +447,7 @@ describe('kb_list_entities', () => {
     await createEntity(kbRoot, 'meeting', '周会')
     await initKb(kbRoot)
     const rows = (await listEntities(kbRoot)).entities.map(entry => `${entry.type}:${entry.name}`)
-    expect(rows).toContain('meeting:周会')
+    expect(rows).toContain(`meeting:${TODAY} 周会`)
     expect(rows).toContain('todo:todos')
     const todos = await listEntities(kbRoot, 'todo')
     expect(todos.entities).toEqual([{ type: 'todo', name: 'todos', archived: false }])

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-api-yantao-kb-controller` is the Typert Remote controller behind the yantao workbench UI: three unary methods over the `yantaoKb` namespace — `tree`, `read`, and `write` — that let the browser list and edit the knowledge base directly. Every path is KB-relative and confined to the kbRoot the `yantao-kb` plugin publishes as the `yantaoKb` service, so the controller shares the plugin's one configuration point and never duplicates it. The UI is the human channel, so `write` is a full-file write; the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface.
+`dsh-api-yantao-kb-controller` is the Typert Remote controller behind the yantao workbench UI: seven unary methods over the `yantaoKb` namespace — `intakeTree`, `workspaceTree`, `read`, `write`, `root`, `setRoot`, and `createEntity` — that let the browser list, edit, and extend the knowledge base directly. Every path is KB-relative and confined to the kbRoot the `yantao-kb` plugin publishes as the `yantaoKb` service, so the controller shares the plugin's one configuration point and never duplicates it; `setRoot` re-points that one root. The UI is the human channel, so `write` is a full-file write; the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface.
 
 ## Table of Contents
 
@@ -31,11 +31,17 @@ The `yantao-web` profile mounts this controller automatically; the workbench UI 
 
 | Method | Signature | Result |
 |---|---|---|
-| `yantaoKb.tree` | `()` | The five-section tree (`resources`, `projects`, `areas`, `people`, `sessions`); resource rows pair their shadow note, entity rows carry `archived`/`relation` flags |
+| `yantaoKb.intakeTree` | `()` | The intake sections (`resources`, `meetings`, `todos`); resource rows pair their shadow note, entity rows carry `archived`/`relation` flags |
+| `yantaoKb.workspaceTree` | `()` | The workspace sections (`projects`, `areas`, `people`); same row shape as above |
 | `yantaoKb.read` | `(path)` | `{ path, content }` — the file's complete UTF-8 content |
 | `yantaoKb.write` | `(path, content)` | `{ path }` — full-file write, creating missing parent directories |
+| `yantaoKb.root` | `()` | `{ root, configured }` — the live KB root, and whether the human has chosen one |
+| `yantaoKb.setRoot` | `(path)` | `{ root, configured, created, existing }` — initializes `path` as a KB, makes it the live root, and remembers it |
+| `yantaoKb.createEntity` | `({ type, name, date? })` | `{ path }` — one entity note from the KB's canonical template |
 
-Failures are `RemoteError`s: `yantao-kb/not-found` when the path names no file, `yantao-kb/rejected` for an escape attempt, a non-file target, or an I/O refusal — each carrying the offending `path` in `details`.
+`setRoot` takes an absolute path (a relative or empty one is refused) and hands it to the `yantaoKb` service, which persists the choice under `~/.dsh`. `createEntity` accepts `project`, `area`, `person`, and `meeting`; a meeting's file name is prefixed with its own date.
+
+Failures are `RemoteError`s: `yantao-kb/not-found` when the path names no file, `yantao-kb/rejected` for an escape attempt, a non-file target, an I/O refusal, or a KB domain refusal (an existing entity, the `todo` singleton) — each carrying the offending `path` in `details`.
 
 ### Client consumption
 
@@ -58,7 +64,7 @@ The controller is a `TypertRemoteService` with `static inject = ['yantaoKb']`: i
 | [`src/index.ts`](src/index.ts) | The controller: service declaration, path confinement, and the three methods |
 | [`src/types.ts`](src/types.ts) | Wire payload vocabulary (tree sections, file rows, read/write results) |
 | — | No runtime invariant companion is published; the controller is a stateless adapter whose confinement and shaping contracts are covered by the package's unit tests. |
-| [`tests/controller.spec.ts`](tests/controller.spec.ts) | Tree shaping, read/write round trips, not-found classification, and escape rejection over real temp directories |
+| [`tests/controller.spec.ts`](tests/controller.spec.ts) | Tree shaping, read/write round trips, root/setRoot/createEntity, not-found classification, and escape rejection over real temp directories |
 
 ### Invariant ownership
 

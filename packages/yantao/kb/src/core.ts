@@ -116,7 +116,9 @@ export async function initKb(kbRoot: string): Promise<InitKbResult> {
 /** Create one entity file from the canonical template, refusing to overwrite.
  * @param kbRoot - the knowledge-base root the entity lives under.
  * @param type - the entity kind; singleton kinds (`todo`) are refused — `kb_init` owns them.
- * @param name - the entity display name (sanitized before it becomes the file name).
+ * @param name - the entity display name (sanitized before it becomes the file name); a meeting's
+ *   file name is prefixed with its own date, `<YYYY-MM-DD> <name>`, while the frontmatter keeps
+ *   `title: <name>`.
  * @param options - person relation and meeting date, as the template defines them.
  * @returns the KB-relative path of the created file.
  */
@@ -134,7 +136,10 @@ export async function createEntity(
       `「${type}」是单例实体（entities/${singleton}），由 kb_init 创建，不能用 kb_create_entity 新建`,
     )
   }
-  const target = entityFilePath(root, type, name)
+  // Meeting notes are filed under `<date> <name>` so the directory reads as a
+  // timeline; the frontmatter title and the creation bullet keep the clean name.
+  const stamp = options.meetingDate ?? todayStamp()
+  const target = entityFilePath(root, type, type === 'meeting' ? `${stamp} ${name}` : name)
   const display = displayPath(root, target)
   if (existsSync(target)) {
     throw new KbError('entity-exists', `实体「${name}」已存在（${display}）；如需补充请使用 kb_append_log`)
