@@ -2,7 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { KbTreeSection } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import { Workbench } from '../src/client/Workbench.tsx'
+import type { TreeLoader } from '../src/client/Workbench.tsx'
+import { IntakeRail, WorkspaceRail } from '../src/client/Workbench.tsx'
 
 afterEach(() => {
   cleanup()
@@ -20,40 +21,51 @@ const workspace: KbTreeSection[] = [
   { id: 'people', files: [{ name: '我自己', path: 'entities/people/我自己.md', relation: 'self' }] },
 ]
 
-describe('Workbench', () => {
-  it('shows the four intake panels and the three workspace tabs', () => {
-    render(
-      <Workbench intake={intake} workspace={workspace} error={null} selection={null} onSelect={() => {}} onRefresh={() => {}} />,
-    )
+/** A loader that resolves with the given sections. */
+const loader = (sections: readonly KbTreeSection[]): TreeLoader => () => Promise.resolve(sections)
+
+describe('IntakeRail', () => {
+  it('shows the four intake panels and their file rows', async () => {
+    render(<IntakeRail collapsed={false} load={loader(intake)} />)
     for (const label of ['资源', '待办', '会议', '连接']) {
       expect(screen.getByText(label)).toBeTruthy()
     }
+    expect(await screen.findByText('周报.eml')).toBeTruthy()
+  })
+
+  it('collapses to a refresh-only icon column', () => {
+    render(<IntakeRail collapsed load={loader(intake)} />)
+    expect(screen.queryByText('资源')).toBeNull()
+    expect(screen.getByTitle('刷新知识库')).toBeTruthy()
+  })
+
+  it('surfaces a load failure and a refresh action', async () => {
+    const failing = vi.fn(() => Promise.reject(new Error('知识库加载失败')))
+    render(<IntakeRail collapsed={false} load={failing} />)
+    expect(await screen.findByText('知识库加载失败')).toBeTruthy()
+    fireEvent.click(screen.getByText('⟳ 刷新'))
+    expect(failing).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('WorkspaceRail', () => {
+  it('switches tabs and keeps the selection inside the rail', async () => {
+    render(<WorkspaceRail load={loader(workspace)} />)
     for (const label of ['领域', '人物', '项目']) {
       expect(screen.getByText(label)).toBeTruthy()
     }
-    // The intake rows are on screen; the workspace rail opens on 领域.
-    expect(screen.getByText('周报.eml')).toBeTruthy()
-    expect(screen.getByText('健康')).toBeTruthy()
-  })
-
-  it('switches workspace tabs and reports the selected path', () => {
-    const onSelect = vi.fn()
-    render(
-      <Workbench intake={intake} workspace={workspace} error={null} selection={null} onSelect={onSelect} onRefresh={() => {}} />,
-    )
+    // The rail opens on 领域; switching to 项目 swaps the file rows.
+    expect(await screen.findByText('健康')).toBeTruthy()
     fireEvent.click(screen.getByText('项目'))
-    expect(screen.getByText('dsh 学习')).toBeTruthy()
-    fireEvent.click(screen.getByText('dsh 学习'))
-    expect(onSelect).toHaveBeenCalledWith('entities/projects/dsh 学习.md')
+    expect(await screen.findByText('dsh 学习')).toBeTruthy()
+    expect(screen.queryByText('健康')).toBeNull()
   })
 
-  it('surfaces a load failure and a refresh action', () => {
-    const onRefresh = vi.fn()
-    render(
-      <Workbench intake={null} workspace={null} error="知识库加载失败" selection={null} onSelect={() => {}} onRefresh={onRefresh} />,
-    )
-    expect(screen.getByText('知识库加载失败')).toBeTruthy()
-    fireEvent.click(screen.getByText('⟳ 刷新'))
-    expect(onRefresh).toHaveBeenCalled()
+  it('retracts to a handle and comes back', () => {
+    render(<WorkspaceRail load={loader(workspace)} />)
+    fireEvent.click(screen.getByTitle('收起工作区'))
+    expect(screen.queryByText('领域')).toBeNull()
+    fireEvent.click(screen.getByTitle('展开工作区'))
+    expect(screen.getByText('领域')).toBeTruthy()
   })
 })

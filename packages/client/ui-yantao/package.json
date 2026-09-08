@@ -29,7 +29,9 @@
     "client": {
       "inject": [
         "@deepseek-ai/dsh-api-remotes",
-        "@deepseek-ai/dsh-api-yantao-kb-controller"
+        "@deepseek-ai/dsh-api-yantao-kb-controller",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-renderer"
       ],
       "platform": "web"
     }
@@ -51,6 +53,8 @@
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-api-remotes": "workspace:^",
     "@deepseek-ai/dsh-api-yantao-kb-controller": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-layout": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-renderer": "workspace:^",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.0",
     "react": "^18.2.0",

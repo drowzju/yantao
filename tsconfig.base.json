@@ -173,6 +173,8 @@
       "@deepseek-ai/dsh-client-test-runtime": ["./packages/test-support/client-runtime/src"],
       "@deepseek-ai/dsh-client-ui-layout": ["./packages/client/ui-layout/src"],
       "@deepseek-ai/dsh-client-ui-sidebar": ["./packages/client/ui-sidebar/src"],
+      "@deepseek-ai/dsh-client-ui-yantao": ["./packages/client/ui-yantao/src"],
+      "@deepseek-ai/dsh-client-ui-yantao/client": ["./packages/client/ui-yantao/src/client/index.ts"],
       "@deepseek-ai/dsh-client-ui-yantao-kb": ["./packages/client/ui-yantao-kb/src"],
       "@deepseek-ai/dsh-client-ui-yantao-kb/client": ["./packages/client/ui-yantao-kb/src/client/index.ts"],
       "@deepseek-ai/dsh-client-ui-brand-official": ["./packages/client/ui-brand-official/src"],
@@ -439,7 +441,8 @@
       "@deepseek-ai/dsh-workspace": ["./packages/workspace/workspace/src"],
       "@deepseek-ai/dsh-workspace/invariant": ["./packages/workspace/workspace/src/invariant.ts"],
       "@deepseek-ai/dsh-yantao": ["./packages/bundle/yantao/src"],
-      "@deepseek-ai/dsh-yantao-web-app": ["./packages/bundle/yantao-web-app/src"]
+      "@deepseek-ai/dsh-yantao-web-app": ["./packages/bundle/yantao-web-app/src"],
+      "@deepseek-ai/dsh-yantao-web-app/startup": ["./packages/bundle/yantao-web-app/src/startup.ts"]
       // END generated package aliases
     }
   }

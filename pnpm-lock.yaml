@@ -4104,6 +4104,12 @@ importers:
       '@deepseek-ai/dsh-api-yantao-kb-controller':
         specifier: workspace:^
         version: link:../../api/yantao-kb-controller
+      '@deepseek-ai/dsh-client-ui-layout':
+        specifier: workspace:^
+        version: link:../ui-layout
+      '@deepseek-ai/dsh-client-ui-renderer':
+        specifier: workspace:^
+        version: link:../ui-renderer
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
