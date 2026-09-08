@@ -32,6 +32,7 @@
 | 共享 shell 第一行退场:`ui-yantao-kb` 移出 yantao-web roster,目录重新生成 | `packages/bundle/yantao-web-app/cordis.patch.yml`、`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` |
 | 两条侧栏改为通过宿主自己的槽位贡献:`IntakeRail` 注册进 `sidebar`(框架自带的拖拽手柄可改宽度,`toggleSidebar` 可收成图标栏),`WorkspaceRail` 注册进 `shell.overlay`(可收成把手);挂在 body 上的 React root 已删除 | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,remote.ts}`、`tsconfig.base.json`(补上缺失的 `ui-yantao` 别名)、`packages/client/ui-yantao/tsconfig.json`(项目引用)、`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` |
 | **外框归我们(ADR-0011)**:`ui-yantao` 把自绘三栏外框注册进运行时内置的 `root` 槽位,声明 `conversation` + `shell.overlay`,并提供 `ctx.layout` 与主题 presenter;`ui-layout` 移出 yantao-web roster,两条侧栏都是真正的网格列——拖拽与折叠重新对称 | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,frame/*}`、`packages/bundle/yantao-web-app/cordis.patch.yml`、`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`、`docs/adr/0011-yantao-owns-the-workbench-frame.md` |
+| **工作台能打开、编辑、新建文件(ADR-0012)**:中栏 tab(常驻「对话」+ 可关闭的文件 tab,从 localStorage 恢复)、原文 markdown 自动保存与保存前冲突比对、会议 / 领域 / 人物 / 项目的 inline「+ 新建」走 `yantaoKb.createEntity`、会议文件名带日期前缀、基于 `entities/todos.md` 的待办内联清单、资源只读、首启目录选择器持久化到 `~/.dsh/yantao-kb.json` | `packages/client/ui-yantao/src/client/{frame/CenterPane,editor/*,TodoList,NewEntityRow,Onboarding,tabs}.tsx`、`packages/yantao/kb/src/{core,paths,root-store,index}.ts`、`packages/api/yantao-kb-controller/src/{index,types}.ts`、`docs/adr/0012-*` |
 
 ## next
 
@@ -39,8 +40,7 @@
 
 1. **了结 `ui-yantao-kb` 的去向** —— 它已移出 roster:要么把 `KbEditor` 的 markdown 编辑能力移植进栏内(见下),然后删除该包;
     要么保留为可组合包。不要留下一个已挂载却不再使用的包。
-2. **带 `read` / `write` 的详情栏** —— 在任意一栏选中一行即加载文件并允许人类编辑。这正是 `ui-yantao-kb` 编辑器做的事;
-    在它落地之前,工作台只列文件、打不开文件。
+2. ~~**带 `read` / `write` 的详情栏**~~ —— 已随中栏 tab 落地(ADR-0012)。剩下的是:两条侧栏各自持有选中项,一侧打开的文件不会在另一侧同步高亮。
 3. **逐行让共享 shell 退场** —— 每次只禁用一个 `ui-*` 行,重启,确认页面正常,再继续。`slots` 是运行时基础设施,不是 UI,
     必须留到无人需要为止。`ui-layout` 已退场(ADR-0011);剩下的大头是 `ui-conversation` 与 `ui-chat`。只有 shell 退场后,中间一列才归我们并承载 agent 交互。
 4. **给工作台自己的词典** —— `Workbench.tsx` 里的文案是硬编码中文;等面板文案多起来就注册一个 locale 命名空间。

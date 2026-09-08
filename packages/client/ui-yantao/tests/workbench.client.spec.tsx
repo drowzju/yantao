@@ -296,9 +296,9 @@ describe('Frame', () => {
   it('activates an already-open file instead of opening it twice, and closes it again', async () => {
     const { container } = render(renderFrame())
     // The rail row and the tab label both read 健康; the rail comes first.
-    fireEvent.click((await screen.findAllByText('健康'))[0])
+    fireEvent.click(firstOf(await screen.findAllByText('健康')))
     fireEvent.click(await screen.findByText('领域'))
-    fireEvent.click((await screen.findAllByText('健康'))[0])
+    fireEvent.click(firstOf(await screen.findAllByText('健康')))
     expect(container.querySelectorAll('[data-tab="entities/areas/健康.md"]')).toHaveLength(1)
 
     fireEvent.click(screen.getByTitle('关闭'))
@@ -352,9 +352,16 @@ describe('Frame', () => {
 
   it('re-opens the directory flow through 更改目录', async () => {
     render(renderFrame())
-    fireEvent.click((await screen.findAllByText('更改目录'))[0])
+    fireEvent.click(firstOf(await screen.findAllByText('更改目录')))
     expect(await screen.findByText('选择知识库目录')).toBeTruthy()
   })
+
+  /** The first of several matches, asserted to exist (noUncheckedIndexedAccess). */
+  function firstOf(elements: HTMLElement[]): HTMLElement {
+    const [first] = elements
+    expect(first).toBeTruthy()
+    return first as HTMLElement
+  }
 
   /** Drive one handle through a full pointer gesture. */
   function drag(side: 'intake' | 'workspace', from: number, to: number): void {

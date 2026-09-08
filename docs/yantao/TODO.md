@@ -32,6 +32,7 @@ Living backlog. Status words: **done** (merged on `main`), **next** (queued), **
 | First shared-shell row stepped aside: `ui-yantao-kb` removed from the yantao-web roster; catalogs regenerated | `packages/bundle/yantao-web-app/cordis.patch.yml`, `packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` |
 | Workbench rails contributed through the host's own slots: `IntakeRail` registers into `sidebar` (the frame's drag handle sizes it, `toggleSidebar` collapses it), `WorkspaceRail` into `shell.overlay` (retractable); the body-level React root is gone |
 | **The workbench frame is ours (ADR-0011)**: `ui-yantao` registers the runtime's built-in `root` slot with its own three-column frame, declares `conversation` + `shell.overlay`, and provides `ctx.layout` plus the theme presenter; `ui-layout` is out of the yantao-web roster and both rails are real grid columns — dragging and collapsing are symmetric again | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,frame/*}`, `packages/bundle/yantao-web-app/cordis.patch.yml`, `packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`, `docs/adr/0011-yantao-owns-the-workbench-frame.md` | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,remote.ts}`, `tsconfig.base.json` (the missing `ui-yantao` alias), `packages/client/ui-yantao/tsconfig.json` (project references), `packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` |
+| **The workbench can open, edit and create files (ADR-0012)**: centre-pane tabs (a permanent 对话 tab plus closeable file tabs, restored from localStorage), raw-markdown autosave with a pre-save conflict check, inline 「+ 新建」for meetings / areas / people / projects through `yantaoKb.createEntity`, dated meeting filenames, an inline 待办 checklist over `entities/todos.md`, read-only 资源, and a first-run directory picker persisted to `~/.dsh/yantao-kb.json` | `packages/client/ui-yantao/src/client/{frame/CenterPane,editor/*,TodoList,NewEntityRow,Onboarding,tabs}.tsx`, `packages/yantao/kb/src/{core,paths,root-store,index}.ts`, `packages/api/yantao-kb-controller/src/{index,types}.ts`, `docs/adr/0012-*` |
 
 ## next
 
@@ -39,8 +40,8 @@ Living backlog. Status words: **done** (merged on `main`), **next** (queued), **
 
 1. **Finish `ui-yantao-kb`'s fate** — it is out of the roster now, so either port `KbEditor`'s markdown editing into the panes
    (below) and delete the package, or keep it as a composable package. Do not leave a mounted-but-unused package behind.
-2. **Detail pane with `read` / `write`** — selecting a row in either rail loads the file and lets the human edit it. This is
-   what `ui-yantao-kb`'s editor did; until it lands, the workbench lists files but cannot open them.
+2. ~~**Detail pane with `read` / `write`**~~ — landed as centre-pane tabs (ADR-0012). What is left of it: the two rails keep
+   separate selections, and a file opened from the workspace rail does not yet reveal itself in the intake rail (and vice versa).
 3. **Step the shared shell aside, one row at a time** — disable a single `ui-*` row, reboot, confirm the page still loads, repeat.
    `slots` is runtime infrastructure, not UI: it must stay until nothing needs it. `ui-layout` already stepped aside (ADR-0011);
    the remaining big ones are `ui-conversation` and `ui-chat`. Only when the shell is gone can the middle column become ours

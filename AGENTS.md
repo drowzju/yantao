@@ -17,8 +17,9 @@ carrying the **yantao** personal knowledge workbench on a local branch `main`. U
    `packages/api/yantao-kb-controller/**`, `packages/bundle/yantao*/**`, `apps/yantao/**`). Upstream files receive only the
    registrations listed as the merge surface in [docs/yantao/README.md](docs/yantao/README.md#merge-surface-upstream-files-we-modify).
    That list is deliberately short — do not grow it without an ADR.
-2. **The trust boundary is the tool layer.** The agent gets the six `kb_*` tools and no generic write capability; an entity's
-   `状态` section must stay structurally unreachable for it (ADR-0004). The UI is the human channel and may edit anything.
+2. **The trust boundary is the tool layer.** The agent gets the seven `kb_*` tools and no generic write capability; it may edit an
+   entity's `状态` (ADR-0010 overturned ADR-0004's human-only rule) but only through `kb_write_state`. The UI is the human channel
+   and may edit anything.
 3. **Cordis discipline.** Reading a service or a Remote namespace requires declaring it: `inject = ['remote', 'remote.yantaoKb']`.
    Reading an undeclared one throws at runtime.
 4. **Frontend contract.** `apps/yantao` must keep the same build contract as upstream's `apps/web` — notably

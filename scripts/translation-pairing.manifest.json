@@ -19,6 +19,8 @@
     "docs/adr/0007-llm-via-internal-glm-gateway.md",
     "docs/adr/0008-workbench-ui-as-bundle-plus-client-plugins.md",
     "docs/adr/0009-bespoke-frontend-dsh-as-backend.md",
-    "docs/adr/0010-domain-expansion-and-three-pane-layout.md"
+    "docs/adr/0010-domain-expansion-and-three-pane-layout.md",
+    "docs/adr/0011-yantao-owns-the-workbench-frame.md",
+    "docs/adr/0012-workbench-editing-and-first-run.md"
   ]
 }

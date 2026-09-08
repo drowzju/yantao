@@ -2935,13 +2935,23 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'yantaoKb',
-    summary: 'The resolved KB root, published while the yantao-kb plugin is mounted so host-side consumers (the yantao-kb-controller Remote) share this one configuration point instead of duplicating it.',
-    description: 'The resolved KB root, published while the yantao-kb plugin is mounted so host-side consumers (the yantao-kb-controller Remote) share this one configuration point instead of duplicating it.',
+    summary: 'The live KB root, published while the yantao-kb plugin is mounted so host-side consumers (the yantao-kb-controller Remote) share this one configuration point instead of duplicating it.',
+    description: 'The live KB root, published while the yantao-kb plugin is mounted so host-side consumers (the yantao-kb-controller Remote) share this one configuration point instead of duplicating it. The root starts as the persisted override when the workbench has chosen one, and otherwise as the config default; `setRoot` retargets the whole host at a new root.',
     methods: [
       {
         signature: 'readonly root: string',
         description: 'Resolved knowledge-base root directory.',
         parameters: [],
+      },
+      {
+        signature: 'readonly configured: boolean',
+        description: 'True when the root comes from a persisted override rather than the config default.',
+        parameters: [],
+      },
+      {
+        signature: 'setRoot(next: string): void',
+        description: 'Retarget the live KB at `next` and persist it as the override.',
+        parameters: [{ name: 'next', description: 'the new knowledge-base root directory (absolute).' }],
       },
     ],
   },
@@ -2967,6 +2977,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read one KB file\'s complete content.',
         parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }],
         returns: 'the path and the file\'s complete UTF-8 content.',
+      },
+      {
+        signature: '@Remote(\'root\') root(): Promise<KbRootResult>',
+        description: 'The live KB root and whether the human has chosen one yet.',
+        parameters: [],
+        returns: 'the root in force and `configured` — true when a persisted root override exists.',
+      },
+      {
+        signature: '@Remote(\'setRoot\') async setRoot(path: string): Promise<KbSetRootResult>',
+        description: 'Choose the knowledge base: initialize `path` as a KB and hand it to the `yantaoKb` service, which makes it the live root for every host-side consumer and persists it as the root override.',
+        parameters: [{ name: 'path', description: 'absolute path of the knowledge-base root directory.' }],
+        returns: 'the root now in force plus what the initialization created or found.',
+      },
+      {
+        signature: '@Remote(\'createEntity\') async createEntity(args: KbCreateEntityArgs): Promise<KbCreateEntityResult>',
+        description: 'Create one entity note from the canonical template.',
+        parameters: [{ name: 'args', description: 'the entity kind, its display name, and the meeting\'s own date.' }],
+        returns: 'the KB-relative path of the created file.',
       },
       {
         signature: '@Remote(\'write\') async write(path: string, content: string): Promise<KbWriteResult>',
@@ -4413,8 +4441,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'KbCreatableEntityType',
+    declaration: 'export type KbCreatableEntityType = \'project\' | \'area\' | \'person\' | \'meeting\';',
+  },
+  {
+    name: 'KbCreateEntityArgs',
+    declaration: 'export interface KbCreateEntityArgs {\n    readonly type: KbCreatableEntityType;\n    readonly name: string;\n    readonly date?: string;\n}',
+  },
+  {
+    name: 'KbCreateEntityResult',
+    declaration: 'export interface KbCreateEntityResult {\n    readonly path: string;\n}',
+  },
+  {
     name: 'KbFileContent',
     declaration: 'export interface KbFileContent {\n    readonly path: string;\n    readonly content: string;\n}',
+  },
+  {
+    name: 'KbRootResult',
+    declaration: 'export interface KbRootResult {\n    readonly root: string;\n    readonly configured: boolean;\n}',
+  },
+  {
+    name: 'KbSetRootResult',
+    declaration: 'export interface KbSetRootResult {\n    readonly root: string;\n    readonly configured: boolean;\n    readonly created: readonly string[];\n    readonly existing: readonly string[];\n}',
   },
   {
     name: 'KbTree',

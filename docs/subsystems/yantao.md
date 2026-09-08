@@ -99,7 +99,15 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.yantaoKb` — `YantaoKbService`
 
-The resolved KB root, published while the yantao-kb plugin is mounted so host-side consumers (the yantao-kb-controller Remote) share this one configuration point instead of duplicating it.
+The live KB root, published while the yantao-kb plugin is mounted so host-side consumers (the yantao-kb-controller Remote) share this one configuration point instead of duplicating it. The root starts as the persisted override when the workbench has chosen one, and otherwise as the config default; `setRoot` retargets the whole host at a new root.
+
+```ts cordis-catalog
+/**
+ * Retarget the live KB at `next` and persist it as the override.
+ * @param next - the new knowledge-base root directory (absolute).
+ */
+setRoot(next: string): void
+```
 
 Source: [`packages/yantao/kb/src/index.ts`](../../packages/yantao/kb/src/index.ts)
 
@@ -129,6 +137,28 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * @returns the path and the file's complete UTF-8 content.
  */
 @Remote('read') async read(path: string): Promise<KbFileContent>
+
+/**
+ * The live KB root and whether the human has chosen one yet.
+ * @returns the root in force and `configured` — true when a persisted root override exists.
+ */
+@Remote('root') root(): Promise<KbRootResult>
+
+/**
+ * Choose the knowledge base: initialize `path` as a KB and hand it to the
+ * `yantaoKb` service, which makes it the live root for every host-side
+ * consumer and persists it as the root override.
+ * @param path - absolute path of the knowledge-base root directory.
+ * @returns the root now in force plus what the initialization created or found.
+ */
+@Remote('setRoot') async setRoot(path: string): Promise<KbSetRootResult>
+
+/**
+ * Create one entity note from the canonical template.
+ * @param args - the entity kind, its display name, and the meeting's own date.
+ * @returns the KB-relative path of the created file.
+ */
+@Remote('createEntity') async createEntity(args: KbCreateEntityArgs): Promise<KbCreateEntityResult>
 
 /**
  * Write one KB file's complete content (the human channel's full-file

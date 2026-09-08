@@ -18,6 +18,9 @@
       "path": "../../api/remotes/tsconfig.client.json"
     },
     {
+      "path": "../../api/workspace-controller/tsconfig.client.json"
+    },
+    {
       "path": "../ui-slots"
     },
     {
@@ -31,6 +34,15 @@
     },
     {
       "path": "../ui-layout"
+    },
+    {
+      "path": "../ui-conversation"
+    },
+    {
+      "path": "../ui-workspace"
+    },
+    {
+      "path": "../ui-settings"
     },
     {
       "path": "../locale"

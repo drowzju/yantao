@@ -49,7 +49,10 @@ export interface YantaoKbService {
   readonly root: string
   /** True when the root comes from a persisted override rather than the config default. */
   readonly configured: boolean
-  /** Retarget the live KB at `next` and persist it as the override. */
+  /**
+   * Retarget the live KB at `next` and persist it as the override.
+   * @param next - the new knowledge-base root directory (absolute).
+   */
   setRoot(next: string): void
 }
 

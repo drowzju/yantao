@@ -3330,7 +3330,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/yantao/kb/src/index.ts:26`](../packages/yantao/kb/src/index.ts)
+Source: [`packages/yantao/kb/src/index.ts:28`](../packages/yantao/kb/src/index.ts)
 
 <a id="deepseek-aidsh-yantao-web-app"></a>
 

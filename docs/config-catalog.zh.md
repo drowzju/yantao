@@ -3332,7 +3332,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/yantao/kb/src/index.ts:26`](../packages/yantao/kb/src/index.ts)
+来源：[`packages/yantao/kb/src/index.ts:28`](../packages/yantao/kb/src/index.ts)
 
 <a id="deepseek-aidsh-yantao-web-app"></a>
 
@@ -3411,6 +3411,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-user-questions`（[`packages/client/ui-user-questions/src/index.ts`](../packages/client/ui-user-questions/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-workflow-run`（[`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-workspace`（[`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts)）
+- `@deepseek-ai/dsh-client-ui-yantao`（[`packages/client/ui-yantao/src/index.ts`](../packages/client/ui-yantao/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-yantao-kb`（[`packages/client/ui-yantao-kb/src/index.ts`](../packages/client/ui-yantao-kb/src/index.ts)）
 - `@deepseek-ai/dsh-command-compact` — 需要 `commands` · `compact`（[`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts)）
 - `@deepseek-ai/dsh-command-feedback` — 需要 `commands`（[`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts)）
