@@ -67,10 +67,15 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"     # headless:
    `git clean -n packages/client/<pkg>/src` 可预览。
 10. **构建版 CLI(`apps/cli/lib/bin.js`)在本机跑不通**(profile 目录解析不到 `@deepseek-ai/dsh-storage-json`)。用源码入口
     `pnpm dsh …`。
+11. **新增/改名 Remote 方法后必须重建 client 产物。** 浏览器侧的 Remote 代理方法表被打包进
+    `packages/api/remotes/lib/client.js`,而 `pnpm run typecheck` 只重建 host 侧(`build:lib:host`)。所以改动 `@Remote`
+    方法后要跑 `pnpm run build:lib:client`(外加插件自己的 `bundle`),否则页面报 `kb.<方法> is not a function`
+    —— 服务端其实已经是新的了。
 
 ## 扩展方式
 
 - **新增 agent 能力** → 在 `packages/yantao/kb/src/index.ts` 里加一个 `kb_*` 工具(该文件就是全部工具面),并补一个证明它
   不会越过「状态」边界的单测。
-- **UI 需要新数据** → 给 `yantaoKb` Remote 加方法(`packages/api/yantao-kb-controller/`),必要时挂载,再由客户端插件调用。
+- **UI 需要新数据** → 给 `yantaoKb` Remote 加方法(`packages/api/yantao-kb-controller/`),必要时挂载,重建 client 侧
+  (`pnpm run build:lib:client`),再由客户端插件调用。
 - **新界面** → `apps/yantao/src/`(React)。`ctx.remote` 是通往后端的唯一门。

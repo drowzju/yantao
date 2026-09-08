@@ -71,11 +71,15 @@ Tests: `pnpm vitest run packages/yantao/kb packages/api/yantao-kb-controller pac
    cleaning; `git clean -n packages/client/<pkg>/src` shows what would go.
 10. **The built CLI (`apps/cli/lib/bin.js`) fails on this checkout** (`@deepseek-ai/dsh-storage-json` unresolvable from the profile
     dir). Use the source entry: `pnpm dsh …`.
+11. **A new Remote method needs the client face rebuilt.** The browser's Remote proxy method table is bundled into
+    `packages/api/remotes/lib/client.js`, and `pnpm run typecheck` only rebuilds the host face (`build:lib:host`). After adding or
+    renaming a `@Remote` method, run `pnpm run build:lib:client` (plus the plugin's own `bundle`) — otherwise the page reports
+    `kb.<method> is not a function` even though the server is perfectly current.
 
 ## Extending
 
 - **New agent capability** → add a `kb_*` tool in `packages/yantao/kb/src/index.ts` (that file is the whole tool surface) and a unit
   test that proves it cannot cross the `状态` boundary.
-- **New UI data need** → add a method to the `yantaoKb` Remote (`packages/api/yantao-kb-controller/`), mount it if needed, then call
-  it from the client plugin.
+- **New UI data need** → add a method to the `yantaoKb` Remote (`packages/api/yantao-kb-controller/`), mount it if needed, rebuild
+  the client face (`pnpm run build:lib:client`), then call it from the client plugin.
 - **New UI** → `apps/yantao/src/` (React). Keep `ctx.remote` as the only door to the backend.
