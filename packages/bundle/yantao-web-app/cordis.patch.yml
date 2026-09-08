@@ -127,7 +127,7 @@
     # use, plus the KB workbench plugin. Omitted rows are absent rather than
     # disabled because every one of them is a web-app-side insert — nothing
     # re-adds them later. What each omission removes:
-    #   ui-sidebar        → replaced by ui-yantao-kb's KB tree sidebar
+    #   ui-sidebar        → replaced by ui-yantao's intake rail (three-pane UI)
     #   ui-cordis         → cordis_inspect view; the opt-in tool is not mounted here
     #   ui-workflow-run   → workflow lifecycle node; tool-workflow is disabled below
     #   ui-deliverables   → produced-files tail; kb_ writes are not tracked producers
@@ -212,10 +212,12 @@
     - id: ui-tool
       name: '@deepseek-ai/dsh-client-ui-tool'
 
-    # The KB workbench: five-section tree in 'sidebar', markdown editor
-    # shadowing 'details', both over the yantaoKb Remote.
-    - id: ui-yantao-kb
-      name: '@deepseek-ai/dsh-client-ui-yantao-kb'
+    # Stepped aside (ADR-0010): ui-yantao-kb's 'sidebar' tree and 'details'
+    # editor duplicated the three-pane rails ui-yantao now owns. It is the
+    # first row the shared shell loses; editing returns with the panes' own
+    # detail view.
+    # - id: ui-yantao-kb
+    #   name: '@deepseek-ai/dsh-client-ui-yantao-kb'
 
     - id: ui-workspace
       name: '@deepseek-ai/dsh-client-ui-workspace'

@@ -1,14 +1,18 @@
 /**
- * yantao workbench client plugin — spike slice.
+ * yantao workbench client plugin — the three-pane skeleton.
  *
- * The point of this slice is to prove two things: dsh serves OUR dist, and a
- * plugin of ours reaches `ctx.remote.yantaoKb` from a React tree we render
- * ourselves (no slot system, no shared-shell UI). It renders one RPC round
- * trip verbatim; the three-pane workbench replaces it once this is green.
+ * dsh serves OUR dist and a plugin of ours reaches `ctx.remote.yantaoKb`
+ * from a React tree we render ourselves (no slot system, no shared-shell
+ * UI). Until the shared shell steps aside, the middle column stays the
+ * host's agent surface: the overlay is click-through and only the two rails
+ * take pointer events.
  */
-import { createElement, useEffect, useState, type ReactElement } from 'react'
+import { createElement, useCallback, useEffect, useState, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Context } from '@deepseek-ai/cordis'
+import type { KbTreeSection } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import { Workbench } from './Workbench.tsx'
+import { kbRemoteOf, remoteMessage, unwrapRemote } from './remote.ts'
 
 export const name = 'ui-yantao'
 // Cordis forbids reading an undeclared service, and a Remote namespace counts
@@ -16,45 +20,53 @@ export const name = 'ui-yantao'
 // or the accessor throws "cannot get property remote.yantaoKb without inject".
 export const inject = ['remote', 'remote.yantaoKb']
 
-/** The slice of ctx.remote this slice needs, narrowed defensively. */
-interface KbRemoteView {
-  yantaoKb?: { tree(): Promise<unknown> }
-  [key: string]: unknown
-}
-
-/** Reach the remote surface without assuming the namespace is mounted. */
-function kbRemote(ctx: Context): KbRemoteView | undefined {
-  return (ctx as unknown as { remote?: KbRemoteView }).remote
-}
+/** The container id the workbench owns. */
+const CONTAINER_ID = 'yantao-workbench'
 
 export function apply(ctx: Context): void {
-  // The shared shell still owns #root (we step it aside one row at a time,
-  // verifying after each), so the workbench renders into its own container.
-  let container = document.getElementById('yantao-probe')
+  let container = document.getElementById(CONTAINER_ID)
   if (container === null) {
     container = document.createElement('div')
-    container.id = 'yantao-probe'
+    container.id = CONTAINER_ID
     document.body.appendChild(container)
   }
-  createRoot(container).render(createElement(WorkbenchProbe, { ctx }))
+  const root = createRoot(container)
+  root.render(createElement(WorkbenchHost, { ctx }))
+  ctx.effect(() => () => { root.unmount() }, 'ui-yantao: unmount workbench')
 }
 
-/** Render the probe: reachable namespaces, then one tree() round trip. */
-function WorkbenchProbe({ ctx }: { ctx: Context }): ReactElement {
-  const [state, setState] = useState<string>('connecting…')
-  useEffect(() => {
-    const remote = kbRemote(ctx)
-    const kb = remote?.yantaoKb
+/** The stateful host: loads both trees, keeps the selection, and reports failures. */
+function WorkbenchHost({ ctx }: { ctx: Context }): ReactElement {
+  const [intake, setIntake] = useState<readonly KbTreeSection[] | null>(null)
+  const [workspace, setWorkspace] = useState<readonly KbTreeSection[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [selection, setSelection] = useState<string | null>(null)
+
+  const load = useCallback(async (): Promise<void> => {
+    const kb = kbRemoteOf(ctx)
     if (kb === undefined) {
-      const keys = Object.keys(remote ?? {})
-      setState(`no yantaoKb namespace; reachable: ${keys.length === 0 ? '(none)' : keys.join(', ')}`)
+      setError('没有挂载 yantaoKb Remote 命名空间')
       return
     }
-    kb.tree()
-      .then((tree) => { setState(`tree() ok: ${JSON.stringify(tree).slice(0, 400)}`) })
-      .catch((error: unknown) => { setState(`tree() failed: ${String(error)}`) })
+    try {
+      const nextIntake = unwrapRemote(await kb.intakeTree())
+      const nextWorkspace = unwrapRemote(await kb.workspaceTree())
+      setIntake(nextIntake.sections)
+      setWorkspace(nextWorkspace.sections)
+      setError(null)
+    } catch (failure: unknown) {
+      setError(remoteMessage(failure))
+    }
   }, [ctx])
-  return createElement('pre', {
-    style: { padding: 16, fontFamily: 'ui-monospace, monospace', whiteSpace: 'pre-wrap' },
-  }, `yantao 工作台 · ${state}`)
+
+  useEffect(() => { void load() }, [load])
+
+  return createElement(Workbench, {
+    intake,
+    workspace,
+    error,
+    selection,
+    onSelect: setSelection,
+    onRefresh: () => void load(),
+  })
 }

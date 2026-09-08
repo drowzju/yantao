@@ -15,17 +15,42 @@
 | 由 dsh 伺服的自研前端 + 我们的客户端插件打通 `ctx.remote.yantaoKb` | `apps/yantao/`、`packages/client/ui-yantao/`,ADR-0009 |
 | 启动/停止脚本(常驻,无超时) | `scripts/yantao-web-{start,stop}.ps1` |
 | 工作区已清理:`packages/*/src` 下 297 个生成文件已删除 | 单包 `tsc -b` 留下的 `.js` / `.d.ts` / `.map`;上游在那里只跟踪 `.ts`/`.tsx` |
+| 中文目录侧补齐(`config-catalog.zh.md`、`capability-seams.zh.md`)+ 配对重新记录 | `docs/config-catalog.zh.md`、`docs/capability-seams.zh.md`;加入 yantao 条目与英文侧一致 |
+| `ui-yantao` 加入 client 包地图 | `packages/client/README.md`、`README.zh.md` |
+| ADR-0008 frontmatter 标记 `status: superseded` | `docs/adr/0008-workbench-ui-as-bundle-plus-client-plugins.md` |
+| 中文专属 yantao 文档豁免双语配对 | `scripts/translation-pairing.manifest.json` —— ADR + CONTEXT-MAP + CONTEXT.md 加入 excluded 列表 |
+| 领域模型扩展:`meeting` + `todo` 两类 | `packages/yantao/kb/src/types.ts`(`EntityType`、`ENTITY_DIRS`、`SINGLETON_FILES`)、`paths.ts`(单例 `entityFilePath`,五类全部进入 `normalizeEntityType` / 定位器)、`templates.ts`(meeting 模板 + `todoFileContent` + `KB_README` 文案) |
+| `kb_init` 创建 `entities/meetings/` 与 `entities/todos.md`(幂等);`kb_create_entity` 接受 `meeting`、拒绝单例 | `packages/yantao/kb/src/core.ts`、`index.ts`(meeting 新增 `date` 参数) |
+| `kb_write_state` —— 第七个 `kb_*` 工具,经 `replaceStateSection` 拼接器改写 `状态`;`kb_append_log` 描述不再声称状态人类专属 | `packages/yantao/kb/src/splice.ts`、`core.ts`、`index.ts`;ADR-0010 |
+| KB 测试 33 → 51:meeting 模板、todo 单例、`replaceStateSection`、`kb_write_state`、单例列出 | `packages/yantao/kb/tests/kb.spec.ts` |
+| KB 包 README 双语对更新为七个工具、状态可由 agent 写入 | `packages/yantao/kb/README.md`、`README.zh.md`(+ 重录 `.i18n.yaml`) |
+| `yantaoKb.tree()` 拆为 `intakeTree()`(resources + meetings + todos)与 `workspaceTree()`(projects + areas + people);`sessions` section 移除 | `packages/api/yantao-kb-controller/src/{index,types}.ts`;`packages/yantao/kb/src/paths.ts` 导出 `entityDisplayPath`,使 todo 单例解析到 `entities/todos.md` |
+| controller spec 按双树重写(9 个测试),Cordis API surface 重新生成 | `packages/api/yantao-kb-controller/tests/controller.spec.ts`、`docs/subsystems/yantao.md`、`packages/extensions/tool-cordis/src/api-catalog.ts` |
+| 侧边栏与 spike probe 跟进两个 RPC;新增 会议 / 待办 section 标签 | `packages/client/ui-yantao-kb/src/client/{service,KbTree,editor-state,locales}.ts(x)`、`packages/client/ui-yantao/src/client/index.ts` |
+| `ui-yantao` 三栏骨架:输入栏(资源/待办/会议/连接)+ 工作栏(领域/人物/项目 三个 tab),走 `intakeTree()` / `workspaceTree()`;覆盖层点击穿透,中间一列仍是宿主的 agent 交互区 | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,remote.ts}` |
+| `ui-yantao` client spec(3 个测试)与通过两个包门禁的 README 双语对 | `packages/client/ui-yantao/tests/workbench.client.spec.tsx`、`README.md`、`README.zh.md` |
+| 共享 shell 第一行退场:`ui-yantao-kb` 移出 yantao-web roster,目录重新生成 | `packages/bundle/yantao-web-app/cordis.patch.yml`、`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` |
 
 ## next
 
-1. **初始化真实知识库** —— 确认根目录(默认 `%USERPROFILE%/yantao-kb`),跑一次 `kb_init`,让树里出现「我自己」与 README。
-2. **三栏骨架** —— 左:resources + sessions;中:agent(默认 tab)与编辑器 tab;右:people / project / area。数据全部走
-   `yantaoKb.tree/read/write`。
-3. **逐行让共享 shell 退场** —— 每次只禁用一个 `ui-*` 行,重启,确认页面正常,再继续。`slots` 是运行时基础设施,不是 UI,必须留到无人需要为止。
-4. **补齐两篇生成目录的中文侧。** `docs/config-catalog.md` 与 `docs/capability-seams.md` 已重新生成(加入了我们的 kb 插件与
-   web-app 条目),但对应的 `.zh.md` 没有跟上,于是两对都是红的:config-catalog 缺 2 个新章节 + 2 个目录条目 + 3 个列表项;
-   capability-seams 缺 2 行表格、一处 mermaid 差异和 1 个链接。先把中文侧补到一致,再
-   `pnpm run verify-translation-pairing --write <文件>` 重新记录。在此之前,这两个配对记录刻意保持不动。
+### 阶段 1 —— 三栏 UI(ADR-0010)
+
+1. **了结 `ui-yantao-kb` 的去向** —— 它已移出 roster:要么把 `KbEditor` 的 markdown 编辑能力移植进栏内(见下),然后删除该包;
+    要么保留为可组合包。不要留下一个已挂载却不再使用的包。
+2. **带 `read` / `write` 的详情栏** —— 在任意一栏选中一行即加载文件并允许人类编辑。这正是 `ui-yantao-kb` 编辑器做的事;
+    在它落地之前,工作台只列文件、打不开文件。
+3. **逐行让共享 shell 退场** —— 每次只禁用一个 `ui-*` 行,重启,确认页面正常,再继续。`slots` 是运行时基础设施,不是 UI,
+    必须留到无人需要为止。只有 shell 退场后,中间一列才归我们并承载 agent 交互。
+4. **给工作台自己的词典** —— `Workbench.tsx` 里的文案是硬编码中文;等面板文案多起来就注册一个 locale 命名空间。
+
+### 阶段 2 —— 文档同步
+
+5. **更新 `packages/yantao/CONTEXT.md`** —— 增加 meeting、todo、connector 词汇条目;修订 `状态` 定义为"agent 可编辑";
+    移除 `会话` 条目(功能移除)。
+6. **更新 `docs/yantao/README.md`** —— 架构图和 ADR 索引反映 ADR-0010;文中仍写着 agent 有六个 `kb_*` 工具。
+7. **跑一次 `pnpm run gen-tsconfig-paths`** —— 最后一个既有门禁失败:`verify-cordis-config` 报
+    `packages/bundle/yantao-web-app/cordis.patch.yml` 里两个 id 缺 `tsconfig.base.json` 映射。
+    (另外两个失败 —— `ui-yantao` README 的两个门禁 —— 已清。)
 
 ## deferred(附原因)
 
@@ -33,11 +58,11 @@
 |---|---|
 | Resource 入库 watcher(放入文件 → 自动生成影子笔记) | 需要一个监听任务;先决定用 dsh 的 `jobs`/schedule 还是普通 watcher |
 | 提炼闭环 v1(人触发 → agent 提议 → 人批准) | 真正的价值所在;需要先有编辑器面板与提议 UI |
-| 会话转写落 `sessions/` | dsh 已经把每个会话事件溯源(`session.vN.jsonl`),这活儿应变成"投影"而非新机制 |
+| 会话转写落 `sessions/` | dsh 已经把每个会话事件溯源(`session.vN.jsonl`),这活儿应变成"投影"而非新机制 —— **且:会话功能已移除(ADR-0010),待重新设计后再启** |
 | FTS 与 backlinks 索引 | 等知识库有真实内容后再定存储(drift/sqlite 还是 dsh `session-query`) |
+| Connector 实现(邮件、脚本、CLI) | ADR-0010 描述了抽象;具体实现推迟到需要邮件集成时 |
 | *(已移入 done)* —— 注意:单包 `tsc -b` 会**重新生成**这些残留 | 用仓库自带的 `pnpm run clean` 再清,或先 `git clean -n -- packages` 预览、再 `git clean -f -- packages` |
 | 精简 profile(减少 base 行)以缩短约 35 秒启动 | 先测量;等 UI 完全归我们再做 |
-| `docs/config-catalog.md` 已重新生成但中文侧未同步 | 生成页;在中文侧重新生成或加入豁免前,该对的配对检查是红的。未随本次文档工作提交。 |
 
 ## 这份清单的规矩
 
