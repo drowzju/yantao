@@ -46,7 +46,15 @@ describe('isReadOnlyKbPath', () => {
 })
 
 describe('section label keys', () => {
-  it('covers the five sections in the domain order', () => {
-    expect(Object.keys(SECTION_LABEL_KEYS)).toEqual(['resources', 'projects', 'areas', 'people', 'sessions'])
+  it('covers the six KB sections in domain order, then the live-session heading', () => {
+    expect(Object.keys(SECTION_LABEL_KEYS)).toEqual([
+      'resources',
+      'meetings',
+      'todos',
+      'projects',
+      'areas',
+      'people',
+      'sessions',
+    ])
   })
 })

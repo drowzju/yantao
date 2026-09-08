@@ -19,8 +19,12 @@ export interface KbTreeFile {
   readonly relation?: string
 }
 
-/** Stable section identifiers of the KB tree, in display order. */
-export type KbTreeSectionId = 'resources' | 'projects' | 'areas' | 'people' | 'sessions'
+/**
+ * Stable section identifiers across both trees. The intake tree carries
+ * `resources` + `meetings` + `todos`, the workspace tree `projects` +
+ * `areas` + `people` — one union keeps the Client's label map total.
+ */
+export type KbTreeSectionId = 'resources' | 'meetings' | 'todos' | 'projects' | 'areas' | 'people'
 
 /** One KB tree section. */
 export interface KbTreeSection {
@@ -30,9 +34,9 @@ export interface KbTreeSection {
   readonly files: readonly KbTreeFile[]
 }
 
-/** The full KB tree payload returned by `yantaoKb.tree`. */
+/** One KB tree payload: the sections of the intake or the workspace side, in display order. */
 export interface KbTree {
-  /** The five sections in display order. */
+  /** The sections of this tree, every one present even when empty. */
   readonly sections: readonly KbTreeSection[]
 }
 

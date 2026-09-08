@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
-import { entityFileContent, todayStamp } from '@deepseek-ai/dsh-yantao-kb'
+import { entityFileContent, todayStamp, todoFileContent } from '@deepseek-ai/dsh-yantao-kb'
+import type { KbTreeSection } from '../src/types.ts'
 import YantaoKbController from '../src/index.ts'
 
 let kbRoot: string
@@ -35,39 +36,51 @@ async function seedKb(): Promise<void> {
   await seedFile('entities/projects/dsh 学习.md', entityFileContent('project', 'dsh 学习', TODAY))
   await seedFile('entities/projects/旧项目.md', entityFileContent('project', '旧项目', TODAY).replace('tags: []', 'archive: true\ntags: []'))
   await seedFile('entities/areas/健康.md', entityFileContent('area', '健康', TODAY))
-  await seedFile('entities/people/我自己.md', entityFileContent('person', '我自己', TODAY, 'self'))
+  await seedFile('entities/people/我自己.md', entityFileContent('person', '我自己', TODAY, { relation: 'self' }))
+  await seedFile('entities/meetings/周会.md', entityFileContent('meeting', '周会', TODAY, { meetingDate: TODAY }))
+  await seedFile('entities/todos.md', todoFileContent(TODAY))
   await seedFile('resources/周报.eml', 'raw mail bytes')
   await seedFile('resources/周报.eml.md', '---\ntype: resource\n---\n')
   await seedFile('resources/照片.png', 'png-bytes')
-  await seedFile('sessions/2026-09-01.md', '# 会话归档\n')
 }
 
-describe('yantaoKb.tree', () => {
-  it('returns all five sections even when the KB is empty', async () => {
-    const tree = await ctx.yantaoKbController.tree()
-    expect(tree.sections.map(section => section.id)).toEqual(['resources', 'projects', 'areas', 'people', 'sessions'])
+describe('yantaoKb.intakeTree', () => {
+  it('returns resources, meetings and todos even when the KB is empty', async () => {
+    const tree = await ctx.yantaoKbController.intakeTree()
+    expect(tree.sections.map(section => section.id)).toEqual(['resources', 'meetings', 'todos'])
     for (const section of tree.sections) expect(section.files).toEqual([])
   })
 
-  it('shapes resources with shadow-note pairing and entities with flags', async () => {
+  it('pairs resource rows with their shadow notes', async () => {
     await seedKb()
-    const tree = await ctx.yantaoKbController.tree()
-    const resources = tree.sections[0]!
+    const tree = await ctx.yantaoKbController.intakeTree()
+    const [resources, meetings, todos] = tree.sections as [KbTreeSection, KbTreeSection, KbTreeSection]
     expect(resources.files).toEqual([
       { name: '周报.eml', path: 'resources/周报.eml', notePath: 'resources/周报.eml.md' },
       { name: '照片.png', path: 'resources/照片.png' },
     ])
-    const projects = tree.sections[1]!
+    expect(meetings.files).toEqual([{ name: '周会', path: 'entities/meetings/周会.md' }])
+    expect(todos.files).toEqual([{ name: 'todos', path: 'entities/todos.md' }])
+  })
+})
+
+describe('yantaoKb.workspaceTree', () => {
+  it('returns projects, areas and people even when the KB is empty', async () => {
+    const tree = await ctx.yantaoKbController.workspaceTree()
+    expect(tree.sections.map(section => section.id)).toEqual(['projects', 'areas', 'people'])
+    for (const section of tree.sections) expect(section.files).toEqual([])
+  })
+
+  it('carries archive and relation flags on entity rows', async () => {
+    await seedKb()
+    const [projects, areas, people] = (await ctx.yantaoKbController.workspaceTree())
+      .sections as [KbTreeSection, KbTreeSection, KbTreeSection]
     expect(projects.files).toEqual([
       { name: 'dsh 学习', path: 'entities/projects/dsh 学习.md' },
       { name: '旧项目', path: 'entities/projects/旧项目.md', archived: true },
     ])
-    const areas = tree.sections[2]!
     expect(areas.files).toEqual([{ name: '健康', path: 'entities/areas/健康.md' }])
-    const people = tree.sections[3]!
     expect(people.files).toEqual([{ name: '我自己', path: 'entities/people/我自己.md', relation: 'self' }])
-    const sessions = tree.sections[4]!
-    expect(sessions.files).toEqual([{ name: '2026-09-01.md', path: 'sessions/2026-09-01.md' }])
   })
 })
 

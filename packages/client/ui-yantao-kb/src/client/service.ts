@@ -13,7 +13,8 @@ import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
 
 /** The yantaoKb namespace's callable surface, structurally satisfied by the mounted contribution. */
 export interface KbRpc {
-  tree(): Promise<RemoteResult<KbTree>>
+  intakeTree(): Promise<RemoteResult<KbTree>>
+  workspaceTree(): Promise<RemoteResult<KbTree>>
   read(path: string): Promise<RemoteResult<KbFileContent>>
   write(path: string, content: string): Promise<RemoteResult<KbWriteResult>>
 }
@@ -64,14 +65,26 @@ export class KbWorkbench {
     this.publish({ selection: path })
   }
 
-  /** Load (or reload) the tree, recording a failure without discarding the last good payload. */
+  /**
+   * Load (or reload) both trees, recording a failure without discarding the
+   * last good payload. Until the three-pane UI splits them into their own
+   * panes, the sidebar shows the intake sections above the workspace ones.
+   */
   readonly refreshTree = async (): Promise<void> => {
-    const result = await this.rpc.tree()
-    if (!result.ok) {
-      this.publish({ treeError: result.error.message })
+    const intake = await this.rpc.intakeTree()
+    if (!intake.ok) {
+      this.publish({ treeError: intake.error.message })
       return
     }
-    this.publish({ tree: result.value, treeError: null })
+    const workspace = await this.rpc.workspaceTree()
+    if (!workspace.ok) {
+      this.publish({ treeError: workspace.error.message })
+      return
+    }
+    this.publish({
+      tree: { sections: [...intake.value.sections, ...workspace.value.sections] },
+      treeError: null,
+    })
   }
 
   /**

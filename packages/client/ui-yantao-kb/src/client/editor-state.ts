@@ -57,9 +57,14 @@ export function isReadOnlyKbPath(path: string): boolean {
   return path.startsWith('resources/') && !path.endsWith('.md')
 }
 
-/** The five tree section ids in display order, mapped to their dictionary keys. */
+/** The KB tree section ids in display order, mapped to their dictionary keys.
+ * `sessions` carries no KB files — the tree no longer lists `sessions/`; the
+ * Client renders live chat sessions under that heading on its own.
+ */
 export const SECTION_LABEL_KEYS = {
   resources: 'section.resources',
+  meetings: 'section.meetings',
+  todos: 'section.todos',
   projects: 'section.projects',
   areas: 'section.areas',
   people: 'section.people',

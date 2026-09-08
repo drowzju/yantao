@@ -110,10 +110,18 @@ Source: [`packages/yantao/kb/src/index.ts`](../../packages/yantao/kb/src/index.t
 UI-direct KB operations over the `yantaoKb` Remote namespace.
 
 ```ts cordis-catalog
-/** The five-section KB tree; every section is present even when its directory is absent or empty.
- * @returns the five sections in display order, resource rows pairing their shadow notes and entity rows carrying flags.
+/**
+ * The intake side of the KB: resources, meetings, and the todo singleton.
+ * Every section is present even when its directory is absent or empty.
+ * @returns the three intake sections in display order; resource rows pair their shadow notes.
  */
-@Remote('tree') async tree(): Promise<KbTree>
+@Remote('intakeTree') async intakeTree(): Promise<KbTree>
+
+/**
+ * The workspace side of the KB: projects, areas, people.
+ * @returns the three workspace sections in display order, entity rows carrying archive and relation flags.
+ */
+@Remote('workspaceTree') async workspaceTree(): Promise<KbTree>
 
 /**
  * Read one KB file's complete content.

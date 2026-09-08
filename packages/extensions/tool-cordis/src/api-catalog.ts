@@ -2951,10 +2951,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'UI-direct KB operations over the `yantaoKb` Remote namespace.',
     methods: [
       {
-        signature: '@Remote(\'tree\') async tree(): Promise<KbTree>',
-        description: 'The five-section KB tree; every section is present even when its directory is absent or empty.',
+        signature: '@Remote(\'intakeTree\') async intakeTree(): Promise<KbTree>',
+        description: 'The intake side of the KB: resources, meetings, and the todo singleton. Every section is present even when its directory is absent or empty.',
         parameters: [],
-        returns: 'the five sections in display order, resource rows pairing their shadow notes and entity rows carrying flags.',
+        returns: 'the three intake sections in display order; resource rows pair their shadow notes.',
+      },
+      {
+        signature: '@Remote(\'workspaceTree\') async workspaceTree(): Promise<KbTree>',
+        description: 'The workspace side of the KB: projects, areas, people.',
+        parameters: [],
+        returns: 'the three workspace sections in display order, entity rows carrying archive and relation flags.',
       },
       {
         signature: '@Remote(\'read\') async read(path: string): Promise<KbFileContent>',
@@ -4424,7 +4430,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbTreeSectionId',
-    declaration: 'export type KbTreeSectionId = \'resources\' | \'projects\' | \'areas\' | \'people\' | \'sessions\';',
+    declaration: 'export type KbTreeSectionId = \'resources\' | \'meetings\' | \'todos\' | \'projects\' | \'areas\' | \'people\';',
   },
   {
     name: 'KbWriteResult',

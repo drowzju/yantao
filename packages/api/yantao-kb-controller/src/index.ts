@@ -1,11 +1,12 @@
 /**
  * The yantaoKb Remote controller: the workbench UI's direct KB channel.
- * `tree` shapes the five-section KB tree (resources, projects, areas,
- * people, sessions); `read`/`write` address single files by KB-relative
- * path, always confined to the kbRoot the yantao-kb plugin publishes as the
- * `yantaoKb` service — one configuration point, no duplicated config. The UI
- * is the human channel, so `write` is a full-file write; the ADR-0004 trust
- * boundary binds only the agent's kb_ tools, never this surface.
+ * `intakeTree` shapes the input side (resources, meetings, todos) and
+ * `workspaceTree` the workspace side (projects, areas, people);
+ * `read`/`write` address single files by KB-relative path, always confined
+ * to the kbRoot the yantao-kb plugin publishes as the `yantaoKb` service —
+ * one configuration point, no duplicated config. The UI is the human
+ * channel, so `write` is a full-file write; the ADR-0004 trust boundary
+ * binds only the agent's kb_ tools, never this surface.
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
  */
 
@@ -13,7 +14,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import { ENTITY_DIRS, KbError, listEntities, resolveWithinKb } from '@deepseek-ai/dsh-yantao-kb'
+import { entityDisplayPath, KbError, listEntities, resolveWithinKb } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
 import type { KbFileContent, KbTree, KbTreeFile, KbTreeSection, KbWriteResult } from './types.ts'
 
@@ -34,8 +35,14 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   }
 }
 
-/** Entity sections of the tree, in display order, mapped to their entity type. */
-const ENTITY_SECTIONS = [
+/** Entity sections of the intake tree, in display order, mapped to their entity type. */
+const INTAKE_ENTITY_SECTIONS = [
+  { id: 'meetings', type: 'meeting' },
+  { id: 'todos', type: 'todo' },
+] as const satisfies readonly { id: KbTreeSection['id']; type: EntityType }[]
+
+/** Entity sections of the workspace tree, in display order, mapped to their entity type. */
+const WORKSPACE_ENTITY_SECTIONS = [
   { id: 'projects', type: 'project' },
   { id: 'areas', type: 'area' },
   { id: 'people', type: 'person' },
@@ -78,14 +85,28 @@ export class YantaoKbController extends TypertRemoteService {
     }
   }
 
-  /** The five-section KB tree; every section is present even when its directory is absent or empty.
-   * @returns the five sections in display order, resource rows pairing their shadow notes and entity rows carrying flags.
+  /**
+   * The intake side of the KB: resources, meetings, and the todo singleton.
+   * Every section is present even when its directory is absent or empty.
+   * @returns the three intake sections in display order; resource rows pair their shadow notes.
    */
-  @Remote('tree')
-  async tree(): Promise<KbTree> {
-    const root = this.root
-    const sections: KbTreeSection[] = []
-    const resourceNames = await readdirFiles(join(root, 'resources'))
+  @Remote('intakeTree')
+  async intakeTree(): Promise<KbTree> {
+    return { sections: [await this.resourceSection(), ...await this.entitySections(INTAKE_ENTITY_SECTIONS)] }
+  }
+
+  /**
+   * The workspace side of the KB: projects, areas, people.
+   * @returns the three workspace sections in display order, entity rows carrying archive and relation flags.
+   */
+  @Remote('workspaceTree')
+  async workspaceTree(): Promise<KbTree> {
+    return { sections: await this.entitySections(WORKSPACE_ENTITY_SECTIONS) }
+  }
+
+  /** The `resources` section: originals with their shadow-note pairing (`.md` notes are not rows). */
+  private async resourceSection(): Promise<KbTreeSection> {
+    const resourceNames = await readdirFiles(join(this.root, 'resources'))
     const resourceSet = new Set(resourceNames)
     const resources: KbTreeFile[] = resourceNames
       .filter(name => !name.endsWith('.md'))
@@ -94,22 +115,27 @@ export class YantaoKbController extends TypertRemoteService {
         path: `resources/${name}`,
         ...resourceSet.has(`${name}.md`) ? { notePath: `resources/${name}.md` } : {},
       }))
-    sections.push({ id: 'resources', files: resources })
-    for (const { id, type } of ENTITY_SECTIONS) {
-      const { entities } = await listEntities(root, type, true)
-      sections.push({
+    return { id: 'resources', files: resources }
+  }
+
+  /** The entity sections of one side of the KB, listed with archived entities included. */
+  private async entitySections(
+    sections: readonly { readonly id: KbTreeSection['id']; readonly type: EntityType }[],
+  ): Promise<KbTreeSection[]> {
+    const built: KbTreeSection[] = []
+    for (const { id, type } of sections) {
+      const { entities } = await listEntities(this.root, type, true)
+      built.push({
         id,
         files: entities.map(entity => ({
           name: entity.name,
-          path: `entities/${ENTITY_DIRS[type]}/${entity.name}.md`,
+          path: entityDisplayPath(type, entity.name),
           ...entity.archived ? { archived: true } : {},
           ...entity.relation !== undefined ? { relation: entity.relation } : {},
         })),
       })
     }
-    const sessionNames = await readdirFiles(join(root, 'sessions'))
-    sections.push({ id: 'sessions', files: sessionNames.map(name => ({ name, path: `sessions/${name}` })) })
-    return { sections }
+    return built
   }
 
   /**

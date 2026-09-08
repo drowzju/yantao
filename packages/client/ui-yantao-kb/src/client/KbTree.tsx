@@ -1,7 +1,9 @@
 /**
- * The five-section KB tree: 资源/项目/领域/人物/会话. Pure presentation —
- * every fact arrives as plain data and every action as a callback, per the
- * package's props-share discipline.
+ * The KB tree: the intake sections (资源/会议/待办) above the workspace
+ * sections (项目/领域/人物), plus the live chat-session block, which is the
+ * Client's own and carries no KB files. Pure presentation — every fact
+ * arrives as plain data and every action as a callback, per the package's
+ * props-share discipline.
  */
 import clsx from 'clsx'
 import type { KbTree as KbTreePayload, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
@@ -39,10 +41,10 @@ export interface KbTreeProps {
   readonly onNewSession: () => void
 }
 
-/** The five sections in display order. */
-const SECTION_ORDER: readonly KbTreeSectionId[] = ['resources', 'projects', 'areas', 'people', 'sessions']
+/** The KB sections in display order — intake first, workspace second. */
+const SECTION_ORDER: readonly KbTreeSectionId[] = ['resources', 'meetings', 'todos', 'projects', 'areas', 'people']
 
-/** Render the five-section KB tree. */
+/** Render the KB tree and the live chat-session block. */
 export function KbTree({ tree, treeError, selection, sessions, t, onSelect, onRefresh, onOpenSession, onNewSession }: KbTreeProps) {
   return (
     <div className={css.tree}>
@@ -57,25 +59,7 @@ export function KbTree({ tree, treeError, selection, sessions, t, onSelect, onRe
         return (
           <section key={sectionId} className={css.section}>
             <h3 className={css.sectionTitle}>{t(SECTION_LABEL_KEYS[sectionId])}</h3>
-            {sectionId === 'sessions' && (
-              <div className={css.sessionBlock}>
-                <button type="button" className={css.newSessionButton} onClick={onNewSession}>
-                  ＋ {t('session.new')}
-                </button>
-                {sessions.map(row => (
-                  <button
-                    key={row.id}
-                    type="button"
-                    className={clsx(css.fileRow, row.current && css.fileRowActive)}
-                    onClick={() => { onOpenSession(row.id) }}
-                  >
-                    <span className={css.fileName}>{row.displayTitle}</span>
-                    {row.running && <span className={css.badge}>{t('session.live')}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-            {section !== undefined && section.files.length === 0 && sectionId !== 'sessions' && (
+            {section !== undefined && section.files.length === 0 && (
               <div className={css.emptyRow}>{t('tree.empty')}</div>
             )}
             {section?.files.map(file => (
@@ -94,6 +78,25 @@ export function KbTree({ tree, treeError, selection, sessions, t, onSelect, onRe
           </section>
         )
       })}
+      <section className={css.section}>
+        <h3 className={css.sectionTitle}>{t(SECTION_LABEL_KEYS.sessions)}</h3>
+        <div className={css.sessionBlock}>
+          <button type="button" className={css.newSessionButton} onClick={onNewSession}>
+            ＋ {t('session.new')}
+          </button>
+          {sessions.map(row => (
+            <button
+              key={row.id}
+              type="button"
+              className={clsx(css.fileRow, row.current && css.fileRowActive)}
+              onClick={() => { onOpenSession(row.id) }}
+            >
+              <span className={css.fileName}>{row.displayTitle}</span>
+              {row.running && <span className={css.badge}>{t('session.live')}</span>}
+            </button>
+          ))}
+        </div>
+      </section>
     </div>
   )
 }

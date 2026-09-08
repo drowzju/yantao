@@ -17,6 +17,8 @@ export type YantaoKbKey = keyof typeof zh
 /** 中文词典（yantao 的工作语言）。 */
 export const zh = {
   'section.resources': '资源',
+  'section.meetings': '会议',
+  'section.todos': '待办',
   'section.projects': '项目',
   'section.areas': '领域',
   'section.people': '人物',
@@ -46,6 +48,8 @@ export const zh = {
 /** English dictionary. */
 export const en: Record<YantaoKbKey, string> = {
   'section.resources': 'Resources',
+  'section.meetings': 'Meetings',
+  'section.todos': 'Todos',
   'section.projects': 'Projects',
   'section.areas': 'Areas',
   'section.people': 'People',
