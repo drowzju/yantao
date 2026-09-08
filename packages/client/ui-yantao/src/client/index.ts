@@ -14,16 +14,23 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
+// Type-only: pulls the `ctx.uiWorkspace` Context merge (ui-workspace owns the
+// declaration) — the first-run directory picker is its `pickDirectory`.
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { Frame } from './frame/Frame.tsx'
 import { ThemePresenter } from './frame/theme-presenter.ts'
 import { WorkbenchLayout, createPanelSeat } from './frame/layout.ts'
-import { loadIntake, loadWorkspace } from './remote.ts'
+import type { KbEntityKind } from './remote.ts'
+import {
+  createEntity, loadIntake, loadRoot, loadWorkspace, readFile, setKbRoot, writeFile,
+} from './remote.ts'
 
 export const name = 'ui-yantao'
 // Cordis forbids reading an undeclared service, and a Remote namespace counts
 // as one of its own: both the `remote` face and this namespace must be listed
 // or the accessor throws "cannot get property remote.yantaoKb without inject".
-export const inject = ['slots', 'theme', 'remote', 'remote.yantaoKb']
+// `uiWorkspace` is the host's directory picker the first-run flow calls.
+export const inject = ['slots', 'theme', 'remote', 'remote.yantaoKb', 'uiWorkspace']
 
 /**
  * Contribute the workbench shell.
@@ -64,6 +71,12 @@ export function apply(ctx: Context): void {
       panels,
       intake: () => loadIntake(ctx),
       workspace: () => loadWorkspace(ctx),
+      read: (path: string) => readFile(ctx, path),
+      write: (path: string, content: string) => writeFile(ctx, path, content),
+      createEntity: (type: KbEntityKind, name: string) => createEntity(ctx, { type, name }),
+      root: () => loadRoot(ctx),
+      setRoot: (path: string) => setKbRoot(ctx, path),
+      pickDirectory: () => ctx.uiWorkspace.pickDirectory(),
     }),
   }, Frame), 'ui-yantao: root frame')
 }

@@ -12,6 +12,17 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
+import type {
+  DirectoryPicker, EntityCreator, FileReader, FileWriter, RootLoader, RootSetter,
+} from '../remote.ts'
+import { FileEditor, type SaveStatus } from '../editor/FileEditor.tsx'
+import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
+import { Onboarding } from '../Onboarding.tsx'
+import {
+  CONVERSATION_TAB, activateTab, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath, restoreTabs,
+  type TabMode, type TabState,
+} from '../tabs.ts'
+import { CenterPane } from './CenterPane.tsx'
 import type { PanelToggles } from './layout.ts'
 import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
 
@@ -23,6 +34,18 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly intake: TreeLoader
   /** Load the workspace sections. */
   readonly workspace: TreeLoader
+  /** Read one KB file's content. */
+  readonly read: FileReader
+  /** Write one KB file's content. */
+  readonly write: FileWriter
+  /** Create one entity and resolve its path. */
+  readonly createEntity: EntityCreator
+  /** Read the KB root's configuration state. */
+  readonly root: RootLoader
+  /** Adopt a directory as the KB root. */
+  readonly setRoot: RootSetter
+  /** Open the host's native directory picker. */
+  readonly pickDirectory: DirectoryPicker
 }
 
 const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
@@ -38,8 +61,6 @@ const frameStyle = {
 const colStyle = { minWidth: 0, overflow: 'hidden' } as const
 
 const railColStyle = { ...colStyle, background: '#fbfaf7' } as const
-
-const centerColStyle = { ...colStyle, display: 'flex', flexDirection: 'column' } as const
 
 const overlayStyle = { position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' } as const
 
@@ -115,7 +136,9 @@ function DragHandle(props: {
  * @param props - see {@link FrameProps}.
  * @returns the frame element.
  */
-export function Frame({ renderSlot, panels, intake, workspace }: FrameProps): ReactElement {
+export function Frame({
+  renderSlot, panels, intake, workspace, read, write, createEntity, root, setRoot, pickDirectory,
+}: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
   const [intakeOpen, setIntakeOpen] = useState(true)
@@ -172,6 +195,91 @@ export function Frame({ renderSlot, panels, intake, workspace }: FrameProps): Re
   const onWorkspaceDrag = useCallback((dx: number) => {
     setWorkspaceWidth(clampRail(colsRef.current.workspace - dx))
   }, [])
+
+  // ── the centre pane's tabs ────────────────────────────────────────────────
+  // Session switching never touches this state: the frame is root-scoped, so
+  // file tabs (and the draft inside each mounted editor) survive it.
+  const [tabs, setTabs] = useState<TabState>(emptyTabs)
+  const [statuses, setStatuses] = useState<Record<string, SaveStatus>>({})
+  // Persistence is armed only after the restore pass: writing the initial
+  // empty state first would erase last session's tabs.
+  const [restored, setRestored] = useState(false)
+  const [treeKey, setTreeKey] = useState(0)
+  const [needsRoot, setNeedsRoot] = useState(false)
+
+  // Every loader is a fresh closure on each render (inject face), so the
+  // mount-only effects reach them through a ref.
+  const faces = useRef({ read, root })
+  faces.current = { read, root }
+
+  // Restore the persisted tabs, dropping any path that no longer reads.
+  useEffect(() => {
+    const paths = restoreTabs()
+    if (paths.length === 0) {
+      setRestored(true)
+      return
+    }
+    let stale = false
+    void Promise.all(paths.map(path => faces.current.read(path).then(
+      () => path,
+      () => null,
+    ))).then((kept) => {
+      if (stale) return
+      // A path that no longer reads is dropped silently: a stale tab is worse
+      // than a missing one. A restored tab is restored, not entered — the
+      // conversation is what the human sees first.
+      const next = kept
+        .filter((path): path is string => path !== null)
+        .reduce<TabState>(
+          (state, path) => openTab(state, path, readOnlyPath(path) ? 'read' : 'edit'),
+          emptyTabs(),
+        )
+      setTabs(activateTab(next, CONVERSATION_TAB))
+      setRestored(true)
+    })
+    return () => {
+      stale = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (restored) persistTabs(tabs)
+  }, [tabs, restored])
+
+  // First run: no configured KB root means there is nothing to show yet.
+  useEffect(() => {
+    let stale = false
+    faces.current.root().then(
+      (info) => { if (!stale) setNeedsRoot(!info.configured) },
+      () => { if (stale) return; setNeedsRoot(true) },
+    )
+    return () => {
+      stale = true
+    }
+  }, [])
+
+  const openFile = useCallback((path: string, mode: TabMode): void => {
+    setTabs(state => openTab(state, path, mode))
+  }, [])
+
+  const closeFile = useCallback((path: string): void => {
+    setTabs(state => closeTab(state, path))
+    setStatuses((current) => {
+      const next: Record<string, SaveStatus> = {}
+      for (const [key, value] of Object.entries(current)) {
+        if (key !== path) next[key] = value
+      }
+      return next
+    })
+  }, [])
+
+  /** A new KB root: both rails reload, and the stale tabs' statuses go away. */
+  const onConfigured = useCallback((): void => {
+    setNeedsRoot(false)
+    setTreeKey(key => key + 1)
+    setStatuses({})
+  }, [])
+
   return (
     <div
       ref={frameRef}
@@ -186,18 +294,51 @@ export function Frame({ renderSlot, panels, intake, workspace }: FrameProps): Re
         <IntakeRail
           collapsed={!intakeOpen}
           load={intake}
+          refreshKey={treeKey}
           onExpand={() => { setIntakeOpen(true) }}
+          onOpenFile={openFile}
+          read={read}
+          write={write}
+          createEntity={createEntity}
+          onChangeDirectory={() => { setNeedsRoot(true) }}
         />
       </div>
-      <div style={centerColStyle}>{renderSlot('conversation', {})}</div>
+      <CenterPane
+        tabs={tabs}
+        statuses={statuses}
+        onActivate={(key) => { setTabs(state => activateTab(state, key)) }}
+        onClose={closeFile}
+        renderConversation={() => renderSlot('conversation', {})}
+        renderFile={tab => tab.mode === 'read'
+          ? <ReadOnlyFile path={tab.path} read={read} />
+          : (
+            <FileEditor
+              path={tab.path}
+              read={read}
+              write={write}
+              onStatus={(status) => {
+                setStatuses(current => ({ ...current, [tab.path]: status }))
+              }}
+            />
+          )}
+      />
       <div style={{ ...railColStyle, borderLeft: '1px solid #e6e2d8' }}>
         <WorkspaceRail
           collapsed={!workspaceOpen}
           load={workspace}
+          refreshKey={treeKey}
           onExpand={() => { setWorkspaceOpen(true) }}
+          onOpenFile={openFile}
+          read={read}
+          write={write}
+          createEntity={createEntity}
+          onChangeDirectory={() => { setNeedsRoot(true) }}
         />
       </div>
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>
+      {needsRoot && (
+        <Onboarding setRoot={setRoot} pickDirectory={pickDirectory} onConfigured={onConfigured} />
+      )}
       {/* A handle exists whenever its rail is expanded — including at the
           width limits, because the handle is the only way back from one. */}
       {intakeOpen && (

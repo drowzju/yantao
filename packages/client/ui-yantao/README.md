@@ -19,12 +19,15 @@ Mounted by the `yantao-web-app` bundle's `dsh.client` roster, alongside `@deepse
 
 - `apply(ctx)` — provides `ctx.layout` and the theme presenter, registers the `root` frame, and drives the rails from `ctx.remote`.
 - `Frame` — the `root` occupant: intake | conversation | workspace as one grid, with a drag handle per rail, a narrow breakpoint that collapses both, and a click-through `shell.overlay` layer. It declares exactly two child seats: `conversation` (the host's agent surface) and `shell.overlay` (ui-commands' popupSelect).
-- `IntakeRail` / `WorkspaceRail` — 资源 / 待办 / 会议 / 连接 and 领域 / 人物 / 项目, fed by `intakeTree()` / `workspaceTree()`. Both take the same `collapsed` prop and render the same compact icon column, so the two sides stay symmetric.
+- `IntakeRail` / `WorkspaceRail` — 资源 / 待办 / 会议 / 连接 and 领域 / 人物 / 项目, fed by `intakeTree()` / `workspaceTree()`. Both take the same `collapsed` prop and render the same compact icon column, so the two sides stay symmetric. A row opens its file in the centre pane (资源 originals read-only); 会议 and each workspace tab create their own entity kind inline, and 待办 edits the singleton checklist line by line.
+- `CenterPane` — the middle column's tabs: one permanent 对话 tab over the `conversation` seat plus one closeable tab per open file, with a save-status dot (保存中 / 已保存 / 失败). An inactive tab is hidden, never unmounted, so the host's composer draft and each file's draft survive a switch.
+- `FileEditor` / `ReadOnlyFile` — a raw-markdown textarea with 2s debounced autosave (and a save on blur), and the read-only view for 资源 originals. A save first re-reads the server copy: if it moved since the file was loaded, the draft is held back behind a 覆盖 / 放弃我的修改 / 查看差异 bar instead of clobbering it.
+- `Onboarding` — the first-run directory choice over `root()` / `setRoot()` and `ctx.uiWorkspace.pickDirectory()`; 更改目录 re-opens it.
 - `WorkbenchLayout` — the `ctx.layout` face: upstream's `sidebar` / `details` names map onto the intake and workspace rails.
 
 ## Understand the implementation
 
-The plugin is deliberately thin: `remote.ts` reaches the `yantaoKb` namespace defensively (a missing namespace is a reported state, not a crash), `Workbench.tsx` is pure presentation over plain data, and each rail owns only its own load state and selection. `frame/columns.ts` is a pure width solver (both rails concede, the wider one first); `frame/Frame.tsx` measures itself with a ResizeObserver and never reads the window. The `root` registration is a bare `register`, not `slots.inject`: `root` is the runtime's own built-in slot, seeded when the registry is constructed. ADR-0010 steps the shared shell aside one row at a time — the layout row was the one that stepped aside here.
+The plugin is deliberately thin: `remote.ts` reaches the `yantaoKb` namespace defensively (a missing namespace is a reported state, not a crash), `Workbench.tsx` is pure presentation over plain data, and each rail owns only its own load state and selection. `tabs.ts` (open/close/activate/dedupe plus the localStorage round-trip) and `todo.ts` (the checklist's one-line rewrites) are pure modules, so their rules are pinned by unit tests rather than by a rendered tree. `frame/columns.ts` is a pure width solver (both rails concede, the wider one first); `frame/Frame.tsx` measures itself with a ResizeObserver and never reads the window. The `root` registration is a bare `register`, not `slots.inject`: `root` is the runtime's own built-in slot, seeded when the registry is constructed. ADR-0010 steps the shared shell aside one row at a time — the layout row was the one that stepped aside here.
 
 **Runtime invariant:** No companion is published. The plugin holds no process-global state and no event stream of its own; its only relations are the Remote results it renders, and the two rails' shape plus the load/select/refresh behavior are asserted by the package's client spec.
 
@@ -50,8 +53,8 @@ These limits define what the workbench UI deliberately does not do yet. They are
 
 - The middle pane is still the host's agent surface — the workbench does not own agent interaction until the shared shell's rows are stepped aside.
 - No `details` column: this frame declares only `conversation` and `shell.overlay`, so ui-chat's tool-detail panel has no seat (nothing in the shipped source calls `ctx.layout.openDetails()` anyway).
-- Each rail keeps its own selection; one shared selection arrives with the detail pane.
-- Rails list files but do not open them: `read` / `write` are wired for the detail pane, which arrives with the editor.
+- Each rail keeps its own selection; one shared selection arrives with a cross-rail selection model.
+- Open file paths are persisted in `localStorage` under `yantao.center.tabs`; a path that no longer reads is dropped on restore, and a tab's draft is not persisted (only the file is).
 - The 连接 panel is a placeholder; ADR-0010 reserves the connector abstraction but no implementation exists.
 - Labels are hardcoded Chinese; this plugin does not yet register a locale dictionary.
 - Trust-boundary enforcement lives in the tool layer (ADR-0004), not here: this UI is the human channel and may edit any section.

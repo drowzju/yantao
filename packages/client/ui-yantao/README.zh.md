@@ -19,12 +19,15 @@ yantao 工作台自己的客户端插件。dsh 在这里只作**后端**：插�
 
 - `apply(ctx)` — 提供 `ctx.layout` 与主题 presenter，注册 `root` 外框，并由 `ctx.remote` 驱动两条侧栏。
 - `Frame` — `root` 占用者：输入栏 | 会话 | 工作栏 一条网格，每条侧栏一个拖拽手柄，窄屏断点同时收起两侧，外加一层点击穿透的 `shell.overlay`。它只声明两个子座位：`conversation`（宿主的 agent 面）与 `shell.overlay`（ui-commands 的 popupSelect）。
-- `IntakeRail` / `WorkspaceRail` — 资源 / 待办 / 会议 / 连接 与 领域 / 人物 / 项目，数据来自 `intakeTree()` / `workspaceTree()`。两者收同样的 `collapsed` 属性、渲染同样的图标列，因此左右对称。
+- `IntakeRail` / `WorkspaceRail` — 资源 / 待办 / 会议 / 连接 与 领域 / 人物 / 项目，数据来自 `intakeTree()` / `workspaceTree()`。两者收同样的 `collapsed` 属性、渲染同样的图标列，因此左右对称。某一行会把文件打开到中列（资源原件只读）；「会议」与工作栏的每个页签都能就地新建对应类型的实体，「待办」则按行改写单例清单。
+- `CenterPane` — 中列的页签：一个常驻的「对话」页签挂在 `conversation` 座位上，外加每个打开的文件一个可关闭页签，标题旁有保存状态圆点（保存中 / 已保存 / 失败）。未激活的页签只隐藏、不卸载，因此宿主的草稿和每个文件的草稿都能在切换后保留。
+- `FileEditor` / `ReadOnlyFile` — 原始 Markdown 文本框，改动后 2 秒防抖自动保存（失焦时立即保存），以及给资源原件用的只读视图。每次保存前会重读一次服务器副本：若它自加载后已被改动，草稿会被拦在「覆盖 / 放弃我的修改 / 查看差异」提示条后面，而不是覆盖掉别人写的内容。
+- `Onboarding` — 首次运行的目录选择，基于 `root()` / `setRoot()` 与 `ctx.uiWorkspace.pickDirectory()`；「更改目录」可再次打开它。
 - `WorkbenchLayout` — `ctx.layout` 的实现：上游的 `sidebar` / `details` 语义分别映射到输入栏与工作栏。
 
 ## 理解实现
 
-插件刻意做得很薄：`remote.ts` 以防御式方式取 `yantaoKb` 命名空间（命名空间缺失是要报告的状态，不是崩溃），`Workbench.tsx` 是纯展示层，只吃普通数据，每条侧栏只持有自己的加载状态与选中项。`frame/columns.ts` 是纯宽度求解器（两侧都让位，宽的先让）；`frame/Frame.tsx` 用 ResizeObserver 量自己，不读 window。`root` 注册用裸 `register` 而不是 `slots.inject`：`root` 是运行时内置的槽位，注册表构造时就已声明。ADR-0010 让共享 shell 逐行退场——这次退的是布局这一行。
+插件刻意做得很薄：`remote.ts` 以防御式方式取 `yantaoKb` 命名空间（命名空间缺失是要报告的状态，不是崩溃），`Workbench.tsx` 是纯展示层，只吃普通数据，每条侧栏只持有自己的加载状态与选中项。`tabs.ts`（打开/关闭/激活/去重与 localStorage 往返）和 `todo.ts`（清单的单行改写）都是纯模块，它们的规则由单元测试而不是渲染出来的树来钉住。`frame/columns.ts` 是纯宽度求解器（两侧都让位，宽的先让）；`frame/Frame.tsx` 用 ResizeObserver 量自己，不读 window。`root` 注册用裸 `register` 而不是 `slots.inject`：`root` 是运行时内置的槽位，注册表构造时就已声明。ADR-0010 让共享 shell 逐行退场——这次退的是布局这一行。
 
 **运行时不变量：** 不发布伴生包。本插件不持有进程级全局状态，也没有自己的事件流；它唯一的关系就是所渲染的 Remote 结果，两条侧栏的结构与加载/选中/刷新行为由包内的 client spec 断言。
 
@@ -50,8 +53,8 @@ yantao 工作台自己的客户端插件。dsh 在这里只作**后端**：插�
 
 - 中间一栏仍是宿主的 agent 交互区——共享 shell 的行逐条退场之前，工作台并不拥有 agent 交互。
 - 没有 `details` 列：本外框只声明 `conversation` 与 `shell.overlay`，因此 ui-chat 的工具详情面板没有座位（现有源码里也没有任何地方调用 `ctx.layout.openDetails()`）。
-- 两条侧栏各自持有选中项；统一的选中项随详情栏一起到来。
-- 侧栏只列出文件、不打开它们：`read` / `write` 已为详情栏做好准备，详情栏随编辑器一起到来。
+- 两条侧栏各自持有选中项；统一的选中项要等跨栏的选中模型到来。
+- 打开的文件路径存在 `localStorage` 的 `yantao.center.tabs` 里；恢复时读不到的路径会被静默丢弃，页签里的草稿不落盘（持久化的只有文件本身）。
 - 「连接」面板是占位：ADR-0010 预留了 connector 抽象，但尚无实现。
 - 文案是硬编码中文：本插件还没有注册词典命名空间。
 - 信任边界的执行在工具层（ADR-0004），不在本包：本 UI 是人类通道，可编辑任意区段。

@@ -7,16 +7,31 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { EntityCreator, FileReader, FileWriter, KbEntityKind } from './remote.ts'
 import { remoteMessage } from './remote.ts'
+import type { TabMode } from './tabs.ts'
+import { TodoList } from './TodoList.tsx'
+import { NewEntityRow } from './NewEntityRow.tsx'
 
 /** Loads one rail's sections; rejects with a message the rail can render. */
 export type TreeLoader = () => Promise<readonly KbTreeSection[]>
 
-/** Left-rail panels in display order; `connector` has no KB files yet (ADR-0010 reserves it). */
+/** Left-rail tabs in display order; `connector` has no KB files yet (ADR-0010 reserves it). */
 const INTAKE_PANEL_IDS: readonly (KbTreeSectionId | 'connector')[] = ['resources', 'todos', 'meetings', 'connector']
 
 /** Right-rail tabs in display order. */
 const WORKSPACE_TAB_IDS: readonly KbTreeSectionId[] = ['areas', 'people', 'projects']
+
+/** The entity kind each tree section creates. `todos` is a singleton — the server refuses it. */
+const ENTITY_KINDS: Partial<Record<KbTreeSectionId, KbEntityKind>> = {
+  meetings: 'meeting',
+  areas: 'area',
+  people: 'person',
+  projects: 'project',
+}
+
+/** KB-relative path of the todo singleton (its tree row carries the same path). */
+export const TODO_PATH = 'entities/todos.md'
 
 /** Panel and tab labels — yantao's working language, until this plugin owns a dictionary. */
 const LABELS: Record<string, string> = {
@@ -76,33 +91,40 @@ const rowStyle = {
 
 const selectedRowStyle = { ...rowStyle, background: '#eef3ff', borderColor: '#c7d7ff' } as const
 
+const tabRowStyle = { ...rowStyle, width: 'auto', flex: 1, textAlign: 'center' } as const
+
 /** One rail's load state: the sections it renders, the last failure, and the refresh action. */
 interface RailState {
   readonly sections: readonly KbTreeSection[] | null
   readonly error: string | null
-  readonly refresh: () => void
+  /** Reload the tree; resolves once the new sections are in state. */
+  readonly refresh: () => Promise<void>
 }
 
 /**
- * Load one rail's sections once on mount and on every refresh.
+ * Load one rail's sections once on mount, on every refresh, and whenever the
+ * frame bumps its refresh key (a new KB root, a new entity).
  * @param load - the loader the frame supplies.
+ * @param refreshKey - the frame's tree-generation counter.
  * @returns the load state.
  */
-function useRail(load: TreeLoader): RailState {
+function useRail(load: TreeLoader, refreshKey: number): RailState {
   const [sections, setSections] = useState<readonly KbTreeSection[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   // The loader is a fresh closure on every render (it comes from the inject
-  // face), so the mount-only effect reads it through a ref instead of taking
-  // it as a dependency.
+  // face), so the effect reads it through a ref instead of taking it as a
+  // dependency.
   const latest = useRef(load)
   latest.current = load
-  const refresh = useCallback((): void => {
-    latest.current().then(
-      (next) => { setSections(next); setError(null) },
-      (failure: unknown) => { setError(remoteMessage(failure)) },
-    )
+  const refresh = useCallback(async (): Promise<void> => {
+    try {
+      setSections(await latest.current())
+      setError(null)
+    } catch (failure: unknown) {
+      setError(remoteMessage(failure))
+    }
   }, [])
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => { void refresh() }, [refresh, refreshKey])
   return { sections, error, refresh }
 }
 
@@ -173,76 +195,179 @@ export interface RailProps {
   readonly collapsed: boolean
   /** Load this rail's sections. */
   readonly load: TreeLoader
+  /** The frame's tree-generation counter: a bump reloads the tree. */
+  readonly refreshKey: number
   /** Ask the frame to expand this rail again. */
   readonly onExpand: () => void
+  /** Open a KB file in the centre pane. */
+  readonly onOpenFile: (path: string, mode: TabMode) => void
+  /** Read one KB file's content. */
+  readonly read: FileReader
+  /** Write one KB file's content. */
+  readonly write: FileWriter
+  /** Create one entity and resolve its path. */
+  readonly createEntity: EntityCreator
+  /** Re-open the first-run directory choice. */
+  readonly onChangeDirectory: () => void
 }
 
-/**
- * The intake rail: 资源 / 待办 / 会议 / 连接.
- * @param props - see {@link RailProps}.
- * @returns the rail element.
- */
-export function IntakeRail({ collapsed, load, onExpand }: RailProps): ReactElement {
-  const { sections, error, refresh } = useRail(load)
-  const [selection, setSelection] = useState<string | null>(null)
-  if (collapsed) {
-    return (
-      <CompactRail label="展开输入栏" error={error} refresh={refresh} onExpand={onExpand} side="intake" />
-    )
-  }
+/** The strip both rails use for their tabs, plus the shared rail header. */
+function RailHeader({
+  error,
+  refresh,
+  onChangeDirectory,
+}: {
+  error: string | null
+  refresh: () => Promise<void>
+  onChangeDirectory: () => void
+}): ReactElement {
   return (
-    <div style={railStyle}>
-      <button type="button" style={rowStyle} onClick={refresh}>⟳ 刷新</button>
-      {error !== null && <div style={errorStyle}>{error}</div>}
-      {INTAKE_PANEL_IDS.map(id => (
-        <Section
-          key={id}
-          id={id}
-          section={sections?.find(entry => entry.id === id)}
-          selection={selection}
-          onSelect={setSelection}
-        />
-      ))}
+    <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+      <button type="button" style={{ ...rowStyle, width: 'auto' }} onClick={() => { void refresh() }}>
+        ⟳ 刷新
+      </button>
+      <button type="button" style={{ ...rowStyle, width: 'auto' }} onClick={onChangeDirectory}>
+        更改目录
+      </button>
+      {error !== null && <span style={{ color: '#b4453a' }} title={error}>!</span>}
     </div>
   )
 }
 
 /**
- * The workspace rail: 领域 / 人物 / 项目 as tabs.
+ * The intake rail: 资源 / 待办 / 会议 / 连接 as tabs. 待办 renders the
+ * singleton checklist inline; 会议 can create a meeting inline; 资源 rows open
+ * read-only.
  * @param props - see {@link RailProps}.
  * @returns the rail element.
  */
-export function WorkspaceRail({ collapsed, load, onExpand }: RailProps): ReactElement {
-  const { sections, error, refresh } = useRail(load)
-  const [tab, setTab] = useState<KbTreeSectionId>('areas')
+export function IntakeRail(props: RailProps): ReactElement {
+  const { collapsed, load, refreshKey, onExpand, onOpenFile, read, write, createEntity, onChangeDirectory } = props
+  const { sections, error, refresh } = useRail(load, refreshKey)
+  const [tab, setTab] = useState<KbTreeSectionId | 'connector'>('resources')
   const [selection, setSelection] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+
   if (collapsed) {
     return (
-      <CompactRail label="展开工作栏" error={error} refresh={refresh} onExpand={onExpand} side="workspace" />
+      <CompactRail label="展开输入栏" error={error} refresh={() => { void refresh() }} onExpand={onExpand} side="intake" />
     )
   }
+
+  /** Create an entity of this section's kind, reload the tree, and open it. */
+  const create = async (kind: KbEntityKind, name: string): Promise<void> => {
+    const path = await createEntity(kind, name)
+    await refresh()
+    onOpenFile(path, 'edit')
+  }
+
+  const todoSection = sections?.find(entry => entry.id === 'todos')
+  const todoPath = todoSection?.files[0]?.path ?? TODO_PATH
+
   return (
     <div style={railStyle}>
-      <button type="button" style={rowStyle} onClick={refresh}>⟳ 刷新</button>
-      {error !== null && <div style={errorStyle}>{error}</div>}
+      <RailHeader error={error} refresh={refresh} onChangeDirectory={onChangeDirectory} />
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-        {WORKSPACE_TAB_IDS.map(id => (
+        {INTAKE_PANEL_IDS.map(id => (
           <button
             key={id}
             type="button"
-            style={tab === id ? selectedRowStyle : rowStyle}
+            style={tab === id ? { ...tabRowStyle, background: '#eef3ff', borderColor: '#c7d7ff' } : tabRowStyle}
             onClick={() => { setTab(id) }}
           >
             {LABELS[id]}
           </button>
         ))}
       </div>
+      {actionError !== null && <div style={errorStyle}>{actionError}</div>}
+      {tab === 'todos' && (
+        <TodoList
+          path={todoPath}
+          read={read}
+          write={write}
+          onOpenFile={() => { onOpenFile(todoPath, 'edit') }}
+        />
+      )}
+      {tab === 'connector' && <div style={{ color: '#9a9488', padding: '4px 6px' }}>预留（连接抽象见 ADR-0010）</div>}
+      {tab !== 'todos' && tab !== 'connector' && (
+        <Section
+          id={tab}
+          section={sections?.find(entry => entry.id === tab)}
+          selection={selection}
+          onSelect={(path) => { setSelection(path); onOpenFile(path, tab === 'resources' ? 'read' : 'edit') }}
+          showHeading={false}
+        />
+      )}
+      {tab === 'meetings' && (
+        <NewEntityRow
+          label="+ 新建"
+          placeholder="会议名称"
+          submit={name => create('meeting', name).catch((failure: unknown) => {
+            setActionError(failure instanceof Error ? failure.message : String(failure))
+          })}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * The workspace rail: 领域 / 人物 / 项目 as tabs, each able to create its own
+ * kind inline and open its entities as editable tabs.
+ * @param props - see {@link RailProps}.
+ * @returns the rail element.
+ */
+export function WorkspaceRail(props: RailProps): ReactElement {
+  const { collapsed, load, refreshKey, onExpand, onOpenFile, createEntity, onChangeDirectory } = props
+  const { sections, error, refresh } = useRail(load, refreshKey)
+  const [tab, setTab] = useState<KbTreeSectionId>('areas')
+  const [selection, setSelection] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  if (collapsed) {
+    return (
+      <CompactRail label="展开工作栏" error={error} refresh={() => { void refresh() }} onExpand={onExpand} side="workspace" />
+    )
+  }
+
+  const kind = ENTITY_KINDS[tab]
+  /** Create an entity of this tab's kind, reload the tree, and open it. */
+  const create = async (name: string): Promise<void> => {
+    if (kind === undefined) return
+    const path = await createEntity(kind, name)
+    await refresh()
+    onOpenFile(path, 'edit')
+  }
+
+  return (
+    <div style={railStyle}>
+      <RailHeader error={error} refresh={refresh} onChangeDirectory={onChangeDirectory} />
+      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+        {WORKSPACE_TAB_IDS.map(id => (
+          <button
+            key={id}
+            type="button"
+            style={tab === id ? { ...tabRowStyle, background: '#eef3ff', borderColor: '#c7d7ff' } : tabRowStyle}
+            onClick={() => { setTab(id) }}
+          >
+            {LABELS[id]}
+          </button>
+        ))}
+      </div>
+      {actionError !== null && <div style={errorStyle}>{actionError}</div>}
       <Section
         id={tab}
         section={sections?.find(entry => entry.id === tab)}
         selection={selection}
-        onSelect={setSelection}
+        onSelect={(path) => { setSelection(path); onOpenFile(path, 'edit') }}
         showHeading={false}
+      />
+      <NewEntityRow
+        label="+ 新建"
+        placeholder={`${LABELS[tab]}名称`}
+        submit={name => create(name).catch((failure: unknown) => {
+          setActionError(failure instanceof Error ? failure.message : String(failure))
+        })}
       />
     </div>
   )
