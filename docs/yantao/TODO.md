@@ -30,7 +30,8 @@ Living backlog. Status words: **done** (merged on `main`), **next** (queued), **
 | Three-pane skeleton in `ui-yantao`: intake rail (资源/待办/会议/连接) + workspace rail (领域/人物/项目 tabs) over `intakeTree()` / `workspaceTree()`; click-through overlay so the middle column stays the host's agent surface | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,remote.ts}` |
 | `ui-yantao` client spec (3 tests) and a README pair that clears the two package gates | `packages/client/ui-yantao/tests/workbench.client.spec.tsx`, `README.md`, `README.zh.md` |
 | First shared-shell row stepped aside: `ui-yantao-kb` removed from the yantao-web roster; catalogs regenerated | `packages/bundle/yantao-web-app/cordis.patch.yml`, `packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` |
-| Workbench rails contributed through the host's own slots: `IntakeRail` registers into `sidebar` (the frame's drag handle sizes it, `toggleSidebar` collapses it), `WorkspaceRail` into `shell.overlay` (retractable); the body-level React root is gone | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,remote.ts}`, `tsconfig.base.json` (the missing `ui-yantao` alias), `packages/client/ui-yantao/tsconfig.json` (project references), `packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` |
+| Workbench rails contributed through the host's own slots: `IntakeRail` registers into `sidebar` (the frame's drag handle sizes it, `toggleSidebar` collapses it), `WorkspaceRail` into `shell.overlay` (retractable); the body-level React root is gone |
+| **The workbench frame is ours (ADR-0011)**: `ui-yantao` registers the runtime's built-in `root` slot with its own three-column frame, declares `conversation` + `shell.overlay`, and provides `ctx.layout` plus the theme presenter; `ui-layout` is out of the yantao-web roster and both rails are real grid columns — dragging and collapsing are symmetric again | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,frame/*}`, `packages/bundle/yantao-web-app/cordis.patch.yml`, `packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`, `docs/adr/0011-yantao-owns-the-workbench-frame.md` | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,remote.ts}`, `tsconfig.base.json` (the missing `ui-yantao` alias), `packages/client/ui-yantao/tsconfig.json` (project references), `packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` |
 
 ## next
 
@@ -41,8 +42,9 @@ Living backlog. Status words: **done** (merged on `main`), **next** (queued), **
 2. **Detail pane with `read` / `write`** — selecting a row in either rail loads the file and lets the human edit it. This is
    what `ui-yantao-kb`'s editor did; until it lands, the workbench lists files but cannot open them.
 3. **Step the shared shell aside, one row at a time** — disable a single `ui-*` row, reboot, confirm the page still loads, repeat.
-   `slots` is runtime infrastructure, not UI: it must stay until nothing needs it. Only when the shell is gone can the middle
-   column become ours and host agent interaction.
+   `slots` is runtime infrastructure, not UI: it must stay until nothing needs it. `ui-layout` already stepped aside (ADR-0011);
+   the remaining big ones are `ui-conversation` and `ui-chat`. Only when the shell is gone can the middle column become ours
+   and host agent interaction.
 4. **Give the workbench its own dictionary** — labels are hardcoded Chinese in `Workbench.tsx`; register a locale namespace
    when the panes grow past a handful of strings.
 
@@ -67,7 +69,7 @@ Living backlog. Status words: **done** (merged on `main`), **next** (queued), **
 | FTS + backlinks index | needs a storage decision (drift/sqlite vs dsh `session-query`) once the KB has real content |
 | Connector implementation (mail, scripts, CLI) | ADR-0010 describes the abstraction; concrete implementation deferred until mail integration is needed |
 | *(moved to done)* — note: a per-package `tsc -b` **recreates** this residue | re-clean with the repo's own `pnpm run clean`, or `git clean -f -- packages` after checking `git clean -n -- packages` |
-| Giving the workspace rail a real right-hand column | the only right-hand column is `details`, occupied by ui-chat's tool details; replacing it costs tool-detail inspection, and `ctx.layout` exposes no width setter to reserve space any other way. Revisit when the shell steps aside. |
+| Owning the middle column too (the L3 step in ADR-0011) | the conversation surface is ~23k lines upstream (ui-conversation + ui-chat + ui-tool); no product reason to rewrite it while the middle is still a chat transcript. Revisit if the middle becomes a KB document view. |
 | Slimming the profile (fewer base rows) to cut the ~35s boot | measure first; only after the UI is ours |
 
 ## rules for this list

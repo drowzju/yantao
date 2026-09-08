@@ -1,9 +1,9 @@
 /**
- * The two workbench rails, each its own slot entry: the intake rail occupies
- * the host layout's `sidebar` column (so the frame's own drag handle sizes it
- * and `toggleSidebar` collapses it), and the workspace rail rides the
- * frame-wide `shell.overlay` layer. Pure presentation over plain data — every
- * fact arrives as a prop and every action as a callback.
+ * The two workbench rails (ADR-0011). Both are plain children of our own
+ * frame now — real grid columns, not slot entries — so they carry the same
+ * shape: fill the column when expanded, render a compact icon column when the
+ * frame collapses them. Pure presentation over plain data: every fact arrives
+ * as a prop and every action as a callback.
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
@@ -31,20 +31,19 @@ const LABELS: Record<string, string> = {
 
 const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
 
-/** The expanded intake rail: it fills the sidebar column the frame hands it. */
+/** The expanded rail: it fills the column the frame hands it. */
 const railStyle = {
   width: '100%',
   height: '100%',
   padding: 12,
   boxSizing: 'border-box',
   overflowY: 'auto',
-  background: '#fbfaf7',
   fontFamily: FONT,
   fontSize: 13,
 } as const
 
-/** The collapsed intake rail: a centered icon column (SIDEBAR_COLLAPSED wide). */
-const collapsedStyle = {
+/** The collapsed rail: a centered icon column. */
+const compactStyle = {
   width: '100%',
   height: '100%',
   paddingTop: 12,
@@ -53,30 +52,9 @@ const collapsedStyle = {
   flexDirection: 'column',
   alignItems: 'center',
   gap: 6,
-  background: '#fbfaf7',
   fontFamily: FONT,
   fontSize: 13,
 } as const
-
-/** The floating workspace rail: it opts back into pointer events inside the click-through overlay layer. */
-const overlayStyle = {
-  position: 'absolute',
-  top: 0,
-  right: 0,
-  bottom: 0,
-  width: 280,
-  padding: 12,
-  boxSizing: 'border-box',
-  overflowY: 'auto',
-  background: '#fbfaf7',
-  borderLeft: '1px solid #e6e2d8',
-  pointerEvents: 'auto',
-  fontFamily: FONT,
-  fontSize: 13,
-} as const
-
-/** The same rail retracted to a handle, so the middle column can take the width back. */
-const overlayCollapsedStyle = { ...overlayStyle, width: 28, padding: 4, overflowY: 'hidden' } as const
 
 const titleStyle = { margin: '12px 0 4px', fontSize: 12, fontWeight: 600, color: '#6b6455' } as const
 
@@ -107,7 +85,7 @@ interface RailState {
 
 /**
  * Load one rail's sections once on mount and on every refresh.
- * @param load - the loader the plugin's inject face supplies.
+ * @param load - the loader the frame supplies.
  * @returns the load state.
  */
 function useRail(load: TreeLoader): RailState {
@@ -164,34 +142,52 @@ function Section({
   )
 }
 
-/** Presentational props of the intake rail (the `sidebar` slot occupant). */
-export interface IntakeRailProps {
-  /** Sidebar owner share: true while the frame renders the compact collapsed rail. */
-  readonly collapsed: boolean
-  /** Load the intake sections (resources / todos / meetings). */
-  readonly load: TreeLoader
+/** The compact column both rails render while collapsed. */
+function CompactRail({
+  label,
+  error,
+  refresh,
+  onExpand,
+  side,
+}: {
+  label: string
+  error: string | null
+  refresh: () => void
+  onExpand: () => void
+  side: 'intake' | 'workspace'
+}): ReactElement {
+  return (
+    <div style={compactStyle}>
+      <button type="button" style={rowStyle} title={label} onClick={onExpand}>
+        {side === 'intake' ? '›' : '‹'}
+      </button>
+      <button type="button" style={rowStyle} title="刷新知识库" onClick={refresh}>⟳</button>
+      {error !== null && <span style={{ color: '#b4453a' }} title={error}>!</span>}
+    </div>
+  )
 }
 
-/** Presentational props of the workspace rail (a `shell.overlay` entry). */
-export interface WorkspaceRailProps {
-  /** Load the workspace sections (areas / people / projects). */
+/** Presentational props shared by both rails. */
+export interface RailProps {
+  /** True while the frame renders this rail as a compact icon column. */
+  readonly collapsed: boolean
+  /** Load this rail's sections. */
   readonly load: TreeLoader
+  /** Ask the frame to expand this rail again. */
+  readonly onExpand: () => void
 }
 
 /**
- * The intake rail: 资源 / 待办 / 会议 / 连接, filling the sidebar column.
- * @param props - see {@link IntakeRailProps}.
+ * The intake rail: 资源 / 待办 / 会议 / 连接.
+ * @param props - see {@link RailProps}.
  * @returns the rail element.
  */
-export function IntakeRail({ collapsed, load }: IntakeRailProps): ReactElement {
+export function IntakeRail({ collapsed, load, onExpand }: RailProps): ReactElement {
   const { sections, error, refresh } = useRail(load)
   const [selection, setSelection] = useState<string | null>(null)
   if (collapsed) {
     return (
-      <div style={collapsedStyle}>
-        <button type="button" style={rowStyle} title="刷新知识库" onClick={refresh}>⟳</button>
-        {error !== null && <span style={{ color: '#b4453a' }} title={error}>!</span>}
-      </div>
+      <CompactRail label="展开输入栏" error={error} refresh={refresh} onExpand={onExpand} side="intake" />
     )
   }
   return (
@@ -212,31 +208,22 @@ export function IntakeRail({ collapsed, load }: IntakeRailProps): ReactElement {
 }
 
 /**
- * The workspace rail: 领域 / 人物 / 项目 as tabs, floating over the frame's
- * right edge because the host has only one right-hand column (`details`,
- * which ui-chat occupies with tool details). It retracts to a handle so the
- * middle column can take the width back.
- * @param props - see {@link WorkspaceRailProps}.
+ * The workspace rail: 领域 / 人物 / 项目 as tabs.
+ * @param props - see {@link RailProps}.
  * @returns the rail element.
  */
-export function WorkspaceRail({ load }: WorkspaceRailProps): ReactElement {
+export function WorkspaceRail({ collapsed, load, onExpand }: RailProps): ReactElement {
   const { sections, error, refresh } = useRail(load)
   const [tab, setTab] = useState<KbTreeSectionId>('areas')
   const [selection, setSelection] = useState<string | null>(null)
-  const [open, setOpen] = useState(true)
-  if (!open) {
+  if (collapsed) {
     return (
-      <div style={overlayCollapsedStyle}>
-        <button type="button" style={rowStyle} title="展开工作区" onClick={() => { setOpen(true) }}>‹</button>
-      </div>
+      <CompactRail label="展开工作栏" error={error} refresh={refresh} onExpand={onExpand} side="workspace" />
     )
   }
   return (
-    <div style={overlayStyle}>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-        <button type="button" style={rowStyle} title="收起工作区" onClick={() => { setOpen(false) }}>›</button>
-        <button type="button" style={rowStyle} title="刷新知识库" onClick={refresh}>⟳</button>
-      </div>
+    <div style={railStyle}>
+      <button type="button" style={rowStyle} onClick={refresh}>⟳ 刷新</button>
       {error !== null && <div style={errorStyle}>{error}</div>}
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {WORKSPACE_TAB_IDS.map(id => (

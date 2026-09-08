@@ -62,8 +62,9 @@ apps/yantao (React + Vite)  ──served by──►  dsh profile yantao-web
 profile `yantao` = the same stack without the web surface (one-shot headless runs)
 ```
 
-- **dsh is the backend.** Our UI consumes it over Typert RPC and the forwarded event stream; it does not use dsh's own slot-based
-  web UI (ADR-0009).
+- **dsh is the backend.** Our UI consumes it over Typert RPC and the forwarded event stream. It owns the browser shell — the
+  workbench plugin registers the runtime's built-in `root` slot and draws its own three-column frame (ADR-0011) — while the
+  middle column stays the host's conversation surface rendered through the `conversation` seat (ADR-0009).
 - **The agent's trust boundary is the tool layer.** The agent gets six `kb_*` tools and no generic write capability; the `状态`
   section of an entity is structurally unreachable for it (ADR-0004). The **UI is the human channel** and may edit anything.
 - **Knowledge lives in files**, not a database: `resources/`, `entities/{projects,areas,people}/`, `sessions/` under the KB root

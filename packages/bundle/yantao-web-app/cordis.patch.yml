@@ -128,6 +128,7 @@
     # disabled because every one of them is a web-app-side insert — nothing
     # re-adds them later. What each omission removes:
     #   ui-sidebar        → replaced by ui-yantao's intake rail (three-pane UI)
+    #   ui-layout         → replaced by ui-yantao's own frame (ADR-0011)
     #   ui-cordis         → cordis_inspect view; the opt-in tool is not mounted here
     #   ui-workflow-run   → workflow lifecycle node; tool-workflow is disabled below
     #   ui-deliverables   → produced-files tail; kb_ writes are not tracked producers
@@ -158,19 +159,27 @@
     - id: cordis-client-runner
       name: '@deepseek-ai/dsh-cordis-client-runner'
 
-    # The bespoke yantao workbench UI (ADR-0009): our own React tree over
-    # ctx.remote, no slot/shared-shell dependency.
+    # The bespoke yantao workbench UI (ADR-0009/ADR-0011): our own React tree
+    # over ctx.remote. It owns the whole browser shell: the runtime's built-in
+    # 'root' slot carries our three-column frame, which keeps the host
+    # conversation surface in its middle column and provides ctx.layout plus
+    # the theme presenter ui-layout used to own.
     - id: ui-yantao
       name: '@deepseek-ai/dsh-client-ui-yantao'
+
+    # Stepped aside (ADR-0011): ui-layout's AppFrame is replaced by
+    # ui-yantao's own frame, so the row is no longer inserted at all — a
+    # second 'root' registration cannot sit beside ours, because a root
+    # entry's children table is exclusive (two frames declaring
+    # 'conversation' throws). The two things ui-layout owned move with it:
+    # the ctx.layout service (ui-chat injects 'layout') and the theme
+    # presenter. The package stays a dependency for those contracts.
 
     - id: ui-theme
       name: '@deepseek-ai/dsh-client-ui-theme'
 
     - id: locale
       name: '@deepseek-ai/dsh-client-locale'
-
-    - id: ui-layout
-      name: '@deepseek-ai/dsh-client-ui-layout'
 
     - id: ui-renderer
       name: '@deepseek-ai/dsh-client-ui-renderer'

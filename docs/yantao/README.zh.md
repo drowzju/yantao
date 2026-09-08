@@ -62,7 +62,8 @@ apps/yantao (React + Vite)  ──served by──►  dsh profile yantao-web
 profile `yantao` = the same stack without the web surface (one-shot headless runs)
 ```
 
-- **dsh 是后端。** 我们的 UI 通过 Typert RPC 与转发事件流消费它,不使用 dsh 自带基于槽位的 web UI(ADR-0009)。
+- **dsh 是后端。** 我们的 UI 通过 Typert RPC 与转发事件流消费它。浏览器外壳归我们:工作台插件注册运行时内置的 `root`
+  槽位、自绘三栏外框(ADR-0011);中间一列仍是宿主的会话面,通过 `conversation` 座位渲染(ADR-0009)。
 - **信任边界在工具层。** agent 只有六个 `kb_*` 工具、没有通用写能力;实体文件的「状态」区对它结构上不可达(ADR-0004)。
   **UI 是人类通道**,可以编辑任何内容。
 - **知识存在文件里**,不是数据库:KB 根下的 `resources/`、`entities/{projects,areas,people}/`、`sessions/`(ADR-0005)。每个实体文件里的

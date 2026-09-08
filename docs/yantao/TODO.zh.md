@@ -31,6 +31,7 @@
 | `ui-yantao` client spec(3 个测试)与通过两个包门禁的 README 双语对 | `packages/client/ui-yantao/tests/workbench.client.spec.tsx`、`README.md`、`README.zh.md` |
 | 共享 shell 第一行退场:`ui-yantao-kb` 移出 yantao-web roster,目录重新生成 | `packages/bundle/yantao-web-app/cordis.patch.yml`、`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` |
 | 两条侧栏改为通过宿主自己的槽位贡献:`IntakeRail` 注册进 `sidebar`(框架自带的拖拽手柄可改宽度,`toggleSidebar` 可收成图标栏),`WorkspaceRail` 注册进 `shell.overlay`(可收成把手);挂在 body 上的 React root 已删除 | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,remote.ts}`、`tsconfig.base.json`(补上缺失的 `ui-yantao` 别名)、`packages/client/ui-yantao/tsconfig.json`(项目引用)、`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` |
+| **外框归我们(ADR-0011)**:`ui-yantao` 把自绘三栏外框注册进运行时内置的 `root` 槽位,声明 `conversation` + `shell.overlay`,并提供 `ctx.layout` 与主题 presenter;`ui-layout` 移出 yantao-web roster,两条侧栏都是真正的网格列——拖拽与折叠重新对称 | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,frame/*}`、`packages/bundle/yantao-web-app/cordis.patch.yml`、`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`、`docs/adr/0011-yantao-owns-the-workbench-frame.md` |
 
 ## next
 
@@ -41,7 +42,7 @@
 2. **带 `read` / `write` 的详情栏** —— 在任意一栏选中一行即加载文件并允许人类编辑。这正是 `ui-yantao-kb` 编辑器做的事;
     在它落地之前,工作台只列文件、打不开文件。
 3. **逐行让共享 shell 退场** —— 每次只禁用一个 `ui-*` 行,重启,确认页面正常,再继续。`slots` 是运行时基础设施,不是 UI,
-    必须留到无人需要为止。只有 shell 退场后,中间一列才归我们并承载 agent 交互。
+    必须留到无人需要为止。`ui-layout` 已退场(ADR-0011);剩下的大头是 `ui-conversation` 与 `ui-chat`。只有 shell 退场后,中间一列才归我们并承载 agent 交互。
 4. **给工作台自己的词典** —— `Workbench.tsx` 里的文案是硬编码中文;等面板文案多起来就注册一个 locale 命名空间。
 
 ### 阶段 2 —— 文档同步
@@ -63,7 +64,7 @@
 | FTS 与 backlinks 索引 | 等知识库有真实内容后再定存储(drift/sqlite 还是 dsh `session-query`) |
 | Connector 实现(邮件、脚本、CLI) | ADR-0010 描述了抽象;具体实现推迟到需要邮件集成时 |
 | *(已移入 done)* —— 注意:单包 `tsc -b` 会**重新生成**这些残留 | 用仓库自带的 `pnpm run clean` 再清,或先 `git clean -n -- packages` 预览、再 `git clean -f -- packages` |
-| 给右侧工作栏一列真正的空间 | 唯一的右列是 `details`,已被 ui-chat 的工具详情占用;替换它会丢掉工具详情查看能力,而 `ctx.layout` 也没有暴露设置宽度的接口来预留空间。等 shell 退场后再议。 |
+| 把中间一列也收归我们(ADR-0011 里的 L3) | 会话面在上游约 23k 行(ui-conversation + ui-chat + ui-tool);中间还是对话流水时没有产品理由重写。若中列变成 KB 文档视图再议。 |
 | 精简 profile(减少 base 行)以缩短约 35 秒启动 | 先测量;等 UI 完全归我们再做 |
 
 ## 这份清单的规矩

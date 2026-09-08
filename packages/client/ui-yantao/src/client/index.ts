@@ -1,48 +1,69 @@
 /**
- * yantao workbench client plugin — the two workbench rails.
+ * yantao workbench client plugin — the frame and its two rails (ADR-0011).
  *
- * dsh serves OUR dist and a plugin of ours reaches `ctx.remote.yantaoKb`
- * from React trees we register into the host's own slots: the intake rail
- * takes the layout's `sidebar` column, the workspace rail rides the
- * frame-wide `shell.overlay` layer. Both come from our own code — no
- * upstream file is touched to place them.
+ * dsh serves OUR dist and a plugin of ours contributes the whole browser
+ * shell: it registers the runtime's built-in 'root' slot with a bespoke
+ * three-column frame, keeps the host's conversation surface in the middle
+ * through the `conversation` seat, and reads `ctx.remote.yantaoKb` for the
+ * two rails. Nothing upstream is modified to place any of it.
  */
 import type { Context } from '@deepseek-ai/cordis'
-// Type-only: pulls the `ctx.slots` service merge (ui-renderer installs the registry)
-// and ui-layout's SlotMap declarations ('sidebar', 'shell.overlay').
+// Type-only: pulls the `ctx.slots` service merge (ui-renderer installs the
+// registry), the `ctx.layout` Context merge (ui-layout owns the declaration),
+// and the theme snapshot type.
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import { IntakeRail, WorkspaceRail } from './Workbench.tsx'
+import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
+import { Frame } from './frame/Frame.tsx'
+import { ThemePresenter } from './frame/theme-presenter.ts'
+import { WorkbenchLayout, createPanelSeat } from './frame/layout.ts'
 import { loadIntake, loadWorkspace } from './remote.ts'
 
 export const name = 'ui-yantao'
 // Cordis forbids reading an undeclared service, and a Remote namespace counts
 // as one of its own: both the `remote` face and this namespace must be listed
 // or the accessor throws "cannot get property remote.yantaoKb without inject".
-export const inject = ['slots', 'remote', 'remote.yantaoKb']
-
-/** Overlay cell key of the workspace rail (the layer hosts unrelated entries too). */
-const WORKSPACE_RAIL_ID = 'yantao-workspace-rail'
+export const inject = ['slots', 'theme', 'remote', 'remote.yantaoKb']
 
 /**
- * Contribute both rails.
+ * Contribute the workbench shell.
  *
- * `slots.inject` — not a bare `register` — because the two keys are declared
- * by ui-layout's root registration, which may not have run yet when this
- * plugin applies: inject waits for the declaration lifetime instead of
- * throwing.
+ * The 'root' registration is a bare `register`, not `slots.inject`: the key is
+ * the runtime's own built-in slot, seeded when the registry is constructed, so
+ * it is always declared by the time a plugin applies. The two seats this frame
+ * declares are the ones upstream's conversation and command surfaces depend on:
+ * `conversation` renders the host's agent surface, and `shell.overlay` carries
+ * ui-commands' popupSelect.
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
-  ctx.slots.inject('sidebar', () => ctx.slots.register({
-    name: 'sidebar',
-    inject: () => ({ load: () => loadIntake(ctx) }),
-  }, IntakeRail))
+  // Panel actions: the frame fills this seat on mount, `ctx.layout` reads it.
+  const panels = createPanelSeat()
+  const layout = new WorkbenchLayout(panels)
+  ctx.effect(() => ctx.reflect.provide('layout', layout), 'ui-yantao: layout service')
 
-  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-    name: 'shell.overlay',
-    id: WORKSPACE_RAIL_ID,
-    order: 0,
-    inject: () => ({ load: () => loadWorkspace(ctx) }),
-  }, WorkspaceRail))
+  // Theme presentation: pure DOM writes from resolved snapshots — the initial
+  // state through the getter once, then event-driven only.
+  ctx.effect(() => {
+    const presenter = new ThemePresenter()
+    presenter.apply(ctx.theme.getTheme())
+    const off = ctx.on('theme/change', (snapshot) => { presenter.apply(snapshot) })
+    return () => {
+      off()
+      presenter.dispose()
+    }
+  }, 'ui-yantao: theme presenter')
+
+  ctx.effect(() => ctx.slots.register({
+    name: 'root',
+    children: {
+      'conversation': { kind: 'single', scope: 'session-maybe' },
+      'shell.overlay': { kind: 'list', scope: 'root' },
+    },
+    inject: () => ({
+      panels,
+      intake: () => loadIntake(ctx),
+      workspace: () => loadWorkspace(ctx),
+    }),
+  }, Frame), 'ui-yantao: root frame')
 }

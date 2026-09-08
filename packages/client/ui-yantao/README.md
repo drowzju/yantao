@@ -1,5 +1,5 @@
 ---
-description: "yantao workbench client plugin: the two workbench rails over ctx.remote, contributed into the host layout's sidebar slot and the frame-wide overlay layer."
+description: "yantao workbench client plugin: the whole browser shell — its own three-column frame in the runtime's root slot, the host conversation surface in the middle, and the two KB rails over ctx.remote."
 kind: "package-reference"
 ---
 
@@ -9,21 +9,22 @@ English | [中文](README.zh.md)
 
 ## Overview
 
-The yantao workbench's own client plugin. dsh is used as a **backend**: this plugin talks to `ctx.remote.yantaoKb` (and, later, the session namespace) and renders React trees of its own (ADR-0009) — contributed into two slots the host layout already owns, so the frame's own geometry applies to them.
+The yantao workbench's own client plugin. dsh is used as a **backend**: this plugin talks to `ctx.remote.yantaoKb` (and, later, the session namespace) and **owns the browser shell** — it registers the runtime's built-in `root` slot with a bespoke three-column frame (ADR-0011). The middle column is still the host's agent surface, rendered through the `conversation` seat; the two rails are plain children of our frame, so both are real grid columns that drag and collapse alike.
 
 ## Use this package
 
-Mounted by the `yantao-web-app` bundle's `dsh.client` roster, alongside `@deepseek-ai/dsh-api-remotes`, `@deepseek-ai/dsh-api-yantao-kb-controller`, `@deepseek-ai/dsh-client-ui-layout` and `@deepseek-ai/dsh-client-ui-renderer`. It activates once `slots` and `remote` are available and contributes two entries — it owns no container of its own.
+Mounted by the `yantao-web-app` bundle's `dsh.client` roster, alongside `@deepseek-ai/dsh-api-remotes`, `@deepseek-ai/dsh-api-yantao-kb-controller`, `@deepseek-ai/dsh-client-ui-layout` and `@deepseek-ai/dsh-client-ui-renderer`. It activates once `slots`, `theme`, and `remote` are available. `ui-layout` is **not** in that roster: this plugin replaces its frame and takes over the two cross-cutting things it owned — the `ctx.layout` service and the theme presenter.
 
 ## Surface
 
-- `apply(ctx)` — contributes both rails through `ctx.slots.inject` and drives them from `ctx.remote`.
-- `IntakeRail` — the `sidebar` slot occupant: 资源 / 待办 / 会议 / 连接, fed by `intakeTree()`. It receives the frame's `collapsed` / `width` owner share, so the sidebar drag handle sizes it and `toggleSidebar` collapses it to an icon rail.
-- `WorkspaceRail` — a `shell.overlay` entry: 领域 / 人物 / 项目 as tabs, fed by `workspaceTree()`. It floats over the frame's right edge and retracts to a handle.
+- `apply(ctx)` — provides `ctx.layout` and the theme presenter, registers the `root` frame, and drives the rails from `ctx.remote`.
+- `Frame` — the `root` occupant: intake | conversation | workspace as one grid, with a drag handle per rail, a narrow breakpoint that collapses both, and a click-through `shell.overlay` layer. It declares exactly two child seats: `conversation` (the host's agent surface) and `shell.overlay` (ui-commands' popupSelect).
+- `IntakeRail` / `WorkspaceRail` — 资源 / 待办 / 会议 / 连接 and 领域 / 人物 / 项目, fed by `intakeTree()` / `workspaceTree()`. Both take the same `collapsed` prop and render the same compact icon column, so the two sides stay symmetric.
+- `WorkbenchLayout` — the `ctx.layout` face: upstream's `sidebar` / `details` names map onto the intake and workspace rails.
 
 ## Understand the implementation
 
-The plugin is deliberately thin: `remote.ts` reaches the `yantaoKb` namespace defensively (a missing namespace is a reported state, not a crash), `Workbench.tsx` is pure presentation over plain data, and each rail owns only its own load state and selection. Registration goes through `slots.inject`, not a bare `register`: the two keys are declared by `ui-layout`'s root registration, which may not have run when this plugin applies, and inject waits for the declaration lifetime instead of throwing. The middle column stays the host's agent surface — ADR-0010 steps the shared shell aside one row at a time.
+The plugin is deliberately thin: `remote.ts` reaches the `yantaoKb` namespace defensively (a missing namespace is a reported state, not a crash), `Workbench.tsx` is pure presentation over plain data, and each rail owns only its own load state and selection. `frame/columns.ts` is a pure width solver (both rails concede, the wider one first); `frame/Frame.tsx` measures itself with a ResizeObserver and never reads the window. The `root` registration is a bare `register`, not `slots.inject`: `root` is the runtime's own built-in slot, seeded when the registry is constructed. ADR-0010 steps the shared shell aside one row at a time — the layout row was the one that stepped aside here.
 
 **Runtime invariant:** No companion is published. The plugin holds no process-global state and no event stream of its own; its only relations are the Remote results it renders, and the two rails' shape plus the load/select/refresh behavior are asserted by the package's client spec.
 
@@ -48,7 +49,7 @@ The plugin adds nothing to any request prefix; it never participates in a model 
 These limits define what the workbench UI deliberately does not do yet. They are current package constraints, not a task backlog.
 
 - The middle pane is still the host's agent surface — the workbench does not own agent interaction until the shared shell's rows are stepped aside.
-- The workspace rail floats: the host's only right-hand column (`details`) is occupied by ui-chat's tool details, so it rides `shell.overlay` and retracts to a handle rather than reserving a column.
+- No `details` column: this frame declares only `conversation` and `shell.overlay`, so ui-chat's tool-detail panel has no seat (nothing in the shipped source calls `ctx.layout.openDetails()` anyway).
 - Each rail keeps its own selection; one shared selection arrives with the detail pane.
 - Rails list files but do not open them: `read` / `write` are wired for the detail pane, which arrives with the editor.
 - The 连接 panel is a placeholder; ADR-0010 reserves the connector abstraction but no implementation exists.
