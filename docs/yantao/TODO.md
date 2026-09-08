@@ -32,6 +32,9 @@ Living backlog. Status words: **done** (merged on `main`), **next** (queued), **
 | First shared-shell row stepped aside: `ui-yantao-kb` removed from the yantao-web roster; catalogs regenerated | `packages/bundle/yantao-web-app/cordis.patch.yml`, `packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` |
 | Workbench rails contributed through the host's own slots: `IntakeRail` registers into `sidebar` (the frame's drag handle sizes it, `toggleSidebar` collapses it), `WorkspaceRail` into `shell.overlay` (retractable); the body-level React root is gone |
 | **The workbench frame is ours (ADR-0011)**: `ui-yantao` registers the runtime's built-in `root` slot with its own three-column frame, declares `conversation` + `shell.overlay`, and provides `ctx.layout` plus the theme presenter; `ui-layout` is out of the yantao-web roster and both rails are real grid columns — dragging and collapsing are symmetric again | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,frame/*}`, `packages/bundle/yantao-web-app/cordis.patch.yml`, `packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`, `docs/adr/0011-yantao-owns-the-workbench-frame.md` | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,remote.ts}`, `tsconfig.base.json` (the missing `ui-yantao` alias), `packages/client/ui-yantao/tsconfig.json` (project references), `packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` |
+| **Docs synced to the current world**: the `CONTEXT.md` glossary (meeting / todo / connector, `状态` agent-writable, 会话 removed) and the architecture page's diagram + ADR index (seven `kb_*` tools, ADR-0010/0011/0012) | `packages/yantao/CONTEXT.md`, `docs/yantao/README.md` + `.zh.md` (`.i18n.yaml` re-recorded); commit `d2f088387b` |
+| **`tsconfig.base.json` mappings for our own ids** — `dsh-client-ui-yantao` (+ `/client`) and `dsh-yantao-web-app/startup`; `verify-cordis-config` reports no yantao failure (the one it still reports, `apps/cli/tests/profiles/acp/cordis.yml`, is an upstream CLI fixture) | `tsconfig.base.json` |
+| **One selection for both rails** — the centre pane's active file is the selection: each rail pulls forward the tab owning it (so the highlighted row is a visible one) and ignores a file the other rail owns; a row stays highlighted through tab switches and a restored tab finds its row | `packages/client/ui-yantao/src/client/{Workbench.tsx,frame/Frame.tsx}` (4 new tests: reveal, ignore, and follow-the-active-tab in `tests/workbench.client.spec.tsx`) |
 | **The workbench can open, edit and create files (ADR-0012)**: centre-pane tabs (a permanent 对话 tab plus closeable file tabs, restored from localStorage), raw-markdown autosave with a pre-save conflict check, inline 「+ 新建」for meetings / areas / people / projects through `yantaoKb.createEntity`, dated meeting filenames, an inline 待办 checklist over `entities/todos.md`, read-only 资源, and a first-run directory picker persisted to `~/.dsh/yantao-kb.json` | `packages/client/ui-yantao/src/client/{frame/CenterPane,editor/*,TodoList,NewEntityRow,Onboarding,tabs}.tsx`, `packages/yantao/kb/src/{core,paths,root-store,index}.ts`, `packages/api/yantao-kb-controller/src/{index,types}.ts`, `docs/adr/0012-*` |
 
 ## next
@@ -40,25 +43,12 @@ Living backlog. Status words: **done** (merged on `main`), **next** (queued), **
 
 1. **Finish `ui-yantao-kb`'s fate** — it is out of the roster now, so either port `KbEditor`'s markdown editing into the panes
    (below) and delete the package, or keep it as a composable package. Do not leave a mounted-but-unused package behind.
-2. ~~**Detail pane with `read` / `write`**~~ — landed as centre-pane tabs (ADR-0012). What is left of it: the two rails keep
-   separate selections, and a file opened from the workspace rail does not yet reveal itself in the intake rail (and vice versa).
-3. **Step the shared shell aside, one row at a time** — disable a single `ui-*` row, reboot, confirm the page still loads, repeat.
+2. **Step the shared shell aside, one row at a time** — disable a single `ui-*` row, reboot, confirm the page still loads, repeat.
    `slots` is runtime infrastructure, not UI: it must stay until nothing needs it. `ui-layout` already stepped aside (ADR-0011);
    the remaining big ones are `ui-conversation` and `ui-chat`. Only when the shell is gone can the middle column become ours
    and host agent interaction.
-4. **Give the workbench its own dictionary** — labels are hardcoded Chinese in `Workbench.tsx`; register a locale namespace
+3. **Give the workbench its own dictionary** — labels are hardcoded Chinese in `Workbench.tsx`; register a locale namespace
    when the panes grow past a handful of strings.
-
-### Phase 3 — docs sync
-
-5. **Update `packages/yantao/CONTEXT.md`** — add meeting, todo, connector glossary entries; revise `状态` definition to
-   "agent 可编辑"; remove `会话` entry (功能移除).
-6. **Update `docs/yantao/README.md`** — architecture diagram and ADR index to reflect ADR-0010; it still says the agent gets six
-   `kb_*` tools.
-7. **Keep `tsconfig.base.json` mappings current** — done for our own ids: the missing `@deepseek-ai/dsh-client-ui-yantao`
-   (and `/client`) entries and `@deepseek-ai/dsh-yantao-web-app/startup` are in place, so `verify-cordis-config` reports no
-   yantao failure. The one it still reports — `apps/cli/tests/profiles/acp/cordis.yml: root must be a Loader entry array` —
-   is an upstream CLI test fixture, not ours.
 
 ## deferred (with reason)
 

@@ -19,7 +19,7 @@ import { FileEditor, type SaveStatus } from '../editor/FileEditor.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
 import { Onboarding } from '../Onboarding.tsx'
 import {
-  CONVERSATION_TAB, activateTab, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath, restoreTabs,
+  CONVERSATION_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath, restoreTabs,
   type TabMode, type TabState,
 } from '../tabs.ts'
 import { CenterPane } from './CenterPane.tsx'
@@ -262,6 +262,10 @@ export function Frame({
     setTabs(state => openTab(state, path, mode))
   }, [])
 
+  // One selection for both rails: the file the centre pane shows, so a row
+  // stays highlighted through tab switches and a restored tab finds its row.
+  const selection = activeFile(tabs)?.path ?? null
+
   const closeFile = useCallback((path: string): void => {
     setTabs(state => closeTab(state, path))
     setStatuses((current) => {
@@ -295,6 +299,7 @@ export function Frame({
           collapsed={!intakeOpen}
           load={intake}
           refreshKey={treeKey}
+          selection={selection}
           onExpand={() => { setIntakeOpen(true) }}
           onOpenFile={openFile}
           read={read}
@@ -327,6 +332,7 @@ export function Frame({
           collapsed={!workspaceOpen}
           load={workspace}
           refreshKey={treeKey}
+          selection={selection}
           onExpand={() => { setWorkspaceOpen(true) }}
           onOpenFile={openFile}
           read={read}

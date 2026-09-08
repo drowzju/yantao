@@ -144,6 +144,7 @@ export function CenterPane({
                 type="button"
                 style={labelButtonStyle}
                 title={tab.path}
+                data-tab-button={tab.path}
                 onClick={() => { onActivate(tab.path) }}
               >
                 {tab.title}

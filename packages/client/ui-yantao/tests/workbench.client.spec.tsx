@@ -58,6 +58,7 @@ function railProps(overrides: Partial<RailProps> = {}): RailProps {
     collapsed: false,
     load: loader(intake),
     refreshKey: 0,
+    selection: null,
     onExpand: () => {},
     onOpenFile: () => {},
     read: () => Promise.resolve(TODO_FILE),
@@ -189,6 +190,20 @@ describe('IntakeRail', () => {
     expect(onExpand).toHaveBeenCalledOnce()
     expect(screen.getByTitle('刷新知识库')).toBeTruthy()
   })
+
+  it('pulls forward the tab owning the selected file', async () => {
+    // The rail opens on 资源; the selected meeting lives under 会议.
+    const { container } = render(<IntakeRail {...railProps({ selection: 'entities/meetings/周会.md' })} />)
+    expect(await screen.findByText('周会')).toBeTruthy()
+    const row = container.querySelector('[data-selected="true"]') as HTMLElement
+    expect(row.getAttribute('title')).toBe('entities/meetings/周会.md')
+  })
+
+  it('leaves its tab alone when the other rail owns the selection', async () => {
+    render(<IntakeRail {...railProps({ selection: 'entities/areas/健康.md' })} />)
+    expect(await screen.findByText('周报.eml')).toBeTruthy()
+    expect(screen.queryByText('周会')).toBeNull()
+  })
 })
 
 describe('WorkspaceRail', () => {
@@ -225,6 +240,16 @@ describe('WorkspaceRail', () => {
     expect(screen.queryByText('领域')).toBeNull()
     fireEvent.click(screen.getByTitle('展开工作栏'))
     expect(onExpand).toHaveBeenCalledOnce()
+  })
+
+  it('pulls forward the tab owning the selected file', async () => {
+    // The rail opens on 领域; the selected project lives under 项目.
+    const { container } = render(
+      <WorkspaceRail {...railProps({ load: loader(workspace), selection: 'entities/projects/dsh 学习.md' })} />,
+    )
+    expect(await screen.findByText('dsh 学习')).toBeTruthy()
+    const row = container.querySelector('[data-selected="true"]') as HTMLElement
+    expect(row.getAttribute('title')).toBe('entities/projects/dsh 学习.md')
   })
 })
 
@@ -291,6 +316,23 @@ describe('Frame', () => {
     expect(tab.style.display).toBe('flex')
     expect(within(tab).getByRole('textbox')).toBeTruthy()
     expect(localStorage.getItem(TAB_STORAGE_KEY)).toBe('["entities/areas/健康.md"]')
+  })
+
+  it('highlights the active file in its rail and follows the tab switch', async () => {
+    const { container } = render(renderFrame())
+    const selectedTitle = (): string | null =>
+      container.querySelector('[data-selected="true"]')?.getAttribute('title') ?? null
+
+    fireEvent.click(firstOf(await screen.findAllByText('健康')))
+    expect(selectedTitle()).toBe('entities/areas/健康.md')
+
+    // 对话 takes the centre back: no file is shown, so no row is highlighted.
+    fireEvent.click(screen.getByText('对话'))
+    expect(selectedTitle()).toBeNull()
+
+    // Switching back to the file tab re-highlights its row.
+    fireEvent.click(container.querySelector('[data-tab-button="entities/areas/健康.md"]') as HTMLElement)
+    expect(selectedTitle()).toBe('entities/areas/健康.md')
   })
 
   it('activates an already-open file instead of opening it twice, and closes it again', async () => {

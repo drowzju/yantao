@@ -34,6 +34,22 @@ const ENTITY_KINDS: Partial<Record<KbTreeSectionId, KbCreatableEntityType>> = {
 /** KB-relative path of the todo singleton (its tree row carries the same path). */
 export const TODO_PATH = 'entities/todos.md'
 
+/**
+ * The section owning one path, when this rail's tree has it. Both rails read
+ * the same selection, so each answers for its own half of the KB: a rail that
+ * does not own the path simply keeps its tab.
+ * @param sections - the rail's loaded sections.
+ * @param path - the selected KB-relative path, if any.
+ * @returns the owning section's id.
+ */
+function sectionOf(
+  sections: readonly KbTreeSection[] | null,
+  path: string | null,
+): KbTreeSectionId | undefined {
+  if (path === null) return undefined
+  return sections?.find(section => section.files.some(file => file.path === path))?.id
+}
+
 /** Panel and tab labels — yantao's working language, until this plugin owns a dictionary. */
 const LABELS: Record<string, string> = {
   resources: '资源',
@@ -153,6 +169,7 @@ function Section({
           key={file.path}
           type="button"
           style={selection === file.path ? selectedRowStyle : rowStyle}
+          data-selected={selection === file.path || undefined}
           onClick={() => { onSelect(file.path) }}
           title={file.path}
         >
@@ -198,6 +215,8 @@ export interface RailProps {
   readonly load: TreeLoader
   /** The frame's tree-generation counter: a bump reloads the tree. */
   readonly refreshKey: number
+  /** The KB file the centre pane shows, shared by both rails; null while 对话 is active. */
+  readonly selection: string | null
   /** Ask the frame to expand this rail again. */
   readonly onExpand: () => void
   /** Open a KB file in the centre pane. */
@@ -243,11 +262,19 @@ function RailHeader({
  * @returns the rail element.
  */
 export function IntakeRail(props: RailProps): ReactElement {
-  const { collapsed, load, refreshKey, onExpand, onOpenFile, read, write, createEntity, onChangeDirectory } = props
+  const {
+    collapsed, load, refreshKey, selection, onExpand, onOpenFile, read, write, createEntity, onChangeDirectory,
+  } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector'>('resources')
-  const [selection, setSelection] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  // Reveal a selection this rail owns: the tab carrying the file comes to the
+  // front, so the highlighted row is a visible one. A selection owned by the
+  // other rail leaves the human's own tab choice alone.
+  useEffect(() => {
+    const owner = sectionOf(sections, selection)
+    if (owner !== undefined) setTab(owner)
+  }, [sections, selection])
 
   if (collapsed) {
     return (
@@ -295,7 +322,7 @@ export function IntakeRail(props: RailProps): ReactElement {
           id={tab}
           section={sections?.find(entry => entry.id === tab)}
           selection={selection}
-          onSelect={(path) => { setSelection(path); onOpenFile(path, tab === 'resources' ? 'read' : 'edit') }}
+          onSelect={(path) => { onOpenFile(path, tab === 'resources' ? 'read' : 'edit') }}
           showHeading={false}
         />
       )}
@@ -319,11 +346,18 @@ export function IntakeRail(props: RailProps): ReactElement {
  * @returns the rail element.
  */
 export function WorkspaceRail(props: RailProps): ReactElement {
-  const { collapsed, load, refreshKey, onExpand, onOpenFile, createEntity, onChangeDirectory } = props
+  const {
+    collapsed, load, refreshKey, selection, onExpand, onOpenFile, createEntity, onChangeDirectory,
+  } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId>('areas')
-  const [selection, setSelection] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  // Same reveal as the intake rail: a selection this rail owns pulls its tab
+  // forward, one it does not own is left to the other rail.
+  useEffect(() => {
+    const owner = sectionOf(sections, selection)
+    if (owner !== undefined) setTab(owner)
+  }, [sections, selection])
 
   if (collapsed) {
     return (
@@ -360,7 +394,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
         id={tab}
         section={sections?.find(entry => entry.id === tab)}
         selection={selection}
-        onSelect={(path) => { setSelection(path); onOpenFile(path, 'edit') }}
+        onSelect={(path) => { onOpenFile(path, 'edit') }}
         showHeading={false}
       />
       <NewEntityRow
