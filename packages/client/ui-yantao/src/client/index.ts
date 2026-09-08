@@ -17,10 +17,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 // Type-only: pulls the `ctx.uiWorkspace` Context merge (ui-workspace owns the
 // declaration) — the first-run directory picker is its `pickDirectory`.
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { Frame } from './frame/Frame.tsx'
 import { ThemePresenter } from './frame/theme-presenter.ts'
 import { WorkbenchLayout, createPanelSeat } from './frame/layout.ts'
-import type { KbEntityKind } from './remote.ts'
 import {
   createEntity, loadIntake, loadRoot, loadWorkspace, readFile, setKbRoot, writeFile,
 } from './remote.ts'
@@ -73,7 +73,7 @@ export function apply(ctx: Context): void {
       workspace: () => loadWorkspace(ctx),
       read: (path: string) => readFile(ctx, path),
       write: (path: string, content: string) => writeFile(ctx, path, content),
-      createEntity: (type: KbEntityKind, name: string) => createEntity(ctx, { type, name }),
+      createEntity: (type: KbCreatableEntityType, name: string) => createEntity(ctx, { type, name }),
       root: () => loadRoot(ctx),
       setRoot: (path: string) => setKbRoot(ctx, path),
       pickDirectory: () => ctx.uiWorkspace.pickDirectory(),

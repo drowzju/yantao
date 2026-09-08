@@ -3,52 +3,19 @@
  * namespace is reached defensively: it is contributed by the host bundle, so
  * a missing one is a state to report, not a type error to fight.
  *
- * The three first-run methods (`root` / `setRoot` / `createEntity`) are typed
- * here rather than imported: they mirror the controller's `KbRootResult`,
- * `KbSetRootResult`, `KbCreatableEntityType` and `KbCreateEntityArgs` one for
- * one, but keeping this plugin's payloads local means the client face does not
- * depend on which side of the seam lands first.
+ * `root` / `setRoot` / `createEntity` are typed by the controller's own wire
+ * types (`KbRootResult`, `KbSetRootResult`, `KbCreateEntityArgs`): the seam is
+ * one package wide, so the client face shares the host's payloads instead of
+ * mirroring them.
  * @module @deepseek-ai/dsh-client-ui-yantao/remote
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
 import type {
-  KbFileContent, KbTree, KbTreeSection, KbWriteResult,
+  KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult, KbFileContent, KbRootResult,
+  KbSetRootResult, KbTree, KbTreeSection, KbWriteResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-
-/** The KB root's configuration state — the first-run directory question. */
-export interface KbRootInfo {
-  /** Absolute KB root path (empty until one is configured). */
-  readonly root: string
-  /** False when no KB root is configured yet: the workbench asks for one. */
-  readonly configured: boolean
-}
-
-/** Result of `yantaoKb.setRoot`: the directory was adopted and seeded. */
-export interface KbSetRootResult {
-  /** The absolute KB root now in force. */
-  readonly root: string
-  /** Always true once a root is set. */
-  readonly configured: boolean
-  /** KB-relative paths the seeding created. */
-  readonly created: readonly string[]
-  /** KB-relative paths that already existed. */
-  readonly existing: readonly string[]
-}
-
-/** The entity kinds the workbench may create. `todo` is a singleton the server refuses. */
-export type KbEntityKind = 'project' | 'area' | 'person' | 'meeting'
-
-/** Arguments of `yantaoKb.createEntity`. */
-export interface KbCreateEntityArgs {
-  /** The entity kind. */
-  readonly type: KbEntityKind
-  /** Display name; the server turns it into a file name. */
-  readonly name: string
-  /** ISO date (YYYY-MM-DD) for a meeting; the server defaults it to today. */
-  readonly date?: string
-}
 
 /** The yantaoKb namespace's callable surface, structurally satisfied by the mounted contribution. */
 export interface KbRemote {
@@ -56,9 +23,9 @@ export interface KbRemote {
   workspaceTree(): Promise<RemoteResult<KbTree>>
   read(path: string): Promise<RemoteResult<KbFileContent>>
   write(path: string, content: string): Promise<RemoteResult<KbWriteResult>>
-  root(): Promise<RemoteResult<KbRootInfo>>
+  root(): Promise<RemoteResult<KbRootResult>>
   setRoot(path: string): Promise<RemoteResult<KbSetRootResult>>
-  createEntity(args: KbCreateEntityArgs): Promise<RemoteResult<KbWriteResult>>
+  createEntity(args: KbCreateEntityArgs): Promise<RemoteResult<KbCreateEntityResult>>
 }
 
 /** Read one KB file's content; rejects with the Remote's own message. */
@@ -68,10 +35,10 @@ export type FileReader = (path: string) => Promise<string>
 export type FileWriter = (path: string, content: string) => Promise<void>
 
 /** Create one entity and resolve its KB-relative path. */
-export type EntityCreator = (type: KbEntityKind, name: string) => Promise<string>
+export type EntityCreator = (type: KbCreatableEntityType, name: string) => Promise<string>
 
 /** Read the KB root's configuration state. */
-export type RootLoader = () => Promise<KbRootInfo>
+export type RootLoader = () => Promise<KbRootResult>
 
 /** Adopt a directory as the KB root. */
 export type RootSetter = (path: string) => Promise<KbSetRootResult>
@@ -152,7 +119,7 @@ export async function writeFile(ctx: Context, path: string, content: string): Pr
  * @param ctx - client root context.
  * @returns the root state, or a rejected promise carrying the reason.
  */
-export async function loadRoot(ctx: Context): Promise<KbRootInfo> {
+export async function loadRoot(ctx: Context): Promise<KbRootResult> {
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.root())

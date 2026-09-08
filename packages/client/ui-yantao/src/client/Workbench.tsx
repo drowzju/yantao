@@ -7,7 +7,8 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { EntityCreator, FileReader, FileWriter, KbEntityKind } from './remote.ts'
+import type { EntityCreator, FileReader, FileWriter } from './remote.ts'
+import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { remoteMessage } from './remote.ts'
 import type { TabMode } from './tabs.ts'
 import { TodoList } from './TodoList.tsx'
@@ -23,7 +24,7 @@ const INTAKE_PANEL_IDS: readonly (KbTreeSectionId | 'connector')[] = ['resources
 const WORKSPACE_TAB_IDS: readonly KbTreeSectionId[] = ['areas', 'people', 'projects']
 
 /** The entity kind each tree section creates. `todos` is a singleton — the server refuses it. */
-const ENTITY_KINDS: Partial<Record<KbTreeSectionId, KbEntityKind>> = {
+const ENTITY_KINDS: Partial<Record<KbTreeSectionId, KbCreatableEntityType>> = {
   meetings: 'meeting',
   areas: 'area',
   people: 'person',
@@ -255,7 +256,7 @@ export function IntakeRail(props: RailProps): ReactElement {
   }
 
   /** Create an entity of this section's kind, reload the tree, and open it. */
-  const create = async (kind: KbEntityKind, name: string): Promise<void> => {
+  const create = async (kind: KbCreatableEntityType, name: string): Promise<void> => {
     const path = await createEntity(kind, name)
     await refresh()
     onOpenFile(path, 'edit')
