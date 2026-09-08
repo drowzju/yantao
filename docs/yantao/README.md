@@ -2,11 +2,9 @@
 
 English | [中文](README.zh.md)
 
-yantao is a **personal knowledge workbench** built inside this repository: a PARA+P knowledge base of plain Markdown files, plus an
-agent whose only write path into that base is a small, auditable tool family.
+yantao is a **personal knowledge workbench** built inside this repository: a PARA+P knowledge base of plain Markdown files, plus an agent whose only write path into that base is a small, auditable tool family.
 
-It runs on top of **DeepSeek Harness (`dsh`)** — an open-source agent harness by DeepSeek AI. Read the next section before touching
-anything: the single most important thing to understand here is **which parts are upstream's and which are ours**.
+It runs on top of **DeepSeek Harness (`dsh`)** — an open-source agent harness by DeepSeek AI. Read the next section before touching anything: the single most important thing to understand here is **which parts are upstream's and which are ours**.
 
 For day-to-day work (build, run, stop, tests, gates, pitfalls) see [development.md](development.md).
 
@@ -37,16 +35,14 @@ This is the complete list of upstream-owned files the project touches today. Kee
 | `packages/{api,bundle,client}/README{,.zh}.md` + pairing sidecars | package maps list every member |
 | `pnpm-lock.yaml`, `.gitignore` | dependency link; `apps/yantao/dist/` ignore rule |
 
-Everything else we own outright: `packages/yantao/**`, `packages/client/ui-yantao/**`, `packages/bundle/yantao/**`,
-`packages/bundle/yantao-web-app/**`, `packages/api/yantao-kb-controller/**`, `packages/preset/agent-presets/presets/yantao/**`,
-`apps/yantao/**`, `docs/adr/**`, `docs/yantao/**`, `docs/subsystems/yantao*`, `CONTEXT-MAP.md`, `.env.example`, `.npmrc`.
+Everything else we own outright: `packages/yantao/**`, `packages/client/ui-yantao/**`, `packages/bundle/yantao/**`, `packages/bundle/yantao-web-app/**`, `packages/api/yantao-kb-controller/**`, `packages/preset/agent-presets/presets/yantao/**`, `apps/yantao/**`, `docs/adr/**`, `docs/yantao/**`, `docs/subsystems/yantao*`, `CONTEXT-MAP.md`, `.env.example`, `.npmrc`.
 
 ### Upgrading upstream
 
 1. Read upstream release notes; expect breaking changes.
 2. Rebase/merge `origin/master` onto `main` and resolve only the merge-surface files above.
 3. Re-run generators (`pnpm run gen-tsconfig-paths`, doc/catalog generators) and the gate suite.
-4. Re-run the smoke tests in [development.md](development.md) — headless answer + workbench `tree()`.
+4. Re-run the smoke tests in [development.md](development.md) — headless answer + workbench `intakeTree()`.
 
 ## 2. Architecture
 
@@ -55,30 +51,27 @@ apps/yantao (React + Vite)  ──served by──►  dsh profile yantao-web
    own three-pane UI                          = dsh-base + dsh-yantao + dsh-yantao-web-app
    talks to ctx.remote only                        │
                                                    ├─ agent loop, kb_* tools, session log
-                                                   ├─ packages/yantao/kb ....... PARA+P domain + trust boundary
-                                                   ├─ packages/api/yantao-kb-controller ... yantaoKb Remote (tree/read/write)
+                                                   ├─ packages/yantao/kb ....... PARA+P domain + the kb_* tool set
+                                                   ├─ packages/api/yantao-kb-controller ... yantaoKb Remote
+                                                   │    (intakeTree / workspaceTree / read / write
+                                                   │     root / setRoot / createEntity)
                                                    └─ llm-pi-ai route `model-gateway` ..... intranet LLM gateway (ADR-0007)
 
 profile `yantao` = the same stack without the web surface (one-shot headless runs)
 ```
 
-- **dsh is the backend.** Our UI consumes it over Typert RPC and the forwarded event stream. It owns the browser shell — the
-  workbench plugin registers the runtime's built-in `root` slot and draws its own three-column frame (ADR-0011) — while the
-  middle column stays the host's conversation surface rendered through the `conversation` seat (ADR-0009).
-- **The agent's trust boundary is the tool layer.** The agent gets six `kb_*` tools and no generic write capability; the `状态`
-  section of an entity is structurally unreachable for it (ADR-0004). The **UI is the human channel** and may edit anything.
-- **Knowledge lives in files**, not a database: `resources/`, `entities/{projects,areas,people}/`, `sessions/` under the KB root
-  (ADR-0005). ADR-0004's `状态` / `流水` sections are the human/agent boundary inside every entity file.
+- **dsh is the backend.** Our UI consumes it over Typert RPC and the forwarded event stream, and it owns the browser shell — the workbench plugin registers the runtime's built-in `root` slot and draws its own three-column frame (ADR-0011), with `ui-layout` out of the roster. The middle column is tabbed: a permanent 对话 tab carries the host's conversation surface through the `conversation` seat (ADR-0009), and every open KB file gets its own closeable tab, autosaved with a conflict check (ADR-0012).
+- **The agent's trust boundary is the tool layer.** The agent gets seven `kb_*` tools and no generic write capability; it may now write an entity's `状态` section through `kb_write_state`, which is what ADR-0010 changed in ADR-0004 — the boundary is the tool set, not the section. The **UI is the human channel** and may edit anything.
+- **Knowledge lives in files**, not a database: `resources/`, `entities/{projects,areas,people,meetings}/`, the `entities/todos.md` singleton, and an unused `sessions/` under the KB root (ADR-0005, layout per ADR-0010). ADR-0004's `状态` / `流水` sections are the human/agent boundary inside every entity file.
+- **The KB root is the human's choice.** First run asks for a directory and persists it to `~/.dsh/yantao-kb.json` (`yantaoKb.root()` / `setRoot()`), and the rails create entities inline through `yantaoKb.createEntity()` (ADR-0012).
 
 ## 3. Domain language (use these words)
 
-Canonical terms live in [CONTEXT-MAP.md](../../CONTEXT-MAP.md) (context map) and
-[packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) (glossary). The load-bearing ones:
+Canonical terms live in [CONTEXT-MAP.md](../../CONTEXT-MAP.md) (context map) and [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) (glossary). The load-bearing ones:
 
-**知识库 / Resource / 影子笔记 / Entity / State(状态) / 流水(Log) / 提炼(Refine) / LLM 网关 / Session(事件日志) vs 会话(交互)**
+**知识库 / Resource / 影子笔记 / Entity / 会议(Meeting) / 待办(Todo) / 连接(Connector) / State(状态) / 流水(Log) / 提炼(Refine) / LLM 网关 / Session(事件日志)**
 
-Do not invent synonyms in code, commits, or docs — and never call the LLM route by a vendor name (it is `model-gateway`, not
-`glm-gateway`; see ADR-0007).
+Do not invent synonyms in code, commits, or docs — and never call the LLM route by a vendor name (it is `model-gateway`, not `glm-gateway`; see ADR-0007).
 
 ## 4. Decisions (ADR index)
 
@@ -87,12 +80,15 @@ Do not invent synonyms in code, commits, or docs — and never call the LLM rout
 | 0001 | Rebuild yantao as dsh plugins; drop the old Flutter app |
 | 0002 | Pin upstream at 0.1.3-alpha.1, upgrade deliberately |
 | 0003 | Workbench UI as its own app (mechanism later refined by 0008/0009) |
-| 0004 | Trust boundary = the tool set; `状态` is human-only, `流水` append-only |
+| 0004 | Trust boundary = the tool set; `状态` was human-only and is now agent-writable (ADR-0010), `流水` stays append-only |
 | 0005 | Keep the plain-Markdown KB format |
 | 0006 | Chinese-only strings in yantao packages; relax the i18n pairing gate there |
 | 0007 | LLM comes from the intranet model gateway; ACP/codebuddy is not the runtime path |
 | 0008 | *(superseded by 0009)* compose the UI from dsh client plugins |
 | 0009 | Bespoke frontend; dsh is the backend. **Validated**, with lessons recorded |
+| 0010 | Domain expansion: `meeting` entity, `todo` singleton, reserved `connector`; three panes, two trees, `kb_write_state` |
+| 0011 | The workbench owns its frame: `ui-yantao` registers the runtime `root` slot, `ui-layout` leaves the roster |
+| 0012 | The middle column is tabs: raw-markdown editing with autosave and a conflict check, inline entity creation, first-run KB directory |
 
 ## 5. Quick start
 
@@ -114,13 +110,9 @@ Full build/verify commands, gates, and pitfalls: [development.md](development.md
 
 **Entry files are ours; upstream's are preserved with a `_dsh` suffix.**
 
-The root [README.md](../../README.md) and [AGENTS.md](../../AGENTS.md) describe **yantao**, not upstream dsh. Upstream's originals are
-kept verbatim as [docs/upstream/README_dsh.md](../upstream/README_dsh.md) / `README_dsh.zh.md` and [AGENTS_dsh.md](../../AGENTS_dsh.md).
+The root [README.md](../../README.md) and [AGENTS.md](../../AGENTS.md) describe **yantao**, not upstream dsh. Upstream's originals are kept verbatim as [docs/upstream/README_dsh.md](../upstream/README_dsh.md) / `README_dsh.zh.md` and [AGENTS_dsh.md](../../AGENTS_dsh.md).
 
-Why the `_dsh` copies live under `docs/upstream/` rather than at the root: the bilingual pairing gate
-(`scripts/verify-translation-pairing.ts` and its manifest) treats a *renamed* root `README` as out of scope, so root-level
-`README_dsh.md` cannot be recorded as a pair and the commit is rejected. Inside `docs/` the same pair is in scope and records cleanly.
-Keep this in mind before moving documentation: **where a file lives decides whether it can be a pair.**
+Why the `_dsh` copies live under `docs/upstream/` rather than at the root: the bilingual pairing gate (`scripts/verify-translation-pairing.ts` and its manifest) treats a *renamed* root `README` as out of scope, so root-level `README_dsh.md` cannot be recorded as a pair and the commit is rejected. Inside `docs/` the same pair is in scope and records cleanly. Keep this in mind before moving documentation: **where a file lives decides whether it can be a pair.**
 
 **Ours**
 
@@ -128,7 +120,7 @@ Keep this in mind before moving documentation: **where a file lives decides whet
 |---|---|
 | [development.md](development.md) | build, run, stop, tests, gates, pitfalls |
 | [TODO.md](TODO.md) | backlog: done / next / deferred (each deferred item keeps its reason) |
-| [../adr/](../adr/) | ADR 0001–0009 — index in section 4 |
+| [../adr/](../adr/) | ADR 0001–0012 — index in section 4 |
 | [../subsystems/yantao.md](../subsystems/yantao.md) | the KB + `yantaoKb` Remote subsystem page (upstream's subsystem format) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | context map: yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | the glossary (canonical terms) |

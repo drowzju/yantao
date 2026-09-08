@@ -4,10 +4,7 @@
 
 yantao 是一个**个人知识工作台**:以纯 Markdown 存放 PARA+P 知识库,并让 agent 写入知识库的唯一通道是一小组可审计的工具。
 
-它构建在 **DeepSeek Harness(`dsh`)** 之上——本仓库**就是** `deepseek-harness`(上游:github.com/deepseek-ai/deepseek-harness),
-我们在从上游 `master@d347e70390`
-(发布版 `0.1.3-alpha.1`,ADR-0002)切出的本地分支 `main` 上工作,并**刻意钉住**上游。我们把 dsh 当作**引擎与后端**;yantao 的一切都是
-增量添加的。日常开发(构建、运行、停止、测试、门禁、坑)见 [development.md](development.zh.md)。
+它构建在 **DeepSeek Harness(`dsh`)** 之上——本仓库**就是** `deepseek-harness`(上游:github.com/deepseek-ai/deepseek-harness),我们在从上游 `master@d347e70390`(发布版 `0.1.3-alpha.1`,ADR-0002)切出的本地分支 `main` 上工作,并**刻意钉住**上游。我们把 dsh 当作**引擎与后端**;yantao 的一切都是增量添加的。日常开发(构建、运行、停止、测试、门禁、坑)见 [development.md](development.zh.md)。
 
 ## 1. 本工程与 DeepSeek Harness 的关系(先读这段)
 
@@ -36,17 +33,14 @@ yantao 是一个**个人知识工作台**:以纯 Markdown 存放 PARA+P 知识�
 | `packages/{api,bundle,client}/README{,.zh}.md` 及配对记录 | 包地图列出每个成员 |
 | `pnpm-lock.yaml`、`.gitignore` | 依赖链接;`apps/yantao/dist/` 忽略规则 |
 
-其余完全属于我们:`packages/yantao/**`、`packages/client/ui-yantao/**`、`packages/bundle/yantao/**`、
-`packages/bundle/yantao-web-app/**`、`packages/api/yantao-kb-controller/**`、
-`packages/preset/agent-presets/presets/yantao/**`、`apps/yantao/**`、`docs/adr/**`、`docs/yantao/**`、
-`docs/subsystems/yantao*`、`CONTEXT-MAP.md`、`.env.example`、`.npmrc`。
+其余完全属于我们:`packages/yantao/**`、`packages/client/ui-yantao/**`、`packages/bundle/yantao/**`、`packages/bundle/yantao-web-app/**`、`packages/api/yantao-kb-controller/**`、`packages/preset/agent-presets/presets/yantao/**`、`apps/yantao/**`、`docs/adr/**`、`docs/yantao/**`、`docs/subsystems/yantao*`、`CONTEXT-MAP.md`、`.env.example`、`.npmrc`。
 
 ### 升级上游
 
 1. 读上游发布说明;默认有破坏性变更。
 2. 把 `origin/master` 合并/rebase 到 `main`,只解决上面合并面里的文件。
 3. 重跑生成器(`pnpm run gen-tsconfig-paths`、文档/目录生成器)与门禁套件。
-4. 重跑 [development.md](development.zh.md) 里的冒烟测试——headless 作答 + 工作台 `tree()`。
+4. 重跑 [development.md](development.zh.md) 里的冒烟测试——headless 作答 + 工作台 `intakeTree()`。
 
 ## 2. 架构
 
@@ -55,26 +49,25 @@ apps/yantao (React + Vite)  ──served by──►  dsh profile yantao-web
    own three-pane UI                          = dsh-base + dsh-yantao + dsh-yantao-web-app
    talks to ctx.remote only                        │
                                                    ├─ agent loop, kb_* tools, session log
-                                                   ├─ packages/yantao/kb ....... PARA+P domain + trust boundary
-                                                   ├─ packages/api/yantao-kb-controller ... yantaoKb Remote (tree/read/write)
+                                                   ├─ packages/yantao/kb ....... PARA+P domain + the kb_* tool set
+                                                   ├─ packages/api/yantao-kb-controller ... yantaoKb Remote
+                                                   │    (intakeTree / workspaceTree / read / write
+                                                   │     root / setRoot / createEntity)
                                                    └─ llm-pi-ai route `model-gateway` ..... intranet LLM gateway (ADR-0007)
 
 profile `yantao` = the same stack without the web surface (one-shot headless runs)
 ```
 
-- **dsh 是后端。** 我们的 UI 通过 Typert RPC 与转发事件流消费它。浏览器外壳归我们:工作台插件注册运行时内置的 `root`
-  槽位、自绘三栏外框(ADR-0011);中间一列仍是宿主的会话面,通过 `conversation` 座位渲染(ADR-0009)。
-- **信任边界在工具层。** agent 只有六个 `kb_*` 工具、没有通用写能力;实体文件的「状态」区对它结构上不可达(ADR-0004)。
-  **UI 是人类通道**,可以编辑任何内容。
-- **知识存在文件里**,不是数据库:KB 根下的 `resources/`、`entities/{projects,areas,people}/`、`sessions/`(ADR-0005)。每个实体文件里的
-  「状态」/「流水」两区就是人与 agent 的边界。
+- **dsh 是后端。** 我们的 UI 通过 Typert RPC 与转发事件流消费它,而浏览器外壳归我们:工作台插件注册运行时内置的 `root` 槽位、自绘三栏外框(ADR-0011),`ui-layout` 已退出名单。中间一列是 tab 化的:常驻的「对话」tab 通过 `conversation` 座位承载宿主的会话面(ADR-0009),每个打开的 KB 文件各占一个可关闭 tab,自动保存并带冲突检查(ADR-0012)。
+- **信任边界在工具层。** agent 有七个 `kb_*` 工具、没有通用写能力;它现在可以通过 `kb_write_state` 写实体的「状态」区——这正是 ADR-0010 对 ADR-0004 的修订:边界是工具集,不是区段。**UI 是人类通道**,可以编辑任何内容。
+- **知识存在文件里**,不是数据库:KB 根下的 `resources/`、`entities/{projects,areas,people,meetings}/`、`entities/todos.md` 单例,以及暂不使用的 `sessions/`(ADR-0005,目录结构调整见 ADR-0010)。每个实体文件里的「状态」/「流水」两区就是人与 agent 的边界。
+- **知识库根目录由人选。** 首次进入会要求选一个目录并持久化到 `~/.dsh/yantao-kb.json`(`yantaoKb.root()` / `setRoot()`);两条侧栏通过 `yantaoKb.createEntity()` 就地新建实体(ADR-0012)。
 
 ## 3. 领域用语(请用这些词)
 
-规范术语在 [CONTEXT-MAP.md](../../CONTEXT-MAP.md)(上下文地图)与
-[packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md)(词汇表)。承重词:
+规范术语在 [CONTEXT-MAP.md](../../CONTEXT-MAP.md)(上下文地图)与[packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md)(词汇表)。承重词:
 
-**知识库 / Resource / 影子笔记 / Entity / State(状态) / 流水(Log) / 提炼(Refine) / LLM 网关 / Session(事件日志)vs 会话(交互)**
+**知识库 / Resource / 影子笔记 / Entity / 会议(Meeting) / 待办(Todo) / 连接(Connector) / State(状态) / 流水(Log) / 提炼(Refine) / LLM 网关 / Session(事件日志)**
 
 不要在代码、提交与文档里自造同义词;也不要用厂商名称呼 LLM 路由(它是 `model-gateway`,不是 `glm-gateway`,见 ADR-0007)。
 
@@ -85,12 +78,15 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0001 | 以 dsh 插件形态重建 yantao,放弃旧 Flutter 应用 |
 | 0002 | 钉住上游 0.1.3-alpha.1,刻意升级 |
 | 0003 | 工作台 UI 作为独立 app(机制后被 0008/0009 细化) |
-| 0004 | 信任边界 = 工具集;状态区人类专属、流水区只追加 |
+| 0004 | 信任边界 = 工具集;「状态」原为人类专属,现已改为 agent 可写(ADR-0010);流水区仍只追加 |
 | 0005 | 沿用纯 Markdown 知识库格式 |
 | 0006 | yantao 包仅中文文案,放宽该范围的双语配对门 |
 | 0007 | LLM 走内网模型网关;ACP/codebuddy 不是运行时路径 |
 | 0008 | *(被 0009 取代)* 用 dsh 客户端插件组合 UI |
 | 0009 | 自研前端、dsh 退居后端。**已验证**,并记录了教训 |
+| 0010 | 领域模型扩张:`meeting` 实体、`todo` 单例、预留 `connector`;三栏布局、两棵树、`kb_write_state` |
+| 0011 | 工作台外框归我们:`ui-yantao` 注册运行时 `root` 槽位,`ui-layout` 退出名单 |
+| 0012 | 中栏 tab 化:原文编辑 + 自动保存 + 冲突检查、就地新建实体、首启自选知识库目录 |
 
 ## 5. 快速上手
 
@@ -112,12 +108,9 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 
 **入口文件归我们,上游的以 `_dsh` 后缀保留。**
 
-根目录的 [README.md](../../README.zh.md) 与 [AGENTS.md](../../AGENTS.md) 描述的是 **yantao**,不是上游 dsh。上游原文件原样保留为
-[docs/upstream/README_dsh.md](../upstream/README_dsh.zh.md) / `README_dsh.zh.md`,以及 [AGENTS_dsh.md](../../AGENTS_dsh.md)。
+根目录的 [README.md](../../README.zh.md) 与 [AGENTS.md](../../AGENTS.md) 描述的是 **yantao**,不是上游 dsh。上游原文件原样保留为[docs/upstream/README_dsh.md](../upstream/README_dsh.zh.md) / `README_dsh.zh.md`,以及 [AGENTS_dsh.md](../../AGENTS_dsh.md)。
 
-为什么 `_dsh` 副本放在 `docs/upstream/` 而不是根目录:双语配对门(`scripts/verify-translation-pairing.ts` 及其清单)把**改名后的根
-README** 视为范围外,于是根级 `README_dsh.md` 无法作为一对被记录,提交会被拒绝;放在 `docs/` 下则是范围内,可以正常记录。以后移动文档
-请记住:**文件放在哪,决定了它能不能成为一对。**
+为什么 `_dsh` 副本放在 `docs/upstream/` 而不是根目录:双语配对门(`scripts/verify-translation-pairing.ts` 及其清单)把**改名后的根README** 视为范围外,于是根级 `README_dsh.md` 无法作为一对被记录,提交会被拒绝;放在 `docs/` 下则是范围内,可以正常记录。以后移动文档请记住:**文件放在哪,决定了它能不能成为一对。**
 
 **我们的**
 
@@ -125,7 +118,7 @@ README** 视为范围外,于是根级 `README_dsh.md` 无法作为一对被记�
 |---|---|
 | [development.md](development.zh.md) | 构建、运行、停止、测试、门禁、坑 |
 | [TODO.md](TODO.zh.md) | 待办:done / next / deferred(每个搁置项都带原因) |
-| [../adr/](../adr/) | ADR 0001–0009(索引见第 4 节) |
+| [../adr/](../adr/) | ADR 0001–0012(索引见第 4 节) |
 | [../subsystems/yantao.md](../subsystems/yantao.zh.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | 上下文地图:yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | 词汇表(规范用词) |
