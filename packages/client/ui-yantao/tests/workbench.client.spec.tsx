@@ -21,6 +21,12 @@ beforeEach(() => {
     unobserve(): void {}
     disconnect(): void {}
   })
+  // jsdom lacks pointer capture: emulate per-element so the handles'
+  // hasPointerCapture gates pass.
+  const captured = new WeakSet<Element>()
+  Element.prototype.setPointerCapture = function () { captured.add(this) }
+  Element.prototype.releasePointerCapture = function () { captured.delete(this) }
+  Element.prototype.hasPointerCapture = function () { return captured.has(this) }
 })
 
 const intake: KbTreeSection[] = [
@@ -146,5 +152,38 @@ describe('Frame', () => {
     expect(screen.getByText('middle')).toBeTruthy()
     expect(await screen.findByText('资源')).toBeTruthy()
     expect(await screen.findByText('领域')).toBeTruthy()
+  })
+
+  /** Drive one handle through a full pointer gesture. */
+  function drag(side: 'intake' | 'workspace', from: number, to: number): void {
+    const handle = document.querySelector(`[data-rail-handle="${side}"]`)
+    expect(handle).not.toBeNull()
+    fireEvent.pointerDown(handle!, { clientX: from, pointerId: 1 })
+    fireEvent.pointerMove(handle!, { clientX: to, pointerId: 1 })
+    fireEvent.pointerUp(handle!, { clientX: to, pointerId: 1 })
+  }
+
+  it('keeps both handles reachable after a rail is dragged to its limit', () => {
+    const { container } = render(renderFrame())
+    const widthOf = (side: 'intake' | 'workspace'): number =>
+      Number.parseFloat(
+        (container.querySelector(`[data-rail-handle="${side}"]`) as HTMLElement).style.left,
+      )
+
+    // Left rail: drag the handle all the way to the left edge, then back out.
+    drag('intake', RAIL_DEFAULT, 0)
+    expect(widthOf('intake')).toBe(RAIL_MIN)
+    expect(container.querySelector('[data-rail-handle="intake"]')).not.toBeNull()
+    drag('intake', 0, 100)
+    // The rail grows back (the solver may still concede a little to keep the
+    // center above its floor) and the handle is still there to grab.
+    expect(widthOf('intake')).toBeGreaterThan(RAIL_MIN)
+
+    // Right rail: the handle sits at viewport - width, so dragging right
+    // shrinks the rail; it must come back from its minimum too.
+    drag('workspace', RAIL_DEFAULT, 9999)
+    expect(container.querySelector('[data-rail-handle="workspace"]')).not.toBeNull()
+    drag('workspace', 9999, 8000)
+    expect(widthOf('workspace')).toBeLessThan(window.innerWidth - RAIL_MIN)
   })
 })

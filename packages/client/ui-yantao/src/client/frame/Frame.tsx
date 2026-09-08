@@ -13,7 +13,7 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type { PanelToggles } from './layout.ts'
-import { NARROW, RAIL_DEFAULT, RAIL_MIN, clampRail, solveColumns } from './columns.ts'
+import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
 
 /** Full props: the render share for the two seats this frame declares, plus the panel-action seat. */
 export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
@@ -62,6 +62,7 @@ const handleStyle = {
  * @returns the handle element.
  */
 function DragHandle(props: {
+  side: 'intake' | 'workspace'
   left: number
   onDrag: (dx: number) => void
 }): ReactElement {
@@ -98,6 +99,7 @@ function DragHandle(props: {
   return (
     <div
       style={{ ...handleStyle, left: props.left }}
+      data-rail-handle={props.side}
       data-dragging={dragging || undefined}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -196,11 +198,13 @@ export function Frame({ renderSlot, panels, intake, workspace }: FrameProps): Re
         />
       </div>
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>
-      {intakeOpen && cols.intake > RAIL_MIN && (
-        <DragHandle left={cols.intake} onDrag={onIntakeDrag} />
+      {/* A handle exists whenever its rail is expanded — including at the
+          width limits, because the handle is the only way back from one. */}
+      {intakeOpen && (
+        <DragHandle side="intake" left={cols.intake} onDrag={onIntakeDrag} />
       )}
-      {workspaceOpen && cols.workspace > RAIL_MIN && (
-        <DragHandle left={viewport - cols.workspace} onDrag={onWorkspaceDrag} />
+      {workspaceOpen && (
+        <DragHandle side="workspace" left={viewport - cols.workspace} onDrag={onWorkspaceDrag} />
       )}
     </div>
   )
