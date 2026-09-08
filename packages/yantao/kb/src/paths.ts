@@ -7,7 +7,7 @@
 
 import { isAbsolute, resolve, sep } from 'node:path'
 import type { EntityType } from './types.ts'
-import { ENTITY_DIRS, KbError } from './types.ts'
+import { ENTITY_DIRS, ENTITY_TYPES, KbError, SINGLETON_FILES } from './types.ts'
 
 /**
  * Map an arbitrary entity or resource name to a safe file name: path and
@@ -51,14 +51,28 @@ export function resolveWithinKb(kbRoot: string, ...segments: readonly string[]):
   return target
 }
 
+/**
+ * KB-relative path of an entity file from its kind and display name. A
+ * singleton kind (`todo`) resolves to its one file whatever the name, so
+ * every locator spelling addresses the same checklist.
+ * @param type - the entity kind.
+ * @param name - the entity display name (sanitized before it becomes the file name).
+ * @returns the KB-relative path with forward slashes.
+ */
+export function entityDisplayPath(type: EntityType, name: string): string {
+  const singleton = SINGLETON_FILES[type]
+  if (singleton !== undefined) return `entities/${singleton}`
+  return `entities/${ENTITY_DIRS[type]}/${sanitizeFileName(name)}.md`
+}
+
 /** Absolute path of an entity file from its kind and display name.
  * @param kbRoot - the knowledge-base root directory.
- * @param type - the entity kind: project, area, or person.
+ * @param type - the entity kind.
  * @param name - the entity display name (sanitized before it becomes the file name).
  * @returns the absolute path of the entity's `.md` file.
  */
 export function entityFilePath(kbRoot: string, type: EntityType, name: string): string {
-  return resolveWithinKb(kbRoot, 'entities', ENTITY_DIRS[type], `${sanitizeFileName(name)}.md`)
+  return resolveWithinKb(kbRoot, entityDisplayPath(type, name))
 }
 
 /** Normalize a kind spelling — singular type name or plural directory name — to the canonical type.
@@ -67,12 +81,14 @@ export function entityFilePath(kbRoot: string, type: EntityType, name: string): 
  */
 export function normalizeEntityType(spelling: string): EntityType {
   const lowered = spelling.toLowerCase()
-  for (const type of ['project', 'area', 'person'] as const) {
+  for (const type of ENTITY_TYPES) {
     if (lowered === type || lowered === ENTITY_DIRS[type]) return type
   }
+  const singular = ENTITY_TYPES.join(' / ')
+  const plural = ENTITY_TYPES.map(type => ENTITY_DIRS[type]).join(' / ')
   throw new KbError(
     'unknown-entity-type',
-    `无法识别的实体类型「${spelling}」；可用类型：project / area / person（或目录名 projects / areas / people）`,
+    `无法识别的实体类型「${spelling}」；可用类型：${singular}（或复数写法 ${plural}）`,
   )
 }
 
@@ -80,8 +96,10 @@ export function normalizeEntityType(spelling: string): EntityType {
  * Resolve the `kb_append_log` entity locator: either the `type:name` form
  * (`project:dsh 学习`, plural spellings accepted) or an entity file path —
  * KB-relative (`entities/projects/dsh 学习.md`) or absolute under kbRoot.
- * A Windows absolute path contains a drive colon, so the `type:` match only
- * fires on a known type spelling and absolute paths are probed first.
+ * Every entity kind is accepted, so `todo:todos` and `meeting:周会` resolve
+ * like any other locator. A Windows absolute path contains a drive colon, so
+ * the `type:` match only fires on a known type spelling and absolute paths
+ * are probed first.
  * @param kbRoot - the knowledge-base root directory.
  * @param locator - the locator string from the caller.
  * @returns the confined absolute path of the entity file.
@@ -99,7 +117,7 @@ export function resolveEntityLocator(kbRoot: string, locator: string): string {
   const typeMatch = /^([A-Za-z]+)[:：](.+)$/s.exec(trimmed)
   if (typeMatch !== null) {
     const prefix = typeMatch[1] as string
-    if (/^(project|projects|area|areas|person|people)$/i.test(prefix)) {
+    if (/^(project|projects|area|areas|person|people|meeting|meetings|todo|todos)$/i.test(prefix)) {
       return entityFilePath(kbRoot, normalizeEntityType(prefix), (typeMatch[2] as string).trim())
     }
   }

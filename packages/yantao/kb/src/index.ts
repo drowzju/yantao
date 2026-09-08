@@ -1,5 +1,5 @@
 /**
- * The yantao KB cordis plugin: registers the six kb_ tools that are the
+ * The yantao KB cordis plugin: registers the kb_ tools that are the
  * agent's ONLY write path into the knowledge base. The plugin owns no
  * service and no state beyond the resolved kbRoot; every operation re-reads
  * the files it touches, so a human editing the same KB between calls always
@@ -13,8 +13,8 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { appendLog, createEntity, initKb, listEntities, readEntity, registerResource } from './core.ts'
-import { PERSON_RELATIONS } from './types.ts'
+import { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, writeState } from './core.ts'
+import { ENTITY_TYPES, PERSON_RELATIONS } from './types.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'yantao-kb'
@@ -54,11 +54,18 @@ declare module '@deepseek-ai/cordis' {
 
 const ENTITY_TYPE_PARAM = {
   type: 'string',
-  enum: ['project', 'area', 'person'],
-  description: '实体类型：project（项目）/ area（领域）/ person（人物）',
+  enum: [...ENTITY_TYPES],
+  description: '实体类型：project（项目）/ area（领域）/ person（人物）/ meeting（会议）/ todo（待办单例）',
 } as const
 
-/** Register the six kb_ tools and publish the resolved KB root; disposal unregisters both. */
+/** The kinds an agent may create — singleton kinds (`todo`) belong to kb_init. */
+const CREATABLE_ENTITY_TYPE_PARAM = {
+  ...ENTITY_TYPE_PARAM,
+  enum: ['project', 'area', 'person', 'meeting'],
+  description: '实体类型：project（项目）/ area（领域）/ person（人物）/ meeting（会议）；todo 是单例，由 kb_init 创建',
+} as const
+
+/** Register the kb_ tools and publish the resolved KB root; disposal unregisters both. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = config as ResolvedConfig
 
@@ -70,9 +77,9 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'kb_init',
     description:
-      '初始化知识库目录结构：resources/、entities/{projects,areas,people}/、sessions/、根 README，'
-      + '以及人物实体「我自己」（relation: self，仅当不存在时创建）。幂等——已存在的内容不会被改动。'
-      + '首次使用知识库前调用一次。',
+      '初始化知识库目录结构：resources/、entities/{projects,areas,people,meetings}/、sessions/、根 README，'
+      + '以及人物实体「我自己」（relation: self，仅当不存在时创建）和待办单例 entities/todos.md。'
+      + '幂等——已存在的内容不会被改动。首次使用知识库前调用一次。',
     parameters: {},
     output: {
       schema: {
@@ -97,14 +104,20 @@ export function apply(ctx: Context, config: Config): void {
     name: 'kb_create_entity',
     description:
       '创建一个实体笔记文件（type + name）。实体名会转换为安全文件名；同名实体已存在时拒绝——'
-      + '之后的一切补充都通过 kb_append_log 追加。relation 仅对 person 有意义，默认 subordinate。',
+      + '之后的一切补充都通过 kb_append_log 追加或 kb_write_state 改写状态。'
+      + 'relation 仅对 person 有意义，默认 subordinate；date 仅对 meeting 有意义，是该会议的日期，默认今天。'
+      + 'todo 是单例，不能用此工具创建。',
     parameters: {
-      type: { ...ENTITY_TYPE_PARAM, required: true },
-      name: { type: 'string', required: true, description: '实体显示名，例如「dsh 学习」' },
+      type: { ...CREATABLE_ENTITY_TYPE_PARAM, required: true },
+      name: { type: 'string', required: true, description: '实体显示名，例如「dsh 学习」或「周会」' },
       relation: {
         type: 'string',
         enum: PERSON_RELATIONS,
         description: '人物与库主的关系（仅 person 使用）：self / subordinate / superior / peer / external',
+      },
+      date: {
+        type: 'string',
+        description: '会议日期 YYYY-MM-DD（仅 meeting 使用，默认今天）；写入 frontmatter 的 date 字段',
       },
     },
     output: {
@@ -117,15 +130,19 @@ export function apply(ctx: Context, config: Config): void {
       },
       render: (_args, value) => [{ type: 'text', text: `已创建实体：${value.path}` }],
     },
-    execute: args => createEntity(resolved.kbRoot, args.type, args.name, args.relation),
+    execute: args => createEntity(resolved.kbRoot, args.type, args.name, {
+      ...args.relation !== undefined ? { relation: args.relation } : {},
+      ...args.date !== undefined ? { meetingDate: args.date } : {},
+    }),
   }))
 
   ctx.tools.register(defineTool({
     name: 'kb_append_log',
     description:
       '向实体文件的『流水』区末尾追加一条日志（自动冠以今日日期 - YYYY-MM-DD）；多行文本的后续行会缩进两格，'
-      + '保持列表连续。这是修改实体文件的唯一途径：『状态』区是人类专属，绝不改动；缺少『流水』锚点会报错而不是重建。'
-      + 'entity 形如 "project:dsh 学习"（也接受 projects/areas/people 拼写或实体文件路径）。',
+      + '保持列表连续。流水区只追加、不改写，其余内容原样保留；改写『状态』区请用 kb_write_state。'
+      + '缺少『流水』锚点会报错而不是重建（todo 单例没有区段，不能用此工具）。'
+      + 'entity 形如 "project:dsh 学习"（也接受各类复数拼写或实体文件路径）。',
     parameters: {
       entity: { type: 'string', required: true, description: '实体定位："type:name"（如 "project:dsh 学习"）或实体文件路径' },
       text: { type: 'string', required: true, description: '日志内容；多行时后续行作为该条目的缩进续行' },
@@ -142,6 +159,31 @@ export function apply(ctx: Context, config: Config): void {
       render: (_args, value) => [{ type: 'text', text: `已追加到 ${value.path} 的『流水』区：\n${value.appended}` }],
     },
     execute: args => appendLog(resolved.kbRoot, args.entity, args.text),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'kb_write_state',
+    description:
+      '整体改写实体文件的『状态』区（该区由人和 agent 共同维护）：用 text 替换原状态内容，'
+      + '可写入多行 markdown。『流水』区与 frontmatter 原样保留，不会被本工具改动——追加流水请用 kb_append_log。'
+      + 'text 为空字符串即清空状态区。缺少或重复『状态』锚点会报错而不是重建。'
+      + 'entity 形如 "project:dsh 学习"（也接受各类复数拼写或实体文件路径）。',
+    parameters: {
+      entity: { type: 'string', required: true, description: '实体定位："type:name"（如 "project:dsh 学习"）或实体文件路径' },
+      text: { type: 'string', required: true, description: '新的『状态』区正文（markdown）；留空表示清空' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          path: { type: 'string', required: true },
+          state: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `已更新 ${value.path} 的『状态』区：\n${value.state}` }],
+    },
+    execute: args => writeState(resolved.kbRoot, args.entity, args.text),
   }))
 
   ctx.tools.register(defineTool({
@@ -168,7 +210,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'kb_list_entities',
     description:
-      '列出知识库中的实体名。type 省略时列出 project/area/person 三类；frontmatter 含 archive: true '
+      '列出知识库中的实体名。type 省略时列出 project/area/person/meeting/todo 五类；frontmatter 含 archive: true '
       + '的实体默认不列出，includeArchived 为 true 时一并列出并标注。',
     parameters: {
       type: { ...ENTITY_TYPE_PARAM, description: '只列出该类型；省略则列出全部三类' },
@@ -233,10 +275,11 @@ export function apply(ctx: Context, config: Config): void {
 // Host-side consumers (the yantao-kb-controller Remote) reuse the filesystem
 // operations and path confinement through these public re-exports; the
 // plugin above remains the model-facing shell over the same operations.
-export { appendLog, createEntity, initKb, listEntities, readEntity, registerResource } from './core.ts'
+export { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, writeState } from './core.ts'
 export type { InitKbResult, ListedEntity } from './core.ts'
-export { resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
-export { appendToLogSection, logBullet } from './splice.ts'
-export { entityFileContent, KB_README, shadowNoteContent } from './templates.ts'
-export { ENTITY_DIRS, ENTITY_TYPES, KbError, PERSON_RELATIONS } from './types.ts'
+export { entityDisplayPath, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
+export { appendToLogSection, logBullet, replaceStateSection } from './splice.ts'
+export { entityFileContent, KB_README, shadowNoteContent, todoFileContent } from './templates.ts'
+export type { EntityTemplateOptions } from './templates.ts'
+export { ENTITY_DIRS, ENTITY_TYPES, KbError, PERSON_RELATIONS, SINGLETON_FILES } from './types.ts'
 export type { EntityType, PersonRelation } from './types.ts'

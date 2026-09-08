@@ -3,10 +3,10 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { appendLog, createEntity, initKb, listEntities, readEntity, registerResource } from '../src/core.ts'
-import { appendToLogSection, logBullet } from '../src/splice.ts'
+import { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, writeState } from '../src/core.ts'
+import { appendToLogSection, logBullet, replaceStateSection } from '../src/splice.ts'
 import { sanitizeFileName, todayStamp } from '../src/paths.ts'
-import { entityFileContent, shadowNoteContent } from '../src/templates.ts'
+import { entityFileContent, shadowNoteContent, todoFileContent } from '../src/templates.ts'
 import { KbError } from '../src/types.ts'
 
 let kbRoot: string
@@ -64,8 +64,34 @@ describe('entity template', () => {
     )
   })
   it('places relation before tags for a person', () => {
-    const content = entityFileContent('person', '我自己', '2026-09-05', 'self')
+    const content = entityFileContent('person', '我自己', '2026-09-05', { relation: 'self' })
     expect(content).toContain('type: person\nrelation: self\ntags: []')
+  })
+
+  it('carries the meeting date and title, defaulting the date to the creation day', () => {
+    expect(entityFileContent('meeting', '周会', '2026-09-07', { meetingDate: '2026-09-09' })).toBe(
+      '---\n'
+      + 'type: meeting\n'
+      + 'date: 2026-09-09\n'
+      + 'title: 周会\n'
+      + '---\n'
+      + '\n'
+      + '## 状态\n'
+      + '\n'
+      + '\n'
+      + '## 流水\n'
+      + '\n'
+      + '- 2026-09-07 创建 周会\n',
+    )
+    expect(entityFileContent('meeting', '周会', '2026-09-07')).toContain('date: 2026-09-07\n')
+  })
+
+  it('emits the todo singleton as a checkbox list with no sections', () => {
+    const content = entityFileContent('todo', 'todos', '2026-09-07')
+    expect(content).toBe(todoFileContent('2026-09-07'))
+    expect(content).toBe('---\ntype: todo\ncreated: 2026-09-07\n---\n\n- [ ] 写下第一个待办\n')
+    expect(content).not.toContain('## 状态')
+    expect(content).not.toContain('## 流水')
   })
   it('matches the canonical shadow-note layout byte-for-byte', () => {
     expect(shadowNoteContent('周报.eml', '2026-09-05')).toBe(
@@ -148,6 +174,53 @@ describe('appendToLogSection', () => {
   })
 })
 
+describe('replaceStateSection', () => {
+  const base = entityFileContent('project', 'demo', '2026-09-05')
+  const logTail = '\n## 流水\n\n- 2026-09-05 创建 demo\n'
+
+  it('fills the empty State section and preserves every other byte', () => {
+    const next = replaceStateSection(base, '进行中：等待评审', 'demo.md')
+    expect(next).toBe('---\ntype: project\nareas: []\ntags: []\ncreated: 2026-09-05\n---\n\n## 状态\n\n进行中：等待评审\n' + logTail)
+  })
+
+  it('replaces existing State content instead of appending to it', () => {
+    const filled = replaceStateSection(base, '旧状态\n第二行', 'demo.md')
+    const next = replaceStateSection(filled, '新状态', 'demo.md')
+    expect(next).not.toContain('旧状态')
+    expect(next).toContain('## 状态\n\n新状态\n')
+  })
+
+  it('writes multi-line markdown and normalizes CRLF and outer blank lines', () => {
+    const next = replaceStateSection(base, '\r\n- 目标 A\r\n- 目标 B\r\n\r\n', 'demo.md')
+    expect(next).toContain('## 状态\n\n- 目标 A\n- 目标 B\n')
+  })
+
+  it('empties the section back to the template layout when text is blank', () => {
+    const filled = replaceStateSection(base, '进行中', 'demo.md')
+    expect(replaceStateSection(filled, '   \n\n', 'demo.md')).toBe(base)
+  })
+
+  it('leaves a human-written 流水 section byte-for-byte intact', () => {
+    const human = base.replace(
+      logTail,
+      '\n## 流水\n\n- 2026-09-05 创建 demo\n- 2026-09-06 人类手写\n  带缩进续行\n',
+    )
+    const next = replaceStateSection(human, '新状态', 'demo.md')
+    expect(next.endsWith('- 2026-09-05 创建 demo\n- 2026-09-06 人类手写\n  带缩进续行\n')).toBe(true)
+    expect(next.indexOf('## 状态')).toBe(human.indexOf('## 状态'))
+  })
+
+  it('throws missing-state-anchor on a file without a State section', () => {
+    const broken = base.replace('## 状态\n', '## 近况\n')
+    expect(() => replaceStateSection(broken, 'x', 'demo.md')).toThrowError(/缺少『## 状态』锚点/)
+  })
+
+  it('throws ambiguous-state-anchor on duplicated anchors', () => {
+    const doubled = base.replace('## 状态\n', '## 状态\n\n## 状态\n')
+    expect(() => replaceStateSection(doubled, 'x', 'demo.md')).toThrowError(/2 个『## 状态』锚点/)
+  })
+})
+
 describe('logBullet', () => {
   it('indents continuation lines by two spaces', () => {
     expect(logBullet('2026-09-05', '第一行\n第二行\n第三行')).toEqual([
@@ -166,21 +239,33 @@ describe('kb_init', () => {
     expect(first.created).toContain('sessions')
     expect(first.created).toContain('README.md')
     expect(first.created).toContain('entities/people/我自己.md')
+    expect(first.created).toContain('entities/meetings')
+    expect(first.created).toContain('entities/todos.md')
     const self = await read('entities/people/我自己.md')
-    expect(self).toBe(entityFileContent('person', '我自己', TODAY, 'self'))
+    expect(self).toBe(entityFileContent('person', '我自己', TODAY, { relation: 'self' }))
+    expect(await read('entities/todos.md')).toBe(todoFileContent(TODAY))
     const readme = await read('README.md')
     expect(readme).toContain('# yantao 知识库')
 
     const second = await initKb(kbRoot)
     expect(second.created).toEqual([])
     expect(second.existing).toContain('entities/people/我自己.md')
+    expect(second.existing).toContain('entities/todos.md')
     expect(second.existing).toContain('README.md')
+  })
+
+  it('never overwrites a todo list the human already wrote', async () => {
+    await initKb(kbRoot)
+    await writeFile(join(kbRoot, 'entities/todos.md'), '---\ntype: todo\ncreated: 2026-01-01\n---\n\n- [x] 已完成的待办\n')
+    const result = await initKb(kbRoot)
+    expect(result.created).toEqual([])
+    expect(await read('entities/todos.md')).toContain('- [x] 已完成的待办\n')
   })
 
   it('does not create 我自己 when another person already carries relation: self', async () => {
     await initKb(kbRoot)
     await rm(join(kbRoot, 'entities/people/我自己.md'))
-    await writeFile(join(kbRoot, 'entities/people/老板.md'), entityFileContent('person', '老板', TODAY, 'self'))
+    await writeFile(join(kbRoot, 'entities/people/老板.md'), entityFileContent('person', '老板', TODAY, { relation: 'self' }))
     const result = await initKb(kbRoot)
     expect(result.created).not.toContain('entities/people/我自己.md')
     expect(existsSync(join(kbRoot, 'entities/people/我自己.md'))).toBe(false)
@@ -203,6 +288,47 @@ describe('kb_create_entity', () => {
   it('sanitizes unsafe names into the file name', async () => {
     const { path } = await createEntity(kbRoot, 'area', '工作/生活')
     expect(path).toBe('entities/areas/工作_生活.md')
+  })
+
+  it('creates a meeting with the given date', async () => {
+    const { path } = await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-09' })
+    expect(path).toBe('entities/meetings/周会.md')
+    expect(await read(path)).toBe(entityFileContent('meeting', '周会', TODAY, { meetingDate: '2026-09-09' }))
+  })
+
+  it('refuses to create the todo singleton', async () => {
+    await expect(createEntity(kbRoot, 'todo', 'todos')).rejects.toThrowError(/单例实体/)
+  })
+})
+
+describe('kb_write_state', () => {
+  it('rewrites the State section and leaves the Log section untouched', async () => {
+    await createEntity(kbRoot, 'project', 'dsh 学习')
+    const before = await read('entities/projects/dsh 学习.md')
+    const logSection = before.slice(before.indexOf('## 流水'))
+    const result = await writeState(kbRoot, 'project:dsh 学习', '进行中：等待评审')
+    expect(result.path).toBe('entities/projects/dsh 学习.md')
+    expect(result.state).toBe('进行中：等待评审')
+    const after = await read('entities/projects/dsh 学习.md')
+    expect(after.slice(after.indexOf('## 流水'))).toBe(logSection)
+    expect(after).toBe(before.replace('## 状态\n\n\n## 流水\n', '## 状态\n\n进行中：等待评审\n\n## 流水\n'))
+  })
+
+  it('accepts plural spellings and paths, and errors on a singleton without a State section', async () => {
+    await createEntity(kbRoot, 'meeting', '周会')
+    await writeState(kbRoot, 'meetings:周会', '已确认')
+    await writeState(kbRoot, 'entities/meetings/周会.md', '已改期')
+    expect(await read('entities/meetings/周会.md')).toContain('## 状态\n\n已改期\n')
+    await initKb(kbRoot)
+    await expect(writeState(kbRoot, 'todo:todos', 'x')).rejects.toThrowError(/缺少『## 状态』锚点/)
+  })
+
+  it('rejects locators escaping the KB root', async () => {
+    await expect(writeState(kbRoot, '../outside.md', 'x')).rejects.toThrowError(/越出了知识库根目录/)
+  })
+
+  it('errors on a missing entity with a not-found message', async () => {
+    await expect(writeState(kbRoot, 'project:不存在', 'x')).rejects.toThrowError(/找不到实体文件/)
   })
 })
 
@@ -281,6 +407,22 @@ describe('kb_list_entities', () => {
     expect(withArchived.entities.map(entry => `${entry.name}:${String(entry.archived)}`)).toEqual(['A:false', 'B:true'])
     const people = await listEntities(kbRoot, 'person')
     expect(people.entities[0]?.relation).toBe('subordinate')
+  })
+
+  it('lists meetings and the todo singleton', async () => {
+    await createEntity(kbRoot, 'meeting', '周会')
+    await initKb(kbRoot)
+    const rows = (await listEntities(kbRoot)).entities.map(entry => `${entry.type}:${entry.name}`)
+    expect(rows).toContain('meeting:周会')
+    expect(rows).toContain('todo:todos')
+    const todos = await listEntities(kbRoot, 'todo')
+    expect(todos.entities).toEqual([{ type: 'todo', name: 'todos', archived: false }])
+    const result = await readEntity(kbRoot, 'todo', 'todos')
+    expect(result.path).toBe('entities/todos.md')
+  })
+
+  it('omits the todo singleton when its file is absent', async () => {
+    expect((await listEntities(kbRoot, 'todo')).entities).toEqual([])
   })
 })
 

@@ -1,9 +1,10 @@
 /**
- * The six KB operations behind the kb_ tool family. Each takes the resolved
+ * The KB operations behind the kb_ tool family. Each takes the resolved
  * kbRoot explicitly and is transport-free, so tests drive them directly.
  * Writes are confined to kbRoot and follow the trust boundary: entity files
- * are created from the canonical template once, and afterwards only the
- * `## 流水` section may grow — everything else about a file is read-only.
+ * are created from the canonical template once, and afterwards the agent may
+ * only rewrite the `## 状态` section and append to the `## 流水` section —
+ * every other byte of a file is read-only for the tool layer.
  * @module @deepseek-ai/dsh-yantao-kb/core
  */
 
@@ -12,10 +13,11 @@ import { dirname, join, relative, sep } from 'node:path'
 import { existsSync } from 'node:fs'
 import { parseFrontmatter } from './frontmatter.ts'
 import { entityFilePath, resolveEntityLocator, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
-import { appendToLogSection, logBullet } from './splice.ts'
-import { entityFileContent, KB_README, shadowNoteContent } from './templates.ts'
-import type { EntityType, PersonRelation } from './types.ts'
-import { ENTITY_DIRS, ENTITY_TYPES, KbError } from './types.ts'
+import { appendToLogSection, logBullet, replaceStateSection } from './splice.ts'
+import type { EntityTemplateOptions } from './templates.ts'
+import { entityFileContent, KB_README, shadowNoteContent, todoFileContent } from './templates.ts'
+import type { EntityType } from './types.ts'
+import { ENTITY_DIRS, ENTITY_TYPES, KbError, SINGLETON_FILES } from './types.ts'
 
 /** KB-relative path with forward slashes, for model- and human-facing output. */
 function displayPath(kbRoot: string, absolute: string): string {
@@ -45,8 +47,9 @@ export interface InitKbResult {
 
 /**
  * Create the KB layout (idempotent): the directory tree, the root README
- * (only when absent), and the owner entity `entities/people/我自己.md`
- * (only when no person carries `relation: self`).
+ * (only when absent), the owner entity `entities/people/我自己.md`
+ * (only when no person carries `relation: self`), and the todo singleton
+ * `entities/todos.md` (only when absent).
  * @param kbRoot - the knowledge-base root directory to initialize.
  * @returns the resolved root with the paths this run created versus those already present.
  */
@@ -61,6 +64,7 @@ export async function initKb(kbRoot: string): Promise<InitKbResult> {
     join('entities', 'projects'),
     join('entities', 'areas'),
     join('entities', 'people'),
+    join('entities', 'meetings'),
     'sessions',
   ]
   for (const dir of directories) {
@@ -96,33 +100,47 @@ export async function initKb(kbRoot: string): Promise<InitKbResult> {
     existing.push('entities/people/我自己.md')
   } else {
     const selfPath = join(peopleDir, '我自己.md')
-    await writeFile(selfPath, entityFileContent('person', '我自己', todayStamp(), 'self'), 'utf8')
+    await writeFile(selfPath, entityFileContent('person', '我自己', todayStamp(), { relation: 'self' }), 'utf8')
     created.push('entities/people/我自己.md')
+  }
+  const todoPath = join(root, 'entities', 'todos.md')
+  if (existsSync(todoPath)) {
+    existing.push('entities/todos.md')
+  } else {
+    await writeFile(todoPath, todoFileContent(todayStamp()), 'utf8')
+    created.push('entities/todos.md')
   }
   return { kbRoot: root, created, existing }
 }
 
 /** Create one entity file from the canonical template, refusing to overwrite.
  * @param kbRoot - the knowledge-base root the entity lives under.
- * @param type - the entity kind: project, area, or person.
+ * @param type - the entity kind; singleton kinds (`todo`) are refused — `kb_init` owns them.
  * @param name - the entity display name (sanitized before it becomes the file name).
- * @param relation - person-to-owner relation, only meaningful for person entities (default subordinate).
+ * @param options - person relation and meeting date, as the template defines them.
  * @returns the KB-relative path of the created file.
  */
 export async function createEntity(
   kbRoot: string,
   type: EntityType,
   name: string,
-  relation?: PersonRelation,
+  options: EntityTemplateOptions = {},
 ): Promise<{ path: string }> {
   const root = resolveWithinKb(kbRoot)
+  const singleton = SINGLETON_FILES[type]
+  if (singleton !== undefined) {
+    throw new KbError(
+      'singleton-entity',
+      `「${type}」是单例实体（entities/${singleton}），由 kb_init 创建，不能用 kb_create_entity 新建`,
+    )
+  }
   const target = entityFilePath(root, type, name)
   const display = displayPath(root, target)
   if (existsSync(target)) {
     throw new KbError('entity-exists', `实体「${name}」已存在（${display}）；如需补充请使用 kb_append_log`)
   }
   await mkdir(dirname(target), { recursive: true })
-  await writeFile(target, entityFileContent(type, name, todayStamp(), relation), 'utf8')
+  await writeFile(target, entityFileContent(type, name, todayStamp(), options), 'utf8')
   return { path: display }
 }
 
@@ -148,6 +166,27 @@ export async function appendLog(kbRoot: string, locator: string, text: string): 
   return { path: display, appended: bullet.join('\n') }
 }
 
+/**
+ * Replace an entity's `## 状态` section body with `text` — the one section
+ * the agent may rewrite (ADR-0004 as revised by ADR-0010). The entity is
+ * located like {@link appendLog}; the frontmatter must parse and the anchor
+ * must exist exactly once. The `## 流水` section below and everything above
+ * the anchor survive byte-for-byte; an empty `text` empties the section.
+ * @param kbRoot - the knowledge-base root the entity lives under.
+ * @param locator - entity locator: `type:name` (plural spellings accepted) or an entity file path.
+ * @param text - the new State section body; newlines become plain markdown lines.
+ * @returns the KB-relative path and the text written.
+ */
+export async function writeState(kbRoot: string, locator: string, text: string): Promise<{ path: string; state: string }> {
+  const root = resolveWithinKb(kbRoot)
+  const target = resolveEntityLocator(root, locator)
+  const { content, display } = await readEntityFile(root, target)
+  parseFrontmatter(content, display)
+  const next = replaceStateSection(content, text, display)
+  await writeFile(target, next, 'utf8')
+  return { path: display, state: text }
+}
+
 /** Return one entity file's complete content.
  * @param kbRoot - the knowledge-base root the entity lives under.
  * @param type - the entity kind: project, area, or person.
@@ -169,12 +208,52 @@ export interface ListedEntity {
   relation?: string
 }
 
+/** One entity file to inspect: its KB-relative display path, absolute path, and display name. */
+interface EntityFileEntry {
+  display: string
+  absolute: string
+  name: string
+}
+
+/**
+ * The candidate `.md` files of one entity kind: a singleton kind contributes
+ * its single file (when it exists), every other kind the notes in its
+ * directory (empty when the directory is absent).
+ * @param root - the resolved knowledge-base root.
+ * @param type - the entity kind to collect.
+ * @returns the candidate files in directory read order.
+ */
+async function entityFilesOf(root: string, type: EntityType): Promise<EntityFileEntry[]> {
+  const singleton = SINGLETON_FILES[type]
+  if (singleton !== undefined) {
+    const absolute = join(root, 'entities', singleton)
+    if (!existsSync(absolute)) return []
+    return [{ display: `entities/${singleton}`, absolute, name: singleton.slice(0, -'.md'.length) }]
+  }
+  const dir = join(root, 'entities', ENTITY_DIRS[type])
+  let files: string[]
+  try {
+    files = await readdir(dir)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+  return files
+    .filter(file => file.endsWith('.md'))
+    .map(file => ({
+      display: `entities/${ENTITY_DIRS[type]}/${file}`,
+      absolute: join(dir, file),
+      name: file.slice(0, -'.md'.length),
+    }))
+}
+
 /**
  * List entity display names (file basename minus `.md`), newest-frontmatter-
  * first per directory read order. Entities whose frontmatter carries
- * `archive: true` are hidden unless `includeArchived` is set.
+ * `archive: true` are hidden unless `includeArchived` is set. Singleton
+ * kinds list their one file when it exists.
  * @param kbRoot - the knowledge-base root to list.
- * @param type - restrict to one entity kind; omit to list all three.
+ * @param type - restrict to one entity kind; omit to list every kind.
  * @param includeArchived - also list entities whose frontmatter declares `archive: true`.
  * @returns the listed entity rows with archive flags (and person relations).
  */
@@ -183,29 +262,19 @@ export async function listEntities(kbRoot: string, type?: EntityType, includeArc
   const types = type === undefined ? ENTITY_TYPES : [type]
   const entities: ListedEntity[] = []
   for (const current of types) {
-    const dir = join(root, 'entities', ENTITY_DIRS[current])
-    let files: string[]
-    try {
-      files = await readdir(dir)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
-      throw error
-    }
-    for (const file of files) {
-      if (!file.endsWith('.md')) continue
-      const display = `entities/${ENTITY_DIRS[current]}/${file}`
+    for (const entry of await entityFilesOf(root, current)) {
       let data: Record<string, unknown>
       try {
-        data = parseFrontmatter(await readFile(join(dir, file), 'utf8'), display).data
+        data = parseFrontmatter(await readFile(entry.absolute, 'utf8'), entry.display).data
       } catch (error) {
         if (error instanceof KbError) continue
         throw error
       }
       const archived = data.archive === true
       if (archived && !includeArchived) continue
-      const entry: ListedEntity = { type: current, name: file.slice(0, -'.md'.length), archived }
-      if (current === 'person' && typeof data.relation === 'string') entry.relation = data.relation
-      entities.push(entry)
+      const listed: ListedEntity = { type: current, name: entry.name, archived }
+      if (current === 'person' && typeof data.relation === 'string') listed.relation = data.relation
+      entities.push(listed)
     }
   }
   return { entities }
