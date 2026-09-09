@@ -14,10 +14,17 @@ import {
 } from '../tabs.ts'
 import { STATUS_LABELS, type SaveStatus } from '../editor/FileEditor.tsx'
 
+/** How the centre pane shows an editable markdown file (ADR-0014). */
+export type ViewMode = 'read' | 'source'
+
 /** Centre pane props. */
 export interface CenterPaneProps {
   /** The open tabs. */
   readonly tabs: TabState
+  /** Whether an editable file shows its reading view or its source. */
+  readonly viewMode: ViewMode
+  /** Switch an editable file between its reading view and its source. */
+  readonly onViewMode: (mode: ViewMode) => void
   /** Save status per file path, reported by the mounted editors. */
   readonly statuses: Readonly<Record<string, SaveStatus>>
   /** Activate one tab key (a file path or the conversation). */
@@ -80,6 +87,23 @@ const labelButtonStyle = {
 
 const closeButtonStyle = { borderWidth: 0, background: 'transparent', cursor: 'pointer', color: '#9a9488' } as const
 
+/** The 阅读 / 源码 switch: pushed to the end of the strip. */
+const modeSwitchStyle = { display: 'flex', alignItems: 'center', gap: 2, marginLeft: 'auto', padding: '0 4px' } as const
+
+const modeButtonStyle = {
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'transparent',
+  borderRadius: 4,
+  background: 'transparent',
+  cursor: 'pointer',
+  fontFamily: FONT,
+  fontSize: 12,
+  padding: '1px 6px',
+} as const
+
+const activeModeStyle = { ...modeButtonStyle, background: '#eef3ff', borderColor: '#c7d7ff' } as const
+
 const bodyStyle = { position: 'relative', flex: 1, minHeight: 0, display: 'flex' } as const
 
 const pageStyle = { flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' } as const
@@ -119,6 +143,8 @@ function StatusDot({ status }: { status: SaveStatus }): ReactElement {
 export function CenterPane({
   tabs,
   statuses,
+  viewMode,
+  onViewMode,
   onActivate,
   onClose,
   renderConversation,
@@ -127,6 +153,9 @@ export function CenterPane({
   // The conversation is rendered unconditionally and only hidden: remounting
   // it would drop the host's scroll position and composer draft.
   const conversationActive = tabs.active === CONVERSATION_TAB
+  // Only an editable file has two views; a read-only original is one <pre>.
+  const activeFile = tabs.files.find(tab => tab.path === tabs.active)
+  const toggleable = activeFile?.mode === 'edit'
   return (
     <div style={paneStyle}>
       <div style={stripStyle}>
@@ -160,6 +189,24 @@ export function CenterPane({
             </div>
           )
         })}
+        {toggleable && (
+          <div style={modeSwitchStyle} data-view-mode={viewMode}>
+            <button
+              type="button"
+              style={viewMode === 'read' ? activeModeStyle : modeButtonStyle}
+              onClick={() => { onViewMode('read') }}
+            >
+              阅读
+            </button>
+            <button
+              type="button"
+              style={viewMode === 'source' ? activeModeStyle : modeButtonStyle}
+              onClick={() => { onViewMode('source') }}
+            >
+              源码
+            </button>
+          </div>
+        )}
       </div>
       <div style={bodyStyle}>
         <div style={{ ...pageStyle, display: conversationActive ? 'flex' : 'none' }} data-tab={CONVERSATION_TAB}>

@@ -16,13 +16,14 @@ import type {
   DirectoryPicker, EntityCreator, FileReader, FileWriter, RootLoader, RootSetter,
 } from '../remote.ts'
 import { FileEditor, type SaveStatus } from '../editor/FileEditor.tsx'
+import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
 import { Onboarding } from '../Onboarding.tsx'
 import {
   CONVERSATION_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath, restoreTabs,
   type TabMode, type TabState,
 } from '../tabs.ts'
-import { CenterPane } from './CenterPane.tsx'
+import { CenterPane, type ViewMode } from './CenterPane.tsx'
 import './frame.module.css'
 import type { PanelToggles } from './layout.ts'
 import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
@@ -66,6 +67,19 @@ const colStyle = { minWidth: 0, overflow: 'hidden' } as const
 const railColStyle = { ...colStyle, background: '#fbfaf7' } as const
 
 const overlayStyle = { position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' } as const
+
+/** The stack holding one file's two views; both stay mounted, one is shown. */
+const bothPanesStyle = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } as const
+
+/**
+ * Visibility of one of a file's two views — hidden, never unmounted, so its
+ * draft and scroll position survive a switch.
+ * @param shown - whether this view is the visible one.
+ * @returns the pane style.
+ */
+function paneStyleFor(shown: boolean): React.CSSProperties {
+  return { display: shown ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }
+}
 
 const handleStyle = {
   position: 'absolute',
@@ -204,6 +218,11 @@ export function Frame({
   // file tabs (and the draft inside each mounted editor) survive it.
   const [tabs, setTabs] = useState<TabState>(emptyTabs)
   const [statuses, setStatuses] = useState<Record<string, SaveStatus>>({})
+  // ADR-0014: a file opens on its reading view; the source editor stays mounted
+  // beside it (hidden) and reports its draft, so the reading view shows the
+  // same text without a second read and without owning a draft of its own.
+  const [viewMode, setViewMode] = useState<ViewMode>('read')
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
   // Persistence is armed only after the restore pass: writing the initial
   // empty state first would erase last session's tabs.
   const [restored, setRestored] = useState(false)
@@ -317,18 +336,30 @@ export function Frame({
         statuses={statuses}
         onActivate={(key) => { setTabs(state => activateTab(state, key)) }}
         onClose={closeFile}
+        viewMode={viewMode}
+        onViewMode={setViewMode}
         renderConversation={() => renderSlot('conversation', {})}
         renderFile={tab => tab.mode === 'read'
           ? <ReadOnlyFile path={tab.path} read={read} />
           : (
-            <FileEditor
-              path={tab.path}
-              read={read}
-              write={write}
-              onStatus={(status) => {
-                setStatuses(current => ({ ...current, [tab.path]: status }))
-              }}
-            />
+            <div style={bothPanesStyle}>
+              <div style={paneStyleFor(viewMode === 'read')}>
+                <MarkdownView content={drafts[tab.path] ?? ''} />
+              </div>
+              <div style={paneStyleFor(viewMode === 'source')}>
+                <FileEditor
+                  path={tab.path}
+                  read={read}
+                  write={write}
+                  onStatus={(status) => {
+                    setStatuses(current => ({ ...current, [tab.path]: status }))
+                  }}
+                  onDraft={(content) => {
+                    setDrafts(current => ({ ...current, [tab.path]: content }))
+                  }}
+                />
+              </div>
+            </div>
           )}
       />
       <div style={{ ...railColStyle, borderLeft: '1px solid #e6e2d8' }}>

@@ -315,8 +315,35 @@ describe('Frame', () => {
 
     const tab = container.querySelector('[data-tab="entities/areas/健康.md"]') as HTMLElement
     expect(tab.style.display).toBe('flex')
+    // ADR-0014: a file opens on its reading view, so the file's markdown shows
+    // and the editor is mounted but hidden beside it.
+    expect(await within(tab).findByText('写下第一个待办')).toBeTruthy()
+    fireEvent.click(screen.getByText('源码'))
     expect(within(tab).getByRole('textbox')).toBeTruthy()
     expect(localStorage.getItem(TAB_STORAGE_KEY)).toBe('["entities/areas/健康.md"]')
+  })
+
+  it('keeps the draft across a 阅读 / 源码 switch', async () => {
+    const { container } = render(renderFrame())
+    fireEvent.click(await screen.findByText('健康'))
+    fireEvent.click(screen.getByText('源码'))
+    const tab = container.querySelector('[data-tab="entities/areas/健康.md"]') as HTMLElement
+    // Wait for the load to land: typing before it would be overwritten by it.
+    await within(tab).findByDisplayValue(/写下第一个待办/)
+    const editor = within(tab).getByRole('textbox')
+    fireEvent.change(editor, { target: { value: '我改了一半' } })
+    fireEvent.click(screen.getByText('阅读'))
+    // The reading view shows the draft the editor holds — no second load. (The
+    // hidden textarea carries the same text, hence the plural query.)
+    expect(within(tab).getAllByText('我改了一半').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByText('源码'))
+    expect(within(tab).getByRole('textbox').value).toBe('我改了一半')
+  })
+
+  it('offers no 阅读 / 源码 switch for a read-only original', async () => {
+    render(renderFrame())
+    fireEvent.click(await screen.findByText('周报.eml'))
+    expect(screen.queryByText('源码')).toBeNull()
   })
 
   it('highlights the active file in its rail and follows the tab switch', async () => {

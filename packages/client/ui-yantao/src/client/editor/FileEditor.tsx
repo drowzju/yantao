@@ -36,6 +36,12 @@ export interface FileEditorProps {
   readonly write: FileWriter
   /** Report this file's save status to the tab strip; a fresh closure per render is fine. */
   readonly onStatus?: (status: SaveStatus) => void
+  /**
+   * Report the draft on every load and keystroke (ADR-0014). The reading view
+   * is a sibling of this editor and shows the same text, so it reads the draft
+   * through this callback instead of loading the file a second time.
+   */
+  readonly onDraft?: (content: string) => void
   /** Autosave delay in ms ({@link AUTOSAVE_MS}); overridable in tests. */
   readonly debounceMs?: number
 }
@@ -94,6 +100,7 @@ export function FileEditor({
   read,
   write,
   onStatus,
+  onDraft,
   debounceMs = AUTOSAVE_MS,
 }: FileEditorProps): ReactElement {
   const [draft, setDraft] = useState<string | null>(null)
@@ -114,10 +121,18 @@ export function FileEditor({
   latest.current = { path, draft, baseline, read, write }
   const statusSink = useRef(onStatus)
   statusSink.current = onStatus
+  const draftSink = useRef(onDraft)
+  draftSink.current = onDraft
 
   useEffect(() => {
     statusSink.current?.(status)
   }, [status])
+
+  // One report per draft change: the reading view mirrors whatever the editor
+  // holds, including a load and a conflict's 放弃我的修改.
+  useEffect(() => {
+    if (draft !== null) draftSink.current?.(draft)
+  }, [draft])
 
   /** Drop a pending autosave. */
   const cancel = useCallback((): void => {
