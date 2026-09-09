@@ -87,6 +87,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0010 | 领域模型扩张:`meeting` 实体、`todo` 单例、预留 `connector`;三栏布局、两棵树、`kb_write_state` |
 | 0011 | 工作台外框归我们:`ui-yantao` 注册运行时 `root` 槽位,`ui-layout` 退出名单 |
 | 0012 | 中栏 tab 化:原文编辑 + 自动保存 + 冲突检查、就地新建实体、首启自选知识库目录 |
+| 0013 | 品牌(PARAP + 自绘 hero 标)、中栏工作目录跟随知识库根目录、`@` 引用解析为知识库文件 |
 
 ## 5. 快速上手
 
@@ -118,7 +119,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 |---|---|
 | [development.md](development.zh.md) | 构建、运行、停止、测试、门禁、坑 |
 | [TODO.md](TODO.zh.md) | 待办:done / next / deferred(每个搁置项都带原因) |
-| [../adr/](../adr/) | ADR 0001–0012(索引见第 4 节) |
+| [../adr/](../adr/) | ADR 0001–0013(索引见第 4 节) |
 | [../subsystems/yantao.md](../subsystems/yantao.zh.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | 上下文地图:yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | 词汇表(规范用词) |
