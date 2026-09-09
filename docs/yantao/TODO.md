@@ -2,7 +2,8 @@
 
 English | [中文](TODO.zh.md)
 
-Living backlog. Status words: **done** (merged on `main`), **next** (queued), **deferred** (deliberately parked — see the note).
+Living backlog. Status words: **done** (merged on `main`), **next** (queued), **blocked** (queued but cannot run — see the
+note), **deferred** (deliberately parked — see the note).
 
 ## done — the v0 skeleton
 
@@ -56,6 +57,14 @@ Living backlog. Status words: **done** (merged on `main`), **next** (queued), **
 4. **Reading view v4 — Mermaid and local images** — both are paywalled: client bundles are single-file CJS, so mermaid inlines at
    ~3.5MB (or needs a host module-table change), and local images need a new RPC plus a host route because `read()` is utf8 and
    would corrupt binaries. Only worth it once a KB file actually contains one.
+
+## blocked (with reason)
+
+| Item | Why it cannot run |
+|---|---|
+| **Rebuild the client face so `yantaoKb.links` exists in the browser** — `pnpm run build:lib:client`, then `pnpm --filter @deepseek-ai/dsh-client-ui-yantao run bundle`, then restart and smoke the page | the machine sits at ~96% commit memory, and `tsdown` fails with `memory allocation … failed`. Until this runs, ADR-0015's link graph never reaches the browser: `loadLinks` degrades to an empty graph, so every `[[…]]` renders as literal brackets. Nothing is broken — the feature is simply not live |
+| **Type-aware lint over the yantao packages** (`oxlint`'s tsgolint) | same ceiling: bigger files OOM. `tsc -b tsconfig.client.json` and the test suites do pass, so this is coverage we owe, not a known failure. Re-run per file once memory frees |
+| **`toThrowError` → `toThrow` in `packages/yantao/kb/tests/kb.spec.ts`** (21 sites) | pre-existing deprecation warnings, mechanical to fix, but the change wants a lint run to confirm — which is what is blocked above. `pnpm run lint` stays red until then |
 
 ## deferred (with reason)
 

@@ -2,7 +2,7 @@
 
 [English](TODO.md) | 中文
 
-活的清单。状态词:**done**(已合入 `main`)、**next**(已排队)、**deferred**(有意搁置,附原因)。
+活的清单。状态词:**done**(已合入 `main`)、**next**(已排队)、**blocked**(已排队但跑不起来,附原因)、**deferred**(有意搁置,附原因)。
 
 ## done — v0 骨架
 
@@ -52,6 +52,14 @@
 3. **给工作台自己的词典** —— `Workbench.tsx` 里的文案是硬编码中文;等面板文案多起来就注册一个 locale 命名空间。
 4. **阅读视图 v4 —— Mermaid 与本地图片** —— 两者都要付代价:客户端包是单文件 CJS,mermaid 会被内联成 ~3.5MB(或要改宿主模块表);
    本地图片需要新 RPC + 宿主路由,因为 `read()` 是 utf8,二进制会被解坏。等知识库里真出现一个再开工。
+
+## blocked(附原因)
+
+| 项 | 为什么跑不起来 |
+|---|---|
+| **重编客户端 face,让浏览器里真的有 `yantaoKb.links`** —— `pnpm run build:lib:client`,再 `pnpm --filter @deepseek-ai/dsh-client-ui-yantao run bundle`,然后重启并冒烟 | 这台机器提交内存约 96%,`tsdown` 直接 `memory allocation … failed`。跑不了之前,ADR-0015 的链接图到不了浏览器:`loadLinks` 降级成空图,所有 `[[…]]` 都渲染成方括号原文。不是坏了,是功能还没真正上线 |
+| **yantao 各包的类型感知 lint**(`oxlint` 的 tsgolint) | 同一个天花板:稍大的文件就 OOM。`tsc -b tsconfig.client.json` 和测试都是过的,所以这是"欠一次覆盖",不是已知失败。等内存缓过来逐文件补跑 |
+| **`packages/yantao/kb/tests/kb.spec.ts` 里 `toThrowError` → `toThrow`**(21 处) | 既有的弃用告警,改起来是机械替换,但需要一次 lint 来确认——而 lint 正是上面那条被卡的。`pnpm run lint` 在此之前一直是红的 |
 
 ## deferred(附原因)
 
