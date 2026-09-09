@@ -17,10 +17,23 @@ import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 // Type-only: pulls the `ctx.uiWorkspace` Context merge (ui-workspace owns the
 // declaration) — the first-run directory picker is its `pickDirectory`.
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+// Type-only: pulls the `conversation.hero.brand.mark` slot-name merge
+// (ui-conversation owns the declaration) — the hero mark is the one piece of
+// the borrowed middle column we replace.
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: pulls the `ctx.workspaces` service merge (the workspace
+// controller owns the declaration) — ADR-0013 points it at the KB root.
+import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
+// Type-only: pulls the `ctx.inputTriggers` service merge (ui-input-trigger
+// owns the declaration) — the `@` menu's KB source registers through it.
+import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { Frame } from './frame/Frame.tsx'
 import { ThemePresenter } from './frame/theme-presenter.ts'
 import { WorkbenchLayout, createPanelSeat } from './frame/layout.ts'
+import { YantaoMark } from './brand/YantaoMark.tsx'
+import { alignWorkspace } from './kb-workspace.ts'
+import { kbReferenceSource } from './kb-reference.ts'
 import {
   createEntity, loadIntake, loadRoot, loadWorkspace, readFile, setKbRoot, writeFile,
 } from './remote.ts'
@@ -30,7 +43,9 @@ export const name = 'ui-yantao'
 // as one of its own: both the `remote` face and this namespace must be listed
 // or the accessor throws "cannot get property remote.yantaoKb without inject".
 // `uiWorkspace` is the host's directory picker the first-run flow calls.
-export const inject = ['slots', 'theme', 'remote', 'remote.yantaoKb', 'uiWorkspace']
+export const inject = [
+  'slots', 'theme', 'remote', 'remote.yantaoKb', 'uiWorkspace', 'workspaces', 'inputTriggers',
+]
 
 /**
  * Contribute the workbench shell.
@@ -47,6 +62,21 @@ export function apply(ctx: Context): void {
   // Panel actions: the frame fills this seat on mount, `ctx.layout` reads it.
   const panels = createPanelSeat()
   const layout = new WorkbenchLayout(panels)
+
+  // ADR-0013: dsh's own workspace follows the KB root, so the middle column's
+  // working directory is the directory every kb_* tool reads. Re-run after the
+  // first-run flow (or 更改目录) adopts a new root; a failure here only costs
+  // the alignment, so it is reported and forgotten.
+  const align = (): void => {
+    void alignWorkspace({
+      root: () => loadRoot(ctx),
+      workspaces: ctx.workspaces,
+      startSession: (workspaceId) => { ctx.uiWorkspace.startSession(workspaceId) },
+    }).catch((reason: unknown) => {
+      console.warn('kb workspace alignment failed:', reason)
+    })
+  }
+  align()
   ctx.effect(() => ctx.reflect.provide('layout', layout), 'ui-yantao: layout service')
 
   // Theme presentation: pure DOM writes from resolved snapshots — the initial
@@ -77,6 +107,20 @@ export function apply(ctx: Context): void {
       root: () => loadRoot(ctx),
       setRoot: (path: string) => setKbRoot(ctx, path),
       pickDirectory: () => ctx.uiWorkspace.pickDirectory(),
+      onKbRootChanged: align,
     }),
   }, Frame), 'ui-yantao: root frame')
+
+  // The hero's brand mark: the middle column is upstream's, but the fish in
+  // its headline is not ours to show. Declaration-aware registration — the
+  // slot only exists while ui-conversation is mounted.
+  ctx.effect(() => ctx.slots.inject('conversation.hero.brand.mark', () =>
+    ctx.slots.register({ name: 'conversation.hero.brand.mark' }, YantaoMark)), 'ui-yantao: hero brand mark')
+
+  // `@` offers the KB's own entities; without this the menu lists only files
+  // and sessions from the (unused) workspace.
+  ctx.effect(() => ctx.inputTriggers.registerSource(kbReferenceSource({
+    intake: () => loadIntake(ctx),
+    workspace: () => loadWorkspace(ctx),
+  })), 'ui-yantao: @ kb source')
 }

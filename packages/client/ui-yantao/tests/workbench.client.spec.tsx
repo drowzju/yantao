@@ -277,7 +277,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
 }
 
 /** Render the frame with a stub conversation seat. */
-function renderFrame(override: Partial<FrameFaces> = {}): ReactElement {
+function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => void = () => {}): ReactElement {
   const kb = faces(override)
   return (
     <Frame
@@ -291,6 +291,7 @@ function renderFrame(override: Partial<FrameFaces> = {}): ReactElement {
       root={kb.root}
       setRoot={kb.setRoot}
       pickDirectory={kb.pickDirectory}
+      onKbRootChanged={onKbRootChanged}
     />
   )
 }
@@ -366,6 +367,7 @@ describe('Frame', () => {
     const setRoot = vi.fn(() => Promise.resolve({ root: '/kb', configured: true, created: ['README.md'], existing: [] }))
     const pickDirectory = vi.fn(() => Promise.resolve('/kb'))
     const load = vi.fn(loader(intake))
+    const onKbRootChanged = vi.fn()
     const kb = faces({ setRoot, pickDirectory, root: () => Promise.resolve({ root: '', configured: false }) })
     render(
       <Frame
@@ -379,6 +381,7 @@ describe('Frame', () => {
         root={kb.root}
         setRoot={kb.setRoot}
         pickDirectory={kb.pickDirectory}
+        onKbRootChanged={onKbRootChanged}
       />,
     )
     expect(await screen.findByText('选择知识库目录')).toBeTruthy()
@@ -390,6 +393,8 @@ describe('Frame', () => {
     expect(screen.queryByText('选择知识库目录')).toBeNull()
     // The frame bumped its tree key: the intake rail loaded again.
     expect(load).toHaveBeenCalledTimes(2)
+    // ADR-0013: the adopted root re-points dsh's own workspace.
+    expect(onKbRootChanged).toHaveBeenCalledOnce()
   })
 
   it('re-opens the directory flow through 更改目录', async () => {

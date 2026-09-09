@@ -9,12 +9,17 @@
  * @module @deepseek-ai/dsh-yantao-kb
  */
 
+import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, writeState } from './core.ts'
+import { kbMentions, renderKbMentions } from './mentions.ts'
 import { readKbRootOverride, writeKbRootOverride } from './root-store.ts'
 import { ENTITY_TYPES, PERSON_RELATIONS } from './types.ts'
 
@@ -106,6 +111,38 @@ const CREATABLE_ENTITY_TYPE_PARAM = {
   description: '实体类型：project（项目）/ area（领域）/ person（人物）/ meeting（会议）；todo 是单例，由 kb_init 创建',
 } as const
 
+/** One cited file that read successfully. */
+interface CitedFile {
+  /** KB-relative path. */
+  readonly path: string
+  /** The file's content. */
+  readonly content: string
+}
+
+/**
+ * Read the KB files a turn cited, skipping anything that is not a readable
+ * file inside the root. A cited file that vanished costs the citation, not
+ * the turn.
+ * @param root - the live KB root.
+ * @param paths - KB-relative paths from {@link kbMentions}.
+ * @returns the files that read, in citation order.
+ */
+async function readCitedFiles(root: string, paths: readonly string[]): Promise<CitedFile[]> {
+  const cited: CitedFile[] = []
+  for (const path of paths) {
+    const absolute = join(root, path)
+    // Defense in depth: kbMentions already refuses escaping paths, and this
+    // keeps the read inside the root even if that check ever loosens.
+    if (relative(root, absolute).startsWith('..')) continue
+    try {
+      cited.push({ path, content: await readFile(absolute, 'utf8') })
+    } catch {
+      continue
+    }
+  }
+  return cited
+}
+
 /** Register the kb_ tools and publish the resolved KB root; disposal unregisters both. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = config as ResolvedConfig
@@ -123,6 +160,30 @@ export function apply(ctx: Context, config: Config): void {
     () => ctx.provide('yantaoKb', liveRoot satisfies YantaoKbService),
     'yantao-kb: provide KB root service',
   )
+
+  // `@` mentions: the composer inserts a KB-relative path, and nothing else in
+  // this profile tells the model what one is. Read the cited files and hand
+  // the model their content as one context message ahead of the turn.
+  ctx.on('agent/pre-step', async (_event, next): Promise<PreStepDecision> => {
+    const decision = await next()
+    if (decision.kind === 'reject') return decision
+    const messages = decision.messages
+    const last = messages[messages.length - 1]
+    if (last === undefined || last.source.kind !== 'user') return decision
+    const text = last.content
+      .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+      .map(block => block.text)
+      .join('\n')
+    const cited = await readCitedFiles(liveRoot.root, kbMentions(text))
+    if (cited.length === 0) return decision
+    return {
+      ...decision,
+      messages: [...messages, createUserMessage({
+        source: { kind: 'plugin', plugin: 'dsh-yantao-kb', form: 'recall' },
+        content: [{ type: 'text', text: renderKbMentions(cited) }],
+      })],
+    }
+  })
 
   ctx.tools.register(defineTool({
     name: 'kb_init',

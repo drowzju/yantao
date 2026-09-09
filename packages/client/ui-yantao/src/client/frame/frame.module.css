@@ -1,0 +1,10 @@
+/*
+ * Chrome the workbench turns off inside the borrowed middle column. Upstream
+ * renders its "Preview" badge unconditionally and offers no flag, and the
+ * conversation slot gives us no occupant for it — attribute selectors stay
+ * global inside a CSS module, so this rule reaches the hashed class the
+ * conversation bundle emits (its local name still contains `previewBadge`).
+ */
+:global([data-tab='conversation']) :global([class*='previewBadge']) {
+  display: none;
+}

@@ -51,7 +51,7 @@ function sectionOf(
 }
 
 /** Panel and tab labels — yantao's working language, until this plugin owns a dictionary. */
-const LABELS: Record<string, string> = {
+export const SECTION_LABELS: Record<string, string> = {
   resources: '资源',
   todos: '待办',
   meetings: '会议',
@@ -161,7 +161,7 @@ function Section({
 }): ReactElement {
   return (
     <div>
-      {showHeading && <div style={titleStyle}>{LABELS[id]}</div>}
+      {showHeading && <div style={titleStyle}>{SECTION_LABELS[id]}</div>}
       {id === 'connector' && <div style={{ color: '#9a9488', padding: '4px 6px' }}>预留（连接抽象见 ADR-0010）</div>}
       {section === undefined && id !== 'connector' && <div style={{ color: '#9a9488', padding: '4px 6px' }}>（空）</div>}
       {section?.files.map(file => (
@@ -303,7 +303,7 @@ export function IntakeRail(props: RailProps): ReactElement {
             style={tab === id ? { ...tabRowStyle, background: '#eef3ff', borderColor: '#c7d7ff' } : tabRowStyle}
             onClick={() => { setTab(id) }}
           >
-            {LABELS[id]}
+            {SECTION_LABELS[id]}
           </button>
         ))}
       </div>
@@ -385,7 +385,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
             style={tab === id ? { ...tabRowStyle, background: '#eef3ff', borderColor: '#c7d7ff' } : tabRowStyle}
             onClick={() => { setTab(id) }}
           >
-            {LABELS[id]}
+            {SECTION_LABELS[id]}
           </button>
         ))}
       </div>
@@ -399,7 +399,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
       />
       <NewEntityRow
         label="+ 新建"
-        placeholder={`${LABELS[tab]}名称`}
+        placeholder={`${SECTION_LABELS[tab]}名称`}
         submit={name => create(name).catch((failure: unknown) => {
           setActionError(failure instanceof Error ? failure.message : String(failure))
         })}

@@ -39,6 +39,9 @@
       "path": "../ui-conversation"
     },
     {
+      "path": "../ui-input-trigger"
+    },
+    {
       "path": "../ui-workspace"
     },
     {

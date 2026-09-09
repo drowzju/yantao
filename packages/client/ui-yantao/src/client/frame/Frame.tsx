@@ -23,6 +23,7 @@ import {
   type TabMode, type TabState,
 } from '../tabs.ts'
 import { CenterPane } from './CenterPane.tsx'
+import './frame.module.css'
 import type { PanelToggles } from './layout.ts'
 import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
 
@@ -46,6 +47,8 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly setRoot: RootSetter
   /** Open the host's native directory picker. */
   readonly pickDirectory: DirectoryPicker
+  /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
+  readonly onKbRootChanged: () => void
 }
 
 const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
@@ -137,7 +140,7 @@ function DragHandle(props: {
  * @returns the frame element.
  */
 export function Frame({
-  renderSlot, panels, intake, workspace, read, write, createEntity, root, setRoot, pickDirectory,
+  renderSlot, panels, intake, workspace, read, write, createEntity, root, setRoot, pickDirectory, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -282,7 +285,8 @@ export function Frame({
     setNeedsRoot(false)
     setTreeKey(key => key + 1)
     setStatuses({})
-  }, [])
+    onKbRootChanged()
+  }, [onKbRootChanged])
 
   return (
     <div
