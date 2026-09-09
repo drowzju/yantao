@@ -91,6 +91,7 @@ Do not invent synonyms in code, commits, or docs — and never call the LLM rout
 | 0012 | The middle column is tabs: raw-markdown editing with autosave and a conflict check, inline entity creation, first-run KB directory |
 | 0013 | Brand (`PARAP` + our own hero mark), the middle column's working directory follows the KB root, and `@` mentions resolve to KB files |
 | 0014 | A file opens on its rendered reading view; YAML frontmatter folds away; editing stays in the raw source editor |
+| 0015 | `[[wiki links]]` between entities: resolved host-side by a new `links(path)` RPC, with a backlinks panel |
 
 ## 5. Quick start
 
@@ -122,7 +123,7 @@ Why the `_dsh` copies live under `docs/upstream/` rather than at the root: the b
 |---|---|
 | [development.md](development.md) | build, run, stop, tests, gates, pitfalls |
 | [TODO.md](TODO.md) | backlog: done / next / deferred (each deferred item keeps its reason) |
-| [../adr/](../adr/) | ADR 0001–0014 — index in section 4 |
+| [../adr/](../adr/) | ADR 0001–0015 — index in section 4 |
 | [../subsystems/yantao.md](../subsystems/yantao.md) | the KB + `yantaoKb` Remote subsystem page (upstream's subsystem format) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | context map: yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | the glossary (canonical terms) |

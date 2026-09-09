@@ -54,6 +54,32 @@ export interface KbWriteResult {
   readonly path: string
 }
 
+/** One `[[…]]` link a file writes out, and where it lands (ADR-0015). */
+export interface KbLinkTarget {
+  /** The target as written between the brackets. */
+  readonly target: string
+  /** The resolved KB-relative path; null when it names zero or several files. */
+  readonly path: string | null
+}
+
+/** One file that links into another (ADR-0015). */
+export interface KbLinkSource {
+  /** KB-relative path of the linking file. */
+  readonly from: string
+  /** The target that file wrote. */
+  readonly target: string
+}
+
+/** Result of `yantaoKb.links`: both halves of one file's link graph. */
+export interface KbLinksResult {
+  /** The file the graph was computed for. */
+  readonly path: string
+  /** What it links out to, in document order. */
+  readonly outgoing: readonly KbLinkTarget[]
+  /** What links into it. */
+  readonly incoming: readonly KbLinkSource[]
+}
+
 /** Result of `yantaoKb.root`. */
 export interface KbRootResult {
   /** The live knowledge-base root directory. */

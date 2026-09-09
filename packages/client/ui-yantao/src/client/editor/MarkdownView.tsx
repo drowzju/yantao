@@ -16,13 +16,22 @@
  * - **Headings.** A collapsible outline that scrolls to a heading, matched by
  *   the same document-order rule.
  *
- * Both mappings are ordinal, so both refuse when the counts disagree rather
- * than writing to the wrong line.
+ * - **`[[…]]` links (v3).** Resolved targets render as links and open the file
+ *   they name; unresolved ones keep their brackets, so a link that did not take
+ *   is visible as such. What links *into* this file is listed in a 反向链接
+ *   panel. Resolution itself is host-side (`yantaoKb.links`) — the client
+ *   neither scans the KB nor guesses what a name means.
+ *
+ * Both ordinal mappings (checkboxes, headings) refuse when the counts disagree
+ * rather than acting on the wrong line.
  */
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
-import { frontmatterSummary, headingOutline, splitFrontmatter, taskLines, toggleTask } from '../markdown.ts'
+import type { KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import {
+  frontmatterSummary, headingOutline, linkPath, renderWikiLinks, splitFrontmatter, taskLines, toggleTask,
+} from '../markdown.ts'
 
 /** Wrapping and typography, matching the editor's own column. */
 const wrapStyle = {
@@ -121,6 +130,10 @@ export interface MarkdownViewProps {
    * source view rather than risk writing to the wrong line.
    */
   readonly onUnresolved?: () => void
+  /** This file's `[[…]]` graph, computed host-side; absent until it arrives. */
+  readonly links?: KbLinksResult | undefined
+  /** Open another KB file (a link target, or a file that links here). */
+  readonly onOpen?: (path: string) => void
 }
 
 /**
@@ -128,13 +141,24 @@ export interface MarkdownViewProps {
  * @param props - see {@link MarkdownViewProps}.
  * @returns the reading view.
  */
-export function MarkdownView({ content, onEdit, onUnresolved }: MarkdownViewProps): ReactElement {
+export function MarkdownView({
+  content, onEdit, onUnresolved, links, onOpen,
+}: MarkdownViewProps): ReactElement {
   const [open, setOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
+  const [backlinksOpen, setBacklinksOpen] = useState(false)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const split = useMemo(() => splitFrontmatter(content), [content])
   const summary = useMemo(() => frontmatterSummary(split.fields), [split.fields])
   const outline = useMemo(() => headingOutline(split.body), [split.body])
+  // Only the host knows what a target means; the view just renders its answer.
+  const body = useMemo(() => {
+    if (links === undefined) return split.body
+    const resolved = new Map(links.outgoing
+      .filter(link => link.path !== null)
+      .map(link => [link.target, link.path as string]))
+    return renderWikiLinks(split.body, target => resolved.get(target) ?? null)
+  }, [split.body, links])
 
   // MarkdownText renders task checkboxes disabled, and browsers do not
   // dispatch clicks on disabled controls — so the reading view would never see
@@ -160,6 +184,15 @@ export function MarkdownView({ content, onEdit, onUnresolved }: MarkdownViewProp
 
   const onClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     const target = event.target
+    // A rendered `[[…]]`: take it back from the browser and open the file.
+    if (target instanceof HTMLAnchorElement) {
+      const path = linkPath(target.getAttribute('href') ?? '')
+      if (path !== null) {
+        event.preventDefault()
+        onOpen?.(path)
+      }
+      return
+    }
     if (!(target instanceof HTMLInputElement) || target.type !== 'checkbox') return
     const boxes = Array.from(bodyRef.current?.querySelectorAll('input[type=checkbox]') ?? [])
     const ordinal = boxes.indexOf(target)
@@ -184,7 +217,7 @@ export function MarkdownView({ content, onEdit, onUnresolved }: MarkdownViewProp
 
   return (
     <div style={wrapStyle}>
-      {(split.hasFrontmatter || outline.length > 1) && (
+      {(split.hasFrontmatter || outline.length > 1 || (links?.incoming.length ?? 0) > 0) && (
         <div style={barStyle}>
           {split.hasFrontmatter && (
             <button
@@ -204,11 +237,21 @@ export function MarkdownView({ content, onEdit, onUnresolved }: MarkdownViewProp
           {outline.length > 1 && (
             <button
               type="button"
-              style={{ ...toggleStyle, marginLeft: 'auto' }}
+              style={{ ...toggleStyle, marginLeft: split.hasFrontmatter ? undefined : 'auto' }}
               aria-expanded={outlineOpen}
               onClick={() => { setOutlineOpen(current => !current) }}
             >
               {outlineOpen ? '收起大纲' : '大纲'}
+            </button>
+          )}
+          {(links?.incoming.length ?? 0) > 0 && (
+            <button
+              type="button"
+              style={{ ...toggleStyle, marginLeft: 'auto' }}
+              aria-expanded={backlinksOpen}
+              onClick={() => { setBacklinksOpen(current => !current) }}
+            >
+              {backlinksOpen ? '收起反向链接' : `反向链接 ${links?.incoming.length ?? 0}`}
             </button>
           )}
         </div>
@@ -226,6 +269,21 @@ export function MarkdownView({ content, onEdit, onUnresolved }: MarkdownViewProp
         </table>
       )}
       <div style={bodyStyle} ref={bodyRef} onClick={onClick}>
+        {backlinksOpen && (links?.incoming.length ?? 0) > 0 && (
+          <div style={{ ...outlineStyle, left: 8, right: 'auto' }} data-backlinks="true">
+            {links?.incoming.map(entry => (
+              <button
+                key={`${entry.from}-${entry.target}`}
+                type="button"
+                style={outlineItemStyle}
+                title={entry.target}
+                onClick={() => { onOpen?.(entry.from) }}
+              >
+                {entry.from}
+              </button>
+            ))}
+          </div>
+        )}
         {outlineOpen && outline.length > 1 && (
           <div style={outlineStyle} data-outline="true">
             {outline.map((entry, index) => (
@@ -240,7 +298,7 @@ export function MarkdownView({ content, onEdit, onUnresolved }: MarkdownViewProp
             ))}
           </div>
         )}
-        <MarkdownText text={split.body} labels={LABELS} />
+        <MarkdownText text={body} labels={LABELS} />
       </div>
     </div>
   )

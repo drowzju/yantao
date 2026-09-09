@@ -3,13 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import type { KbTreeSection } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { TreeLoader } from '../src/client/Workbench.tsx'
 import { IntakeRail, WorkspaceRail, type RailProps } from '../src/client/Workbench.tsx'
 import { Frame } from '../src/client/frame/Frame.tsx'
 import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveColumns } from '../src/client/frame/columns.ts'
 import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
 import type {
-  DirectoryPicker, EntityCreator, FileReader, FileWriter, RootLoader, RootSetter,
+  DirectoryPicker, EntityCreator, FileReader, FileWriter, LinksLoader, RootLoader, RootSetter,
 } from '../src/client/remote.ts'
 import { TAB_STORAGE_KEY } from '../src/client/tabs.ts'
 
@@ -261,11 +262,13 @@ interface FrameFaces {
   readonly root: RootLoader
   readonly setRoot: RootSetter
   readonly pickDirectory: DirectoryPicker
+  readonly links: LinksLoader
 }
 
 /** Build the frame's spies; `read` answers every path with the same content. */
 function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
   return {
+    links: path => Promise.resolve({ path, outgoing: [], incoming: [] }),
     read: () => Promise.resolve(TODO_FILE),
     write: () => Promise.resolve(),
     createEntity: () => Promise.resolve('entities/areas/新实体.md'),
@@ -291,6 +294,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       root={kb.root}
       setRoot={kb.setRoot}
       pickDirectory={kb.pickDirectory}
+      links={kb.links}
       onKbRootChanged={onKbRootChanged}
     />
   )
@@ -357,6 +361,38 @@ describe('Frame', () => {
     expect(write.mock.calls[0]?.[0]).toBe('entities/areas/健康.md')
     expect(write.mock.calls[0]?.[1]).toContain('- [x] 写下第一个待办')
     expect(write.mock.calls[0]?.[1]).toContain('- [x] 已完成的')
+  })
+
+  it('opens a [[link]] target and lists what links back', async () => {
+    const target = 'entities/areas/健康.md'
+    const graph: KbLinksResult = {
+      path: target,
+      outgoing: [{ target: 'dsh 学习', path: 'entities/projects/dsh 学习.md' }],
+      incoming: [{ from: 'entities/people/张三.md', target: '健康' }],
+    }
+    const { container } = render(renderFrame({
+      links: () => Promise.resolve(graph),
+      read: path => Promise.resolve(path === target ? '## 状态\n\n关联 [[dsh 学习]]\n' : TODO_FILE),
+    }))
+    fireEvent.click(await screen.findByText('健康'))
+    // The rendered link is the resolved target's name; clicking it opens that file.
+    const link = await waitFor(() => {
+      const found = screen.getAllByText('dsh 学习')
+      const anchor = found.find(node => node.tagName === 'A')
+      expect(anchor).toBeTruthy()
+      return anchor as HTMLElement
+    })
+    fireEvent.click(link)
+    await waitFor(() => {
+      expect(container.querySelector('[data-tab="entities/projects/dsh 学习.md"]')).not.toBeNull()
+    })
+
+    fireEvent.click(screen.getByText('反向链接 1'))
+    const panel = container.querySelector('[data-backlinks="true"]') as HTMLElement
+    fireEvent.click(within(panel).getByText('entities/people/张三.md'))
+    await waitFor(() => {
+      expect(container.querySelector('[data-tab="entities/people/张三.md"]')).not.toBeNull()
+    })
   })
 
   it('offers no 阅读 / 源码 switch for a read-only original', async () => {
@@ -427,6 +463,7 @@ describe('Frame', () => {
         root={kb.root}
         setRoot={kb.setRoot}
         pickDirectory={kb.pickDirectory}
+        links={kb.links}
         onKbRootChanged={onKbRootChanged}
       />,
     )

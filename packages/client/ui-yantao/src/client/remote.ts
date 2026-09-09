@@ -13,7 +13,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
 import type {
-  KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult, KbFileContent, KbRootResult,
+  KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult, KbFileContent, KbLinksResult, KbRootResult,
   KbSetRootResult, KbTree, KbTreeSection, KbWriteResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 
@@ -22,6 +22,7 @@ export interface KbRemote {
   intakeTree(): Promise<RemoteResult<KbTree>>
   workspaceTree(): Promise<RemoteResult<KbTree>>
   read(path: string): Promise<RemoteResult<KbFileContent>>
+  links(path: string): Promise<RemoteResult<KbLinksResult>>
   write(path: string, content: string): Promise<RemoteResult<KbWriteResult>>
   root(): Promise<RemoteResult<KbRootResult>>
   setRoot(path: string): Promise<RemoteResult<KbSetRootResult>>
@@ -39,6 +40,9 @@ export type EntityCreator = (type: KbCreatableEntityType, name: string) => Promi
 
 /** Read the KB root's configuration state. */
 export type RootLoader = () => Promise<KbRootResult>
+
+/** Load one file's `[[…]]` link graph. */
+export type LinksLoader = (path: string) => Promise<KbLinksResult>
 
 /** Adopt a directory as the KB root. */
 export type RootSetter = (path: string) => Promise<KbSetRootResult>
@@ -123,6 +127,28 @@ export async function loadRoot(ctx: Context): Promise<KbRootResult> {
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.root())
+}
+
+/**
+ * Load one file's `[[…]]` link graph: what it links out to and what links
+ * into it. A failure leaves the links unwritten rather than breaking the
+ * reading view — a file with no link graph still reads fine.
+ * @param ctx - client root context.
+ * @param path - KB-relative path.
+ * @returns the graph, or an empty one when the Remote cannot answer.
+ */
+export async function loadLinks(ctx: Context, path: string): Promise<KbLinksResult> {
+  const empty: KbLinksResult = { path, outgoing: [], incoming: [] }
+  try {
+    const kb = kbRemoteOf(ctx)
+    if (kb === undefined) return empty
+    const result = await kb.links(path)
+    return result.ok ? result.value : empty
+  } catch {
+    // No link graph is a degraded reading view, not a broken one: a server
+    // without the method (or a file that vanished mid-flight) still reads.
+    return empty
+  }
 }
 
 /**

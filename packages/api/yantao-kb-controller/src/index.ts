@@ -16,12 +16,15 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import { createEntity, entityDisplayPath, initKb, KbError, listEntities, resolveWithinKb, todayStamp } from '@deepseek-ai/dsh-yantao-kb'
+import {
+  createEntity, entityDisplayPath, initKb, KbError, linksOf, listEntities, resolveWithinKb, todayStamp,
+} from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
 import type {
   KbCreateEntityArgs,
   KbCreateEntityResult,
   KbFileContent,
+  KbLinksResult,
   KbRootResult,
   KbSetRootResult,
   KbTree,
@@ -168,6 +171,22 @@ export class YantaoKbController extends TypertRemoteService {
       }
       throw new RemoteError('yantao-kb/rejected', `无法读取知识库文件 ${path}：${(error as Error).message}`, { path }, { cause: error })
     }
+  }
+
+  /**
+   * Both halves of one file's `[[…]]` link graph (ADR-0015): what it links out
+   * to, resolved to entity files, and which files link back into it.
+   *
+   * The scan lives here rather than in the Client because it reads every
+   * entity note — one round trip instead of one per file — and because
+   * resolution is a host-side rule (`类型:名字` locators, dated meetings).
+   * @param path - KB-relative path with forward slashes.
+   * @returns the file's outgoing and incoming links.
+   */
+  @Remote('links')
+  async links(path: string): Promise<KbLinksResult> {
+    this.confine(path, path)
+    return linksOf(this.kbRoot, path)
   }
 
   /**

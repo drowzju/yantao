@@ -148,6 +148,72 @@ export function headingOutline(text: string): readonly OutlineEntry[] {
 }
 
 /**
+ * Where a resolved `[[…]]` link points in the rendered document (ADR-0015).
+ *
+ * `MarkdownText` allows only http(s)/mailto destinations, so a link to a KB
+ * file cannot carry a `kb:` scheme or a relative path — it would be stripped
+ * and the link lost. The reading view therefore renders them at this reserved,
+ * never-resolving host (RFC 2606) and intercepts the click before the browser
+ * can act on it. Ugly, and the only way to get a clickable link out of a
+ * renderer we do not own.
+ */
+export const LINK_HOST = 'https://kb.invalid/'
+
+/** A `[[…]]` token, with an optional `|label`. */
+const WIKI_LINK = /\[\[([^[\]\n|]+)(?:\|([^[\]\n]+))?\]\]/g
+
+/** A fenced code block delimiter. */
+const LINK_FENCE = /^\s*(?:```|~~~)/
+
+/**
+ * The href a resolved link carries.
+ * @param path - the linked file's KB-relative path.
+ * @returns the URL the rendered anchor points at.
+ */
+export function linkHref(path: string): string {
+  return `${LINK_HOST}${encodeURIComponent(path)}`
+}
+
+/**
+ * The KB path one rendered href names, or null when it is not one of ours.
+ * @param href - an anchor's href.
+ * @returns the KB-relative path, or null for any other link.
+ */
+export function linkPath(href: string): string | null {
+  return href.startsWith(LINK_HOST) ? decodeURIComponent(href.slice(LINK_HOST.length)) : null
+}
+
+/**
+ * Rewrite `[[…]]` links into ordinary markdown links, leaving unresolved ones
+ * as they were written.
+ *
+ * An unresolved target keeps its brackets on purpose: the human sees which
+ * link did not take, which is better than a link that goes nowhere.
+ * @param text - markdown text (a body, envelope already split off).
+ * @param resolve - target → KB-relative path, or null when unresolved.
+ * @returns the text to render.
+ */
+export function renderWikiLinks(text: string, resolve: (target: string) => string | null): string {
+  const lines = text.split(/\r?\n/)
+  let fenced = false
+  return lines.map((line) => {
+    if (LINK_FENCE.test(line)) {
+      fenced = !fenced
+      return line
+    }
+    if (fenced) return line
+    return line.replace(WIKI_LINK, (whole, first: string, second: string | undefined) => {
+      const target = first.trim()
+      if (target === '') return whole
+      const path = resolve(target)
+      if (path === null) return whole
+      const label = second?.trim() === '' || second === undefined ? target : second.trim()
+      return `[${label}](${linkHref(path)})`
+    })
+  }).join('\n')
+}
+
+/**
  * The one-line summary the collapsed envelope bar shows.
  * @param fields - the envelope's fields.
  * @returns `type: project · created: 2026-09-08` shaped text; empty when there is nothing to say.

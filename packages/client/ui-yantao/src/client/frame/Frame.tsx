@@ -13,8 +13,9 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
-  DirectoryPicker, EntityCreator, FileReader, FileWriter, RootLoader, RootSetter,
+  DirectoryPicker, EntityCreator, FileReader, FileWriter, LinksLoader, RootLoader, RootSetter,
 } from '../remote.ts'
+import type { KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
@@ -48,6 +49,8 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly setRoot: RootSetter
   /** Open the host's native directory picker. */
   readonly pickDirectory: DirectoryPicker
+  /** Load one file's `[[…]]` link graph (ADR-0015). */
+  readonly links: LinksLoader
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
   readonly onKbRootChanged: () => void
 }
@@ -154,7 +157,7 @@ function DragHandle(props: {
  * @returns the frame element.
  */
 export function Frame({
-  renderSlot, panels, intake, workspace, read, write, createEntity, root, setRoot, pickDirectory, onKbRootChanged,
+  renderSlot, panels, intake, workspace, read, write, createEntity, root, setRoot, pickDirectory, links, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -287,6 +290,21 @@ export function Frame({
     setTabs(state => openTab(state, path, mode))
   }, [])
 
+  // The active file's link graph, host-computed: one call per activation, and
+  // again after a tree reload, which is when a new file could have appeared.
+  const [linkGraph, setLinkGraph] = useState<KbLinksResult | undefined>(undefined)
+  const activePath = tabs.files.find(tab => tab.path === tabs.active)?.path
+  useEffect(() => {
+    if (activePath === undefined) return
+    let stale = false
+    void links(activePath).then((graph) => {
+      if (!stale) setLinkGraph(graph)
+    })
+    return () => {
+      stale = true
+    }
+  }, [activePath, treeKey, links])
+
   // One selection for both rails: the file the centre pane shows, so a row
   // stays highlighted through tab switches and a restored tab finds its row.
   const selection = activeFile(tabs)?.path ?? null
@@ -349,6 +367,8 @@ export function Frame({
               <div style={paneStyleFor(viewMode === 'read')}>
                 <MarkdownView
                   content={drafts[tab.path] ?? ''}
+                  links={tab.path === linkGraph?.path ? linkGraph : undefined}
+                  onOpen={(path) => { openFile(path, 'edit') }}
                   onEdit={(next) => {
                     void editors.current.get(tab.path)?.patch(next).then((outcome) => {
                       // A conflict lives in the editor's own bar, which the
