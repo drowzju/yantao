@@ -66,6 +66,87 @@ export function splitFrontmatter(text: string): SplitMarkdown {
   return { fields, body, hasFrontmatter: true }
 }
 
+/** A task-list item: bullet, checkbox, and the space after it. */
+const TASK_LINE = /^(\s*[-*+]\s+)\[([ xX])\](\s?)/
+
+/** A markdown ATX heading. */
+const HEADING_LINE = /^(#{1,6})\s+(.+?)\s*$/
+
+/** A fenced code block delimiter — headings inside one are not headings. */
+const FENCE = /^\s*(?:```|~~~)/
+
+/**
+ * The line numbers carrying a task checkbox, in document order.
+ *
+ * The reading view matches these against the rendered checkboxes one by one,
+ * which is the whole reason the order has to be the document's: micromark
+ * renders list items in the order it meets them.
+ * @param text - the file's content.
+ * @returns the line indices of every `- [ ]` / `- [x]` item.
+ */
+export function taskLines(text: string): readonly number[] {
+  const found: number[] = []
+  let fenced = false
+  for (const [index, line] of text.split(/\r?\n/).entries()) {
+    if (FENCE.test(line)) {
+      fenced = !fenced
+      continue
+    }
+    // A `- [ ]` inside a code block is sample text, not a checkbox: counting it
+    // would desynchronise the ordinal the rendered boxes are matched against.
+    if (fenced) continue
+    if (TASK_LINE.test(line)) found.push(index)
+  }
+  return found
+}
+
+/**
+ * Flip the Nth task checkbox of a file.
+ * @param text - the file's content.
+ * @param ordinal - which task item, counting from zero in document order.
+ * @returns the new content, or null when there is no such task item.
+ */
+export function toggleTask(text: string, ordinal: number): string | null {
+  const lines = text.split(/\r?\n/)
+  const targets = taskLines(text)
+  const line = targets[ordinal]
+  if (line === undefined) return null
+  const match = TASK_LINE.exec(lines[line] ?? '')
+  if (match === null) return null
+  const checked = match[2]?.toLowerCase() === 'x'
+  lines[line] = `${match[1]}[${checked ? ' ' : 'x'}]${match[3]}${lines[line]?.slice(match[0].length) ?? ''}`
+  return lines.join('\n')
+}
+
+/** One heading of the outline panel. */
+export interface OutlineEntry {
+  /** The ATX level: 1 for `#`, 6 for `######`. */
+  readonly level: number
+  /** The heading's text, delimiters stripped. */
+  readonly text: string
+}
+
+/**
+ * The headings of a document, in order, skipping fenced code.
+ * @param text - markdown text (a body, envelope already split off).
+ * @returns the outline entries.
+ */
+export function headingOutline(text: string): readonly OutlineEntry[] {
+  const found: OutlineEntry[] = []
+  let fenced = false
+  for (const line of text.split(/\r?\n/)) {
+    if (FENCE.test(line)) {
+      fenced = !fenced
+      continue
+    }
+    if (fenced) continue
+    const match = HEADING_LINE.exec(line)
+    if (match === null) continue
+    found.push({ level: match[1]?.length ?? 1, text: match[2] ?? '' })
+  }
+  return found
+}
+
 /**
  * The one-line summary the collapsed envelope bar shows.
  * @param fields - the envelope's fields.

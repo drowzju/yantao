@@ -15,7 +15,7 @@ import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
   DirectoryPicker, EntityCreator, FileReader, FileWriter, RootLoader, RootSetter,
 } from '../remote.ts'
-import { FileEditor, type SaveStatus } from '../editor/FileEditor.tsx'
+import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
 import { Onboarding } from '../Onboarding.tsx'
@@ -223,6 +223,9 @@ export function Frame({
   // same text without a second read and without owning a draft of its own.
   const [viewMode, setViewMode] = useState<ViewMode>('read')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  // The mounted editors' one-command face, keyed by path: a checkbox click in
+  // the reading view saves through the editor that owns that file's baseline.
+  const editors = useRef(new Map<string, FileEditorApi>())
   // Persistence is armed only after the restore pass: writing the initial
   // empty state first would erase last session's tabs.
   const [restored, setRestored] = useState(false)
@@ -344,7 +347,17 @@ export function Frame({
           : (
             <div style={bothPanesStyle}>
               <div style={paneStyleFor(viewMode === 'read')}>
-                <MarkdownView content={drafts[tab.path] ?? ''} />
+                <MarkdownView
+                  content={drafts[tab.path] ?? ''}
+                  onEdit={(next) => {
+                    void editors.current.get(tab.path)?.patch(next).then((outcome) => {
+                      // A conflict lives in the editor's own bar, which the
+                      // reading view is hiding: show it rather than losing it.
+                      if (outcome === 'conflict') setViewMode('source')
+                    })
+                  }}
+                  onUnresolved={() => { setViewMode('source') }}
+                />
               </div>
               <div style={paneStyleFor(viewMode === 'source')}>
                 <FileEditor
@@ -356,6 +369,10 @@ export function Frame({
                   }}
                   onDraft={(content) => {
                     setDrafts(current => ({ ...current, [tab.path]: content }))
+                  }}
+                  onApi={(api) => {
+                    if (api === null) editors.current.delete(tab.path)
+                    else editors.current.set(tab.path, api)
                   }}
                 />
               </div>

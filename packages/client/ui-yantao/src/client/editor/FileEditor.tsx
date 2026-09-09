@@ -26,6 +26,19 @@ export const STATUS_LABELS: Record<SaveStatus, string> = {
   conflict: '冲突',
 }
 
+/** What one save attempt came to. */
+export type SaveOutcome = 'saved' | 'conflict' | 'failed'
+
+/**
+ * The one edit the reading view performs (ADR-0014 v2): hand a whole new
+ * content to the editor that already owns this file's draft and conflict
+ * check, rather than writing from a second place.
+ */
+export interface FileEditorApi {
+  /** Replace the draft and save it through the same pre-save comparison. */
+  patch(content: string): Promise<SaveOutcome>
+}
+
 /** Editor props: the file, the file channel, and the status report upward. */
 export interface FileEditorProps {
   /** KB-relative path of the edited file. */
@@ -42,6 +55,12 @@ export interface FileEditorProps {
    * through this callback instead of loading the file a second time.
    */
   readonly onDraft?: (content: string) => void
+  /**
+   * Publish (and, on unmount, retract) the one-command face the reading view
+   * uses to flip a task checkbox. Keeping the write here means a checkbox
+   * click and a keystroke save through the same baseline.
+   */
+  readonly onApi?: (api: FileEditorApi | null) => void
   /** Autosave delay in ms ({@link AUTOSAVE_MS}); overridable in tests. */
   readonly debounceMs?: number
 }
@@ -101,6 +120,7 @@ export function FileEditor({
   write,
   onStatus,
   onDraft,
+  onApi,
   debounceMs = AUTOSAVE_MS,
 }: FileEditorProps): ReactElement {
   const [draft, setDraft] = useState<string | null>(null)
@@ -123,6 +143,8 @@ export function FileEditor({
   statusSink.current = onStatus
   const draftSink = useRef(onDraft)
   draftSink.current = onDraft
+  const apiSink = useRef(onApi)
+  apiSink.current = onApi
 
   useEffect(() => {
     statusSink.current?.(status)
@@ -142,9 +164,9 @@ export function FileEditor({
     }
   }, [])
 
-  const save = useCallback(async (force: boolean): Promise<void> => {
+  const save = useCallback(async (force: boolean): Promise<SaveOutcome> => {
     const { path: current, draft: text, baseline: known, read: load, write: store } = latest.current
-    if (text === null || text === known) return
+    if (text === null || text === known) return 'saved'
     setStatus('saving')
     try {
       // The conflict check: one fresh read, compared against the baseline.
@@ -154,7 +176,7 @@ export function FileEditor({
         if (fresh !== known) {
           setServerCopy(fresh)
           setStatus('conflict')
-          return
+          return 'conflict'
         }
       }
       await store(current, text)
@@ -164,9 +186,11 @@ export function FileEditor({
       setError(null)
       setShowDiff(false)
       setStatus('saved')
+      return 'saved'
     } catch (failure: unknown) {
       setError(remoteMessage(failure))
       setStatus('failed')
+      return 'failed'
     }
   }, [])
 
@@ -207,6 +231,22 @@ export function FileEditor({
       void save(false)
     }, debounceMs)
   }, [cancel, save, debounceMs])
+
+  // The reading view's write path: adopt the content as this editor's draft and
+  // run the same save the keystroke path runs — one baseline, one conflict bar.
+  useEffect(() => {
+    apiSink.current?.({
+      patch: async (next: string): Promise<SaveOutcome> => {
+        if (latest.current.draft === null) return 'failed'
+        latest.current.draft = next
+        setDraft(next)
+        return save(false)
+      },
+    })
+    return () => {
+      apiSink.current?.(null)
+    }
+  }, [save])
 
   /** Write now — bound to blur, and to 覆盖. */
   const flush = useCallback((): void => {

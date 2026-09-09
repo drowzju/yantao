@@ -34,6 +34,7 @@
 | **外框归我们(ADR-0011)**:`ui-yantao` 把自绘三栏外框注册进运行时内置的 `root` 槽位,声明 `conversation` + `shell.overlay`,并提供 `ctx.layout` 与主题 presenter;`ui-layout` 移出 yantao-web roster,两条侧栏都是真正的网格列——拖拽与折叠重新对称 | `packages/client/ui-yantao/src/client/{index,Workbench.tsx,frame/*}`、`packages/bundle/yantao-web-app/cordis.patch.yml`、`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`、`docs/adr/0011-yantao-owns-the-workbench-frame.md` |
 | **文档同步到当下世界**:`CONTEXT.md` 词条(meeting / todo / connector、`状态` agent 可编辑、移除 `会话`)与架构页的架构图 + ADR 索引(七个 `kb_*` 工具、ADR-0010/0011/0012) | `packages/yantao/CONTEXT.md`、`docs/yantao/README.md` + `.zh.md`(`.i18n.yaml` 重录);提交 `d2f088387b` |
 | **我们自己的 id 在 `tsconfig.base.json` 的映射** —— `dsh-client-ui-yantao`(及 `/client`)与 `dsh-yantao-web-app/startup`;`verify-cordis-config` 不再报 yantao 问题(仍在报的 `apps/cli/tests/profiles/acp/cordis.yml` 是上游 CLI 夹具) | `tsconfig.base.json` |
+| **阅读视图 v2 —— 任务框可勾选 + 标题大纲** —— `MarkdownText` 把 checkbox 渲染成 disabled(且浏览器不给禁用控件派发点击),所以视图渲染后重新启用它们并自己接住点击:第 N 个渲染出来的框对应源码第 N 个 `- [ ]` 行,翻转交给编辑器的单命令 `patch()`,和打字走同一次保存前比对;冲突时自动切到源码视图,免得冲突条被阅读视图藏起来。「大纲」列出正文标题(跳过围栏代码块)并可跳转。两处按序号的映射在数量对不上时一律拒绝 | `packages/client/ui-yantao/src/client/{markdown.ts,editor/MarkdownView.tsx,editor/FileEditor.tsx,frame/Frame.tsx}`(新增 18 个测试) |
 | **文件默认打开为阅读视图(ADR-0014,v1)** —— `.md` 默认用 `MarkdownText` 渲染,tab 条上给「阅读 / 源码」开关;`splitFrontmatter()` 把 YAML 信封折成一行摘要、点开是字段表格;源码编辑器保持挂载(隐藏)并上报草稿,两个视图共用一次加载;非 md 原件仍是原文;待办内联清单不动 | `packages/client/ui-yantao/src/client/{markdown.ts,editor/MarkdownView.tsx,editor/FileEditor.tsx,frame/CenterPane.tsx,frame/Frame.tsx}`、`docs/adr/0014-*`(新增 20 个测试) |
 | **品牌、工作目录与 `@` 引用(ADR-0013)** —— 中栏工作目录跟随知识库根目录(`workspaces.create` + `uiWorkspace.startSession`,首启/更改目录后重跑);hero 文案改为 `PARAP`、经 `conversation.hero.brand.mark` 槽位换成我们自己的标、并去掉 Preview 徽章;`@` 按 section 列出知识库实体,`agent/pre-step` 展开器把插入的 `@路径` 解析成被引用文件的内容 | `packages/client/ui-yantao/src/client/{index,kb-workspace,kb-reference}.ts`、`src/client/brand/YantaoMark.tsx`、`src/client/frame/frame.module.css`、`packages/yantao/kb/src/{index,mentions}.ts`、`docs/adr/0013-*`(新增 12 个测试) |
 | **两条侧栏共用一个选中项** —— 中栏当前文件即选中项:归属本栏时该栏把对应 tab 推到前台(高亮行因此可见),不归属本栏时不动用户自己选的 tab;切换 tab 时高亮跟随,恢复的 tab 也能找回自己的行 | `packages/client/ui-yantao/src/client/{Workbench.tsx,frame/Frame.tsx}`(新增 4 个测试:揭示、忽略、跟随当前 tab,见 `tests/workbench.client.spec.tsx`) |
@@ -48,13 +49,10 @@
 2. **逐行让共享 shell 退场** —— 每次只禁用一个 `ui-*` 行,重启,确认页面正常,再继续。`slots` 是运行时基础设施,不是 UI,
     必须留到无人需要为止。`ui-layout` 已退场(ADR-0011);剩下的大头是 `ui-conversation` 与 `ui-chat`。只有 shell 退场后,中间一列才归我们并承载 agent 交互。
 3. **给工作台自己的词典** —— `Workbench.tsx` 里的文案是硬编码中文;等面板文案多起来就注册一个 locale 命名空间。
-4. **阅读视图 v2 —— 任务框可勾选 + 标题大纲** —— `MarkdownText` 把 checkbox 渲染成 disabled,所以点击要靠事件委托:把"第 N 个
-   checkbox"映射回"第 N 个 `- [ ]` 行",翻掉它,再走 `FileEditor` 已有的保存前比对(冲突就出冲突条,绝不静默写)。映射要用单测钉住,
-   解析不出来就退回源码视图。
-5. **阅读视图 v3 —— `[[双链]]` 与反向链接** —— 语法是 `[[名字]]`,可选 `[[类型:名字]]`,按已有的 `type:name` 规则解析(单复数、
+4. **阅读视图 v3 —— `[[双链]]` 与反向链接** —— 语法是 `[[名字]]`,可选 `[[类型:名字]]`,按已有的 `type:name` 规则解析(单复数、
    大小写不敏感),只有唯一命中才跳转;**不允许链到 `resources/`**。渲染前把 `[[…]]` 改写成普通 markdown 链接再交给
    `MarkdownText`(它没有扩展钩子);目标走新增的 `links(path)` RPC 返回 `{ outgoing, incoming }`,由宿主算——树加载本来就会读全文。
-6. **阅读视图 v4 —— Mermaid 与本地图片** —— 两者都要付代价:客户端包是单文件 CJS,mermaid 会被内联成 ~3.5MB(或要改宿主模块表);
+5. **阅读视图 v4 —— Mermaid 与本地图片** —— 两者都要付代价:客户端包是单文件 CJS,mermaid 会被内联成 ~3.5MB(或要改宿主模块表);
    本地图片需要新 RPC + 宿主路由,因为 `read()` 是 utf8,二进制会被解坏。等知识库里真出现一个再开工。
 
 ## deferred(附原因)

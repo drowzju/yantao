@@ -4,13 +4,25 @@
  * The workbench opens a file here rather than in the raw textarea: the human
  * reads rendered markdown, and the YAML envelope — machine-written metadata,
  * not prose — folds into a one-line summary that opens into a small table.
- * Editing still happens in {@link FileEditor}, so nothing here owns a draft or
- * a write: this is a view over content someone else loaded.
+ *
+ * v2 makes two things in the reading view active:
+ *
+ * - **Task checkboxes.** `MarkdownText` renders them `disabled`, and a click on
+ *   a disabled control is not dispatched at all, so the view re-enables them
+ *   after each render and handles the click itself: the Nth rendered checkbox
+ *   is the Nth `- [ ]` line of the source, and flipping it hands the whole new
+ *   content to {@link MarkdownViewProps.onEdit}. The write is not this
+ *   component's to make — the editor owns the draft and the conflict check.
+ * - **Headings.** A collapsible outline that scrolls to a heading, matched by
+ *   the same document-order rule.
+ *
+ * Both mappings are ordinal, so both refuse when the counts disagree rather
+ * than writing to the wrong line.
  */
-import { useMemo, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
-import { frontmatterSummary, splitFrontmatter } from '../markdown.ts'
+import { frontmatterSummary, headingOutline, splitFrontmatter, taskLines, toggleTask } from '../markdown.ts'
 
 /** Wrapping and typography, matching the editor's own column. */
 const wrapStyle = {
@@ -57,7 +69,37 @@ const cellStyle = {
   whiteSpace: 'pre-wrap',
 } as const
 
-const bodyStyle = { flex: 1, minHeight: 0, padding: '8px 12px' } as const
+/** The outline panel: pinned to the reading column's top-right corner. */
+const outlineStyle = {
+  position: 'absolute',
+  top: 4,
+  right: 8,
+  maxHeight: '60%',
+  overflowY: 'auto',
+  background: '#fff',
+  border: '1px solid #e6e2d8',
+  borderRadius: 4,
+  padding: '4px 6px',
+  boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+  maxWidth: 220,
+} as const
+
+const outlineItemStyle = {
+  display: 'block',
+  width: '100%',
+  textAlign: 'left',
+  borderWidth: 0,
+  background: 'transparent',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  fontSize: 12,
+  padding: '1px 0',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+} as const
+
+const bodyStyle = { position: 'relative', flex: 1, minHeight: 0, padding: '8px 12px' } as const
 
 /** The fence and footnote chrome `MarkdownText` needs; stable across renders. */
 const LABELS: MarkdownLabels = {
@@ -65,10 +107,20 @@ const LABELS: MarkdownLabels = {
   footnotes: '脚注',
 }
 
-/** Props: the file's content, already loaded. */
+/** Props: the file's content, and the one edit this view performs itself. */
 export interface MarkdownViewProps {
   /** The file's full content, envelope included. */
   readonly content: string
+  /**
+   * Flip one task checkbox: receives the whole new content. The caller owns the
+   * write (and the conflict check that goes with it).
+   */
+  readonly onEdit?: (content: string) => void
+  /**
+   * The checkbox-to-source mapping did not hold — callers fall back to the
+   * source view rather than risk writing to the wrong line.
+   */
+  readonly onUnresolved?: () => void
 }
 
 /**
@@ -76,26 +128,89 @@ export interface MarkdownViewProps {
  * @param props - see {@link MarkdownViewProps}.
  * @returns the reading view.
  */
-export function MarkdownView({ content }: MarkdownViewProps): ReactElement {
+export function MarkdownView({ content, onEdit, onUnresolved }: MarkdownViewProps): ReactElement {
   const [open, setOpen] = useState(false)
+  const [outlineOpen, setOutlineOpen] = useState(false)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
   const split = useMemo(() => splitFrontmatter(content), [content])
   const summary = useMemo(() => frontmatterSummary(split.fields), [split.fields])
+  const outline = useMemo(() => headingOutline(split.body), [split.body])
+
+  // MarkdownText renders task checkboxes disabled, and browsers do not
+  // dispatch clicks on disabled controls — so the reading view would never see
+  // one. Re-enable them after every render; React leaves the attribute alone
+  // until the element itself is replaced.
+  useEffect(() => {
+    const root = bodyRef.current
+    if (root === null) return
+    for (const box of root.querySelectorAll<HTMLInputElement>('input[type=checkbox]')) {
+      box.disabled = false
+      box.style.cursor = 'pointer'
+    }
+  }, [content])
+
+  const flip = (ordinal: number): void => {
+    const next = toggleTask(content, ordinal)
+    if (next === null || next === content) {
+      onUnresolved?.()
+      return
+    }
+    onEdit?.(next)
+  }
+
+  const onClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    const target = event.target
+    if (!(target instanceof HTMLInputElement) || target.type !== 'checkbox') return
+    const boxes = Array.from(bodyRef.current?.querySelectorAll('input[type=checkbox]') ?? [])
+    const ordinal = boxes.indexOf(target)
+    // The ordinal is only trustworthy when the rendered boxes and the source's
+    // task lines agree one for one.
+    if (ordinal < 0 || ordinal >= taskLines(content).length || boxes.length !== taskLines(content).length) {
+      onUnresolved?.()
+      return
+    }
+    flip(ordinal)
+  }
+
+  const gotoHeading = (ordinal: number): void => {
+    const headings = bodyRef.current?.querySelectorAll('h1,h2,h3,h4,h5,h6')
+    const target = headings?.[ordinal]
+    if (target === undefined || headings === undefined || headings.length !== outline.length) {
+      onUnresolved?.()
+      return
+    }
+    target.scrollIntoView({ block: 'start' })
+  }
 
   return (
     <div style={wrapStyle}>
-      {split.hasFrontmatter && (
+      {(split.hasFrontmatter || outline.length > 1) && (
         <div style={barStyle}>
-          <button
-            type="button"
-            style={toggleStyle}
-            aria-expanded={open}
-            onClick={() => { setOpen(current => !current) }}
-          >
-            {open ? '收起属性' : '属性'}
-          </button>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {summary === '' ? '（无内容）' : summary}
-          </span>
+          {split.hasFrontmatter && (
+            <button
+              type="button"
+              style={toggleStyle}
+              aria-expanded={open}
+              onClick={() => { setOpen(current => !current) }}
+            >
+              {open ? '收起属性' : '属性'}
+            </button>
+          )}
+          {split.hasFrontmatter && (
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {summary === '' ? '（无内容）' : summary}
+            </span>
+          )}
+          {outline.length > 1 && (
+            <button
+              type="button"
+              style={{ ...toggleStyle, marginLeft: 'auto' }}
+              aria-expanded={outlineOpen}
+              onClick={() => { setOutlineOpen(current => !current) }}
+            >
+              {outlineOpen ? '收起大纲' : '大纲'}
+            </button>
+          )}
         </div>
       )}
       {split.hasFrontmatter && open && (
@@ -110,7 +225,21 @@ export function MarkdownView({ content }: MarkdownViewProps): ReactElement {
           </tbody>
         </table>
       )}
-      <div style={bodyStyle}>
+      <div style={bodyStyle} ref={bodyRef} onClick={onClick}>
+        {outlineOpen && outline.length > 1 && (
+          <div style={outlineStyle} data-outline="true">
+            {outline.map((entry, index) => (
+              <button
+                key={`${entry.text}-${index}`}
+                type="button"
+                style={{ ...outlineItemStyle, paddingLeft: (entry.level - 1) * 10 }}
+                onClick={() => { gotoHeading(index) }}
+              >
+                {entry.text}
+              </button>
+            ))}
+          </div>
+        )}
         <MarkdownText text={split.body} labels={LABELS} />
       </div>
     </div>

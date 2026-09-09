@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import type { KbTreeSection } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { TreeLoader } from '../src/client/Workbench.tsx'
@@ -337,7 +337,26 @@ describe('Frame', () => {
     // hidden textarea carries the same text, hence the plural query.)
     expect(within(tab).getAllByText('我改了一半').length).toBeGreaterThan(0)
     fireEvent.click(screen.getByText('源码'))
-    expect(within(tab).getByRole('textbox').value).toBe('我改了一半')
+    expect((tab.querySelector('textarea') as HTMLTextAreaElement).value).toBe('我改了一半')
+  })
+
+  it('flips a checkbox in the reading view and saves the file', async () => {
+    const write = vi.fn((_path: string, _content: string) => Promise.resolve())
+    const { container } = render(renderFrame({ write }))
+    fireEvent.click(await screen.findByText('健康'))
+    const tab = () => container.querySelector('[data-tab="entities/areas/健康.md"]') as HTMLElement
+    await waitFor(() => {
+      expect(tab().querySelectorAll('input[type=checkbox]')).toHaveLength(2)
+    })
+    fireEvent.click(tab().querySelectorAll('input[type=checkbox]')[0] as HTMLInputElement)
+    // The write goes through the editor that owns this file's baseline, so the
+    // file keeps everything else the same.
+    await waitFor(() => {
+      expect(write).toHaveBeenCalledTimes(1)
+    })
+    expect(write.mock.calls[0]?.[0]).toBe('entities/areas/健康.md')
+    expect(write.mock.calls[0]?.[1]).toContain('- [x] 写下第一个待办')
+    expect(write.mock.calls[0]?.[1]).toContain('- [x] 已完成的')
   })
 
   it('offers no 阅读 / 源码 switch for a read-only original', async () => {
