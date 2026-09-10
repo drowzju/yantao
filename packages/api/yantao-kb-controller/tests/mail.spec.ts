@@ -159,4 +159,10 @@ describe('mail.mailArgs', () => {
     expect(args[args.indexOf('--limit') + 1]).toBe('3')
     expect(args[args.indexOf('--folder') + 1]).toBe('已发送邮件')
   })
+
+  it('adds --until only when the caller names an upper bound', () => {
+    expect(mailArgs({ since: '2026-08-11T00:00:00' })).not.toContain('--until')
+    const args = mailArgs({ since: '2026-07-12T00:00:00', until: '2026-08-11T00:00:00' })
+    expect(args[args.indexOf('--until') + 1]).toBe('2026-08-11T00:00:00')
+  })
 })

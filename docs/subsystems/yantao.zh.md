@@ -167,7 +167,8 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 
 /**
  * Create one entity note from the canonical template.
- * @param args - the entity kind, its display name, and the meeting's own date.
+ * @param args - the entity kind, its display name, the meeting's own date,
+ *   and the person's relation to the KB's owner.
  * @returns the KB-relative path of the created file.
  */
 @Remote('createEntity') async createEntity(args: KbCreateEntityArgs): Promise<KbCreateEntityResult>
@@ -248,18 +249,21 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('openExternal') openExternal(target: string): Promise<KbOpenExternalResult>
 
 /**
- * Read the newest mails received after the connector's watermark (ADR-0019).
+ * Read the newest mails in the window `[since, until)` (ADR-0019).
  *
- * The bound defaults to that watermark, and to 30 days ago when there is
- * none — a first run must not walk a whole inbox over COM. The read only
+ * The lower bound defaults to that watermark, and to 30 days ago when there
+ * is none — a first run must not walk a whole inbox over COM. `until` is the
+ * upper bound the panel uses to page 往前: without it a read always lands on
+ * the newest mails, so going back in time would be impossible. The read only
  * ever says whether it filled its page (`hasMore`), never how many mails are
  * left: an exact total would mean touching every item in the folder.
  *
  * Every failure leaves as a `yantao-kb/mail` error carrying the script's own
  * message *and* its remedy, because the useful answer to "Outlook is not
  * answering" is what to install, not that the fetch failed.
- * @param args - an explicit `since` (to re-read an older stretch) and a cap.
- * @returns the bound used, the watermark before the read, whether a gap may
+ * @param args - an explicit `since` and `until` (to re-read an older
+ *   stretch), and a cap.
+ * @returns the bounds used, the watermark before the read, whether a gap may
  *   have opened, the mails, and whether more are waiting.
  */
 @Remote('mailFetch') async mailFetch(args: KbMailFetchArgs): Promise<KbMailFetchResult>

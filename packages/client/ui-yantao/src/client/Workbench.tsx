@@ -6,7 +6,9 @@
  * as a prop and every action as a callback.
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import type { KbTreeFile, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type {
+  KbPersonRelation, KbTreeFile, KbTreeSection, KbTreeSectionId,
+} from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type {
   EntityCreator, FileDeleter, FileReader, FileWriter, MailFetcher, MailMarker, TodoLoader, TodoWriter,
 } from './remote.ts'
@@ -63,6 +65,34 @@ export const SECTION_LABELS: Record<string, string> = {
   people: '人物',
   projects: '项目',
 }
+
+/** The person relations the KB knows, as the rail reads them. */
+export const RELATION_LABELS: Record<KbPersonRelation, string> = {
+  self: '自己',
+  subordinate: '下属',
+  superior: '上级',
+  peer: '同事',
+  external: '外部',
+}
+
+/** The relation a new person gets until the human says otherwise. */
+const DEFAULT_RELATION: KbPersonRelation = 'peer'
+
+/**
+ * One relation as the rail reads it. The wire value is whatever the file
+ * carries — a human edits these in Obsidian — so a word the KB does not know
+ * is shown as written rather than dropped.
+ * @param relation - the frontmatter's `relation`.
+ * @returns the Chinese label, or the value itself when there is no label.
+ */
+function relationLabel(relation: string): string {
+  return Object.hasOwn(RELATION_LABELS, relation) ? RELATION_LABELS[relation as KbPersonRelation] : relation
+}
+
+/** The picker's options: the domain's five, in the rail's own words. */
+const RELATION_OPTIONS: readonly { readonly value: KbPersonRelation; readonly label: string }[] = (
+  Object.entries(RELATION_LABELS) as [KbPersonRelation, string][]
+).map(([value, label]) => ({ value, label }))
 
 const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
 
@@ -185,7 +215,12 @@ function Section({
         >
           {file.name}
           {file.archived === true && <span style={{ color: '#9a9488' }}> · 已归档</span>}
-          {file.relation !== undefined && <span style={{ color: '#9a9488' }}> · {file.relation}</span>}
+          {file.relation !== undefined && (
+            <span style={{ color: '#9a9488' }}>
+              {' · '}
+              {relationLabel(file.relation)}
+            </span>
+          )}
         </button>
       ))}
     </div>
@@ -515,6 +550,8 @@ export function WorkspaceRail(props: RailProps): ReactElement {
   const { sections, error, refresh } = useRail(load, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId>('areas')
   const [actionError, setActionError] = useState<string | null>(null)
+  /** The relation a new person gets; 同事 unless the human picks another. */
+  const [relation, setRelation] = useState<KbPersonRelation>(DEFAULT_RELATION)
   const rowMenu = useRowMenu({ deleteFile, refresh, onCloseFile, onError: setActionError })
   // Same reveal as the intake rail: a selection this rail owns pulls its tab
   // forward, one it does not own is left to the other rail.
@@ -533,7 +570,8 @@ export function WorkspaceRail(props: RailProps): ReactElement {
   /** Create an entity of this tab's kind, reload the tree, and open it. */
   const create = async (name: string): Promise<void> => {
     if (kind === undefined) return
-    const path = await createEntity(kind, name)
+    // Only a person carries a relation, and only a person is asked for one.
+    const path = await createEntity(kind, name, kind === 'person' ? relation : undefined)
     await refresh()
     onOpenFile(path, 'edit')
   }
@@ -565,6 +603,11 @@ export function WorkspaceRail(props: RailProps): ReactElement {
       <NewEntityRow
         label="+ 新建"
         placeholder={`${SECTION_LABELS[tab]}名称`}
+        choice={kind === 'person' ? {
+          options: RELATION_OPTIONS,
+          value: relation,
+          onChange: (value) => { setRelation(value as KbPersonRelation) },
+        } : undefined}
         submit={name => create(name).catch((failure: unknown) => {
           setActionError(failure instanceof Error ? failure.message : String(failure))
         })}

@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { KbMailMessage, KbTodoItem } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { KnownEntities, MailAnalysis } from '../src/client/mail-analysis.ts'
+import type { AnalysisProgress, AnalysisRun, KnownEntities, MailAnalysis } from '../src/client/mail-analysis.ts'
 import type { MailEntities } from '../src/client/mail-apply.ts'
 import { MailPanel, type MailPanelProps } from '../src/client/MailPanel.tsx'
 
@@ -57,14 +57,17 @@ function props(overrides: Partial<MailPanelProps> = {}): MailPanelProps {
   }
 }
 
+/** The verdict one analysis run answers with. */
+const RUN: AnalysisRun = { sessionId: 'session-1', title: '邮件分析 2026-09-10', analysis: VERDICT }
+
 /** Read a batch and open the review window; returns the props it ran with. */
 async function openReview(overrides: Partial<MailPanelProps> = {}): Promise<MailPanelProps> {
   const panel = props(overrides)
   render(<MailPanel {...panel} />)
   await act(async () => {
-    fireEvent.click(screen.getByText('读取邮件'))
+    fireEvent.click(screen.getByText('往后 →'))
   })
-  await screen.findByText(/1 封新邮件/)
+  await screen.findByText(/1 封 · /)
   await act(async () => {
     fireEvent.click(screen.getByText('分析这 1 封'))
   })
@@ -78,13 +81,57 @@ describe('MailPanel', () => {
     expect(screen.getByText(/Outlook（COM 子进程）/)).toBeTruthy()
   })
 
+  it('reads the newest batch with 往后, and an older window with 往前', async () => {
+    const fetch = vi.fn(async (_bounds?: { since?: string; until?: string }) => ({
+      since: '2026-09-01T00:00:00.000Z', stale: false, hasMore: false, messages: MAILS,
+    }))
+    render(<MailPanel {...props({ fetch })} />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('往后 →'))
+    })
+    await screen.findByText(/1 封 · /)
+    // Nothing was loaded yet, so the host fills the lower bound itself.
+    expect(fetch.mock.calls[0]?.[0]).toEqual({})
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('← 往前'))
+    })
+    const bounds = fetch.mock.calls[1]?.[0] as { since: string; until: string }
+    expect(bounds.until).toBe('2026-09-09T10:00:00+00:00')
+    // One 30-day step back from the oldest mail on screen.
+    expect(bounds.since).toBe(new Date(Date.parse(bounds.until) - 30 * 24 * 3600 * 1000).toISOString())
+  })
+
+  it('says which stage the analysis has reached', async () => {
+    let release = (): void => {}
+    const analyse = vi.fn((_mails: readonly KbMailMessage[], _known: KnownEntities, onProgress?: (p: AnalysisProgress) => void) => {
+      onProgress?.({ stage: 'answer' })
+      return new Promise<AnalysisRun>((resolve) => {
+        release = () => { resolve(RUN) }
+      })
+    })
+    render(<MailPanel {...props({ analyse })} />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('往后 →'))
+    })
+    await screen.findByText(/1 封 · /)
+    await act(async () => {
+      fireEvent.click(screen.getByText('分析这 1 封'))
+    })
+    expect(screen.getByText(/模型正在读这批邮件/)).toBeTruthy()
+    await act(async () => {
+      release()
+    })
+    expect(await screen.findByText('邮件分析结果')).toBeTruthy()
+  })
+
   it('shows the host\'s message and its remedy when the read fails', async () => {
     const failure = Object.assign(new Error('无法连接 Outlook：COM/MAPI 接口不可用。'), {
       details: { kind: 'outlook-unavailable', hint: '经典 Outlook 桌面版必须已启动。' },
     })
     render(<MailPanel {...props({ fetch: async () => { throw failure } })} />)
     await act(async () => {
-      fireEvent.click(screen.getByText('读取邮件'))
+      fireEvent.click(screen.getByText('往后 →'))
     })
     expect(await screen.findByText(/COM\/MAPI 接口不可用/)).toBeTruthy()
     expect(screen.getByText(/经典 Outlook 桌面版必须已启动/)).toBeTruthy()

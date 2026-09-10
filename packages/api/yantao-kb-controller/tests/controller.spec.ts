@@ -236,6 +236,15 @@ describe('yantaoKb.createEntity', () => {
     expect(path).toBe(`entities/meetings/${TODAY} 周会.md`)
   })
 
+  it('carries the relation the caller named, and the KB default when it named none', async () => {
+    const peer = await ctx.yantaoKbController.createEntity({ type: 'person', name: '新同事', relation: 'peer' })
+    expect(peer.path).toBe('entities/people/新同事.md')
+    expect(await readFile(join(kbRoot, peer.path), 'utf8')).toContain('relation: peer')
+
+    const plain = await ctx.yantaoKbController.createEntity({ type: 'person', name: '另一个人' })
+    expect(await readFile(join(kbRoot, plain.path), 'utf8')).toContain('relation: subordinate')
+  })
+
   it('rejects the todo singleton and an entity that already exists', async () => {
     const singleton = { type: 'todo', name: 'todos' } as unknown as KbCreateEntityArgs
     const failure = await ctx.yantaoKbController.createEntity(singleton).catch((error: unknown) => error)

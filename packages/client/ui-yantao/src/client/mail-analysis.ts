@@ -6,7 +6,9 @@
  * session Remote — the first time the workbench asks the agent to work without
  * a human typing. It is kept (and named 「邮件分析 YYYY-MM-DD」) precisely so a
  * judgement can be re-read later, which is the point: these are decisions
- * about what enters a knowledge base that outlives the mail.
+ * about what enters a knowledge base that outlives the mail. It reports the
+ * stage it has reached, because the only thing worse than a slow judgement is
+ * a silent one.
  *
  * Nothing here writes to the KB. The analysis only proposes; {@link MailPanel}
  * is what applies, and only after the human has ticked the rows.
@@ -62,11 +64,24 @@ export interface MailAnalysis {
   readonly resources: readonly MailResource[]
 }
 
+/** Where one analysis run has got to — the panel turns it into a line of prose. */
+export type AnalysisStage = 'session' | 'prompt' | 'answer' | 'parse'
+
+/** One progress report: the stage the run has reached. */
+export interface AnalysisProgress {
+  readonly stage: AnalysisStage
+}
+
 /**
  * Run one analysis over a batch — the panel's seam to the session Remote, so
  * a test can hand back a verdict without a session ever existing.
+ * @param onProgress - called as the run moves between its stages.
  */
-export type MailAnalyser = (mails: readonly KbMailMessage[], known: KnownEntities) => Promise<AnalysisRun>
+export type MailAnalyser = (
+  mails: readonly KbMailMessage[],
+  known: KnownEntities,
+  onProgress?: (progress: AnalysisProgress) => void,
+) => Promise<AnalysisRun>
 
 /** What the KB already holds, so the model matches against it instead of inventing. */
 export interface KnownEntities {
@@ -248,19 +263,22 @@ export interface AnalysisRun {
  *
  * The session is created with no workspace of its own, so it inherits the
  * workbench's — which ADR-0013 keeps pointed at the KB root.
- * @param options - the context, the batch, and what the KB already holds.
+ * @param options - the context, the batch, what the KB already holds, and the
+ *   progress callback.
  * @returns the session id and the verdict.
  */
 export async function runMailAnalysis(options: {
   readonly ctx: Context
   readonly mails: readonly KbMailMessage[]
   readonly known: KnownEntities
+  readonly onProgress?: (progress: AnalysisProgress) => void
   readonly signal?: AbortSignal
 }): Promise<AnalysisRun> {
-  const { ctx, mails, known } = options
+  const { ctx, mails, known, onProgress } = options
   const session = sessionRemoteOf(ctx)
   if (session === undefined) throw new Error('没有挂载 session Remote 命名空间')
 
+  onProgress?.({ stage: 'session' })
   const created = await session.create({})
   if (!created.ok) throw created.error
   const sessionId = created.value.sessionId
@@ -271,6 +289,7 @@ export async function runMailAnalysis(options: {
   const named = await session.rename({ sessionId, title })
   if (!named.ok) throw named.error
 
+  onProgress?.({ stage: 'prompt' })
   const prompted = await session.prompt({
     requestId: randomUUID() as SessionRequestId,
     sessionId,
@@ -281,9 +300,11 @@ export async function runMailAnalysis(options: {
 
   // Follow until the turn's durable assistant message commits. The streaming
   // frames are for a typing indicator; the message is the answer.
+  onProgress?.({ stage: 'answer' })
   for await (const frame of session.follow({ address: { kind: 'session', sessionId } }, options.signal)) {
     if (frame.type !== 'event') continue
     if (frame.event.type !== 'assistant/message') continue
+    onProgress?.({ stage: 'parse' })
     return { sessionId, title, analysis: parseAnalysis(messageText(frame.event.data)) }
   }
   throw new Error('会话结束了却没有给出回答。')

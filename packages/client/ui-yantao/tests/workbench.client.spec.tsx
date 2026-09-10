@@ -284,7 +284,8 @@ describe('WorkspaceRail', () => {
       fireEvent.change(input, { target: { value: '新项目' } })
       fireEvent.keyDown(input, { key: 'Enter' })
     })
-    expect(createEntity).toHaveBeenCalledWith('project', '新项目')
+    // Only a person is asked for a relation; every other kind sends none.
+    expect(createEntity).toHaveBeenCalledWith('project', '新项目', undefined)
     expect(onOpenFile).toHaveBeenCalledWith('entities/projects/新项目.md', 'edit')
   })
 
@@ -302,6 +303,35 @@ describe('WorkspaceRail', () => {
     expect(deleteFile).toHaveBeenCalledWith('entities/projects/dsh 学习.md')
     expect(load).toHaveBeenCalledTimes(2)
     expect(onCloseFile).toHaveBeenCalledWith('entities/projects/dsh 学习.md')
+  })
+
+  it('creates a person with the relation the row offers, 同事 by default', async () => {
+    const createEntity = vi.fn(() => Promise.resolve('entities/people/新同事.md'))
+    const onOpenFile = vi.fn()
+    render(<WorkspaceRail {...railProps({ load: loader(workspace), createEntity, onOpenFile })} />)
+    fireEvent.click(await screen.findByText('人物'))
+    fireEvent.click(await screen.findByText('+ 新建'))
+    const input = screen.getByPlaceholderText('人物名称')
+    const select = screen.getByLabelText('关系') as HTMLSelectElement
+    expect(select.value).toBe('peer')
+    fireEvent.change(select, { target: { value: 'subordinate' } })
+    await act(async () => {
+      fireEvent.change(input, { target: { value: '新同事' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+    expect(createEntity).toHaveBeenCalledWith('person', '新同事', 'subordinate')
+    expect(onOpenFile).toHaveBeenCalledWith('entities/people/新同事.md', 'edit')
+  })
+
+  it('names a person\'s relation in the rail rather than its wire value', async () => {
+    const { container } = render(<WorkspaceRail {...railProps({ load: loader(workspace) })} />)
+    fireEvent.click(await screen.findByText('人物'))
+    const row = await waitFor(() => {
+      const found = container.querySelector('[title="entities/people/我自己.md"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    expect(row.textContent).toBe('我自己 · 自己')
   })
 
   it('opens a workspace row as an editable file', async () => {

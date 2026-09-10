@@ -38,20 +38,20 @@ kind: "package-reference"
 | `yantaoKb.deleteFile` | `(path)` | `{ path }`——删除知识库内的一个文件；路径同样受根目录约束，文件不存在是 `not-found` |
 | `yantaoKb.root` | `()` | `{ root, configured }`——当前生效的知识库根目录，以及人类是否已经选过 |
 | `yantaoKb.setRoot` | `(path)` | `{ root, configured, created, existing }`——把 `path` 初始化为知识库、设为当前根目录并记住它 |
-| `yantaoKb.createEntity` | `({ type, name, date? })` | `{ path }`——按 canonical 模板创建一个实体笔记 |
+| `yantaoKb.createEntity` | `({ type, name, date?, relation? })` | `{ path }`——按 canonical 模板创建一个实体笔记 |
 | `yantaoKb.links` | `(path)` | `{ outgoing, incoming }`——该文件的 `[[双链]]` 图，在宿主侧解析，且绝不指向 `resources/`（ADR-0015） |
 | `yantaoKb.revision` | `()` | `{ root, revision }`——知识库根目录下任何文件变动就自增的计数器，随 `setRoot` 重建（ADR-0017） |
 | `yantaoKb.openExternal` | `(target)` | `{ ok }`——把知识库内路径或白名单协议的 URL 交给系统打开，拒绝 shell 元字符（ADR-0017） |
 | `yantaoKb.todos` | `()` | `{ path, text, items }`——`entities/todos.md` 单例解析出的结构化条目，外加文件原文（ADR-0018） |
 | `yantaoKb.writeTodos` | `({ items, expectedText })` | `{ path, text }`——替换单例的条目，保留 preamble（ADR-0018） |
-| `yantaoKb.mailFetch` | `({ since?, limit? })` | `{ since, lastReadAt?, stale, messages, hasMore }`——连接器断点之后的最新邮件，由 Python/COM 子进程读出（ADR-0019） |
+| `yantaoKb.mailFetch` | `({ since?, until?, limit? })` | `{ since, until?, lastReadAt?, stale, messages, hasMore }`——`[since, until)` 区间内的最新邮件，由 Python/COM 子进程读出（ADR-0019） |
 | `yantaoKb.mailMarkRead` | `({ lastReadAt? })` | `{ lastReadAt }`——把断点往前推；缺省为当前时刻（ADR-0019） |
 
-`setRoot` 只接受绝对路径（相对或空路径会被拒绝），并把它交给 `yantaoKb` 服务——服务负责把选择持久化到 `~/.dsh` 之下。`createEntity` 接受 `project`、`area`、`person`、`meeting`；会议文件名会冠以它自己的日期。
+`setRoot` 只接受绝对路径（相对或空路径会被拒绝），并把它交给 `yantaoKb` 服务——服务负责把选择持久化到 `~/.dsh` 之下。`createEntity` 接受 `project`、`area`、`person`、`meeting`；会议文件名会冠以它自己的日期。人物实体会写入调用方给出的 `relation`——`self` / `subordinate` / `superior` / `peer` / `external`，即 kb 领域自己的五种关系；调用方不指定时，沿用领域自己的缺省值。
 
 `todos` / `writeTodos`（ADR-0018）是编辑 `entities/todos.md` 单例的结构化方式——这一对方法存在的原因是 Client **不能** import kb 包的解析器（bundle purity）。`todos` 把缺失的文件报成 `text: ''` 与空条目，而不是报错；`writeTodos` 拿 `expectedText` 与磁盘上的当前文本比对，不一致就是 `yantao-kb/rejected`——于是工作台之外的修改会被刷新，绝不会被覆盖。文件的 preamble（清单上方人类写的标题）原样保留，只替换条目。
 
-`mailFetch` / `mailMarkRead`（ADR-0019）是第一个连接器。`mailFetch` 只读收件箱，单次最多 50 封，并用 `~/.dsh/yantao-kb.json` 里的断点作下界——从没跑过时用「30 天前」，这样首次读取不会去 COM 上把整个收件箱走一遍。断点缺失或早于 30 天时它回答 `stale`（由界面问是否补读更早那段：既不静默跳过，也不静默补齐），页面被填满时回答 `hasMore`——要想知道精确还剩多少封，就得把文件夹里每一项都摸一遍。两者都要求先选过知识库目录，因为断点就记在它旁边。
+`mailFetch` / `mailMarkRead`（ADR-0019）是第一个连接器。`mailFetch` 只读收件箱，单次最多 50 封，并用 `~/.dsh/yantao-kb.json` 里的断点作下界——从没跑过时用「30 天前」，这样首次读取不会去 COM 上把整个收件箱走一遍；`until` 是配对的上界，没有它每次读取都落在最新那一页，工作台就永远没法「往前」读更早的邮件。断点缺失或早于 30 天时它回答 `stale`（由界面问是否补读更早那段：既不静默跳过，也不静默补齐），页面被填满时回答 `hasMore`——要想知道精确还剩多少封，就得把文件夹里每一项都摸一遍。两者都要求先选过知识库目录，因为断点就记在它旁边。
 
 失败是 `RemoteError`：路径没有对应文件时为 `yantao-kb/not-found`；路径逃逸、目标不是文件、I/O 拒绝或知识库领域拒绝（实体已存在、`todo` 单例）时为 `yantao-kb/rejected`——两者的 `details` 都携带出问题的 `path`；连接器失败时为 `yantao-kb/mail`，`details` 带失败种类 `kind` 与告诉人该装什么、该启动什么的 `hint`。
 

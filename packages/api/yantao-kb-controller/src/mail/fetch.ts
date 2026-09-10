@@ -81,6 +81,12 @@ export class MailFetchError extends Error {
 export interface MailArgsOptions {
   /** Lower bound (exclusive) on reception time, as an ISO 8601 string. */
   readonly since: string
+  /**
+   * Upper bound (exclusive) on reception time, as an ISO 8601 string; with
+   * `since` it names the half-open window `[since, until)` the human is
+   * paging through. Absent means "up to the newest".
+   */
+  readonly until?: string | undefined
   /** How many of the newest mails to return; the script defaults to 50. */
   readonly limit?: number | undefined
   /** Outlook folder name to read instead of the default inbox. */
@@ -151,6 +157,7 @@ function scriptPath(): string {
  */
 export function mailArgs(options: MailArgsOptions): readonly string[] {
   const args = [scriptPath(), '--since', options.since, '--limit', String(options.limit ?? 50), '--json']
+  if (options.until !== undefined && options.until !== '') args.push('--until', options.until)
   if (options.folder !== undefined && options.folder !== '') args.push('--folder', options.folder)
   return args
 }
@@ -178,23 +185,24 @@ function kindFromStderr(stderr: string): MailFetchErrorKind | undefined {
 }
 
 /**
- * Fetch the newest mails received after `since`.
+ * Fetch the newest mails received in the window `[since, until)` — an absent
+ * `until` means "up to the newest", which is how the panel reads forward.
  *
  * Resolves with the mails the script printed (newest first, as Outlook sorts
  * them), or rejects with a {@link MailFetchError}.
- * @param options - the time bound, and optionally a cap, a folder, a Python
+ * @param options - the time bounds, and optionally a cap, a folder, a Python
  *   interpreter, a timeout, or a stand-in spawn.
  * @returns the mails, newest first.
  */
 export async function fetchMail(options: FetchMailOptions): Promise<MailMessage[]> {
   const {
-    since, limit, folder,
+    since, until, limit, folder,
     python = process.platform === 'win32' ? 'python' : 'python3',
     spawn: spawnImpl = spawn,
     timeoutMs = MAIL_TIMEOUT_MS,
   } = options
 
-  const args = mailArgs({ since, limit, folder })
+  const args = mailArgs({ since, until, limit, folder })
   const child = spawnImpl(python, args, {
     windowsHide: true,
     env: { ...process.env, PYTHONIOENCODING: 'utf-8' },

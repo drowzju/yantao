@@ -8,13 +8,16 @@
   任何其它内容。
 
 用法：
-  python read_outlook.py --since <ISO8601> [--limit N] [--folder NAME] --json
+  python read_outlook.py --since <ISO8601> [--until <ISO8601>] [--limit N] [--folder NAME] --json
     --since   只返回收件时间严格晚于该时刻的邮件（ISO 8601，例如 2026-08-11T00:00:00）
+    --until   只返回收件时间严格早于该时刻的邮件（ISO 8601）；用于「往前读更早的一批」，
+              与 --since 合起来就是一个半开区间 [since, until)
     --limit   最多返回几封（默认 50，取最新的 N 封；<=0 表示不限）
     --folder  按名称查找文件夹（含各 store 及其子文件夹），默认收件箱
     --json    JSON 输出模式，目前是唯一支持的模式
   示例：
     python read_outlook.py --since 2026-08-11T00:00:00 --limit 50 --json
+    python read_outlook.py --since 2026-07-12T00:00:00 --until 2026-08-11T00:00:00 --limit 50 --json
 
 前提：
   1. 必须是经典 Outlook 桌面版（Outlook Application 的 COM 接口）。
@@ -83,12 +86,12 @@ def fail(message, kind, code):
     sys.exit(code)
 
 
-def parse_since(text):
-    """把 --since 解析成带时区的 datetime；解析不了就退出。"""
+def parse_time(flag, text):
+    """把 --since / --until 解析成带时区的 datetime；解析不了就退出。"""
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
-        fail(f"--since 不是合法的 ISO 8601 时间：{text}", "other", EXIT_OTHER)
+        fail(f"{flag} 不是合法的 ISO 8601 时间：{text}", "other", EXIT_OTHER)
         return None
     # 没有时区的按本机时区处理，否则无法和 Outlook 返回的时间比较。
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=LOCAL_TZ)
@@ -186,8 +189,8 @@ def find_folder(ns, name):
     return None
 
 
-def read_mails(folder, since, limit):
-    """取 folder 里收件时间晚于 since 的最新 limit 封邮件。"""
+def read_mails(folder, since, until, limit):
+    """取 folder 里收件时间落在 [since, until) 的最新 limit 封邮件。"""
     items = folder.Items
     items.Sort("[ReceivedTime]", True)
 
@@ -200,8 +203,14 @@ def read_mails(folder, since, limit):
             continue
 
         received = as_aware(getattr(item, "ReceivedTime", None))
-        if received is None or received <= since:
+        if received is None:
             continue
+        # 邮件按收件时间倒序：比 until 还新的先跳过，比 since 还旧的后面全都是，
+        # 所以这里可以直接收工——「往前读」时省掉整箱的扫描。
+        if until is not None and received >= until:
+            continue
+        if received <= since:
+            break
 
         try:
             received_at = received.astimezone(timezone.utc).isoformat()
@@ -234,6 +243,7 @@ def read_mails(folder, since, limit):
 def main():
     parser = argparse.ArgumentParser(description="读取本地 Outlook 邮件并输出 JSON")
     parser.add_argument("--since", required=True, help="只取收件时间晚于该时刻的邮件（ISO 8601）")
+    parser.add_argument("--until", default=None, help="只取收件时间早于该时刻的邮件（ISO 8601，与 --since 组成区间）")
     parser.add_argument("--limit", type=int, default=50, help="最多返回几封（默认 50，<=0 表示不限）")
     parser.add_argument("--folder", default=None, help="文件夹名称，默认收件箱")
     parser.add_argument("--json", action="store_true", help="JSON 输出模式（唯一支持的模式）")
@@ -246,7 +256,8 @@ def main():
              "python-missing", EXIT_PYWIN32)
         return
 
-    since = parse_since(args.since)
+    since = parse_time("--since", args.since)
+    until = parse_time("--until", args.until) if args.until else None
 
     try:
         outlook = win32com.client.Dispatch("Outlook.Application")
@@ -269,7 +280,7 @@ def main():
         return
 
     try:
-        messages = read_mails(folder, since, args.limit)
+        messages = read_mails(folder, since, until, args.limit)
     except Exception as error:
         fail(f"读取邮件失败：{error}", "other", EXIT_OTHER)
         return

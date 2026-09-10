@@ -5,6 +5,14 @@
  */
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
 
+/** One option of the row's optional picker — the person's relation. */
+export interface NewEntityChoice {
+  /** The value `onChange` reports; the caller names what it means. */
+  readonly value: string
+  /** What the human reads. */
+  readonly label: string
+}
+
 /** Inline creation row props. */
 export interface NewEntityRowProps {
   /** The button's label. */
@@ -13,6 +21,15 @@ export interface NewEntityRowProps {
   readonly placeholder?: string
   /** Create the entity; a rejection surfaces as the row's error. */
   readonly submit: (name: string) => Promise<void>
+  /**
+   * A second thing to choose beside the name — the 人物 tab's relation. The
+   * caller owns the value, so the row stays presentational.
+   */
+  readonly choice?: {
+    readonly options: readonly NewEntityChoice[]
+    readonly value: string
+    readonly onChange: (value: string) => void
+  } | undefined
 }
 
 const rowStyle = { display: 'flex', gap: 4, margin: '4px 0' } as const
@@ -24,7 +41,7 @@ const errorStyle = { color: '#b4453a', padding: '0 6px' } as const
  * @param props - see {@link NewEntityRowProps}.
  * @returns the row element.
  */
-export function NewEntityRow({ label, placeholder = '名称', submit }: NewEntityRowProps): ReactElement {
+export function NewEntityRow({ label, placeholder = '名称', submit, choice }: NewEntityRowProps): ReactElement {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -88,6 +105,18 @@ export function NewEntityRow({ label, placeholder = '名称', submit }: NewEntit
               )
             }}
           />
+          {choice !== undefined && (
+            <select
+              aria-label="关系"
+              value={choice.value}
+              disabled={busy}
+              onChange={(event) => { choice.onChange(event.target.value) }}
+            >
+              {choice.options.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          )}
           <button type="button" style={{ padding: '2px 6px' }} disabled={busy} onClick={close}>取消</button>
         </div>
       )}

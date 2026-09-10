@@ -28,9 +28,9 @@ import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 // owns the declaration) — the `@` menu's KB source registers through it.
 import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {
-  KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbWriteTodosArgs,
+  KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation, KbWriteTodosArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { KnownEntities } from './mail-analysis.ts'
+import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
 import { Frame } from './frame/Frame.tsx'
 import { ThemePresenter } from './frame/theme-presenter.ts'
@@ -113,7 +113,8 @@ export function apply(ctx: Context): void {
       read: (path: string) => readFile(ctx, path),
       write: (path: string, content: string) => writeFile(ctx, path, content),
       deleteFile: (path: string) => deleteFile(ctx, path),
-      createEntity: (type: KbCreatableEntityType, name: string) => createEntity(ctx, { type, name }),
+      createEntity: (type: KbCreatableEntityType, name: string, relation?: KbPersonRelation) =>
+        createEntity(ctx, { type, name, ...relation !== undefined ? { relation } : {} }),
       root: () => loadRoot(ctx),
       setRoot: (path: string) => setKbRoot(ctx, path),
       pickDirectory: () => ctx.uiWorkspace.pickDirectory(),
@@ -124,8 +125,12 @@ export function apply(ctx: Context): void {
       writeTodos: (args: KbWriteTodosArgs) => writeTodos(ctx, args),
       mailFetch: (args: KbMailFetchArgs) => fetchMail(ctx, args),
       mailMarkRead: (args: KbMailMarkReadArgs) => markMailRead(ctx, args),
-      analyseMail: (mails: readonly MailMessage[], known: KnownEntities) =>
-        runMailAnalysis({ ctx, mails, known }),
+      analyseMail: (
+        mails: readonly MailMessage[],
+        known: KnownEntities,
+        onProgress?: (progress: AnalysisProgress) => void,
+      ) =>
+        runMailAnalysis({ ctx, mails, known, ...onProgress !== undefined ? { onProgress } : {} }),
       onKbRootChanged: align,
     }),
   }, Frame), 'ui-yantao: root frame')

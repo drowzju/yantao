@@ -22,7 +22,7 @@ import type {
 import type {
   KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult, KbDeleteFileResult, KbFileContent, KbLinksResult,
   KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
-  KbOpenExternalResult, KbRevisionResult, KbRootResult, KbSetRootResult, KbTodosResult, KbTree,
+  KbOpenExternalResult, KbPersonRelation, KbRevisionResult, KbRootResult, KbSetRootResult, KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 
@@ -65,8 +65,11 @@ export type FileWriter = (path: string, content: string) => Promise<void>
 /** Delete one KB file; rejects with the Remote's own message. */
 export type FileDeleter = (path: string) => Promise<void>
 
-/** Create one entity and resolve its KB-relative path. */
-export type EntityCreator = (type: KbCreatableEntityType, name: string) => Promise<string>
+/**
+ * Create one entity and resolve its KB-relative path. `relation` only means
+ * anything for a `person`; the workbench always sends one for that kind.
+ */
+export type EntityCreator = (type: KbCreatableEntityType, name: string, relation?: KbPersonRelation) => Promise<string>
 
 /** Read the KB root's configuration state. */
 export type RootLoader = () => Promise<KbRootResult>
@@ -282,7 +285,7 @@ export function obsidianUri(root: string, path: string): string {
 /**
  * Create one entity file and resolve its KB-relative path.
  * @param ctx - client root context.
- * @param args - the entity kind and name (and a meeting's date).
+ * @param args - the entity kind and name, a meeting's date, and a person's relation.
  * @returns the new file's KB-relative path, or a rejected promise carrying the reason.
  */
 export async function createEntity(ctx: Context, args: KbCreateEntityArgs): Promise<string> {

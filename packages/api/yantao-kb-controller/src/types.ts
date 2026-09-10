@@ -4,6 +4,9 @@
  * stay out of the payload (the Client owns its locale).
  * @module @deepseek-ai/dsh-api-yantao-kb-controller/types
  */
+// The relation vocabulary is the KB domain's, not this package's: one list,
+// read by the agent's tool and by the workbench's picker alike.
+import type { PersonRelation } from '@deepseek-ai/dsh-yantao-kb'
 
 /** One file row in a KB tree section. */
 export interface KbTreeFile {
@@ -109,6 +112,13 @@ export interface KbSetRootResult {
 /** An entity kind the UI may create; `todo` is the singleton `kb_init` owns. */
 export type KbCreatableEntityType = 'project' | 'area' | 'person' | 'meeting'
 
+/**
+ * The person-to-owner relations the KB knows — the domain's own vocabulary,
+ * carried on the wire so the workbench's picker and the agent's tool offer the
+ * same five and no others.
+ */
+export type KbPersonRelation = PersonRelation
+
 /** Parameters of `yantaoKb.createEntity`. */
 export interface KbCreateEntityArgs {
   /** The entity kind to create. */
@@ -117,6 +127,8 @@ export interface KbCreateEntityArgs {
   readonly name: string
   /** The meeting's own date (YYYY-MM-DD); defaults to today. */
   readonly date?: string
+  /** The person-to-owner relation; only a `person` carries it, and it defaults to the KB's own. */
+  readonly relation?: PersonRelation
 }
 
 /** Result of `yantaoKb.createEntity`. */
@@ -213,6 +225,12 @@ export interface KbMailFetchArgs {
    * none: a first run must not try to read a whole inbox.
    */
   readonly since?: string
+  /**
+   * Upper bound (exclusive) on reception time, as an ISO 8601 string. With
+   * `since` it names the window the human is paging through — 往前读 hands
+   * the older end as `since` and the batch it just saw as `until`.
+   */
+  readonly until?: string
   /** How many of the newest mails to return; defaults to 50. */
   readonly limit?: number
 }
@@ -221,6 +239,8 @@ export interface KbMailFetchArgs {
 export interface KbMailFetchResult {
   /** The bound the read actually used. */
   readonly since: string
+  /** The upper bound the read used, when the caller named one. */
+  readonly until?: string
   /** The watermark before this read, absent when the connector has never run. */
   readonly lastReadAt?: string
   /**
