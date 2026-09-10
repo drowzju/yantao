@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-api-yantao-kb-controller` is the Typert Remote controller behind the yantao workbench UI: ten unary methods over the `yantaoKb` namespace — `intakeTree`, `workspaceTree`, `read`, `write`, `root`, `setRoot`, `createEntity`, `links`, `revision`, and `openExternal` — that let the browser list, edit, and extend the knowledge base directly. Every path is KB-relative and confined to the kbRoot the `yantao-kb` plugin publishes as the `yantaoKb` service, so the controller shares the plugin's one configuration point and never duplicates it; `setRoot` re-points that one root. The UI is the human channel, so `write` is a full-file write; the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface.
+`dsh-api-yantao-kb-controller` is the Typert Remote controller behind the yantao workbench UI: fourteen unary methods over the `yantaoKb` namespace — `intakeTree`, `workspaceTree`, `read`, `write`, `root`, `setRoot`, `createEntity`, `links`, `revision`, `openExternal`, `todos`, `writeTodos`, `mailFetch`, and `mailMarkRead` — that let the browser list, edit, and extend the knowledge base directly. Every path is KB-relative and confined to the kbRoot the `yantao-kb` plugin publishes as the `yantaoKb` service, so the controller shares the plugin's one configuration point and never duplicates it; `setRoot` re-points that one root. The UI is the human channel, so `write` is a full-file write; the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface.
 
 ## Table of Contents
 
@@ -41,10 +41,18 @@ The `yantao-web` profile mounts this controller automatically; the workbench UI 
 | `yantaoKb.links` | `(path)` | `{ outgoing, incoming }` — the file's `[[wiki link]]` graph, resolved host-side and never into `resources/` (ADR-0015) |
 | `yantaoKb.revision` | `()` | `{ root, revision }` — a counter that bumps whenever a file under the KB root changes; it follows `setRoot` (ADR-0017) |
 | `yantaoKb.openExternal` | `(target)` | `{ ok }` — hands a KB path or a whitelisted URL scheme to the OS shell, refusing shell metacharacters (ADR-0017) |
+| `yantaoKb.todos` | `()` | `{ path, text, items }` — the `entities/todos.md` singleton parsed into structured items, plus its exact text (ADR-0018) |
+| `yantaoKb.writeTodos` | `({ items, expectedText })` | `{ path, text }` — replaces the singleton's items, keeping its preamble (ADR-0018) |
+| `yantaoKb.mailFetch` | `({ since?, limit? })` | `{ since, lastReadAt?, stale, messages, hasMore }` — the newest mails after the connector's cursor, read through a Python/COM subprocess (ADR-0019) |
+| `yantaoKb.mailMarkRead` | `({ lastReadAt? })` | `{ lastReadAt }` — moves that cursor forward; defaults to now (ADR-0019) |
 
 `setRoot` takes an absolute path (a relative or empty one is refused) and hands it to the `yantaoKb` service, which persists the choice under `~/.dsh`. `createEntity` accepts `project`, `area`, `person`, and `meeting`; a meeting's file name is prefixed with its own date.
 
-Failures are `RemoteError`s: `yantao-kb/not-found` when the path names no file, `yantao-kb/rejected` for an escape attempt, a non-file target, an I/O refusal, or a KB domain refusal (an existing entity, the `todo` singleton) — each carrying the offending `path` in `details`.
+`todos`/`writeTodos` (ADR-0018) are the structured way to edit the `entities/todos.md` singleton — the pair exists because the Client cannot import the kb package's parser (bundle purity). `todos` reports an absent file as `text: ''` and no items rather than an error, and `writeTodos` compares the file against `expectedText`: a mismatch is `yantao-kb/rejected`, so an edit made outside the workbench is refreshed, never clobbered. The file's preamble — a heading above the checklist — survives the write; only the items are replaced.
+
+`mailFetch` / `mailMarkRead` (ADR-0019) are the first connector. `mailFetch` reads only the inbox, caps one page at 50 mails, and bounds itself with the cursor in `~/.dsh/yantao-kb.json` — or with 30 days ago when the connector has never run, so a first read never walks a whole inbox over COM. It answers `stale` when that cursor is missing or older than 30 days (the UI asks whether to re-read the older stretch; it neither skips nor fills it in silently) and `hasMore` when the page came back full — an exact count of what is left would mean touching every item in the folder. Both refuse before a KB root has been chosen, because the cursor is persisted next to it.
+
+Failures are `RemoteError`s: `yantao-kb/not-found` when the path names no file, `yantao-kb/rejected` for an escape attempt, a non-file target, an I/O refusal, or a KB domain refusal (an existing entity, the `todo` singleton) — each carrying the offending `path` in `details` — and `yantao-kb/mail` when the connector fails, carrying the failure's `kind` and the `hint` that tells the human what to install or start.
 
 ### Client consumption
 

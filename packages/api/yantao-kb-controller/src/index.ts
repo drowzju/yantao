@@ -17,9 +17,11 @@ import { dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
-  createEntity, entityDisplayPath, initKb, KbError, linksOf, listEntities, resolveWithinKb, todayStamp,
+  createEntity, entityDisplayPath, initKb, KbError, linksOf, listEntities, parseTodoFile, readKbRootOverride,
+  readMailWatermark, resolveWithinKb, serializeTodoFile, todayStamp, writeMailWatermark,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
+import { fetchMail, MailFetchError } from './mail/fetch.ts'
 import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
 import { KbRevision } from './watch.ts'
 import type {
@@ -27,14 +29,21 @@ import type {
   KbCreateEntityResult,
   KbFileContent,
   KbLinksResult,
+  KbMailFetchArgs,
+  KbMailFetchResult,
+  KbMailMarkReadArgs,
+  KbMailMarkReadResult,
   KbOpenExternalResult,
   KbRevisionResult,
   KbRootResult,
   KbSetRootResult,
+  KbTodosResult,
   KbTree,
   KbTreeFile,
   KbTreeSection,
   KbWriteResult,
+  KbWriteTodosArgs,
+  KbWriteTodosResult,
 } from './types.ts'
 
 export type * from './types.ts'
@@ -51,6 +60,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'yantao-kb/not-found': { readonly path: string }
     /** The controller refused the operation (path escape, non-file target, I/O failure). */
     'yantao-kb/rejected': { readonly path: string }
+    /** The mail connector failed (ADR-0019); `kind` is one of its failure kinds. */
+    'yantao-kb/mail': { readonly kind: string; readonly hint: string }
   }
 }
 
@@ -66,6 +77,40 @@ const WORKSPACE_ENTITY_SECTIONS = [
   { id: 'areas', type: 'area' },
   { id: 'people', type: 'person' },
 ] as const satisfies readonly { id: KbTreeSection['id']; type: EntityType }[]
+
+/** KB-relative path of the todo singleton (ADR-0018); a singleton kind resolves whatever its name. */
+const TODOS_PATH = entityDisplayPath('todo', 'todos')
+
+/** How many mails one `mailFetch` returns (ADR-0019). */
+const MAIL_LIMIT = 50
+
+/** How old a mail watermark may be before the read is called stale (ADR-0019). */
+const MAIL_STALE_DAYS = 30
+
+/**
+ * The bound a first `mailFetch` uses when there is no watermark: a fresh
+ * connector must not answer by walking a decade of inbox.
+ * @returns an ISO 8601 stamp `MAIL_STALE_DAYS` days ago.
+ */
+function defaultSince(): string {
+  const then = new Date()
+  then.setDate(then.getDate() - MAIL_STALE_DAYS)
+  return then.toISOString()
+}
+
+/**
+ * Whether a watermark leaves room for a gap: no watermark means the connector
+ * has never run, and an old one means the stretch since it was taken has never
+ * been read. The UI asks what to do; neither case is filled in silently.
+ * @param lastReadAt - the watermark, when there is one.
+ * @returns true when the UI should warn.
+ */
+function isStale(lastReadAt: string | undefined): boolean {
+  if (lastReadAt === undefined) return true
+  const then = Date.parse(lastReadAt)
+  if (Number.isNaN(then)) return true
+  return Date.now() - then > MAIL_STALE_DAYS * 24 * 60 * 60 * 1000
+}
 
 /** Read a directory's file names, answering an empty list when the directory is absent. */
 async function readdirFiles(dir: string): Promise<string[]> {
@@ -275,6 +320,104 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
+   * Refuse the mail connector while no KB root has been chosen (ADR-0019): the
+   * cursor is persisted next to the root, so with no root there is nowhere to
+   * keep it — and a mail analysis writes into that KB.
+   * @throws a `yantao-kb/mail` error when `~/.dsh/yantao-kb.json` holds no root.
+   */
+  private requireKbRootState(): void {
+    if (readKbRootOverride() === undefined) {
+      throw new RemoteError(
+        'yantao-kb/mail',
+        '还没有选择知识库目录，邮件的读取断点无处记录。',
+        { kind: 'no-root', hint: '先选择一次知识库目录，再来读邮件。' },
+      )
+    }
+  }
+
+  /**
+   * The todo singleton's current text. A missing file reads as empty: a fresh
+   * KB, or one whose `todos.md` was deleted, still renders an empty board
+   * instead of failing the panel.
+   * @param path - the singleton's KB-relative path.
+   * @param target - the confined absolute path to read.
+   * @returns the file's content, or `''` when there is no file.
+   */
+  private async readTodosText(path: string, target: string): Promise<string> {
+    try {
+      return await readFile(target, 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return ''
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `无法读取待办清单 ${path}：${(error as Error).message}`,
+        { path },
+        { cause: error },
+      )
+    }
+  }
+
+  /**
+   * The structured todo board (ADR-0018): the `entities/todos.md` singleton
+   * parsed into items, plus the file's exact text — the UI echoes that text
+   * back as `writeTodos`'s `expectedText`, which is what makes the board's
+   * optimistic concurrency work. The parse lives here because the Client
+   * cannot import the kb package's values (bundle purity).
+   * @returns the singleton's path, its exact current text, and its items in file order.
+   */
+  @Remote('todos')
+  async todos(): Promise<KbTodosResult> {
+    const path = TODOS_PATH
+    const target = this.confine(path, path)
+    const text = await this.readTodosText(path, target)
+    return { path, text, items: parseTodoFile(text).items }
+  }
+
+  /**
+   * Write the whole todo list back (ADR-0018), replacing the file's items but
+   * keeping its preamble: a heading the human wrote above the checklist is
+   * theirs, and the UI sends items only.
+   *
+   * `expectedText` is the optimistic-concurrency check — the same pre-save
+   * comparison the editor's autosave uses (ADR-0012), not a second model: a
+   * stale value means somebody else (Obsidian, an agent, another tab) got
+   * there first, and the UI refreshes rather than clobbering.
+   * @param args - the new item list and the text the caller last read.
+   * @returns the singleton's path and what is on disk now.
+   */
+  @Remote('writeTodos')
+  async writeTodos(args: KbWriteTodosArgs): Promise<KbWriteTodosResult> {
+    const path = TODOS_PATH
+    const target = this.confine(path, path)
+    const current = await this.readTodosText(path, target)
+    if (current !== args.expectedText) {
+      throw new RemoteError('yantao-kb/rejected', '待办清单已被别处修改，请刷新后重试', { path })
+    }
+    const { preamble } = parseTodoFile(current)
+    let text: string
+    try {
+      text = serializeTodoFile({ preamble, items: args.items })
+    } catch (error) {
+      const message = error instanceof KbError
+        ? error.message
+        : `无法写入待办清单：${(error as Error).message}`
+      throw new RemoteError('yantao-kb/rejected', message, { path }, { cause: error })
+    }
+    try {
+      await mkdir(dirname(target), { recursive: true })
+      await writeFile(target, text, 'utf8')
+    } catch (error) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `无法写入知识库文件 ${path}：${(error as Error).message}`,
+        { path },
+        { cause: error },
+      )
+    }
+    return { path, text }
+  }
+
+  /**
    * The KB's change counter (ADR-0017). The UI compares it across polls to learn
    * that something changed **outside** the workbench — an edit in Obsidian, a
    * `git checkout`, an agent write. An edit made inside the workbench does not
@@ -324,6 +467,65 @@ export class YantaoKbController extends TypertRemoteService {
     } catch (error: unknown) {
       return Promise.reject(error instanceof Error ? error : new Error(String(error)))
     }
+  }
+
+  /**
+   * Read the newest mails received after the connector's watermark (ADR-0019).
+   *
+   * The bound defaults to that watermark, and to 30 days ago when there is
+   * none — a first run must not walk a whole inbox over COM. The read only
+   * ever says whether it filled its page (`hasMore`), never how many mails are
+   * left: an exact total would mean touching every item in the folder.
+   *
+   * Every failure leaves as a `yantao-kb/mail` error carrying the script's own
+   * message *and* its remedy, because the useful answer to "Outlook is not
+   * answering" is what to install, not that the fetch failed.
+   * @param args - an explicit `since` (to re-read an older stretch) and a cap.
+   * @returns the bound used, the watermark before the read, whether a gap may
+   *   have opened, the mails, and whether more are waiting.
+   */
+  @Remote('mailFetch')
+  async mailFetch(args: KbMailFetchArgs): Promise<KbMailFetchResult> {
+    this.requireKbRootState()
+    const lastReadAt = readMailWatermark()
+    const since = args.since ?? lastReadAt ?? defaultSince()
+    const limit = args.limit ?? MAIL_LIMIT
+    let messages
+    try {
+      messages = await fetchMail({ since, limit })
+    } catch (error: unknown) {
+      const failure = error instanceof MailFetchError ? error : undefined
+      throw new RemoteError(
+        'yantao-kb/mail',
+        failure?.message ?? '读取 Outlook 邮件失败。',
+        { kind: failure?.kind ?? 'other', hint: failure?.hint ?? '请查看服务端日志了解详情。' },
+        { cause: error },
+      )
+    }
+    return {
+      since,
+      ...lastReadAt !== undefined ? { lastReadAt } : {},
+      stale: isStale(lastReadAt),
+      messages,
+      hasMore: messages.length >= limit,
+    }
+  }
+
+  /**
+   * Move the mail connector's watermark (ADR-0019): everything at or before
+   * `lastReadAt` has been seen, so the next `mailFetch` starts after it.
+   *
+   * The cursor lives in `~/.dsh`, next to the KB root it was read for, and
+   * never in the KB itself — that is markdown for humans.
+   * @param args - the stamp to store; defaults to now.
+   * @returns the watermark as it now stands.
+   */
+  @Remote('mailMarkRead')
+  async mailMarkRead(args: KbMailMarkReadArgs): Promise<KbMailMarkReadResult> {
+    this.requireKbRootState()
+    const lastReadAt = args.lastReadAt ?? new Date().toISOString()
+    await writeMailWatermark(lastReadAt)
+    return { lastReadAt }
   }
 }
 

@@ -48,12 +48,14 @@ export function entityFileContent(
 /**
  * The singleton todo file: frontmatter and nothing but an Obsidian checkbox
  * list — no `## 状态` / `## 流水` sections, so the kb_ section tools do not
- * apply to it and the whole file is edited as a checklist.
- * @param date - the creation date stamp (YYYY-MM-DD).
+ * apply to it and the whole file is edited as a checklist. Each row is
+ * `- [ ] [due::YYYY-MM-DD] 标题` with its markdown body on the lines below,
+ * indented two spaces; see the todo module for the full format.
+ * @param date - the creation date stamp (YYYY-MM-DD), also the example item's deadline.
  * @returns the complete todo file content with one placeholder checkbox.
  */
 export function todoFileContent(date: string): string {
-  return `---\ntype: todo\ncreated: ${date}\n---\n\n- [ ] 写下第一个待办\n`
+  return `---\ntype: todo\ncreated: ${date}\n---\n\n- [ ] [due::${date}] 写下第一个待办\n  缩进两格写正文：这里可以写多行 markdown\n`
 }
 
 /** The shadow-note skeleton living beside a registered resource file.
@@ -72,7 +74,7 @@ export const KB_README = `# yantao 知识库
 
 - \`resources/\` — 原始材料，原样存放、永不改写；每个资源文件配一个同名 \`.md\` 影子笔记。
 - \`entities/projects/\`、\`entities/areas/\`、\`entities/people/\`、\`entities/meetings/\` — 实体笔记，每个实体一个 \`.md\` 文件。
-- \`entities/todos.md\` — 待办单例，Obsidian 复选框清单，没有区段结构。
+- \`entities/todos.md\` — 待办单例，Obsidian 复选框清单，没有区段结构；每行形如 \`- [ ] [due::YYYY-MM-DD] 标题\`，条目正文缩进两格写在下方。
 - \`sessions/\` — 会话归档。
 
 实体文件的「状态」区由人和 agent 共同维护（agent 通过 \`kb_write_state\` 写入）；「流水」区只追加、不改写。读写知识库请使用 \`kb_\` 系列工具。

@@ -89,7 +89,9 @@ describe('entity template', () => {
   it('emits the todo singleton as a checkbox list with no sections', () => {
     const content = entityFileContent('todo', 'todos', '2026-09-07')
     expect(content).toBe(todoFileContent('2026-09-07'))
-    expect(content).toBe('---\ntype: todo\ncreated: 2026-09-07\n---\n\n- [ ] 写下第一个待办\n')
+    expect(content).toBe(
+      '---\ntype: todo\ncreated: 2026-09-07\n---\n\n- [ ] [due::2026-09-07] 写下第一个待办\n  缩进两格写正文：这里可以写多行 markdown\n',
+    )
     expect(content).not.toContain('## 状态')
     expect(content).not.toContain('## 流水')
   })

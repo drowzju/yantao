@@ -389,10 +389,14 @@ export function apply(ctx: Context, config: Config): void {
 export { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, writeState } from './core.ts'
 export type { InitKbResult, ListedEntity } from './core.ts'
 export { entityDisplayPath, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
-export { kbRootStatePath, readKbRootOverride, writeKbRootOverride } from './root-store.ts'
+export {
+  kbRootStatePath, readKbRootOverride, readMailWatermark, writeKbRootOverride, writeMailWatermark,
+} from './root-store.ts'
 export { appendToLogSection, logBullet, replaceStateSection } from './splice.ts'
 export { linksOf, resolveWikiLink, wikilinks } from './links.ts'
 export type { KbLinkSource, KbLinkTarget, KbLinks, WikiLink } from './links.ts'
+export { addTodo, parseTodoFile, removeTodo, serializeTodoFile, toggleTodo, updateTodo } from './todo.ts'
+export type { TodoDraft, TodoFile, TodoItem, TodoPatch } from './todo.ts'
 export { entityFileContent, KB_README, shadowNoteContent, todoFileContent } from './templates.ts'
 export type { EntityTemplateOptions } from './templates.ts'
 export { ENTITY_DIRS, ENTITY_TYPES, KbError, PERSON_RELATIONS, SINGLETON_FILES } from './types.ts'

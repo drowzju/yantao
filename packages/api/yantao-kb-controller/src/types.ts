@@ -132,3 +132,115 @@ export interface KbOpenExternalResult {
   /** The target as handed to the desktop: a KB-relative path or an allowlisted URI. */
   readonly target: string
 }
+
+/** One structured todo row of the `entities/todos.md` singleton (ADR-0018). */
+export interface KbTodoItem {
+  /** Whether the checkbox is checked. */
+  readonly done: boolean
+  /** The item's title: the line's text after the checkbox and its `[key::value]` fields. */
+  readonly title: string
+  /** Deadline (YYYY-MM-DD). */
+  readonly due?: string
+  /** Completion date (YYYY-MM-DD). */
+  readonly doneOn?: string
+  /** The item's markdown body, carried by the two-space-indented lines below it; no trailing newline. */
+  readonly body: string
+  /** Unknown `[key::value]` tokens, kept as written so a round trip loses nothing. */
+  readonly extra: readonly string[]
+}
+
+/** Result of `yantaoKb.todos` (ADR-0018). */
+export interface KbTodosResult {
+  /** The KB-relative path of the singleton, `entities/todos.md`. */
+  readonly path: string
+  /** The file's exact current content — an absent file reads as `''`, never an error. */
+  readonly text: string
+  /** The parsed items, in file order; empty for an absent file. */
+  readonly items: readonly KbTodoItem[]
+}
+
+/** Parameters of `yantaoKb.writeTodos` (ADR-0018). */
+export interface KbWriteTodosArgs {
+  /** The whole item list to write, replacing the file's items. */
+  readonly items: readonly KbTodoItem[]
+  /** Optimistic concurrency: the `text` the caller last read from `yantaoKb.todos`. */
+  readonly expectedText: string
+}
+
+/** Result of `yantaoKb.writeTodos` (ADR-0018). */
+export interface KbWriteTodosResult {
+  /** The KB-relative path of the singleton, `entities/todos.md`. */
+  readonly path: string
+  /** The file's content as it now sits on disk. */
+  readonly text: string
+}
+
+/**
+ * One mail as the connector reports it (ADR-0019). Mirrors `mail/fetch.ts`'s
+ * `MailMessage` rather than importing it: `types.ts` is the contract the
+ * Client reads, and `fetch.ts` drags `node:child_process` in with it.
+ */
+export interface KbMailMessage {
+  /** Stable dedup key: `sha1("receivedAt|senderAddress|subject")`. */
+  readonly id: string
+  /** Outlook's MAPI EntryID; useful for follow-up work, never as a primary key. */
+  readonly entryId: string
+  /** Reception time as an ISO 8601 string, normalized to UTC. */
+  readonly receivedAt: string
+  /** The sender's display name. */
+  readonly senderName: string
+  /** The sender's address as Outlook reports it. */
+  readonly senderAddress: string
+  /** Subject line, empty when the mail has none. */
+  readonly subject: string
+  /** Plain text body, at most 3000 characters. */
+  readonly body: string
+  /** True when `body` was cut at the 3000-character limit. */
+  readonly truncated: boolean
+}
+
+/** Parameters of `yantaoKb.mailFetch` (ADR-0019). */
+export interface KbMailFetchArgs {
+  /**
+   * Lower bound (exclusive) on reception time, as an ISO 8601 string.
+   * Defaults to the connector's watermark, or to 30 days ago when there is
+   * none: a first run must not try to read a whole inbox.
+   */
+  readonly since?: string
+  /** How many of the newest mails to return; defaults to 50. */
+  readonly limit?: number
+}
+
+/** Result of `yantaoKb.mailFetch` (ADR-0019). */
+export interface KbMailFetchResult {
+  /** The bound the read actually used. */
+  readonly since: string
+  /** The watermark before this read, absent when the connector has never run. */
+  readonly lastReadAt?: string
+  /**
+   * Whether a gap may have opened: no watermark, or one older than 30 days.
+   * The UI asks whether to re-read the older stretch — it never silently
+   * skips it and never silently fills it in.
+   */
+  readonly stale: boolean
+  /** The mails, newest first. */
+  readonly messages: readonly KbMailMessage[]
+  /**
+   * Whether the read hit its cap, so older mails are still waiting. Exact
+   * totals would mean scanning the whole folder over COM; a page boundary
+   * answers the only question the UI asks.
+   */
+  readonly hasMore: boolean
+}
+
+/** Parameters of `yantaoKb.mailMarkRead` (ADR-0019). */
+export interface KbMailMarkReadArgs {
+  /** The new watermark: the newest mail that has been read. Defaults to now. */
+  readonly lastReadAt?: string
+}
+
+/** Result of `yantaoKb.mailMarkRead` (ADR-0019). */
+export interface KbMailMarkReadResult {
+  /** The watermark as it now stands. */
+  readonly lastReadAt: string
+}
