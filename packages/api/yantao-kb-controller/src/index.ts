@@ -12,7 +12,7 @@
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
  */
 
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -27,6 +27,7 @@ import { KbRevision } from './watch.ts'
 import type {
   KbCreateEntityArgs,
   KbCreateEntityResult,
+  KbDeleteFileResult,
   KbFileContent,
   KbLinksResult,
   KbMailFetchArgs,
@@ -316,6 +317,37 @@ export class YantaoKbController extends TypertRemoteService {
       return { path }
     } catch (error) {
       throw new RemoteError('yantao-kb/rejected', `无法写入知识库文件 ${path}：${(error as Error).message}`, { path }, { cause: error })
+    }
+  }
+
+  /**
+   * Delete one KB file — the workbench's right-click 「删除」 on an entity row.
+   *
+   * The human channel owns the KB's files, so this is a real unlink and not an
+   * archive: a row the human created and no longer wants is gone. The path is
+   * confined like every other one, and a missing file is
+   * `yantao-kb/not-found` rather than a silent success, so the UI can tell
+   * "already deleted" from "deleted just now".
+   * @param path - KB-relative path with forward slashes.
+   * @returns the deleted path.
+   */
+  @Remote('deleteFile')
+  async deleteFile(path: string): Promise<KbDeleteFileResult> {
+    const target = this.confine(path, path)
+    try {
+      await unlink(target)
+      return { path }
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') {
+        throw new RemoteError('yantao-kb/not-found', `找不到知识库文件：${path}`, { path }, { cause: error })
+      }
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `无法删除知识库文件 ${path}：${(error as Error).message}`,
+        { path },
+        { cause: error },
+      )
     }
   }
 

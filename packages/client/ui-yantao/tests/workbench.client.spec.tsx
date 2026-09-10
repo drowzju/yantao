@@ -10,8 +10,8 @@ import { Frame } from '../src/client/frame/Frame.tsx'
 import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveColumns } from '../src/client/frame/columns.ts'
 import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
 import type {
-  DirectoryPicker, EntityCreator, ExternalOpener, FileReader, FileWriter, LinksLoader, RevisionLoader, RootLoader,
-  RootSetter, TodoLoader, TodoWriter,
+  DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader, RevisionLoader,
+  RootLoader, RootSetter, TodoLoader, TodoWriter,
 } from '../src/client/remote.ts'
 import { TAB_STORAGE_KEY } from '../src/client/tabs.ts'
 
@@ -73,11 +73,13 @@ function railProps(overrides: Partial<RailProps> = {}): RailProps {
     selection: null,
     onExpand: () => {},
     onOpenFile: () => {},
+    onCloseFile: () => {},
     loadTodos: () => Promise.resolve(TODOS),
     writeTodos: () => Promise.resolve({ path: 'entities/todos.md', text: TODO_FILE }),
     createEntity: () => Promise.resolve('entities/areas/新实体.md'),
     read: () => Promise.resolve(''),
     write: () => Promise.resolve(),
+    deleteFile: () => Promise.resolve(),
     workspace: loader(workspace),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
@@ -191,6 +193,51 @@ describe('IntakeRail', () => {
     expect(createEntity).not.toHaveBeenCalled()
   })
 
+  it('cancels an inline name with the 取消 button', async () => {
+    const createEntity = vi.fn()
+    render(<IntakeRail {...railProps({ createEntity })} />)
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.click(await screen.findByText('+ 新建'))
+    fireEvent.click(screen.getByText('取消'))
+    expect(screen.queryByPlaceholderText('会议名称')).toBeNull()
+    expect(createEntity).not.toHaveBeenCalled()
+  })
+
+  it('cancels an inline name with Escape after the input lost the focus', async () => {
+    const createEntity = vi.fn()
+    render(<IntakeRail {...railProps({ createEntity })} />)
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.click(await screen.findByText('+ 新建'))
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(screen.queryByPlaceholderText('会议名称')).toBeNull()
+    expect(createEntity).not.toHaveBeenCalled()
+  })
+
+  it('deletes a meeting row from its right-click menu', async () => {
+    const load = vi.fn(loader(intake))
+    const deleteFile = vi.fn(() => Promise.resolve())
+    const onCloseFile = vi.fn()
+    render(<IntakeRail {...railProps({ load, deleteFile, onCloseFile })} />)
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('删除「周会」'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('删除'))
+    })
+    expect(deleteFile).toHaveBeenCalledWith('entities/meetings/周会.md')
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(onCloseFile).toHaveBeenCalledWith('entities/meetings/周会.md')
+  })
+
+  it('closes the row menu on Escape', async () => {
+    render(<IntakeRail {...railProps({})} />)
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
+    expect(await screen.findByText('删除「周会」')).toBeTruthy()
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(screen.queryByText('删除「周会」')).toBeNull()
+  })
+
   it('surfaces a load failure', async () => {
     const failing = vi.fn(() => Promise.reject(new Error('知识库加载失败')))
     render(<IntakeRail {...railProps({ load: failing })} />)
@@ -241,6 +288,22 @@ describe('WorkspaceRail', () => {
     expect(onOpenFile).toHaveBeenCalledWith('entities/projects/新项目.md', 'edit')
   })
 
+  it('deletes a project row from its right-click menu', async () => {
+    const load = vi.fn(loader(workspace))
+    const deleteFile = vi.fn(() => Promise.resolve())
+    const onCloseFile = vi.fn()
+    render(<WorkspaceRail {...railProps({ load, deleteFile, onCloseFile })} />)
+    fireEvent.click(await screen.findByText('项目'))
+    fireEvent.contextMenu(await screen.findByText('dsh 学习'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('删除「dsh 学习」'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('删除'))
+    })
+    expect(deleteFile).toHaveBeenCalledWith('entities/projects/dsh 学习.md')
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(onCloseFile).toHaveBeenCalledWith('entities/projects/dsh 学习.md')
+  })
+
   it('opens a workspace row as an editable file', async () => {
     const onOpenFile = vi.fn()
     render(<WorkspaceRail {...railProps({ load: loader(workspace), onOpenFile })} />)
@@ -271,6 +334,7 @@ describe('WorkspaceRail', () => {
 interface FrameFaces {
   readonly read: FileReader
   readonly write: FileWriter
+  readonly deleteFile: FileDeleter
   readonly todos: TodoLoader
   readonly writeTodos: TodoWriter
   readonly createEntity: EntityCreator
@@ -288,6 +352,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     links: path => Promise.resolve({ path, outgoing: [], incoming: [] }),
     read: () => Promise.resolve(TODO_FILE),
     write: () => Promise.resolve(),
+    deleteFile: () => Promise.resolve(),
     todos: () => Promise.resolve(TODOS),
     writeTodos: () => Promise.resolve({ path: 'entities/todos.md', text: TODO_FILE }),
     createEntity: () => Promise.resolve('entities/areas/新实体.md'),
@@ -311,6 +376,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       workspace={loader(workspace)}
       read={kb.read}
       write={kb.write}
+      deleteFile={kb.deleteFile}
       createEntity={kb.createEntity}
       root={kb.root}
       setRoot={kb.setRoot}
@@ -487,6 +553,7 @@ describe('Frame', () => {
         workspace={loader(workspace)}
         read={kb.read}
         write={kb.write}
+        deleteFile={kb.deleteFile}
         createEntity={kb.createEntity}
         root={kb.root}
         setRoot={kb.setRoot}

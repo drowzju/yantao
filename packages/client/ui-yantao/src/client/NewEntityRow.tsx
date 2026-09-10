@@ -1,9 +1,9 @@
 /**
  * The inline 「+ 新建」 row: a button that becomes a text input, Enter
- * submits, Escape cancels. Presentational — the caller owns what "create"
- * means for its tab (which entity kind, which tree to refresh).
+ * submits, 取消 or Escape cancels. Presentational — the caller owns what
+ * "create" means for its tab (which entity kind, which tree to refresh).
  */
-import { useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useState, type ReactElement } from 'react'
 
 /** Inline creation row props. */
 export interface NewEntityRowProps {
@@ -31,11 +31,27 @@ export function NewEntityRow({ label, placeholder = '名称', submit }: NewEntit
   const [error, setError] = useState<string | null>(null)
 
   /** Reset to the button after a submit or a cancel. */
-  const close = (): void => {
+  const close = useCallback((): void => {
     setEditing(false)
     setName('')
     setBusy(false)
-  }
+    setError(null)
+  }, [])
+
+  // Escape cancels even when the input no longer holds the focus — the row
+  // must never trap the human in edit mode with no way back. (The input's own
+  // handler below answers Enter; this listener is the one that answers Escape,
+  // wherever the focus has gone.)
+  useEffect(() => {
+    if (!editing || busy) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') close()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [editing, busy, close])
 
   return (
     <div>
@@ -54,22 +70,15 @@ export function NewEntityRow({ label, placeholder = '名称', submit }: NewEntit
             style={{ flex: 1, minWidth: 0 }}
             onChange={(event) => { setName(event.target.value) }}
             onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                setError(null)
-                close()
-                return
-              }
               if (event.key !== 'Enter') return
               const trimmed = name.trim()
               if (trimmed === '') {
-                setError(null)
                 close()
                 return
               }
               setBusy(true)
               submit(trimmed).then(
                 () => {
-                  setError(null)
                   close()
                 },
                 (failure: unknown) => {
@@ -79,6 +88,7 @@ export function NewEntityRow({ label, placeholder = '名称', submit }: NewEntit
               )
             }}
           />
+          <button type="button" style={{ padding: '2px 6px' }} disabled={busy} onClick={close}>取消</button>
         </div>
       )}
       {error !== null && <div style={errorStyle}>{error}</div>}

@@ -3009,6 +3009,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the written path.',
       },
       {
+        signature: '@Remote(\'deleteFile\') async deleteFile(path: string): Promise<KbDeleteFileResult>',
+        description: 'Delete one KB file — the workbench\'s right-click 「删除」 on an entity row.\n\nThe human channel owns the KB\'s files, so this is a real unlink and not an archive: a row the human created and no longer wants is gone. The path is confined like every other one, and a missing file is `yantao-kb/not-found` rather than a silent success, so the UI can tell "already deleted" from "deleted just now".',
+        parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }],
+        returns: 'the deleted path.',
+      },
+      {
         signature: '@Remote(\'todos\') async todos(): Promise<KbTodosResult>',
         description: 'The structured todo board (ADR-0018): the `entities/todos.md` singleton parsed into items, plus the file\'s exact text — the UI echoes that text back as `writeTodos`\'s `expectedText`, which is what makes the board\'s optimistic concurrency work. The parse lives here because the Client cannot import the kb package\'s values (bundle purity).',
         parameters: [],
@@ -4493,6 +4499,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KbCreateEntityResult',
     declaration: 'export interface KbCreateEntityResult {\n    readonly path: string;\n}',
+  },
+  {
+    name: 'KbDeleteFileResult',
+    declaration: 'export interface KbDeleteFileResult {\n    readonly path: string;\n}',
   },
   {
     name: 'KbFileContent',

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-api-yantao-kb-controller` is the Typert Remote controller behind the yantao workbench UI: fourteen unary methods over the `yantaoKb` namespace — `intakeTree`, `workspaceTree`, `read`, `write`, `root`, `setRoot`, `createEntity`, `links`, `revision`, `openExternal`, `todos`, `writeTodos`, `mailFetch`, and `mailMarkRead` — that let the browser list, edit, and extend the knowledge base directly. Every path is KB-relative and confined to the kbRoot the `yantao-kb` plugin publishes as the `yantaoKb` service, so the controller shares the plugin's one configuration point and never duplicates it; `setRoot` re-points that one root. The UI is the human channel, so `write` is a full-file write; the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface.
+`dsh-api-yantao-kb-controller` is the Typert Remote controller behind the yantao workbench UI: fifteen unary methods over the `yantaoKb` namespace — `intakeTree`, `workspaceTree`, `read`, `write`, `deleteFile`, `root`, `setRoot`, `createEntity`, `links`, `revision`, `openExternal`, `todos`, `writeTodos`, `mailFetch`, and `mailMarkRead` — that let the browser list, edit, and extend the knowledge base directly. Every path is KB-relative and confined to the kbRoot the `yantao-kb` plugin publishes as the `yantaoKb` service, so the controller shares the plugin's one configuration point and never duplicates it; `setRoot` re-points that one root. The UI is the human channel, so `write` is a full-file write; the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface.
 
 ## Table of Contents
 
@@ -35,6 +35,7 @@ The `yantao-web` profile mounts this controller automatically; the workbench UI 
 | `yantaoKb.workspaceTree` | `()` | The workspace sections (`projects`, `areas`, `people`); same row shape as above |
 | `yantaoKb.read` | `(path)` | `{ path, content }` — the file's complete UTF-8 content |
 | `yantaoKb.write` | `(path, content)` | `{ path }` — full-file write, creating missing parent directories |
+| `yantaoKb.deleteFile` | `(path)` | `{ path }` — removes one KB file; the path is confined like every other one, and an absent file is `not-found` |
 | `yantaoKb.root` | `()` | `{ root, configured }` — the live KB root, and whether the human has chosen one |
 | `yantaoKb.setRoot` | `(path)` | `{ root, configured, created, existing }` — initializes `path` as a KB, makes it the live root, and remembers it |
 | `yantaoKb.createEntity` | `({ type, name, date? })` | `{ path }` — one entity note from the KB's canonical template |

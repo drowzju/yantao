@@ -691,6 +691,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   KbTree: 'wire tree payload is owned by packages/api/yantao-kb-controller/README.md',
   KbFileContent: 'wire read result is owned by packages/api/yantao-kb-controller/README.md',
   KbWriteResult: 'wire write result is owned by packages/api/yantao-kb-controller/README.md',
+  KbDeleteFileResult: 'wire deleteFile result is owned by packages/api/yantao-kb-controller/README.md',
   KbRootResult: 'wire root payload is owned by packages/api/yantao-kb-controller/README.md',
   KbSetRootResult: 'wire setRoot result is owned by packages/api/yantao-kb-controller/README.md',
   KbCreateEntityArgs: 'wire createEntity request is owned by packages/api/yantao-kb-controller/README.md',

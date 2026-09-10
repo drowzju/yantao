@@ -54,6 +54,12 @@ export interface KbWriteResult {
   readonly path: string
 }
 
+/** Result of `yantaoKb.deleteFile`. */
+export interface KbDeleteFileResult {
+  /** The KB-relative path that was deleted. */
+  readonly path: string
+}
+
 /** One `[[…]]` link a file writes out, and where it lands (ADR-0015). */
 export interface KbLinkTarget {
   /** The target as written between the brackets. */

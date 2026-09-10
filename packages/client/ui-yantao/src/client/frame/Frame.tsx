@@ -13,8 +13,8 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
-  DirectoryPicker, EntityCreator, ExternalOpener, FileReader, FileWriter, LinksLoader, MailFetcher, MailMarker,
-  RevisionLoader, RootLoader, RootSetter, TodoLoader, TodoWriter,
+  DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader, MailFetcher,
+  MailMarker, RevisionLoader, RootLoader, RootSetter, TodoLoader, TodoWriter,
 } from '../remote.ts'
 import type { MailAnalyser } from '../mail-analysis.ts'
 import { obsidianUri } from '../remote.ts'
@@ -44,6 +44,8 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly read: FileReader
   /** Write one KB file's content. */
   readonly write: FileWriter
+  /** Delete one KB file — the rails' right-click 「删除」 on an entity row. */
+  readonly deleteFile: FileDeleter
   /** Create one entity and resolve its path. */
   readonly createEntity: EntityCreator
   /** Read the KB root's configuration state. */
@@ -183,8 +185,8 @@ function DragHandle(props: {
  * @returns the frame element.
  */
 export function Frame({
-  renderSlot, panels, intake, workspace, read, write, createEntity, root, setRoot, pickDirectory, links, revision,
-  openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, onKbRootChanged,
+  renderSlot, panels, intake, workspace, read, write, deleteFile, createEntity, root, setRoot, pickDirectory, links,
+  revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -437,11 +439,13 @@ export function Frame({
           selection={selection}
           onExpand={() => { setIntakeOpen(true) }}
           onOpenFile={openFile}
+          onCloseFile={closeFile}
           loadTodos={todos}
           writeTodos={writeTodos}
           createEntity={createEntity}
           read={read}
           write={write}
+          deleteFile={deleteFile}
           workspace={workspace}
           mailFetch={mailFetch}
           mailMarkRead={mailMarkRead}
@@ -504,11 +508,13 @@ export function Frame({
           selection={selection}
           onExpand={() => { setWorkspaceOpen(true) }}
           onOpenFile={openFile}
+          onCloseFile={closeFile}
           loadTodos={todos}
           writeTodos={writeTodos}
           createEntity={createEntity}
           read={read}
           write={write}
+          deleteFile={deleteFile}
           workspace={workspace}
           mailFetch={mailFetch}
           mailMarkRead={mailMarkRead}

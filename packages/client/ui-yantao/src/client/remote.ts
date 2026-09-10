@@ -20,7 +20,7 @@ import type {
   SessionPromptValue, SessionRenameRequest, SessionRenameValue,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {
-  KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult, KbFileContent, KbLinksResult,
+  KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult, KbDeleteFileResult, KbFileContent, KbLinksResult,
   KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
   KbOpenExternalResult, KbRevisionResult, KbRootResult, KbSetRootResult, KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
@@ -33,6 +33,7 @@ export interface KbRemote {
   read(path: string): Promise<RemoteResult<KbFileContent>>
   links(path: string): Promise<RemoteResult<KbLinksResult>>
   write(path: string, content: string): Promise<RemoteResult<KbWriteResult>>
+  deleteFile(path: string): Promise<RemoteResult<KbDeleteFileResult>>
   root(): Promise<RemoteResult<KbRootResult>>
   setRoot(path: string): Promise<RemoteResult<KbSetRootResult>>
   createEntity(args: KbCreateEntityArgs): Promise<RemoteResult<KbCreateEntityResult>>
@@ -60,6 +61,9 @@ export type FileReader = (path: string) => Promise<string>
 
 /** Write one KB file's full content; rejects with the Remote's own message. */
 export type FileWriter = (path: string, content: string) => Promise<void>
+
+/** Delete one KB file; rejects with the Remote's own message. */
+export type FileDeleter = (path: string) => Promise<void>
 
 /** Create one entity and resolve its KB-relative path. */
 export type EntityCreator = (type: KbCreatableEntityType, name: string) => Promise<string>
@@ -163,6 +167,20 @@ export async function writeFile(ctx: Context, path: string, content: string): Pr
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   unwrapRemote(await kb.write(path, content))
+}
+
+/**
+ * Delete one KB file — the rails' right-click 「删除」 on an entity row. The
+ * host refuses an absent file, so a row already gone elsewhere is reported
+ * rather than silently accepted.
+ * @param ctx - client root context.
+ * @param path - KB-relative path.
+ * @returns a rejected promise carrying the reason on failure.
+ */
+export async function deleteFile(ctx: Context, path: string): Promise<void> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  unwrapRemote(await kb.deleteFile(path))
 }
 
 /**

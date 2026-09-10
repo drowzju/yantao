@@ -39,8 +39,8 @@ import { YantaoMark } from './brand/YantaoMark.tsx'
 import { alignWorkspace } from './kb-workspace.ts'
 import { kbReferenceSource } from './kb-reference.ts'
 import {
-  createEntity, fetchMail, loadIntake, loadLinks, loadRevision, loadRoot, loadTodos, loadWorkspace, markMailRead,
-  openExternal, readFile, setKbRoot, writeFile, writeTodos,
+  createEntity, deleteFile, fetchMail, loadIntake, loadLinks, loadRevision, loadRoot, loadTodos, loadWorkspace,
+  markMailRead, openExternal, readFile, setKbRoot, writeFile, writeTodos,
 } from './remote.ts'
 import type { MailMessage } from './remote.ts'
 
@@ -112,6 +112,7 @@ export function apply(ctx: Context): void {
       workspace: () => loadWorkspace(ctx),
       read: (path: string) => readFile(ctx, path),
       write: (path: string, content: string) => writeFile(ctx, path, content),
+      deleteFile: (path: string) => deleteFile(ctx, path),
       createEntity: (type: KbCreatableEntityType, name: string) => createEntity(ctx, { type, name }),
       root: () => loadRoot(ctx),
       setRoot: (path: string) => setKbRoot(ctx, path),

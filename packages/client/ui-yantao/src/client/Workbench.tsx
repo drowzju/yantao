@@ -6,9 +6,9 @@
  * as a prop and every action as a callback.
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import type { KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbTreeFile, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type {
-  EntityCreator, FileReader, FileWriter, MailFetcher, MailMarker, TodoLoader, TodoWriter,
+  EntityCreator, FileDeleter, FileReader, FileWriter, MailFetcher, MailMarker, TodoLoader, TodoWriter,
 } from './remote.ts'
 import type { MailAnalyser } from './mail-analysis.ts'
 import type { MailWriteTarget } from './mail-apply.ts'
@@ -154,12 +154,15 @@ function Section({
   section,
   selection,
   onSelect,
+  onMenu,
   showHeading = true,
 }: {
   id: KbTreeSectionId | 'connector'
   section: KbTreeSection | undefined
   selection: string | null
   onSelect: (path: string) => void
+  /** Open the row's right-click menu; absent for a section whose rows are not the human's to drop. */
+  onMenu?: ((file: KbTreeFile, x: number, y: number) => void) | undefined
   showHeading?: boolean
 }): ReactElement {
   return (
@@ -174,6 +177,10 @@ function Section({
           style={selection === file.path ? selectedRowStyle : rowStyle}
           data-selected={selection === file.path || undefined}
           onClick={() => { onSelect(file.path) }}
+          onContextMenu={onMenu === undefined ? undefined : (event) => {
+            event.preventDefault()
+            onMenu(file, event.clientX, event.clientY)
+          }}
           title={file.path}
         >
           {file.name}
@@ -183,6 +190,140 @@ function Section({
       ))}
     </div>
   )
+}
+
+/** One row's right-click menu: the row it belongs to and where it opens. */
+interface MenuTarget {
+  readonly path: string
+  readonly name: string
+  readonly x: number
+  readonly y: number
+}
+
+const menuStyle = {
+  position: 'fixed',
+  zIndex: 40,
+  padding: 4,
+  background: '#fff',
+  border: '1px solid #e6e2d8',
+  borderRadius: 4,
+  boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+  fontFamily: FONT,
+  fontSize: 13,
+} as const
+
+const menuItemStyle = {
+  display: 'block',
+  width: '100%',
+  textAlign: 'left',
+  padding: '3px 8px',
+  border: 'none',
+  background: 'transparent',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+} as const
+
+const menuNoteStyle = { color: '#6b6455', padding: '2px 8px 4px' } as const
+
+/**
+ * The row menu: 删除 asks once before the file goes, and Escape or a click
+ * anywhere else dismisses it. The `mousedown` that opened it has already been
+ * dispatched, so it cannot close itself the moment it appears.
+ * @param props - the targeted row, the busy flag, and the two actions.
+ * @returns the menu element.
+ */
+function RowMenu(props: {
+  target: MenuTarget
+  busy: boolean
+  onDelete: (path: string) => void
+  onClose: () => void
+}): ReactElement {
+  const { target, busy, onDelete, onClose } = props
+  const [confirming, setConfirming] = useState(false)
+  const ref = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    const onPointerDown = (event: MouseEvent): void => {
+      if (ref.current !== null && !ref.current.contains(event.target as Node)) onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('mousedown', onPointerDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('mousedown', onPointerDown)
+    }
+  }, [onClose])
+
+  return (
+    <div ref={ref} style={{ ...menuStyle, left: target.x, top: target.y }} data-row-menu={target.path}>
+      {!confirming && (
+        <button type="button" style={menuItemStyle} disabled={busy} onClick={() => { setConfirming(true) }}>
+          删除「{target.name}」
+        </button>
+      )}
+      {confirming && (
+        <div>
+          <div style={menuNoteStyle}>不可撤销，确认删除？</div>
+          <button type="button" style={menuItemStyle} disabled={busy} onClick={() => { onDelete(target.path) }}>
+            删除
+          </button>
+          <button type="button" style={menuItemStyle} onClick={onClose}>取消</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** What a rail needs from its row menu: the open menu, and the actions behind it. */
+interface RowMenuHost {
+  readonly menu: MenuTarget | null
+  /** True while a delete is in flight. */
+  readonly busy: boolean
+  /** Open the menu on one row, at the pointer. */
+  readonly open: (file: KbTreeFile, x: number, y: number) => void
+  readonly close: () => void
+  readonly remove: (path: string) => Promise<void>
+}
+
+/**
+ * Own one rail's row menu: opening, dismissing, and the delete itself — the
+ * file goes through the host, then the tree reloads and the centre pane drops
+ * the tab that was showing it.
+ * @param args - the delete channel and the three callbacks it reports to.
+ * @returns the menu state and its actions.
+ */
+function useRowMenu(args: {
+  readonly deleteFile: FileDeleter
+  readonly refresh: () => Promise<void>
+  readonly onCloseFile: (path: string) => void
+  readonly onError: (message: string) => void
+}): RowMenuHost {
+  const [menu, setMenu] = useState<MenuTarget | null>(null)
+  const [busy, setBusy] = useState(false)
+  // Every callback is a fresh closure on each render (inject face), so the
+  // delete path reaches them through a ref.
+  const latest = useRef(args)
+  latest.current = args
+  const remove = useCallback(async (path: string): Promise<void> => {
+    setBusy(true)
+    try {
+      await latest.current.deleteFile(path)
+      await latest.current.refresh()
+      latest.current.onCloseFile(path)
+      setMenu(null)
+    } catch (failure: unknown) {
+      latest.current.onError(remoteMessage(failure))
+    } finally {
+      setBusy(false)
+    }
+  }, [])
+  const open = useCallback((file: KbTreeFile, x: number, y: number): void => {
+    setMenu({ path: file.path, name: file.name, x, y })
+  }, [])
+  const close = useCallback((): void => { setMenu(null) }, [])
+  return { menu, busy, open, close, remove }
 }
 
 /** The compact column both rails render while collapsed. */
@@ -221,6 +362,8 @@ export interface RailProps {
   readonly onExpand: () => void
   /** Open a KB file in the centre pane. */
   readonly onOpenFile: (path: string, mode: TabMode) => void
+  /** Drop a KB file's centre-pane tab — the half of a delete the rail owes the frame. */
+  readonly onCloseFile: (path: string) => void
   /** Read the todo singleton as structured items (ADR-0018). */
   readonly loadTodos: TodoLoader
   /** Write the todo singleton's whole item list (ADR-0018). */
@@ -231,6 +374,8 @@ export interface RailProps {
   readonly read: FileReader
   /** Write one KB file's content (ADR-0019). */
   readonly write: FileWriter
+  /** Delete one KB file — the row menu's 「删除」. */
+  readonly deleteFile: FileDeleter
   /** Load the workspace side, so the mail analysis can name what exists (ADR-0019). */
   readonly workspace: TreeLoader
   /** Read the newest mails after the connector's cursor (ADR-0019). */
@@ -259,12 +404,13 @@ function RailHeader({ error }: { error: string | null }): ReactElement {
  */
 export function IntakeRail(props: RailProps): ReactElement {
   const {
-    collapsed, load, refreshKey, selection, onExpand, onOpenFile, loadTodos, writeTodos, createEntity,
-    read, write, workspace, mailFetch, mailMarkRead, analyseMail,
+    collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
+    read, write, deleteFile, workspace, mailFetch, mailMarkRead, analyseMail,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector'>('resources')
   const [actionError, setActionError] = useState<string | null>(null)
+  const rowMenu = useRowMenu({ deleteFile, refresh, onCloseFile, onError: setActionError })
   // Reveal a selection this rail owns: the tab carrying the file comes to the
   // front, so the highlighted row is a visible one. A selection owned by the
   // other rail leaves the human's own tab choice alone.
@@ -330,6 +476,7 @@ export function IntakeRail(props: RailProps): ReactElement {
           section={sections?.find(entry => entry.id === tab)}
           selection={selection}
           onSelect={(path) => { onOpenFile(path, tab === 'resources' ? 'read' : 'edit') }}
+          onMenu={tab === 'meetings' ? rowMenu.open : undefined}
           showHeading={false}
         />
       )}
@@ -340,6 +487,15 @@ export function IntakeRail(props: RailProps): ReactElement {
           submit={name => create('meeting', name).catch((failure: unknown) => {
             setActionError(failure instanceof Error ? failure.message : String(failure))
           })}
+        />
+      )}
+      {rowMenu.menu !== null && (
+        <RowMenu
+          key={rowMenu.menu.path}
+          target={rowMenu.menu}
+          busy={rowMenu.busy}
+          onDelete={(path) => { void rowMenu.remove(path) }}
+          onClose={rowMenu.close}
         />
       )}
     </div>
@@ -354,11 +510,12 @@ export function IntakeRail(props: RailProps): ReactElement {
  */
 export function WorkspaceRail(props: RailProps): ReactElement {
   const {
-    collapsed, load, refreshKey, selection, onExpand, onOpenFile, createEntity,
+    collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, createEntity, deleteFile,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId>('areas')
   const [actionError, setActionError] = useState<string | null>(null)
+  const rowMenu = useRowMenu({ deleteFile, refresh, onCloseFile, onError: setActionError })
   // Same reveal as the intake rail: a selection this rail owns pulls its tab
   // forward, one it does not own is left to the other rail.
   useEffect(() => {
@@ -402,6 +559,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
         section={sections?.find(entry => entry.id === tab)}
         selection={selection}
         onSelect={(path) => { onOpenFile(path, 'edit') }}
+        onMenu={rowMenu.open}
         showHeading={false}
       />
       <NewEntityRow
@@ -411,6 +569,15 @@ export function WorkspaceRail(props: RailProps): ReactElement {
           setActionError(failure instanceof Error ? failure.message : String(failure))
         })}
       />
+      {rowMenu.menu !== null && (
+        <RowMenu
+          key={rowMenu.menu.path}
+          target={rowMenu.menu}
+          busy={rowMenu.busy}
+          onDelete={(path) => { void rowMenu.remove(path) }}
+          onClose={rowMenu.close}
+        />
+      )}
     </div>
   )
 }

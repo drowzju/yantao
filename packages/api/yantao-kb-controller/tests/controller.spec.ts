@@ -145,6 +145,37 @@ describe('yantaoKb.write', () => {
   })
 })
 
+describe('yantaoKb.deleteFile', () => {
+  it('removes one entity file', async () => {
+    await seedKb()
+    const result = await ctx.yantaoKbController.deleteFile('entities/projects/dsh 学习.md')
+    expect(result).toEqual({ path: 'entities/projects/dsh 学习.md' })
+    await expect(readFile(join(kbRoot, 'entities/projects/dsh 学习.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('classifies a missing file as yantao-kb/not-found', async () => {
+    const failure = await ctx.yantaoKbController.deleteFile('entities/areas/不存在.md')
+      .catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({
+      code: 'yantao-kb/not-found',
+      details: { path: 'entities/areas/不存在.md' },
+    })
+  })
+
+  it('rejects escape attempts without touching the filesystem', async () => {
+    await seedKb()
+    const outside = join(kbRoot, '..', 'delete-victim.md')
+    await writeFile(outside, 'untouched', 'utf8')
+    try {
+      const failure = await ctx.yantaoKbController.deleteFile('../delete-victim.md').catch((error: unknown) => error)
+      expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+      expect(await readFile(outside, 'utf8')).toBe('untouched')
+    } finally {
+      await rm(outside, { force: true })
+    }
+  })
+})
+
 describe('yantaoKb.root', () => {
   it('reports the live root and an unconfigured state', async () => {
     expect(await ctx.yantaoKbController.root()).toEqual({ root: kbRoot, configured: false })

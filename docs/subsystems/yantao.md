@@ -184,6 +184,19 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('write') async write(path: string, content: string): Promise<KbWriteResult>
 
 /**
+ * Delete one KB file — the workbench's right-click 「删除」 on an entity row.
+ *
+ * The human channel owns the KB's files, so this is a real unlink and not an
+ * archive: a row the human created and no longer wants is gone. The path is
+ * confined like every other one, and a missing file is
+ * `yantao-kb/not-found` rather than a silent success, so the UI can tell
+ * "already deleted" from "deleted just now".
+ * @param path - KB-relative path with forward slashes.
+ * @returns the deleted path.
+ */
+@Remote('deleteFile') async deleteFile(path: string): Promise<KbDeleteFileResult>
+
+/**
  * The structured todo board (ADR-0018): the `entities/todos.md` singleton
  * parsed into items, plus the file's exact text — the UI echoes that text
  * back as `writeTodos`'s `expectedText`, which is what makes the board's
