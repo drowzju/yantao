@@ -45,7 +45,13 @@ const intake: KbTreeSection[] = [
 const workspace: KbTreeSection[] = [
   { id: 'projects', files: [{ name: 'dsh 学习', path: 'entities/projects/dsh 学习.md' }] },
   { id: 'areas', files: [{ name: '健康', path: 'entities/areas/健康.md' }] },
-  { id: 'people', files: [{ name: '我自己', path: 'entities/people/我自己.md', relation: 'self' }] },
+  {
+    id: 'people',
+    files: [
+      { name: '我自己', path: 'entities/people/我自己.md', relation: 'self' },
+      { name: '张三', path: 'entities/people/张三.md', relation: 'peer' },
+    ],
+  },
 ]
 
 /** The todo singleton as the KB writes it. */
@@ -340,15 +346,24 @@ describe('WorkspaceRail', () => {
     const setRelation = vi.fn(() => Promise.resolve())
     render(<WorkspaceRail {...railProps({ load, setRelation })} />)
     fireEvent.click(await screen.findByText('人物'))
-    fireEvent.contextMenu(await screen.findByText('我自己'), { clientX: 40, clientY: 60 })
-    const current = await screen.findByText('✓ 自己')
-    expect(current.getAttribute('data-relation')).toBe('self')
+    fireEvent.contextMenu(await screen.findByText('张三'), { clientX: 40, clientY: 60 })
+    const current = await screen.findByText('✓ 同事')
+    expect(current.getAttribute('data-relation')).toBe('peer')
     await act(async () => {
       fireEvent.click(screen.getByText('下属'))
     })
-    expect(setRelation).toHaveBeenCalledWith('entities/people/我自己.md', 'subordinate')
+    expect(setRelation).toHaveBeenCalledWith('entities/people/张三.md', 'subordinate')
     // The tree reloaded, so the row shows what the file now carries.
     expect(load).toHaveBeenCalledTimes(2)
+  })
+
+  it('offers no relation on 我自己 — 自己 is what makes a file the KB\'s owner', async () => {
+    const setRelation = vi.fn(() => Promise.resolve())
+    render(<WorkspaceRail {...railProps({ load: loader(workspace), setRelation })} />)
+    fireEvent.click(await screen.findByText('人物'))
+    fireEvent.contextMenu(await screen.findByText('我自己'), { clientX: 40, clientY: 60 })
+    expect(await screen.findByText('知识库主人，不可改')).toBeTruthy()
+    expect(screen.queryByText('同事')).toBeNull()
   })
 
   it('offers no relation on a row that is not a person', async () => {

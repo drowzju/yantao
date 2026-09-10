@@ -89,10 +89,26 @@ function relationLabel(relation: string): string {
   return Object.hasOwn(RELATION_LABELS, relation) ? RELATION_LABELS[relation as KbPersonRelation] : relation
 }
 
-/** The picker's options: the domain's five, in the rail's own words. */
-const RELATION_OPTIONS: readonly { readonly value: KbPersonRelation; readonly label: string }[] = (
+/**
+ * The relations the workbench offers — every one but 自己. `self` marks the KB
+ * owner, and `kb_init` is what writes it: a second person carrying it would
+ * make two owners of one knowledge base, so nobody picks it from a menu.
+ */
+const RELATION_OPTIONS: readonly RelationOption[] = (
   Object.entries(RELATION_LABELS) as [KbPersonRelation, string][]
-).map(([value, label]) => ({ value, label }))
+).filter(([value]) => value !== 'self')
+  .map(([value, label]) => ({ value, label }))
+
+/**
+ * The relations one row's menu offers. The owner — the person whose file
+ * carries `relation: self` — offers none: 自己 is what makes a file the KB's
+ * owner, not a label somebody can hand out or take away from a menu.
+ * @param relation - the relation the row's file carries.
+ * @returns the pickable relations, or an empty list for the owner.
+ */
+function relationsFor(relation: string | undefined): readonly RelationOption[] {
+  return relation === 'self' ? [] : RELATION_OPTIONS
+}
 
 const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
 
@@ -262,23 +278,35 @@ const menuItemStyle = {
 
 const menuNoteStyle = { color: '#6b6455', padding: '2px 8px 4px' } as const
 
+/** One relation the row menu offers. */
+interface RelationOption {
+  readonly value: KbPersonRelation
+  readonly label: string
+}
+
 /**
- * The row menu: a person's five relations, each set the moment it is picked,
- * and 删除 below, which asks once before the file goes. Escape or a click
- * anywhere else dismisses it; the `mousedown` that opened it has already been
+ * The row menu: a person's relations, each set the moment it is picked, and
+ * 删除 below, which asks once before the file goes. Escape or a click anywhere
+ * else dismisses it; the `mousedown` that opened it has already been
  * dispatched, so it cannot close itself the moment it appears.
+ *
+ * `relations` is the whole story the rail tells about the row: absent for a
+ * row that has no relation at all, empty for the KB's owner (whose relation is
+ * not the workbench's to change), and the four pickable ones otherwise.
  * @param props - the targeted row, the busy flag, and the actions.
  * @returns the menu element.
  */
 function RowMenu(props: {
   target: MenuTarget
   busy: boolean
+  /** The relations this row offers, when it is a person's. */
+  relations?: readonly RelationOption[] | undefined
   /** Write the row's relation; only a person row offers one. */
   onRelate?: ((path: string, relation: KbPersonRelation) => Promise<void>) | undefined
   onDelete: (path: string) => void
   onClose: () => void
 }): ReactElement {
-  const { target, busy, onRelate, onDelete, onClose } = props
+  const { target, busy, relations, onRelate, onDelete, onClose } = props
   const [confirming, setConfirming] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -298,10 +326,11 @@ function RowMenu(props: {
 
   return (
     <div ref={ref} style={{ ...menuStyle, left: target.x, top: target.y }} data-row-menu={target.path}>
-      {onRelate !== undefined && (
+      {relations !== undefined && (
         <div data-row-relations="true">
           <div style={menuNoteStyle}>关系</div>
-          {RELATION_OPTIONS.map(option => (
+          {relations.length === 0 && <div style={menuNoteStyle}>知识库主人，不可改</div>}
+          {relations.map(option => (
             <button
               key={option.value}
               type="button"
@@ -309,7 +338,7 @@ function RowMenu(props: {
               disabled={busy}
               data-relation={option.value}
               data-current={option.value === target.relation || undefined}
-              onClick={() => { void onRelate(target.path, option.value) }}
+              onClick={() => { void onRelate?.(target.path, option.value) }}
             >
               {option.value === target.relation ? `✓ ${option.label}` : option.label}
             </button>
@@ -665,7 +694,8 @@ export function WorkspaceRail(props: RailProps): ReactElement {
           key={rowMenu.menu.path}
           target={rowMenu.menu}
           busy={rowMenu.busy}
-          onRelate={tab === 'people' ? rowMenu.relate : undefined}
+          relations={tab === 'people' ? relationsFor(rowMenu.menu.relation) : undefined}
+          onRelate={rowMenu.relate}
           onDelete={(path) => { void rowMenu.remove(path) }}
           onClose={rowMenu.close}
         />
