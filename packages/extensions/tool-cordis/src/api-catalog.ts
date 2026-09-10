@@ -3009,6 +3009,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the written path.',
       },
       {
+        signature: '@Remote(\'todos\') async todos(): Promise<KbTodosResult>',
+        description: 'The structured todo board (ADR-0018): the `entities/todos.md` singleton parsed into items, plus the file\'s exact text — the UI echoes that text back as `writeTodos`\'s `expectedText`, which is what makes the board\'s optimistic concurrency work. The parse lives here because the Client cannot import the kb package\'s values (bundle purity).',
+        parameters: [],
+        returns: 'the singleton\'s path, its exact current text, and its items in file order.',
+      },
+      {
+        signature: '@Remote(\'writeTodos\') async writeTodos(args: KbWriteTodosArgs): Promise<KbWriteTodosResult>',
+        description: 'Write the whole todo list back (ADR-0018), replacing the file\'s items but keeping its preamble: a heading the human wrote above the checklist is theirs, and the UI sends items only.\n\n`expectedText` is the optimistic-concurrency check — the same pre-save comparison the editor\'s autosave uses (ADR-0012), not a second model: a stale value means somebody else (Obsidian, an agent, another tab) got there first, and the UI refreshes rather than clobbering.',
+        parameters: [{ name: 'args', description: 'the new item list and the text the caller last read.' }],
+        returns: 'the singleton\'s path and what is on disk now.',
+      },
+      {
         signature: '@Remote(\'revision\') revision(): Promise<KbRevisionResult>',
         description: 'The KB\'s change counter (ADR-0017). The UI compares it across polls to learn that something changed **outside** the workbench — an edit in Obsidian, a `git checkout`, an agent write. An edit made inside the workbench does not move it, because the UI already knows about those.\n\nThe watcher is (re-)pointed at the live root on every call: the root is mutable through `setRoot`, and a watcher left behind would watch a directory nobody edits any more.',
         parameters: [],
@@ -3019,6 +3031,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Hand one target to the desktop\'s own handler (ADR-0017) — the whole "borrow Obsidian" bridge.\n\n`target` is either a KB-relative path (opened with whatever the desktop associates with `.md`) or a URI of an allowlisted scheme, which is how the UI asks for `obsidian://open?path=…`. Anything else is refused: an open-ended "run this string on the host" would be a shell, not a bridge, and the trust boundary is the whole point of this project.',
         parameters: [{ name: 'target', description: 'a KB-relative path, or a URI (see `open.ts`).' }],
         returns: 'the target that was opened.',
+      },
+      {
+        signature: '@Remote(\'mailFetch\') async mailFetch(args: KbMailFetchArgs): Promise<KbMailFetchResult>',
+        description: 'Read the newest mails received after the connector\'s watermark (ADR-0019).\n\nThe bound defaults to that watermark, and to 30 days ago when there is none — a first run must not walk a whole inbox over COM. The read only ever says whether it filled its page (`hasMore`), never how many mails are left: an exact total would mean touching every item in the folder.\n\nEvery failure leaves as a `yantao-kb/mail` error carrying the script\'s own message *and* its remedy, because the useful answer to "Outlook is not answering" is what to install, not that the fetch failed.',
+        parameters: [{ name: 'args', description: 'an explicit `since` (to re-read an older stretch) and a cap.' }],
+        returns: 'the bound used, the watermark before the read, whether a gap may have opened, the mails, and whether more are waiting.',
+      },
+      {
+        signature: '@Remote(\'mailMarkRead\') async mailMarkRead(args: KbMailMarkReadArgs): Promise<KbMailMarkReadResult>',
+        description: 'Move the mail connector\'s watermark (ADR-0019): everything at or before `lastReadAt` has been seen, so the next `mailFetch` starts after it.\n\nThe cursor lives in `~/.dsh`, next to the KB root it was read for, and never in the KB itself — that is markdown for humans.',
+        parameters: [{ name: 'args', description: 'the stamp to store; defaults to now.' }],
+        returns: 'the watermark as it now stands.',
       },
     ],
   },
@@ -4479,6 +4503,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbLinksResult {\n    readonly path: string;\n    readonly outgoing: readonly KbLinkTarget[];\n    readonly incoming: readonly KbLinkSource[];\n}',
   },
   {
+    name: 'KbMailFetchArgs',
+    declaration: 'export interface KbMailFetchArgs {\n    readonly since?: string;\n    readonly limit?: number;\n}',
+  },
+  {
+    name: 'KbMailFetchResult',
+    declaration: 'export interface KbMailFetchResult {\n    readonly since: string;\n    readonly lastReadAt?: string;\n    readonly stale: boolean;\n    readonly messages: readonly KbMailMessage[];\n    readonly hasMore: boolean;\n}',
+  },
+  {
+    name: 'KbMailMarkReadArgs',
+    declaration: 'export interface KbMailMarkReadArgs {\n    readonly lastReadAt?: string;\n}',
+  },
+  {
+    name: 'KbMailMarkReadResult',
+    declaration: 'export interface KbMailMarkReadResult {\n    readonly lastReadAt: string;\n}',
+  },
+  {
+    name: 'KbMailMessage',
+    declaration: 'export interface KbMailMessage {\n    readonly id: string;\n    readonly entryId: string;\n    readonly receivedAt: string;\n    readonly senderName: string;\n    readonly senderAddress: string;\n    readonly subject: string;\n    readonly body: string;\n    readonly truncated: boolean;\n}',
+  },
+  {
     name: 'KbOpenExternalResult',
     declaration: 'export interface KbOpenExternalResult {\n    readonly target: string;\n}',
   },
@@ -4493,6 +4537,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KbSetRootResult',
     declaration: 'export interface KbSetRootResult {\n    readonly root: string;\n    readonly configured: boolean;\n    readonly created: readonly string[];\n    readonly existing: readonly string[];\n}',
+  },
+  {
+    name: 'KbTodoItem',
+    declaration: 'export interface KbTodoItem {\n    readonly done: boolean;\n    readonly title: string;\n    readonly due?: string;\n    readonly doneOn?: string;\n    readonly body: string;\n    readonly extra: readonly string[];\n}',
+  },
+  {
+    name: 'KbTodosResult',
+    declaration: 'export interface KbTodosResult {\n    readonly path: string;\n    readonly text: string;\n    readonly items: readonly KbTodoItem[];\n}',
   },
   {
     name: 'KbTree',
@@ -4513,6 +4565,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KbWriteResult',
     declaration: 'export interface KbWriteResult {\n    readonly path: string;\n}',
+  },
+  {
+    name: 'KbWriteTodosArgs',
+    declaration: 'export interface KbWriteTodosArgs {\n    readonly items: readonly KbTodoItem[];\n    readonly expectedText: string;\n}',
+  },
+  {
+    name: 'KbWriteTodosResult',
+    declaration: 'export interface KbWriteTodosResult {\n    readonly path: string;\n    readonly text: string;\n}',
   },
   {
     name: 'KnobState',

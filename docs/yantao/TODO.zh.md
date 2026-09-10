@@ -47,6 +47,12 @@
 | **链接图随内容变化重算** — `Frame.tsx` 里算 `linkGraph` 的 effect 依赖加上文件正文（350ms 防抖，`linksOf` 会重读全库算 `incoming`）。原先只有 `activePath`/`treeKey`，所以敲完 `[[…]]` 仍是字面量方括号，要切走再切回才生效 | `packages/client/ui-yantao/src/client/frame/Frame.tsx`；阅读视图工具条另有「在 Obsidian 中打开」按钮 |
 | **Electron 桌面外壳（ADR-0016）** — `apps/yantao-desktop`：宿主作为**子进程**跑在系统 Node 上（`spawn` + `--expose-internals` + 从 stdout 抓 URL + `--port 0`），窗口先弹「正在启动」再加载，`file://` 不用（过不了 Origin 围栏），托盘「打开/重启宿主/退出」，不做热键/自启/签名/打包 | 验证：窗口 3.2 s 出现、`yantao: workbench ready` 于 26 s、宿主 stderr 干净（HMR 行加载成功）、**CLI 与桌面版同时可用**。原「同进程」方案已验证能跑但被废弃，原因见 ADR-0016：一个 `.node` 文件服务不了两个 Node（CLI 与桌面互斥）、重建件内网拿不到、同进程会丢 HMR。**子进程不提速**（CLI 22.6s / 同进程 22.2s / 子进程 26.1s），提速靠先弹窗口（22.2s → 3.2s） |
 
+| **外壳收口** —— Electron 去掉默认菜单栏(`Menu.setApplicationMenu(null)`,DevTools 入口一并放弃);两条 rail 去掉「刷新」与「更改目录」;`setRoot` 与首启 `Onboarding` 保留作后门 | `apps/yantao-desktop/src/main.ts`、`packages/client/ui-yantao/src/client/Workbench.tsx` |
+| **待办真正成为面板(ADR-0018)** —— 宿主侧唯一的解析器/序列化器处理 `[due::]`/`[done::]` 行(preamble 保留、往返无损);`yantaoKb.todos` / `writeTodos` 走乐观并发(`expectedText`);待办 tab 变成 TODO / DONE 双面板:按 due 升序、无 due 沉底、过期标红、DONE 灰显、内联展开编辑、底部「+」、逐条删除;「打开全文」仍然打开文件本身 | `packages/yantao/kb/src/todo.ts`、`packages/api/yantao-kb-controller/src/{index,types}.ts`、`packages/client/ui-yantao/src/client/TodoBoard.tsx`(取代 `TodoList.tsx`) |
+| **邮件连接器:读取与断点(ADR-0019)** —— `read_outlook.py` 拷入 `src/mail/` 并扩展(`--since` 在 Python 侧按 datetime 过滤、JSON 输出、`sha1(时间\|发件人\|主题)` 作为 id、不输出抄送、正文截断 3000、`HTMLBody` 回落、错误分类退出码),由一层封装 spawn,把每种失败都翻成中文提示 + 处理建议;`mailFetch`(仅收件箱、单页 50 封、缺省下界 30 天,带 `stale` / `hasMore`)与 `mailMarkRead` 推进 `connectors.mail.lastReadAt` 断点;未选知识库目录时两者都拒绝 | `packages/api/yantao-kb-controller/src/mail/{fetch.ts,read_outlook.py}`、`packages/api/yantao-kb-controller/src/{index,types}.ts`、`packages/yantao/kb/src/root-store.ts` |
+
+| **邮件分析打通(ADR-0019)** —— 连接 tab 经 `mailFetch` 读取 Outlook,把整批邮件交给一个真实的 dsh session(`session.create` → `rename`「邮件分析 YYYY-MM-DD」→ `prompt` → `follow`),最后落到一个汇总窗口:四块(新人 / 建议待办 / 项目动态 / 值得留存的资源),**默认一条都不勾选**——确认后新人变成实体、待办带着 `expectedText` 并入单例、项目动态追加到该实体的流水、被挑中的邮件落成 resource 笔记;断点只在这一轮判断被处理完之后才往前走 | `packages/client/ui-yantao/src/client/{MailPanel,MailReview,mail-analysis,mail-apply}.tsx`、`packages/client/ui-yantao/src/client/{Workbench.tsx,frame/Frame.tsx,index.ts,remote.ts}` |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)

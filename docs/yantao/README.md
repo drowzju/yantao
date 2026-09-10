@@ -95,6 +95,8 @@ Do not invent synonyms in code, commits, or docs — and never call the LLM rout
 | 0015 | `[[wiki links]]` between entities: resolved host-side by a new `links(path)` RPC, with a backlinks panel |
 | 0016 | Desktop shell: Electron spawns the dsh host as a **child process** (in-process was rejected); `file://` is unusable, so it loads loopback HTTP |
 | 0017 | Editor strategy: borrow Obsidian for heavy editing (`openExternal`) plus a `revision()` watcher, instead of building our own editor now |
+| 0018 | Todo carrier: `[due::]` / `[done::]` structured lines plus a TODO/DONE two-pane board in the left rail; parsing lives host-side only, the agent cannot write todos |
+| 0019 | First connector: Outlook mail (COM subprocess for reading, a dsh session for analysis, writes land only after human confirmation) |
 
 ## 5. Quick start
 
@@ -126,7 +128,7 @@ Why the `_dsh` copies live under `docs/upstream/` rather than at the root: the b
 |---|---|
 | [development.md](development.md) | build, run, stop, tests, gates, pitfalls |
 | [TODO.md](TODO.md) | backlog: done / next / deferred (each deferred item keeps its reason) |
-| [../adr/](../adr/) | ADR 0001–0017 — index in section 4 |
+| [../adr/](../adr/) | ADR 0001–0019 — index in section 4 |
 | [../subsystems/yantao.md](../subsystems/yantao.md) | the KB + `yantaoKb` Remote subsystem page (upstream's subsystem format) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | context map: yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | the glossary (canonical terms) |

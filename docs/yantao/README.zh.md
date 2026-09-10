@@ -93,6 +93,8 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0015 | 实体间 `[[双链]]`:由新增的 `links(path)` RPC 在宿主侧解析,并给出反向链接面板 |
 | 0016 | 桌面外壳:Electron 把 dsh 宿主作为**子进程**拉起(同进程方案已被否决);`file://` 过不了 Origin 围栏,所以加载 loopback HTTP |
 | 0017 | 编辑器策略:先借 Obsidian 做重编辑(`openExternal`)+ `revision()` 监听,而不是现在就自研编辑器 |
+| 0018 | 待办载体:`[due::]`/`[done::]` 结构化行 + 左栏 TODO/DONE 双面板;解析只在宿主侧,agent 不写待办 |
+| 0019 | 第一个连接器:Outlook 邮件(COM 子进程读邮件,dsh session 分析,人工确认后才写库) |
 
 ## 5. 快速上手
 
@@ -124,7 +126,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 |---|---|
 | [development.md](development.zh.md) | 构建、运行、停止、测试、门禁、坑 |
 | [TODO.md](TODO.zh.md) | 待办:done / next / deferred(每个搁置项都带原因) |
-| [../adr/](../adr/) | ADR 0001–0017(索引见第 4 节) |
+| [../adr/](../adr/) | ADR 0001–0019(索引见第 4 节) |
 | [../subsystems/yantao.md](../subsystems/yantao.zh.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | 上下文地图:yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | 词汇表(规范用词) |

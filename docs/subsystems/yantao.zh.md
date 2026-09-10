@@ -184,6 +184,30 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('write') async write(path: string, content: string): Promise<KbWriteResult>
 
 /**
+ * The structured todo board (ADR-0018): the `entities/todos.md` singleton
+ * parsed into items, plus the file's exact text — the UI echoes that text
+ * back as `writeTodos`'s `expectedText`, which is what makes the board's
+ * optimistic concurrency work. The parse lives here because the Client
+ * cannot import the kb package's values (bundle purity).
+ * @returns the singleton's path, its exact current text, and its items in file order.
+ */
+@Remote('todos') async todos(): Promise<KbTodosResult>
+
+/**
+ * Write the whole todo list back (ADR-0018), replacing the file's items but
+ * keeping its preamble: a heading the human wrote above the checklist is
+ * theirs, and the UI sends items only.
+ *
+ * `expectedText` is the optimistic-concurrency check — the same pre-save
+ * comparison the editor's autosave uses (ADR-0012), not a second model: a
+ * stale value means somebody else (Obsidian, an agent, another tab) got
+ * there first, and the UI refreshes rather than clobbering.
+ * @param args - the new item list and the text the caller last read.
+ * @returns the singleton's path and what is on disk now.
+ */
+@Remote('writeTodos') async writeTodos(args: KbWriteTodosArgs): Promise<KbWriteTodosResult>
+
+/**
  * The KB's change counter (ADR-0017). The UI compares it across polls to learn
  * that something changed **outside** the workbench — an edit in Obsidian, a
  * `git checkout`, an agent write. An edit made inside the workbench does not
@@ -209,6 +233,34 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * @returns the target that was opened.
  */
 @Remote('openExternal') openExternal(target: string): Promise<KbOpenExternalResult>
+
+/**
+ * Read the newest mails received after the connector's watermark (ADR-0019).
+ *
+ * The bound defaults to that watermark, and to 30 days ago when there is
+ * none — a first run must not walk a whole inbox over COM. The read only
+ * ever says whether it filled its page (`hasMore`), never how many mails are
+ * left: an exact total would mean touching every item in the folder.
+ *
+ * Every failure leaves as a `yantao-kb/mail` error carrying the script's own
+ * message *and* its remedy, because the useful answer to "Outlook is not
+ * answering" is what to install, not that the fetch failed.
+ * @param args - an explicit `since` (to re-read an older stretch) and a cap.
+ * @returns the bound used, the watermark before the read, whether a gap may
+ *   have opened, the mails, and whether more are waiting.
+ */
+@Remote('mailFetch') async mailFetch(args: KbMailFetchArgs): Promise<KbMailFetchResult>
+
+/**
+ * Move the mail connector's watermark (ADR-0019): everything at or before
+ * `lastReadAt` has been seen, so the next `mailFetch` starts after it.
+ *
+ * The cursor lives in `~/.dsh`, next to the KB root it was read for, and
+ * never in the KB itself — that is markdown for humans.
+ * @param args - the stamp to store; defaults to now.
+ * @returns the watermark as it now stands.
+ */
+@Remote('mailMarkRead') async mailMarkRead(args: KbMailMarkReadArgs): Promise<KbMailMarkReadResult>
 ```
 
 Source: [`packages/api/yantao-kb-controller/src/index.ts`](../../packages/api/yantao-kb-controller/src/index.ts)
