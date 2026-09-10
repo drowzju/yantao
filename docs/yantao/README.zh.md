@@ -31,6 +31,7 @@ yantao 是一个**个人知识工作台**:以纯 Markdown 存放 PARA+P 知识�
 | `docs/capability-seams.md`、`docs/config-catalog.md` | 重新生成的文档 |
 | `scripts/gen-cordis-catalog.ts`、`scripts/gen-doc-graphs.ts`、`scripts/type-equiv.manifest.json`、`scripts/verify-subsystem-pages.ts`、`scripts/verify-package-readme-model-experience.ts` | 生成器与门禁旁车,必须知道我们的包存在 |
 | `packages/{api,bundle,client}/README{,.zh}.md` 及配对记录 | 包地图列出每个成员 |
+| `pnpm-workspace.yaml` | 一条 `allowBuilds` 条目:`electron: true`;没有它 pnpm 拒绝执行 Electron 的 postinstall,二进制根本不会下载(ADR-0016) |
 | `pnpm-lock.yaml`、`.gitignore` | 依赖链接;`apps/yantao/dist/` 忽略规则 |
 
 其余完全属于我们:`packages/yantao/**`、`packages/client/ui-yantao/**`、`packages/bundle/yantao/**`、`packages/bundle/yantao-web-app/**`、`packages/api/yantao-kb-controller/**`、`packages/preset/agent-presets/presets/yantao/**`、`apps/yantao/**`、`docs/adr/**`、`docs/yantao/**`、`docs/subsystems/yantao*`、`CONTEXT-MAP.md`、`.env.example`、`.npmrc`。
@@ -90,6 +91,8 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0013 | 品牌(PARAP + 自绘 hero 标)、中栏工作目录跟随知识库根目录、`@` 引用解析为知识库文件 |
 | 0014 | 文件默认打开为渲染后的阅读视图,YAML 信封折叠,编辑仍走原文编辑器 |
 | 0015 | 实体间 `[[双链]]`:由新增的 `links(path)` RPC 在宿主侧解析,并给出反向链接面板 |
+| 0016 | 桌面外壳:Electron 把 dsh 宿主作为**子进程**拉起(同进程方案已被否决);`file://` 过不了 Origin 围栏,所以加载 loopback HTTP |
+| 0017 | 编辑器策略:先借 Obsidian 做重编辑(`openExternal`)+ `revision()` 监听,而不是现在就自研编辑器 |
 
 ## 5. 快速上手
 
@@ -121,7 +124,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 |---|---|
 | [development.md](development.zh.md) | 构建、运行、停止、测试、门禁、坑 |
 | [TODO.md](TODO.zh.md) | 待办:done / next / deferred(每个搁置项都带原因) |
-| [../adr/](../adr/) | ADR 0001–0015(索引见第 4 节) |
+| [../adr/](../adr/) | ADR 0001–0017(索引见第 4 节) |
 | [../subsystems/yantao.md](../subsystems/yantao.zh.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | 上下文地图:yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | 词汇表(规范用词) |

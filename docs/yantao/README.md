@@ -33,6 +33,7 @@ This is the complete list of upstream-owned files the project touches today. Kee
 | `docs/capability-seams.md`, `docs/config-catalog.md` | regenerated docs |
 | `scripts/gen-cordis-catalog.ts`, `scripts/gen-doc-graphs.ts`, `scripts/type-equiv.manifest.json`, `scripts/verify-subsystem-pages.ts`, `scripts/verify-package-readme-model-experience.ts` | generators and gate sidecars that must know our packages exist |
 | `packages/{api,bundle,client}/README{,.zh}.md` + pairing sidecars | package maps list every member |
+| `pnpm-workspace.yaml` | one `allowBuilds` entry: `electron: true`, without which pnpm refuses to run Electron's postinstall and no binary is downloaded (ADR-0016) |
 | `pnpm-lock.yaml`, `.gitignore` | dependency link; `apps/yantao/dist/` ignore rule |
 
 Everything else we own outright: `packages/yantao/**`, `packages/client/ui-yantao/**`, `packages/bundle/yantao/**`, `packages/bundle/yantao-web-app/**`, `packages/api/yantao-kb-controller/**`, `packages/preset/agent-presets/presets/yantao/**`, `apps/yantao/**`, `docs/adr/**`, `docs/yantao/**`, `docs/subsystems/yantao*`, `CONTEXT-MAP.md`, `.env.example`, `.npmrc`.
@@ -92,6 +93,8 @@ Do not invent synonyms in code, commits, or docs — and never call the LLM rout
 | 0013 | Brand (`PARAP` + our own hero mark), the middle column's working directory follows the KB root, and `@` mentions resolve to KB files |
 | 0014 | A file opens on its rendered reading view; YAML frontmatter folds away; editing stays in the raw source editor |
 | 0015 | `[[wiki links]]` between entities: resolved host-side by a new `links(path)` RPC, with a backlinks panel |
+| 0016 | Desktop shell: Electron spawns the dsh host as a **child process** (in-process was rejected); `file://` is unusable, so it loads loopback HTTP |
+| 0017 | Editor strategy: borrow Obsidian for heavy editing (`openExternal`) plus a `revision()` watcher, instead of building our own editor now |
 
 ## 5. Quick start
 
@@ -123,7 +126,7 @@ Why the `_dsh` copies live under `docs/upstream/` rather than at the root: the b
 |---|---|
 | [development.md](development.md) | build, run, stop, tests, gates, pitfalls |
 | [TODO.md](TODO.md) | backlog: done / next / deferred (each deferred item keeps its reason) |
-| [../adr/](../adr/) | ADR 0001–0015 — index in section 4 |
+| [../adr/](../adr/) | ADR 0001–0017 — index in section 4 |
 | [../subsystems/yantao.md](../subsystems/yantao.md) | the KB + `yantaoKb` Remote subsystem page (upstream's subsystem format) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | context map: yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | the glossary (canonical terms) |

@@ -13,8 +13,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
 import type {
-  KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult, KbFileContent, KbLinksResult, KbRootResult,
-  KbSetRootResult, KbTree, KbTreeSection, KbWriteResult,
+  KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult, KbFileContent, KbLinksResult,
+  KbOpenExternalResult, KbRevisionResult, KbRootResult, KbSetRootResult, KbTree, KbTreeSection, KbWriteResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 
 /** The yantaoKb namespace's callable surface, structurally satisfied by the mounted contribution. */
@@ -27,6 +27,8 @@ export interface KbRemote {
   root(): Promise<RemoteResult<KbRootResult>>
   setRoot(path: string): Promise<RemoteResult<KbSetRootResult>>
   createEntity(args: KbCreateEntityArgs): Promise<RemoteResult<KbCreateEntityResult>>
+  revision(): Promise<RemoteResult<KbRevisionResult>>
+  openExternal(target: string): Promise<RemoteResult<KbOpenExternalResult>>
 }
 
 /** Read one KB file's content; rejects with the Remote's own message. */
@@ -46,6 +48,12 @@ export type LinksLoader = (path: string) => Promise<KbLinksResult>
 
 /** Adopt a directory as the KB root. */
 export type RootSetter = (path: string) => Promise<KbSetRootResult>
+
+/** Read the KB's change counter (ADR-0017). */
+export type RevisionLoader = () => Promise<KbRevisionResult>
+
+/** Hand one KB path or allowlisted URI to the desktop's own handler (ADR-0017). */
+export type ExternalOpener = (target: string) => Promise<KbOpenExternalResult>
 
 /** Open the host's native directory picker; resolves null when cancelled. */
 export type DirectoryPicker = () => Promise<string | null>
@@ -161,6 +169,57 @@ export async function setKbRoot(ctx: Context, path: string): Promise<KbSetRootRe
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.setRoot(path))
+}
+
+/**
+ * Read the KB's change counter (ADR-0017).
+ *
+ * The workbench polls this instead of subscribing to pushed events: pushing
+ * would need a line in the upstream forwarded-event allowlist, which sits
+ * outside the merge surface. A counter the UI compares across polls answers
+ * the only question it has — did anything change outside the workbench?
+ * @param ctx - client root context.
+ * @returns the root being watched and the counter, or a zero counter the UI
+ *   can safely ignore when the Remote cannot answer.
+ */
+export async function loadRevision(ctx: Context): Promise<KbRevisionResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) return { root: '', revision: 0 }
+  try {
+    const result = await kb.revision()
+    return result.ok ? result.value : { root: '', revision: 0 }
+  } catch {
+    return { root: '', revision: 0 }
+  }
+}
+
+/**
+ * Hand one target to the desktop's own handler (ADR-0017) — the "在 Obsidian
+ * 中打开" bridge. The host refuses anything that is not a KB-internal path or
+ * an allowlisted URI, so the UI may pass either without checking first.
+ * @param ctx - client root context.
+ * @param target - a KB-relative path, or a URI such as `obsidian://open?path=…`.
+ * @returns the target the host accepted.
+ */
+export async function openExternal(ctx: Context, target: string): Promise<KbOpenExternalResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.openExternal(target))
+}
+
+/**
+ * The `obsidian://open?path=…` URI for one KB file (ADR-0017).
+ *
+ * The KB root is meant to be registered as a vault by the human, once; yantao
+ * never writes `.obsidian/` itself. When the root is unknown the URI is still
+ * well-formed, and what Obsidian does with it is Obsidian's business.
+ * @param root - the absolute KB root.
+ * @param path - KB-relative path with forward slashes.
+ * @returns the URI to hand to {@link openExternal}.
+ */
+export function obsidianUri(root: string, path: string): string {
+  const absolute = `${root.replace(/[\\/]+$/, '')}\\${path.split('/').join('\\')}`
+  return `obsidian://open?path=${encodeURIComponent(absolute)}`
 }
 
 /**

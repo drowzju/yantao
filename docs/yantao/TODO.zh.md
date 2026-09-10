@@ -40,10 +40,16 @@
 | **品牌、工作目录与 `@` 引用(ADR-0013)** —— 中栏工作目录跟随知识库根目录(`workspaces.create` + `uiWorkspace.startSession`,首启/更改目录后重跑);hero 文案改为 `PARAP`、经 `conversation.hero.brand.mark` 槽位换成我们自己的标、并去掉 Preview 徽章;`@` 按 section 列出知识库实体,`agent/pre-step` 展开器把插入的 `@路径` 解析成被引用文件的内容 | `packages/client/ui-yantao/src/client/{index,kb-workspace,kb-reference}.ts`、`src/client/brand/YantaoMark.tsx`、`src/client/frame/frame.module.css`、`packages/yantao/kb/src/{index,mentions}.ts`、`docs/adr/0013-*`(新增 12 个测试) |
 | **两条侧栏共用一个选中项** —— 中栏当前文件即选中项:归属本栏时该栏把对应 tab 推到前台(高亮行因此可见),不归属本栏时不动用户自己选的 tab;切换 tab 时高亮跟随,恢复的 tab 也能找回自己的行 | `packages/client/ui-yantao/src/client/{Workbench.tsx,frame/Frame.tsx}`(新增 4 个测试:揭示、忽略、跟随当前 tab,见 `tests/workbench.client.spec.tsx`) |
 | **工作台能打开、编辑、新建文件(ADR-0012)**:中栏 tab(常驻「对话」+ 可关闭的文件 tab,从 localStorage 恢复)、原文 markdown 自动保存与保存前冲突比对、会议 / 领域 / 人物 / 项目的 inline「+ 新建」走 `yantaoKb.createEntity`、会议文件名带日期前缀、基于 `entities/todos.md` 的待办内联清单、资源只读、首启目录选择器持久化到 `~/.dsh/yantao-kb.json` | `packages/client/ui-yantao/src/client/{frame/CenterPane,editor/*,TodoList,NewEntityRow,Onboarding,tabs}.tsx`、`packages/yantao/kb/src/{core,paths,root-store,index}.ts`、`packages/api/yantao-kb-controller/src/{index,types}.ts`、`docs/adr/0012-*` |
+| **`ADR-0015` 的双链真正到达浏览器** — 之前只跑了 `build:lib:client`，把上一版没有 `links` 的契约内联进了 `packages/api/remotes/lib/client.js`，浏览器端 `ctx.remote.yantaoKb.links` 因此不存在，`[[…]]` 渲染成字面量方括号。按 `build:lib`（host 先生成 Typert face、client 再内联）重建并重启后生效 | 验证：Playwright 驱动系统 Edge 冒烟，`/api/yantaoKb/links` 返回 200 且 `outgoing`/`incoming` 正确，`[[我自己]]` 渲染成 `https://kb.invalid/…` 锚点，工具条出现 `反向链接 1`；截图 `.dsh-build/smoke.png` |
+| **`pnpm run lint` 转绿** — 21 处 `toThrowError` → `toThrow`（消除 deprecation）；`unbound-method`：把 `Element.prototype.scrollIntoView` 的 mock 持有为变量再断言，不再从元素上读回方法 | `packages/yantao/kb/tests/kb.spec.ts`，`packages/client/ui-yantao/tests/markdown-view.client.spec.tsx`。验证：3153 文件、90 规则、`typeAware: true`（tsgolint 已启用）、0 warnings / 0 errors；yantao 三个包 214 个测试全通过 |
+| **测试文件名补上 face 后缀** — `markdown.spec.ts` 没有后缀，被 `tsconfig.host.json` 的 `packages/*/*/tests/**/*.ts` 扫进 host 程序，而它 import 的 `src/client/markdown.ts` 属 client 面 → TS6307，host 构建直接失败 | 重命名为 `packages/client/ui-yantao/tests/markdown.client.spec.ts`（host 排除、client 包含）；`pnpm run build:lib` 与 `tsc -b tsconfig.client.json` 均通过 |
+| **Obsidian 桥接（ADR-0017）** — `yantaoKb.revision()`（chokidar 常驻 watcher + debounce 计数器，随 `setRoot` 重建）与 `yantaoKb.openExternal(target)`（只接受 KB 内路径或 `obsidian:`/`vscode:`/http(s)/mailto: 白名单协议，并拒绝 shell 元字符）；UI 侧 3 秒轮询比对 revision、窗口 focus 也查一次 | `packages/api/yantao-kb-controller/src/{watch,open}.ts`；控制器测试 16 → 36。验证：234 个测试全通过、lint 0/0 |
+| **链接图随内容变化重算** — `Frame.tsx` 里算 `linkGraph` 的 effect 依赖加上文件正文（350ms 防抖，`linksOf` 会重读全库算 `incoming`）。原先只有 `activePath`/`treeKey`，所以敲完 `[[…]]` 仍是字面量方括号，要切走再切回才生效 | `packages/client/ui-yantao/src/client/frame/Frame.tsx`；阅读视图工具条另有「在 Obsidian 中打开」按钮 |
+| **Electron 桌面外壳（ADR-0016）** — `apps/yantao-desktop`：宿主作为**子进程**跑在系统 Node 上（`spawn` + `--expose-internals` + 从 stdout 抓 URL + `--port 0`），窗口先弹「正在启动」再加载，`file://` 不用（过不了 Origin 围栏），托盘「打开/重启宿主/退出」，不做热键/自启/签名/打包 | 验证：窗口 3.2 s 出现、`yantao: workbench ready` 于 26 s、宿主 stderr 干净（HMR 行加载成功）、**CLI 与桌面版同时可用**。原「同进程」方案已验证能跑但被废弃，原因见 ADR-0016：一个 `.node` 文件服务不了两个 Node（CLI 与桌面互斥）、重建件内网拿不到、同进程会丢 HMR。**子进程不提速**（CLI 22.6s / 同进程 22.2s / 子进程 26.1s），提速靠先弹窗口（22.2s → 3.2s） |
 
 ## next
 
-### 阶段 1 —— 三栏 UI(ADR-0010)
+### 阶段 2 —— 三栏 UI(ADR-0010)
 
 1. **了结 `ui-yantao-kb` 的去向** —— 它已移出 roster:要么把 `KbEditor` 的 markdown 编辑能力移植进栏内(见下),然后删除该包;
     要么保留为可组合包。不要留下一个已挂载却不再使用的包。
@@ -52,14 +58,16 @@
 3. **给工作台自己的词典** —— `Workbench.tsx` 里的文案是硬编码中文;等面板文案多起来就注册一个 locale 命名空间。
 4. **阅读视图 v4 —— Mermaid 与本地图片** —— 两者都要付代价:客户端包是单文件 CJS,mermaid 会被内联成 ~3.5MB(或要改宿主模块表);
    本地图片需要新 RPC + 宿主路由,因为 `read()` 是 utf8,二进制会被解坏。等知识库里真出现一个再开工。
+5. **启动耗时分段测量** — 冷启动约 22–26 秒,但未拆过段。已知不等于结论的两点：慢的是 dsh 的
+   profile boot（与同进程/子进程无关：CLI 22.6s、同进程 22.2s、子进程 26.1s）。
+   下一步：在宿主启动时打时间戳，分清 **tsx 现转译** 与 **cordis 逐行挂载插件** 各占多少；
+   转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。
+   **先量再动。**
 
 ## blocked(附原因)
 
-| 项 | 为什么跑不起来 |
-|---|---|
-| **重编客户端 face,让浏览器里真的有 `yantaoKb.links`** —— `pnpm run build:lib:client`,再 `pnpm --filter @deepseek-ai/dsh-client-ui-yantao run bundle`,然后重启并冒烟 | 这台机器提交内存约 96%,`tsdown` 直接 `memory allocation … failed`。跑不了之前,ADR-0015 的链接图到不了浏览器:`loadLinks` 降级成空图,所有 `[[…]]` 都渲染成方括号原文。不是坏了,是功能还没真正上线 |
-| **yantao 各包的类型感知 lint**(`oxlint` 的 tsgolint) | 同一个天花板:稍大的文件就 OOM。`tsc -b tsconfig.client.json` 和测试都是过的,所以这是"欠一次覆盖",不是已知失败。等内存缓过来逐文件补跑 |
-| **`packages/yantao/kb/tests/kb.spec.ts` 里 `toThrowError` → `toThrow`**(21 处) | 既有的弃用告警,改起来是机械替换,但需要一次 lint 来确认——而 lint 正是上面那条被卡的。`pnpm run lint` 在此之前一直是红的 |
+_无。(曾在此的三项 —— 客户端 face 重建、`tsgolint`、`toThrowError` 改名 —— 已于 2026-09-09 全部解除：OOM 前提不再成立，
+内存回到 65%，`pnpm run build:lib` 与 `pnpm run lint` 均通过。)_
 
 ## deferred(附原因)
 

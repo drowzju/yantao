@@ -35,7 +35,8 @@ import { YantaoMark } from './brand/YantaoMark.tsx'
 import { alignWorkspace } from './kb-workspace.ts'
 import { kbReferenceSource } from './kb-reference.ts'
 import {
-  createEntity, loadIntake, loadLinks, loadRoot, loadWorkspace, readFile, setKbRoot, writeFile,
+  createEntity, loadIntake, loadLinks, loadRevision, loadRoot, loadWorkspace, openExternal, readFile, setKbRoot,
+  writeFile,
 } from './remote.ts'
 
 export const name = 'ui-yantao'
@@ -108,6 +109,8 @@ export function apply(ctx: Context): void {
       setRoot: (path: string) => setKbRoot(ctx, path),
       pickDirectory: () => ctx.uiWorkspace.pickDirectory(),
       links: (path: string) => loadLinks(ctx, path),
+      revision: () => loadRevision(ctx),
+      openExternal: (target: string) => openExternal(ctx, target),
       onKbRootChanged: align,
     }),
   }, Frame), 'ui-yantao: root frame')

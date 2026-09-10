@@ -13,8 +13,10 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
-  DirectoryPicker, EntityCreator, FileReader, FileWriter, LinksLoader, RootLoader, RootSetter,
+  DirectoryPicker, EntityCreator, ExternalOpener, FileReader, FileWriter, LinksLoader, RevisionLoader, RootLoader,
+  RootSetter,
 } from '../remote.ts'
+import { obsidianUri } from '../remote.ts'
 import type { KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
@@ -51,11 +53,24 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly pickDirectory: DirectoryPicker
   /** Load one file's `[[…]]` link graph (ADR-0015). */
   readonly links: LinksLoader
+  /** Read the KB's change counter (ADR-0017). */
+  readonly revision: RevisionLoader
+  /** Hand one KB path or allowlisted URI to the desktop's own handler (ADR-0017). */
+  readonly openExternal: ExternalOpener
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
   readonly onKbRootChanged: () => void
 }
 
 const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
+
+/**
+ * How long the link graph waits after a keystroke. `linksOf` re-reads every
+ * entity file to compute incoming links, so it must not run per keystroke.
+ */
+const LINK_GRAPH_DEBOUNCE_MS = 350
+
+/** How often the KB's change counter is compared (ADR-0017). */
+const REVISION_POLL_MS = 3000
 
 const frameStyle = {
   display: 'grid',
@@ -157,7 +172,8 @@ function DragHandle(props: {
  * @returns the frame element.
  */
 export function Frame({
-  renderSlot, panels, intake, workspace, read, write, createEntity, root, setRoot, pickDirectory, links, onKbRootChanged,
+  renderSlot, panels, intake, workspace, read, write, createEntity, root, setRoot, pickDirectory, links, revision,
+  openExternal, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -235,6 +251,21 @@ export function Frame({
   const [treeKey, setTreeKey] = useState(0)
   const [needsRoot, setNeedsRoot] = useState(false)
 
+  // The KB root, kept only so "在 Obsidian 中打开" can name an absolute path.
+  const [kbRoot, setKbRoot] = useState('')
+  useEffect(() => {
+    let stale = false
+    void root().then((next) => {
+      if (!stale) setKbRoot(next.root)
+    }).catch(() => {
+      // A root the workbench cannot read is the first-run flow's problem, not
+      // this button's; it falls back to opening the relative path.
+    })
+    return () => {
+      stale = true
+    }
+  }, [root, treeKey])
+
   // Every loader is a fresh closure on each render (inject face), so the
   // mount-only effects reach them through a ref.
   const faces = useRef({ read, root })
@@ -290,20 +321,69 @@ export function Frame({
     setTabs(state => openTab(state, path, mode))
   }, [])
 
+  // ADR-0017: editing belongs to Obsidian, so this only hands the file over.
+  // Without a root we still open the KB-relative path and let the host resolve
+  // it — the desktop's `.md` handler is usually Obsidian anyway.
+  const openInObsidian = useCallback((path: string): void => {
+    const target = kbRoot === '' ? path : obsidianUri(kbRoot, path)
+    void openExternal(target).catch((reason: unknown) => {
+      console.warn('opening the file outside the workbench failed:', reason)
+    })
+  }, [kbRoot, openExternal])
+
   // The active file's link graph, host-computed: one call per activation, and
   // again after a tree reload, which is when a new file could have appeared.
+  //
+  // The file's own text is a dependency too — otherwise typing `[[…]]` leaves
+  // the stale graph in place and the link reads as literal brackets until the
+  // tab is switched away and back. It is debounced because `linksOf` re-reads
+  // every entity file to compute incoming links.
   const [linkGraph, setLinkGraph] = useState<KbLinksResult | undefined>(undefined)
   const activePath = tabs.files.find(tab => tab.path === tabs.active)?.path
+  const activeContent = activePath === undefined ? undefined : drafts[activePath]
   useEffect(() => {
     if (activePath === undefined) return
     let stale = false
-    void links(activePath).then((graph) => {
-      if (!stale) setLinkGraph(graph)
-    })
+    const timer = setTimeout(() => {
+      void links(activePath).then((graph) => {
+        if (!stale) setLinkGraph(graph)
+      })
+    }, LINK_GRAPH_DEBOUNCE_MS)
     return () => {
       stale = true
+      clearTimeout(timer)
     }
-  }, [activePath, treeKey, links])
+  }, [activePath, activeContent, treeKey, links])
+
+  // ADR-0017: what the KB looked like the last time we asked. The host watches
+  // the root with chokidar and bumps a counter; we compare it across polls
+  // instead of subscribing to pushed events, which would need a line in the
+  // upstream forwarded-event allowlist (outside the merge surface).
+  useEffect(() => {
+    let stale = false
+    let seen = -1
+    const check = (): void => {
+      if (stale || document.hidden) return
+      void revision().then((next) => {
+        if (stale) return
+        if (seen >= 0 && next.revision !== seen) setTreeKey(key => key + 1)
+        seen = next.revision
+      })
+    }
+    check()
+    const timer = setInterval(check, REVISION_POLL_MS)
+    const onVisible = (): void => {
+      if (!document.hidden) check()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      stale = true
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+  }, [revision])
 
   // One selection for both rails: the file the centre pane shows, so a row
   // stays highlighted through tab switches and a restored tab finds its row.
@@ -368,6 +448,7 @@ export function Frame({
                 <MarkdownView
                   content={drafts[tab.path] ?? ''}
                   links={tab.path === linkGraph?.path ? linkGraph : undefined}
+                  onOpenExternal={() => { openInObsidian(tab.path) }}
                   onOpen={(path) => { openFile(path, 'edit') }}
                   onEdit={(next) => {
                     void editors.current.get(tab.path)?.patch(next).then((outcome) => {

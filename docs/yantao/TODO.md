@@ -41,6 +41,12 @@ note), **deferred** (deliberately parked — see the note).
 | **Brand, working directory, and `@` mentions (ADR-0013)** — the middle column's working directory follows the KB root (`workspaces.create` + `uiWorkspace.startSession`, re-run after 首启/更改目录); the hero reads `PARAP`, shows our own mark through the `conversation.hero.brand.mark` slot, and drops its Preview badge; `@` lists KB entities grouped by section and a `agent/pre-step` expander resolves the inserted `@path` mentions into the cited files' content | `packages/client/ui-yantao/src/client/{index,kb-workspace,kb-reference}.ts`, `src/client/brand/YantaoMark.tsx`, `src/client/frame/frame.module.css`, `packages/yantao/kb/src/{index,mentions}.ts`, `docs/adr/0013-*` (12 new tests) |
 | **One selection for both rails** — the centre pane's active file is the selection: each rail pulls forward the tab owning it (so the highlighted row is a visible one) and ignores a file the other rail owns; a row stays highlighted through tab switches and a restored tab finds its row | `packages/client/ui-yantao/src/client/{Workbench.tsx,frame/Frame.tsx}` (4 new tests: reveal, ignore, and follow-the-active-tab in `tests/workbench.client.spec.tsx`) |
 | **The workbench can open, edit and create files (ADR-0012)**: centre-pane tabs (a permanent 对话 tab plus closeable file tabs, restored from localStorage), raw-markdown autosave with a pre-save conflict check, inline 「+ 新建」for meetings / areas / people / projects through `yantaoKb.createEntity`, dated meeting filenames, an inline 待办 checklist over `entities/todos.md`, read-only 资源, and a first-run directory picker persisted to `~/.dsh/yantao-kb.json` | `packages/client/ui-yantao/src/client/{frame/CenterPane,editor/*,TodoList,NewEntityRow,Onboarding,tabs}.tsx`, `packages/yantao/kb/src/{core,paths,root-store,index}.ts`, `packages/api/yantao-kb-controller/src/{index,types}.ts`, `docs/adr/0012-*` |
+| **`ADR-0015` 的双链真正到达浏览器** — 之前只跑了 `build:lib:client`，把上一版没有 `links` 的契约内联进了 `packages/api/remotes/lib/client.js`，浏览器端 `ctx.remote.yantaoKb.links` 因此不存在，`[[…]]` 渲染成字面量方括号。按 `build:lib`（host 先生成 Typert face、client 再内联）重建并重启后生效 | 验证：Playwright 驱动系统 Edge 冒烟，`/api/yantaoKb/links` 返回 200 且 `outgoing`/`incoming` 正确，`[[我自己]]` 渲染成 `https://kb.invalid/…` 锚点，工具条出现 `反向链接 1`；截图 `.dsh-build/smoke.png` |
+| **`pnpm run lint` 转绿** — 21 处 `toThrowError` → `toThrow`（消除 deprecation）；`unbound-method`：把 `Element.prototype.scrollIntoView` 的 mock 持有为变量再断言，不再从元素上读回方法 | `packages/yantao/kb/tests/kb.spec.ts`，`packages/client/ui-yantao/tests/markdown-view.client.spec.tsx`。验证：3153 文件、90 规则、`typeAware: true`（tsgolint 已启用）、0 warnings / 0 errors；yantao 三个包 214 个测试全通过 |
+| **测试文件名补上 face 后缀** — `markdown.spec.ts` 没有后缀，被 `tsconfig.host.json` 的 `packages/*/*/tests/**/*.ts` 扫进 host 程序，而它 import 的 `src/client/markdown.ts` 属 client 面 → TS6307，host 构建直接失败 | 重命名为 `packages/client/ui-yantao/tests/markdown.client.spec.ts`（host 排除、client 包含）；`pnpm run build:lib` 与 `tsc -b tsconfig.client.json` 均通过 |
+| **Obsidian 桥接（ADR-0017）** — `yantaoKb.revision()`（chokidar 常驻 watcher + debounce 计数器，随 `setRoot` 重建）与 `yantaoKb.openExternal(target)`（只接受 KB 内路径或 `obsidian:`/`vscode:`/http(s)/mailto: 白名单协议，并拒绝 shell 元字符）；UI 侧 3 秒轮询比对 revision、窗口 focus 也查一次 | `packages/api/yantao-kb-controller/src/{watch,open}.ts`；控制器测试 16 → 36。验证：234 个测试全通过、lint 0/0 |
+| **链接图随内容变化重算** — `Frame.tsx` 里算 `linkGraph` 的 effect 依赖加上文件正文（350ms 防抖，`linksOf` 会重读全库算 `incoming`）。原先只有 `activePath`/`treeKey`，所以敲完 `[[…]]` 仍是字面量方括号，要切走再切回才生效 | `packages/client/ui-yantao/src/client/frame/Frame.tsx`；阅读视图工具条另有「在 Obsidian 中打开」按钮 |
+| **Electron 桌面外壳（ADR-0016）** — `apps/yantao-desktop`：宿主作为**子进程**跑在系统 Node 上（`spawn` + `--expose-internals` + 从 stdout 抓 URL + `--port 0`），窗口先弹「正在启动」再加载，`file://` 不用（过不了 Origin 围栏），托盘「打开/重启宿主/退出」，不做热键/自启/签名/打包 | 验证：窗口 3.2 s 出现、`yantao: workbench ready` 于 26 s、宿主 stderr 干净（HMR 行加载成功）、**CLI 与桌面版同时可用**。原「同进程」方案已验证能跑但被废弃，原因见 ADR-0016：一个 `.node` 文件服务不了两个 Node（CLI 与桌面互斥）、重建件内网拿不到、同进程会丢 HMR。**子进程不提速**（CLI 22.6s / 同进程 22.2s / 子进程 26.1s），提速靠先弹窗口（22.2s → 3.2s） |
 
 ## next
 
@@ -57,14 +63,16 @@ note), **deferred** (deliberately parked — see the note).
 4. **Reading view v4 — Mermaid and local images** — both are paywalled: client bundles are single-file CJS, so mermaid inlines at
    ~3.5MB (or needs a host module-table change), and local images need a new RPC plus a host route because `read()` is utf8 and
    would corrupt binaries. Only worth it once a KB file actually contains one.
+5. **启动耗时分段测量** — 冷启动约 22–26 秒，但未拆过段。已知不等于结论的两点：慢的是 dsh 的
+   profile boot（与同进程/子进程无关：CLI 22.6s、同进程 22.2s、子进程 26.1s）。
+   下一步：在宿主启动时打时间戳，分清 **tsx 现转译** 与 **cordis 逐行挂载插件** 各占多少；
+   转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。
+   **先量再动。**
 
 ## blocked (with reason)
 
-| Item | Why it cannot run |
-|---|---|
-| **Rebuild the client face so `yantaoKb.links` exists in the browser** — `pnpm run build:lib:client`, then `pnpm --filter @deepseek-ai/dsh-client-ui-yantao run bundle`, then restart and smoke the page | the machine sits at ~96% commit memory, and `tsdown` fails with `memory allocation … failed`. Until this runs, ADR-0015's link graph never reaches the browser: `loadLinks` degrades to an empty graph, so every `[[…]]` renders as literal brackets. Nothing is broken — the feature is simply not live |
-| **Type-aware lint over the yantao packages** (`oxlint`'s tsgolint) | same ceiling: bigger files OOM. `tsc -b tsconfig.client.json` and the test suites do pass, so this is coverage we owe, not a known failure. Re-run per file once memory frees |
-| **`toThrowError` → `toThrow` in `packages/yantao/kb/tests/kb.spec.ts`** (21 sites) | pre-existing deprecation warnings, mechanical to fix, but the change wants a lint run to confirm — which is what is blocked above. `pnpm run lint` stays red until then |
+_None. (The three items that sat here — the client-face rebuild, `tsgolint`, and the `toThrowError` rename — all cleared on
+2026-09-09: the OOM premise no longer held, memory was at 65%, and `pnpm run build:lib` + `pnpm run lint` both pass.)_
 
 ## deferred (with reason)
 

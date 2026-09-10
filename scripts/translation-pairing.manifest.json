@@ -21,6 +21,11 @@
     "docs/adr/0009-bespoke-frontend-dsh-as-backend.md",
     "docs/adr/0010-domain-expansion-and-three-pane-layout.md",
     "docs/adr/0011-yantao-owns-the-workbench-frame.md",
-    "docs/adr/0012-workbench-editing-and-first-run.md"
+    "docs/adr/0012-workbench-editing-and-first-run.md",
+    "docs/adr/0013-workbench-brand-workspace-and-mentions.md",
+    "docs/adr/0014-markdown-reading-view.md",
+    "docs/adr/0015-wiki-links-and-backlinks.md",
+    "docs/adr/0016-desktop-shell-electron.md",
+    "docs/adr/0017-editor-strategy-borrow-obsidian-first.md"
   ]
 }

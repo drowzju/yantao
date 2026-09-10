@@ -2979,6 +2979,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the path and the file\'s complete UTF-8 content.',
       },
       {
+        signature: '@Remote(\'links\') async links(path: string): Promise<KbLinksResult>',
+        description: 'Both halves of one file\'s `[[…]]` link graph (ADR-0015): what it links out to, resolved to entity files, and which files link back into it.\n\nThe scan lives here rather than in the Client because it reads every entity note — one round trip instead of one per file — and because resolution is a host-side rule (`类型:名字` locators, dated meetings).',
+        parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }],
+        returns: 'the file\'s outgoing and incoming links.',
+      },
+      {
         signature: '@Remote(\'root\') root(): Promise<KbRootResult>',
         description: 'The live KB root and whether the human has chosen one yet.',
         parameters: [],
@@ -3001,6 +3007,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Write one KB file\'s complete content (the human channel\'s full-file write; missing parent directories are created). The file is not validated — the human owns its structure, and the agent\'s tools re-validate on their next read.',
         parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }, { name: 'content', description: 'the complete new UTF-8 content.' }],
         returns: 'the written path.',
+      },
+      {
+        signature: '@Remote(\'revision\') revision(): Promise<KbRevisionResult>',
+        description: 'The KB\'s change counter (ADR-0017). The UI compares it across polls to learn that something changed **outside** the workbench — an edit in Obsidian, a `git checkout`, an agent write. An edit made inside the workbench does not move it, because the UI already knows about those.\n\nThe watcher is (re-)pointed at the live root on every call: the root is mutable through `setRoot`, and a watcher left behind would watch a directory nobody edits any more.',
+        parameters: [],
+        returns: 'the root being watched and the counter\'s current value.',
+      },
+      {
+        signature: '@Remote(\'openExternal\') openExternal(target: string): Promise<KbOpenExternalResult>',
+        description: 'Hand one target to the desktop\'s own handler (ADR-0017) — the whole "borrow Obsidian" bridge.\n\n`target` is either a KB-relative path (opened with whatever the desktop associates with `.md`) or a URI of an allowlisted scheme, which is how the UI asks for `obsidian://open?path=…`. Anything else is refused: an open-ended "run this string on the host" would be a shell, not a bridge, and the trust boundary is the whole point of this project.',
+        parameters: [{ name: 'target', description: 'a KB-relative path, or a URI (see `open.ts`).' }],
+        returns: 'the target that was opened.',
       },
     ],
   },
@@ -4455,6 +4473,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KbFileContent',
     declaration: 'export interface KbFileContent {\n    readonly path: string;\n    readonly content: string;\n}',
+  },
+  {
+    name: 'KbLinksResult',
+    declaration: 'export interface KbLinksResult {\n    readonly path: string;\n    readonly outgoing: readonly KbLinkTarget[];\n    readonly incoming: readonly KbLinkSource[];\n}',
+  },
+  {
+    name: 'KbOpenExternalResult',
+    declaration: 'export interface KbOpenExternalResult {\n    readonly target: string;\n}',
+  },
+  {
+    name: 'KbRevisionResult',
+    declaration: 'export interface KbRevisionResult {\n    readonly root: string;\n    readonly revision: number;\n}',
   },
   {
     name: 'KbRootResult',

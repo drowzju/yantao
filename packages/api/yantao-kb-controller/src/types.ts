@@ -118,3 +118,17 @@ export interface KbCreateEntityResult {
   /** The KB-relative path of the created entity file. */
   readonly path: string
 }
+
+/** Result of `yantaoKb.revision` (ADR-0017). */
+export interface KbRevisionResult {
+  /** The KB root the counter watches; the UI re-reads its trees when this moves. */
+  readonly root: string
+  /** A counter that only grows while this root is watched; compare, do not interpret. */
+  readonly revision: number
+}
+
+/** Result of `yantaoKb.openExternal` (ADR-0017). */
+export interface KbOpenExternalResult {
+  /** The target as handed to the desktop: a KB-relative path or an allowlisted URI. */
+  readonly target: string
+}

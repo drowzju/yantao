@@ -220,3 +220,44 @@ describe('yantaoKb.createEntity', () => {
     })
   })
 })
+
+describe('yantaoKb.revision', () => {
+  it('reports the root it watches and starts at zero', async () => {
+    const first = await ctx.yantaoKbController.revision()
+    expect(first).toEqual({ root: kbRoot, revision: 0 })
+  })
+
+  it('follows a root chosen after the first poll', async () => {
+    await ctx.yantaoKbController.revision()
+    const moved = await mkdtemp(join(tmpdir(), 'yantao-kb-controller-moved-'))
+    try {
+      ctx.yantaoKb.setRoot(moved)
+      expect((await ctx.yantaoKbController.revision()).root).toBe(moved)
+    } finally {
+      await rm(moved, { recursive: true, force: true })
+    }
+  })
+})
+
+// The happy path really hands the target to the desktop and is covered by
+// `open.spec.ts` (which stands in a fake spawn). What matters here is that the
+// bridge refuses to become a shell.
+describe('yantaoKb.openExternal', () => {
+  it('refuses a path that escapes the KB', async () => {
+    const failure = await ctx.yantaoKbController.openExternal('../outside.md')
+      .catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+  })
+
+  it('refuses a scheme that is not allowlisted, and shell metacharacters', async () => {
+    for (const target of ['file:///etc/passwd', 'javascript:alert(1)', 'entities/a & calc.md']) {
+      const failure = await ctx.yantaoKbController.openExternal(target).catch((error: unknown) => error)
+      expect(remoteErrorOf(failure), target).toMatchObject({ code: 'yantao-kb/rejected' })
+    }
+  })
+
+  it('refuses the empty target', async () => {
+    const failure = await ctx.yantaoKbController.openExternal('   ').catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+  })
+})

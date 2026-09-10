@@ -139,6 +139,18 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('read') async read(path: string): Promise<KbFileContent>
 
 /**
+ * Both halves of one file's `[[…]]` link graph (ADR-0015): what it links out
+ * to, resolved to entity files, and which files link back into it.
+ *
+ * The scan lives here rather than in the Client because it reads every
+ * entity note — one round trip instead of one per file — and because
+ * resolution is a host-side rule (`类型:名字` locators, dated meetings).
+ * @param path - KB-relative path with forward slashes.
+ * @returns the file's outgoing and incoming links.
+ */
+@Remote('links') async links(path: string): Promise<KbLinksResult>
+
+/**
  * The live KB root and whether the human has chosen one yet.
  * @returns the root in force and `configured` — true when a persisted root override exists.
  */
@@ -170,6 +182,33 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * @returns the written path.
  */
 @Remote('write') async write(path: string, content: string): Promise<KbWriteResult>
+
+/**
+ * The KB's change counter (ADR-0017). The UI compares it across polls to learn
+ * that something changed **outside** the workbench — an edit in Obsidian, a
+ * `git checkout`, an agent write. An edit made inside the workbench does not
+ * move it, because the UI already knows about those.
+ *
+ * The watcher is (re-)pointed at the live root on every call: the root is
+ * mutable through `setRoot`, and a watcher left behind would watch a
+ * directory nobody edits any more.
+ * @returns the root being watched and the counter's current value.
+ */
+@Remote('revision') revision(): Promise<KbRevisionResult>
+
+/**
+ * Hand one target to the desktop's own handler (ADR-0017) — the whole
+ * "borrow Obsidian" bridge.
+ *
+ * `target` is either a KB-relative path (opened with whatever the desktop
+ * associates with `.md`) or a URI of an allowlisted scheme, which is how the
+ * UI asks for `obsidian://open?path=…`. Anything else is refused: an
+ * open-ended "run this string on the host" would be a shell, not a bridge,
+ * and the trust boundary is the whole point of this project.
+ * @param target - a KB-relative path, or a URI (see `open.ts`).
+ * @returns the target that was opened.
+ */
+@Remote('openExternal') openExternal(target: string): Promise<KbOpenExternalResult>
 ```
 
 Source: [`packages/api/yantao-kb-controller/src/index.ts`](../../packages/api/yantao-kb-controller/src/index.ts)

@@ -1,0 +1,17 @@
+{
+  "name": "@deepseek-ai/dsh-yantao-desktop",
+  "private": true,
+  "description": "Electron shell for the yantao workbench: spawns the dsh host as a child process and shows the workbench in its own window (ADR-0016)",
+  "version": "0.1.3-alpha.1",
+  "type": "module",
+  "main": "./src/entry.mjs",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
+    "electron": "39.8.10",
+    "tsx": "^4.20.6"
+  }
+}

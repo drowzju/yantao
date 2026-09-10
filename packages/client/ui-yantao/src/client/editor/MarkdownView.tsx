@@ -134,6 +134,8 @@ export interface MarkdownViewProps {
   readonly links?: KbLinksResult | undefined
   /** Open another KB file (a link target, or a file that links here). */
   readonly onOpen?: (path: string) => void
+  /** Hand this file to the desktop's own editor — "在 Obsidian 中打开" (ADR-0017). */
+  readonly onOpenExternal?: () => void
 }
 
 /**
@@ -142,7 +144,7 @@ export interface MarkdownViewProps {
  * @returns the reading view.
  */
 export function MarkdownView({
-  content, onEdit, onUnresolved, links, onOpen,
+  content, onEdit, onUnresolved, links, onOpen, onOpenExternal,
 }: MarkdownViewProps): ReactElement {
   const [open, setOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
@@ -217,7 +219,8 @@ export function MarkdownView({
 
   return (
     <div style={wrapStyle}>
-      {(split.hasFrontmatter || outline.length > 1 || (links?.incoming.length ?? 0) > 0) && (
+      {(split.hasFrontmatter || outline.length > 1 || (links?.incoming.length ?? 0) > 0
+        || onOpenExternal !== undefined) && (
         <div style={barStyle}>
           {split.hasFrontmatter && (
             <button
@@ -244,10 +247,20 @@ export function MarkdownView({
               {outlineOpen ? '收起大纲' : '大纲'}
             </button>
           )}
+          {onOpenExternal !== undefined && (
+            <button
+              type="button"
+              style={{ ...toggleStyle, marginLeft: (links?.incoming.length ?? 0) > 0 ? undefined : 'auto' }}
+              title="用系统关联的编辑器打开（通常是 Obsidian）"
+              onClick={() => { onOpenExternal() }}
+            >
+              在 Obsidian 中打开
+            </button>
+          )}
           {(links?.incoming.length ?? 0) > 0 && (
             <button
               type="button"
-              style={{ ...toggleStyle, marginLeft: 'auto' }}
+              style={{ ...toggleStyle, marginLeft: onOpenExternal === undefined ? 'auto' : undefined }}
               aria-expanded={backlinksOpen}
               onClick={() => { setBacklinksOpen(current => !current) }}
             >

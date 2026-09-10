@@ -160,17 +160,17 @@ describe('appendToLogSection', () => {
 
   it('throws missing-log-anchor without touching the content', () => {
     const broken = base.replace('## 流水\n', '## 日志\n')
-    expect(() => appendToLogSection(broken, ['- x y'], 'demo.md')).toThrowError(KbError)
-    expect(() => appendToLogSection(broken, ['- x y'], 'demo.md')).toThrowError(/缺少『## 流水』锚点/)
+    expect(() => appendToLogSection(broken, ['- x y'], 'demo.md')).toThrow(KbError)
+    expect(() => appendToLogSection(broken, ['- x y'], 'demo.md')).toThrow(/缺少『## 流水』锚点/)
   })
 
   it('throws ambiguous-log-anchor on duplicated anchors', () => {
     const doubled = `${base}\n## 流水\n`
-    expect(() => appendToLogSection(doubled, ['- x y'], 'demo.md')).toThrowError(/2 个『## 流水』锚点/)
+    expect(() => appendToLogSection(doubled, ['- x y'], 'demo.md')).toThrow(/2 个『## 流水』锚点/)
   })
 
   it('rejects an empty insert', () => {
-    expect(() => appendToLogSection(base, [], 'demo.md')).toThrowError(/追加内容为空/)
+    expect(() => appendToLogSection(base, [], 'demo.md')).toThrow(/追加内容为空/)
   })
 })
 
@@ -212,12 +212,12 @@ describe('replaceStateSection', () => {
 
   it('throws missing-state-anchor on a file without a State section', () => {
     const broken = base.replace('## 状态\n', '## 近况\n')
-    expect(() => replaceStateSection(broken, 'x', 'demo.md')).toThrowError(/缺少『## 状态』锚点/)
+    expect(() => replaceStateSection(broken, 'x', 'demo.md')).toThrow(/缺少『## 状态』锚点/)
   })
 
   it('throws ambiguous-state-anchor on duplicated anchors', () => {
     const doubled = base.replace('## 状态\n', '## 状态\n\n## 状态\n')
-    expect(() => replaceStateSection(doubled, 'x', 'demo.md')).toThrowError(/2 个『## 状态』锚点/)
+    expect(() => replaceStateSection(doubled, 'x', 'demo.md')).toThrow(/2 个『## 状态』锚点/)
   })
 })
 
@@ -281,7 +281,7 @@ describe('kb_create_entity', () => {
 
   it('refuses to overwrite an existing entity', async () => {
     await createEntity(kbRoot, 'project', 'dsh 学习')
-    await expect(createEntity(kbRoot, 'project', 'dsh 学习')).rejects.toThrowError(/已存在/)
+    await expect(createEntity(kbRoot, 'project', 'dsh 学习')).rejects.toThrow(/已存在/)
     expect(await read('entities/projects/dsh 学习.md')).toBe(entityFileContent('project', 'dsh 学习', TODAY))
   })
 
@@ -303,11 +303,11 @@ describe('kb_create_entity', () => {
     const { path } = await createEntity(kbRoot, 'meeting', '周会')
     expect(path).toBe(`entities/meetings/${TODAY} 周会.md`)
     expect(await read(path)).toContain(`date: ${TODAY}\ntitle: 周会\n`)
-    await expect(createEntity(kbRoot, 'meeting', '周会')).rejects.toThrowError(/已存在/)
+    await expect(createEntity(kbRoot, 'meeting', '周会')).rejects.toThrow(/已存在/)
   })
 
   it('refuses to create the todo singleton', async () => {
-    await expect(createEntity(kbRoot, 'todo', 'todos')).rejects.toThrowError(/单例实体/)
+    await expect(createEntity(kbRoot, 'todo', 'todos')).rejects.toThrow(/单例实体/)
   })
 })
 
@@ -330,11 +330,11 @@ describe('kb_write_state', () => {
     await writeState(kbRoot, `entities/meetings/${TODAY} 周会.md`, '已改期')
     expect(await read(`entities/meetings/${TODAY} 周会.md`)).toContain('## 状态\n\n已改期\n')
     await initKb(kbRoot)
-    await expect(writeState(kbRoot, 'todo:todos', 'x')).rejects.toThrowError(/缺少『## 状态』锚点/)
+    await expect(writeState(kbRoot, 'todo:todos', 'x')).rejects.toThrow(/缺少『## 状态』锚点/)
   })
 
   it('rejects locators escaping the KB root', async () => {
-    await expect(writeState(kbRoot, '../outside.md', 'x')).rejects.toThrowError(/越出了知识库根目录/)
+    await expect(writeState(kbRoot, '../outside.md', 'x')).rejects.toThrow(/越出了知识库根目录/)
   })
 
   it('finds a dated meeting file from its bare name', async () => {
@@ -354,15 +354,15 @@ describe('kb_write_state', () => {
   it('refuses an ambiguous meeting name instead of guessing', async () => {
     await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-09' })
     await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-16' })
-    await expect(writeState(kbRoot, 'meeting:周会', 'x')).rejects.toThrowError(/匹配到多个会议文件/)
+    await expect(writeState(kbRoot, 'meeting:周会', 'x')).rejects.toThrow(/匹配到多个会议文件/)
   })
 
   it('reports a missing meeting as not found', async () => {
-    await expect(writeState(kbRoot, 'meeting:周会', 'x')).rejects.toThrowError(/找不到实体文件/)
+    await expect(writeState(kbRoot, 'meeting:周会', 'x')).rejects.toThrow(/找不到实体文件/)
   })
 
   it('errors on a missing entity with a not-found message', async () => {
-    await expect(writeState(kbRoot, 'project:不存在', 'x')).rejects.toThrowError(/找不到实体文件/)
+    await expect(writeState(kbRoot, 'project:不存在', 'x')).rejects.toThrow(/找不到实体文件/)
   })
 })
 
@@ -390,7 +390,7 @@ describe('kb_append_log', () => {
   })
 
   it('rejects locators escaping the KB root', async () => {
-    await expect(appendLog(kbRoot, '../outside.md', 'x')).rejects.toThrowError(/越出了知识库根目录/)
+    await expect(appendLog(kbRoot, '../outside.md', 'x')).rejects.toThrow(/越出了知识库根目录/)
   })
 
   it('errors on a missing 流水 anchor without modifying the file', async () => {
@@ -398,7 +398,7 @@ describe('kb_append_log', () => {
     const target = join(kbRoot, 'entities/projects/broken.md')
     const broken = (await read('entities/projects/broken.md')).replace('## 流水\n', '## 日志\n')
     await writeFile(target, broken)
-    await expect(appendLog(kbRoot, 'project:broken', 'x')).rejects.toThrowError(/缺少『## 流水』锚点/)
+    await expect(appendLog(kbRoot, 'project:broken', 'x')).rejects.toThrow(/缺少『## 流水』锚点/)
     expect(await read('entities/projects/broken.md')).toBe(broken)
   })
 
@@ -407,12 +407,12 @@ describe('kb_append_log', () => {
     const target = join(kbRoot, 'entities/projects/bad.md')
     const malformed = (await read('entities/projects/bad.md')).replace('type: project', 'type: [unclosed')
     await writeFile(target, malformed)
-    await expect(appendLog(kbRoot, 'project:bad', 'x')).rejects.toThrowError(/frontmatter/)
+    await expect(appendLog(kbRoot, 'project:bad', 'x')).rejects.toThrow(/frontmatter/)
     expect(await read('entities/projects/bad.md')).toBe(malformed)
   })
 
   it('errors on a missing entity with a not-found message', async () => {
-    await expect(appendLog(kbRoot, 'project:不存在', 'x')).rejects.toThrowError(/找不到实体文件/)
+    await expect(appendLog(kbRoot, 'project:不存在', 'x')).rejects.toThrow(/找不到实体文件/)
   })
 })
 
@@ -434,7 +434,7 @@ describe('kb_read_entity', () => {
   it('refuses an ambiguous meeting name', async () => {
     await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-09' })
     await createEntity(kbRoot, 'meeting', '周会', { meetingDate: '2026-09-16' })
-    await expect(readEntity(kbRoot, 'meeting', '周会')).rejects.toThrowError(/匹配到多个会议文件/)
+    await expect(readEntity(kbRoot, 'meeting', '周会')).rejects.toThrow(/匹配到多个会议文件/)
   })
 })
 
@@ -491,11 +491,11 @@ describe('kb_register_resource', () => {
     const second = join(kbRoot, 'inbox/周报.eml')
     await writeFile(second, 'v2')
     await registerResource(kbRoot, source)
-    await expect(registerResource(kbRoot, second)).rejects.toThrowError(/已登记过/)
+    await expect(registerResource(kbRoot, second)).rejects.toThrow(/已登记过/)
     expect(await read('resources/周报.eml')).toBe('v1')
   })
 
   it('errors on a missing source file', async () => {
-    await expect(registerResource(kbRoot, join(kbRoot, '不存在.pdf'))).rejects.toThrowError(/找不到要登记的文件/)
+    await expect(registerResource(kbRoot, join(kbRoot, '不存在.pdf'))).rejects.toThrow(/找不到要登记的文件/)
   })
 })

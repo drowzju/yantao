@@ -8,8 +8,12 @@ afterEach(() => {
 })
 
 // jsdom implements no scrolling; the outline's jump is asserted on the stub.
+// It lives on the prototype, so holding the mock beats reading it back off an
+// element — which lint reads as an unbound method reference.
+let scrollIntoView = vi.fn()
 beforeEach(() => {
-  Element.prototype.scrollIntoView = vi.fn()
+  scrollIntoView = vi.fn()
+  Element.prototype.scrollIntoView = scrollIntoView
 })
 
 const ENTITY = [
@@ -93,8 +97,7 @@ describe('MarkdownView', () => {
     expect(within(outline).getByText('细目')).toBeTruthy()
 
     fireEvent.click(within(outline).getByText('流水'))
-    const headings = container.querySelectorAll('h2')
-    expect(headings[1]?.scrollIntoView).toHaveBeenCalled()
+    expect(scrollIntoView).toHaveBeenCalled()
   })
 
   it('follows a draft it is handed, without loading anything itself', () => {

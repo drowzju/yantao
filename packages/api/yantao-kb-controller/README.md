@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-api-yantao-kb-controller` is the Typert Remote controller behind the yantao workbench UI: seven unary methods over the `yantaoKb` namespace — `intakeTree`, `workspaceTree`, `read`, `write`, `root`, `setRoot`, and `createEntity` — that let the browser list, edit, and extend the knowledge base directly. Every path is KB-relative and confined to the kbRoot the `yantao-kb` plugin publishes as the `yantaoKb` service, so the controller shares the plugin's one configuration point and never duplicates it; `setRoot` re-points that one root. The UI is the human channel, so `write` is a full-file write; the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface.
+`dsh-api-yantao-kb-controller` is the Typert Remote controller behind the yantao workbench UI: ten unary methods over the `yantaoKb` namespace — `intakeTree`, `workspaceTree`, `read`, `write`, `root`, `setRoot`, `createEntity`, `links`, `revision`, and `openExternal` — that let the browser list, edit, and extend the knowledge base directly. Every path is KB-relative and confined to the kbRoot the `yantao-kb` plugin publishes as the `yantaoKb` service, so the controller shares the plugin's one configuration point and never duplicates it; `setRoot` re-points that one root. The UI is the human channel, so `write` is a full-file write; the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface.
 
 ## Table of Contents
 
@@ -38,6 +38,9 @@ The `yantao-web` profile mounts this controller automatically; the workbench UI 
 | `yantaoKb.root` | `()` | `{ root, configured }` — the live KB root, and whether the human has chosen one |
 | `yantaoKb.setRoot` | `(path)` | `{ root, configured, created, existing }` — initializes `path` as a KB, makes it the live root, and remembers it |
 | `yantaoKb.createEntity` | `({ type, name, date? })` | `{ path }` — one entity note from the KB's canonical template |
+| `yantaoKb.links` | `(path)` | `{ outgoing, incoming }` — the file's `[[wiki link]]` graph, resolved host-side and never into `resources/` (ADR-0015) |
+| `yantaoKb.revision` | `()` | `{ root, revision }` — a counter that bumps whenever a file under the KB root changes; it follows `setRoot` (ADR-0017) |
+| `yantaoKb.openExternal` | `(target)` | `{ ok }` — hands a KB path or a whitelisted URL scheme to the OS shell, refusing shell metacharacters (ADR-0017) |
 
 `setRoot` takes an absolute path (a relative or empty one is refused) and hands it to the `yantaoKb` service, which persists the choice under `~/.dsh`. `createEntity` accepts `project`, `area`, `person`, and `meeting`; a meeting's file name is prefixed with its own date.
 
@@ -102,7 +105,7 @@ The controller adds nothing to any request prefix; it never participates in a mo
 
 These limits define what the controller deliberately does not do. They are current package constraints, not a task backlog.
 
-- **No change notification** — `tree` is a pull read; the UI refreshes on gesture and after its own writes, so a human's external edit surfaces on the next refresh, not live.
+- **Change detection is a poll, not a push** — `revision()` publishes a counter the UI polls (ADR-0017); the rails themselves still refresh on gesture and after their own writes, so a human's external edit surfaces on the next poll, not live.
 - **No frontmatter validation on write** — the human channel owns file structure; a malformed entity file is reported by the agent's tools on their next read, not by this surface.
 - **Whole-file writes only** — there is no section-scoped edit; the human edits the complete text (the agent's append-only channel is the kb_ tools', not this one's).
 - **Binary resources are served as UTF-8 text** — `read` of a non-text original returns replacement-character content; the editor marks originals read-only rather than decoding them.

@@ -58,7 +58,7 @@ _Avoid_: 整理、归纳
 
 **工作台 (Workbench)**: 本产品；三栏（输入栏 / 中栏 / 工作栏）。中栏是 tab 化的：「对话」常驻不可关，打开的文件各占一个可关闭 tab（ADR-0012）。
 
-_Avoid_: 桌面应用（Flutter 时代已终结）
+_Avoid_: 自维护 agent 基建（这才是 ADR-0001 放弃 Flutter 的真实理由；「桌面应用」不是禁用词，见 ADR-0016）
 
 **LLM 网关 (Model Gateway)**: 公司内网的 OpenAI 兼容模型端点（现接 GLM 系列推理模型），工作台唯一的 LLM 来源，经 dsh 的 ctx.llm adapter 接入。
 

@@ -10,7 +10,8 @@ import { Frame } from '../src/client/frame/Frame.tsx'
 import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveColumns } from '../src/client/frame/columns.ts'
 import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
 import type {
-  DirectoryPicker, EntityCreator, FileReader, FileWriter, LinksLoader, RootLoader, RootSetter,
+  DirectoryPicker, EntityCreator, ExternalOpener, FileReader, FileWriter, LinksLoader, RevisionLoader, RootLoader,
+  RootSetter,
 } from '../src/client/remote.ts'
 import { TAB_STORAGE_KEY } from '../src/client/tabs.ts'
 
@@ -263,6 +264,8 @@ interface FrameFaces {
   readonly setRoot: RootSetter
   readonly pickDirectory: DirectoryPicker
   readonly links: LinksLoader
+  readonly revision: RevisionLoader
+  readonly openExternal: ExternalOpener
 }
 
 /** Build the frame's spies; `read` answers every path with the same content. */
@@ -275,6 +278,8 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     root: () => Promise.resolve({ root: '/kb', configured: true }),
     setRoot: () => Promise.resolve({ root: '/kb', configured: true, created: [], existing: [] }),
     pickDirectory: () => Promise.resolve(null),
+    revision: () => Promise.resolve({ root: '/kb', revision: 0 }),
+    openExternal: () => Promise.resolve({ target: '' }),
     ...overrides,
   }
 }
@@ -295,6 +300,8 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       setRoot={kb.setRoot}
       pickDirectory={kb.pickDirectory}
       links={kb.links}
+      revision={kb.revision}
+      openExternal={kb.openExternal}
       onKbRootChanged={onKbRootChanged}
     />
   )
@@ -464,6 +471,8 @@ describe('Frame', () => {
         setRoot={kb.setRoot}
         pickDirectory={kb.pickDirectory}
         links={kb.links}
+        revision={kb.revision}
+        openExternal={kb.openExternal}
         onKbRootChanged={onKbRootChanged}
       />,
     )

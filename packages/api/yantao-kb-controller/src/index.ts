@@ -20,11 +20,15 @@ import {
   createEntity, entityDisplayPath, initKb, KbError, linksOf, listEntities, resolveWithinKb, todayStamp,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
+import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
+import { KbRevision } from './watch.ts'
 import type {
   KbCreateEntityArgs,
   KbCreateEntityResult,
   KbFileContent,
   KbLinksResult,
+  KbOpenExternalResult,
+  KbRevisionResult,
   KbRootResult,
   KbSetRootResult,
   KbTree,
@@ -80,8 +84,14 @@ export class YantaoKbController extends TypertRemoteService {
   /** The one KB root, provided by the mounted yantao-kb plugin. */
   static inject = ['yantaoKb']
 
+  /** The KB's change counter (ADR-0017); pointed at the live root on each poll. */
+  private readonly revisionWatch = new KbRevision()
+
   constructor(ctx: Context) {
     super(ctx, 'yantaoKbController', { namespace: 'yantaoKb' })
+    this.ctx.effect(() => () => {
+      this.revisionWatch.close()
+    })
   }
 
   /** The one KB root, read per call so a re-chosen root takes effect at once. */
@@ -261,6 +271,58 @@ export class YantaoKbController extends TypertRemoteService {
       return { path }
     } catch (error) {
       throw new RemoteError('yantao-kb/rejected', `无法写入知识库文件 ${path}：${(error as Error).message}`, { path }, { cause: error })
+    }
+  }
+
+  /**
+   * The KB's change counter (ADR-0017). The UI compares it across polls to learn
+   * that something changed **outside** the workbench — an edit in Obsidian, a
+   * `git checkout`, an agent write. An edit made inside the workbench does not
+   * move it, because the UI already knows about those.
+   *
+   * The watcher is (re-)pointed at the live root on every call: the root is
+   * mutable through `setRoot`, and a watcher left behind would watch a
+   * directory nobody edits any more.
+   * @returns the root being watched and the counter's current value.
+   */
+  @Remote('revision')
+  revision(): Promise<KbRevisionResult> {
+    const root = this.kbRoot
+    this.revisionWatch.follow(root)
+    return Promise.resolve({ root, revision: this.revisionWatch.revision })
+  }
+
+  /**
+   * Hand one target to the desktop's own handler (ADR-0017) — the whole
+   * "borrow Obsidian" bridge.
+   *
+   * `target` is either a KB-relative path (opened with whatever the desktop
+   * associates with `.md`) or a URI of an allowlisted scheme, which is how the
+   * UI asks for `obsidian://open?path=…`. Anything else is refused: an
+   * open-ended "run this string on the host" would be a shell, not a bridge,
+   * and the trust boundary is the whole point of this project.
+   * @param target - a KB-relative path, or a URI (see `open.ts`).
+   * @returns the target that was opened.
+   */
+  @Remote('openExternal')
+  openExternal(target: string): Promise<KbOpenExternalResult> {
+    // Every failure leaves as a rejected promise, never a synchronous throw:
+    // the caller awaits this, and `confine` itself throws. Not `async`, so the
+    // rule that wants an `await` in every async body does not apply.
+    try {
+      const trimmed = target.trim()
+      if (!isOpenable(trimmed)) {
+        throw new RemoteError(
+          'yantao-kb/rejected',
+          `不能在外部打开这个目标（只允许知识库内的路径，或 obsidian:/vscode:/http(s):/mailto: 开头的地址）：${trimmed}`,
+          { path: trimmed },
+        )
+      }
+      const resolved = hasScheme(trimmed) ? trimmed : this.confine(trimmed, trimmed)
+      openWithDesktop(resolved)
+      return Promise.resolve({ target: trimmed })
+    } catch (error: unknown) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
     }
   }
 }
