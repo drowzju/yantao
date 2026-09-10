@@ -7,11 +7,17 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { EntityCreator, FileReader, FileWriter } from './remote.ts'
+import type {
+  EntityCreator, FileReader, FileWriter, MailFetcher, MailMarker, TodoLoader, TodoWriter,
+} from './remote.ts'
+import type { MailAnalyser } from './mail-analysis.ts'
+import type { MailWriteTarget } from './mail-apply.ts'
+import { entitiesOfTree } from './mail-apply.ts'
+import { MailPanel } from './MailPanel.tsx'
 import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { remoteMessage } from './remote.ts'
 import type { TabMode } from './tabs.ts'
-import { TodoList } from './TodoList.tsx'
+import { TodoBoard } from './TodoBoard.tsx'
 import { NewEntityRow } from './NewEntityRow.tsx'
 
 /** Loads one rail's sections; rejects with a message the rail can render. */
@@ -30,9 +36,6 @@ const ENTITY_KINDS: Partial<Record<KbTreeSectionId, KbCreatableEntityType>> = {
   people: 'person',
   projects: 'project',
 }
-
-/** KB-relative path of the todo singleton (its tree row carries the same path). */
-export const TODO_PATH = 'entities/todos.md'
 
 /**
  * The section owning one path, when this rail's tree has it. Both rails read
@@ -186,13 +189,11 @@ function Section({
 function CompactRail({
   label,
   error,
-  refresh,
   onExpand,
   side,
 }: {
   label: string
   error: string | null
-  refresh: () => void
   onExpand: () => void
   side: 'intake' | 'workspace'
 }): ReactElement {
@@ -201,7 +202,6 @@ function CompactRail({
       <button type="button" style={rowStyle} title={label} onClick={onExpand}>
         {side === 'intake' ? '›' : '‹'}
       </button>
-      <button type="button" style={rowStyle} title="刷新知识库" onClick={refresh}>⟳</button>
       {error !== null && <span style={{ color: '#b4453a' }} title={error}>!</span>}
     </div>
   )
@@ -221,34 +221,30 @@ export interface RailProps {
   readonly onExpand: () => void
   /** Open a KB file in the centre pane. */
   readonly onOpenFile: (path: string, mode: TabMode) => void
-  /** Read one KB file's content. */
-  readonly read: FileReader
-  /** Write one KB file's content. */
-  readonly write: FileWriter
+  /** Read the todo singleton as structured items (ADR-0018). */
+  readonly loadTodos: TodoLoader
+  /** Write the todo singleton's whole item list (ADR-0018). */
+  readonly writeTodos: TodoWriter
   /** Create one entity and resolve its path. */
   readonly createEntity: EntityCreator
-  /** Re-open the first-run directory choice. */
-  readonly onChangeDirectory: () => void
+  /** Read one KB file's content — the connector appends notes with it (ADR-0019). */
+  readonly read: FileReader
+  /** Write one KB file's content (ADR-0019). */
+  readonly write: FileWriter
+  /** Load the workspace side, so the mail analysis can name what exists (ADR-0019). */
+  readonly workspace: TreeLoader
+  /** Read the newest mails after the connector's cursor (ADR-0019). */
+  readonly mailFetch: MailFetcher
+  /** Move that cursor forward (ADR-0019). */
+  readonly mailMarkRead: MailMarker
+  /** Run one mail analysis in a dsh session (ADR-0019). */
+  readonly analyseMail: MailAnalyser
 }
 
-/** The strip both rails use for their tabs, plus the shared rail header. */
-function RailHeader({
-  error,
-  refresh,
-  onChangeDirectory,
-}: {
-  error: string | null
-  refresh: () => Promise<void>
-  onChangeDirectory: () => void
-}): ReactElement {
+/** The rail's error marker: it is the only thing left above the tab strip. */
+function RailHeader({ error }: { error: string | null }): ReactElement {
   return (
     <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-      <button type="button" style={{ ...rowStyle, width: 'auto' }} onClick={() => { void refresh() }}>
-        ⟳ 刷新
-      </button>
-      <button type="button" style={{ ...rowStyle, width: 'auto' }} onClick={onChangeDirectory}>
-        更改目录
-      </button>
       {error !== null && <span style={{ color: '#b4453a' }} title={error}>!</span>}
     </div>
   )
@@ -256,14 +252,15 @@ function RailHeader({
 
 /**
  * The intake rail: 资源 / 待办 / 会议 / 连接 as tabs. 待办 renders the
- * singleton checklist inline; 会议 can create a meeting inline; 资源 rows open
- * read-only.
+ * singleton as a TODO / DONE board inline (ADR-0018); 会议 can create a
+ * meeting inline; 资源 rows open read-only.
  * @param props - see {@link RailProps}.
  * @returns the rail element.
  */
 export function IntakeRail(props: RailProps): ReactElement {
   const {
-    collapsed, load, refreshKey, selection, onExpand, onOpenFile, read, write, createEntity, onChangeDirectory,
+    collapsed, load, refreshKey, selection, onExpand, onOpenFile, loadTodos, writeTodos, createEntity,
+    read, write, workspace, mailFetch, mailMarkRead, analyseMail,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector'>('resources')
@@ -278,7 +275,7 @@ export function IntakeRail(props: RailProps): ReactElement {
 
   if (collapsed) {
     return (
-      <CompactRail label="展开输入栏" error={error} refresh={() => { void refresh() }} onExpand={onExpand} side="intake" />
+      <CompactRail label="展开输入栏" error={error} onExpand={onExpand} side="intake" />
     )
   }
 
@@ -289,12 +286,14 @@ export function IntakeRail(props: RailProps): ReactElement {
     onOpenFile(path, 'edit')
   }
 
-  const todoSection = sections?.find(entry => entry.id === 'todos')
-  const todoPath = todoSection?.files[0]?.path ?? TODO_PATH
+  // ADR-0019: the writes a confirmed mail analysis lands on.
+  const mailTarget: MailWriteTarget = {
+    createEntity, read, write, todos: loadTodos, writeTodos,
+  }
 
   return (
     <div style={railStyle}>
-      <RailHeader error={error} refresh={refresh} onChangeDirectory={onChangeDirectory} />
+      <RailHeader error={error} />
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {INTAKE_PANEL_IDS.map(id => (
           <button
@@ -309,14 +308,22 @@ export function IntakeRail(props: RailProps): ReactElement {
       </div>
       {actionError !== null && <div style={errorStyle}>{actionError}</div>}
       {tab === 'todos' && (
-        <TodoList
-          path={todoPath}
-          read={read}
-          write={write}
-          onOpenFile={() => { onOpenFile(todoPath, 'edit') }}
+        <TodoBoard
+          load={loadTodos}
+          write={writeTodos}
+          refreshKey={refreshKey}
+          onOpenFile={(path) => { onOpenFile(path, 'edit') }}
         />
       )}
-      {tab === 'connector' && <div style={{ color: '#9a9488', padding: '4px 6px' }}>预留（连接抽象见 ADR-0010）</div>}
+      {tab === 'connector' && (
+        <MailPanel
+          fetch={mailFetch}
+          mark={mailMarkRead}
+          analyse={analyseMail}
+          target={mailTarget}
+          entities={async () => entitiesOfTree(await workspace())}
+        />
+      )}
       {tab !== 'todos' && tab !== 'connector' && (
         <Section
           id={tab}
@@ -347,7 +354,7 @@ export function IntakeRail(props: RailProps): ReactElement {
  */
 export function WorkspaceRail(props: RailProps): ReactElement {
   const {
-    collapsed, load, refreshKey, selection, onExpand, onOpenFile, createEntity, onChangeDirectory,
+    collapsed, load, refreshKey, selection, onExpand, onOpenFile, createEntity,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId>('areas')
@@ -361,7 +368,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
 
   if (collapsed) {
     return (
-      <CompactRail label="展开工作栏" error={error} refresh={() => { void refresh() }} onExpand={onExpand} side="workspace" />
+      <CompactRail label="展开工作栏" error={error} onExpand={onExpand} side="workspace" />
     )
   }
 
@@ -376,7 +383,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
 
   return (
     <div style={railStyle}>
-      <RailHeader error={error} refresh={refresh} onChangeDirectory={onChangeDirectory} />
+      <RailHeader error={error} />
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {WORKSPACE_TAB_IDS.map(id => (
           <button

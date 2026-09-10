@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import type { KbTreeSection } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbLinksResult, KbTodosResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { TreeLoader } from '../src/client/Workbench.tsx'
 import { IntakeRail, WorkspaceRail, type RailProps } from '../src/client/Workbench.tsx'
 import { Frame } from '../src/client/frame/Frame.tsx'
@@ -11,7 +11,7 @@ import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveCol
 import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
 import type {
   DirectoryPicker, EntityCreator, ExternalOpener, FileReader, FileWriter, LinksLoader, RevisionLoader, RootLoader,
-  RootSetter,
+  RootSetter, TodoLoader, TodoWriter,
 } from '../src/client/remote.ts'
 import { TAB_STORAGE_KEY } from '../src/client/tabs.ts'
 
@@ -51,6 +51,16 @@ const workspace: KbTreeSection[] = [
 /** The todo singleton as the KB writes it. */
 const TODO_FILE = '---\ntype: todo\ncreated: 2026-09-08\n---\n\n- [ ] 写下第一个待办\n- [x] 已完成的\n'
 
+/** The same singleton as `yantaoKb.todos` answers it (ADR-0018). */
+const TODOS: KbTodosResult = {
+  path: 'entities/todos.md',
+  text: TODO_FILE,
+  items: [
+    { done: false, title: '写下第一个待办', body: '', extra: [] },
+    { done: true, title: '已完成的', body: '', extra: [] },
+  ],
+}
+
 /** A loader that resolves with the given sections. */
 const loader = (sections: readonly KbTreeSection[]): TreeLoader => () => Promise.resolve(sections)
 
@@ -63,10 +73,15 @@ function railProps(overrides: Partial<RailProps> = {}): RailProps {
     selection: null,
     onExpand: () => {},
     onOpenFile: () => {},
-    read: () => Promise.resolve(TODO_FILE),
-    write: () => Promise.resolve(),
+    loadTodos: () => Promise.resolve(TODOS),
+    writeTodos: () => Promise.resolve({ path: 'entities/todos.md', text: TODO_FILE }),
     createEntity: () => Promise.resolve('entities/areas/新实体.md'),
-    onChangeDirectory: () => {},
+    read: () => Promise.resolve(''),
+    write: () => Promise.resolve(),
+    workspace: loader(workspace),
+    mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
+    mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
+    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { people: [], todos: [], projects: [], resources: [] } }),
     ...overrides,
   }
 }
@@ -128,15 +143,15 @@ describe('IntakeRail', () => {
     expect(onOpenFile).toHaveBeenCalledWith('resources/周报.eml', 'read')
   })
 
-  it('renders 待办 as an inline checklist and rewrites the file on a toggle', async () => {
-    const write = vi.fn(() => Promise.resolve())
-    render(<IntakeRail {...railProps({ write })} />)
+  it('renders 待办 as a TODO / DONE board loaded through the remote', async () => {
+    const loadTodos = vi.fn(() => Promise.resolve(TODOS))
+    render(<IntakeRail {...railProps({ loadTodos })} />)
     fireEvent.click(screen.getByText('待办'))
-    fireEvent.click(await screen.findByText('写下第一个待办'))
-    expect(write).toHaveBeenCalledWith(
-      'entities/todos.md',
-      '---\ntype: todo\ncreated: 2026-09-08\n---\n\n- [x] 写下第一个待办\n- [x] 已完成的\n',
-    )
+    expect(await screen.findByText('TODO')).toBeTruthy()
+    expect(screen.getByText('DONE')).toBeTruthy()
+    expect(loadTodos).toHaveBeenCalledOnce()
+    expect(await screen.findByText('写下第一个待办')).toBeTruthy()
+    expect(await screen.findByText('已完成的')).toBeTruthy()
   })
 
   it('opens the todo singleton in an editable tab through 打开全文', async () => {
@@ -176,21 +191,18 @@ describe('IntakeRail', () => {
     expect(createEntity).not.toHaveBeenCalled()
   })
 
-  it('surfaces a load failure and a refresh action', async () => {
+  it('surfaces a load failure', async () => {
     const failing = vi.fn(() => Promise.reject(new Error('知识库加载失败')))
     render(<IntakeRail {...railProps({ load: failing })} />)
     expect(await screen.findByTitle('知识库加载失败')).toBeTruthy()
-    fireEvent.click(screen.getByText('⟳ 刷新'))
-    expect(failing).toHaveBeenCalledTimes(2)
   })
 
-  it('collapses to a refresh-and-expand icon column', () => {
+  it('collapses to an expand icon column', () => {
     const onExpand = vi.fn()
     render(<IntakeRail {...railProps({ collapsed: true, onExpand })} />)
     expect(screen.queryByText('资源')).toBeNull()
     fireEvent.click(screen.getByTitle('展开输入栏'))
     expect(onExpand).toHaveBeenCalledOnce()
-    expect(screen.getByTitle('刷新知识库')).toBeTruthy()
   })
 
   it('pulls forward the tab owning the selected file', async () => {
@@ -236,7 +248,7 @@ describe('WorkspaceRail', () => {
     expect(onOpenFile).toHaveBeenCalledWith('entities/areas/健康.md', 'edit')
   })
 
-  it('collapses to a refresh-and-expand icon column', () => {
+  it('collapses to an expand icon column', () => {
     const onExpand = vi.fn()
     render(<WorkspaceRail {...railProps({ collapsed: true, onExpand })} />)
     expect(screen.queryByText('领域')).toBeNull()
@@ -259,6 +271,8 @@ describe('WorkspaceRail', () => {
 interface FrameFaces {
   readonly read: FileReader
   readonly write: FileWriter
+  readonly todos: TodoLoader
+  readonly writeTodos: TodoWriter
   readonly createEntity: EntityCreator
   readonly root: RootLoader
   readonly setRoot: RootSetter
@@ -274,6 +288,8 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     links: path => Promise.resolve({ path, outgoing: [], incoming: [] }),
     read: () => Promise.resolve(TODO_FILE),
     write: () => Promise.resolve(),
+    todos: () => Promise.resolve(TODOS),
+    writeTodos: () => Promise.resolve({ path: 'entities/todos.md', text: TODO_FILE }),
     createEntity: () => Promise.resolve('entities/areas/新实体.md'),
     root: () => Promise.resolve({ root: '/kb', configured: true }),
     setRoot: () => Promise.resolve({ root: '/kb', configured: true, created: [], existing: [] }),
@@ -302,6 +318,11 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       links={kb.links}
       revision={kb.revision}
       openExternal={kb.openExternal}
+      todos={kb.todos}
+      mailFetch={() => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] })}
+      mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
+      analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { people: [], todos: [], projects: [], resources: [] } })}
+      writeTodos={kb.writeTodos}
       onKbRootChanged={onKbRootChanged}
     />
   )
@@ -473,6 +494,11 @@ describe('Frame', () => {
         links={kb.links}
         revision={kb.revision}
         openExternal={kb.openExternal}
+        todos={kb.todos}
+        writeTodos={kb.writeTodos}
+        mailFetch={() => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] })}
+        mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
+        analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { people: [], todos: [], projects: [], resources: [] } })}
         onKbRootChanged={onKbRootChanged}
       />,
     )
@@ -487,12 +513,6 @@ describe('Frame', () => {
     expect(load).toHaveBeenCalledTimes(2)
     // ADR-0013: the adopted root re-points dsh's own workspace.
     expect(onKbRootChanged).toHaveBeenCalledOnce()
-  })
-
-  it('re-opens the directory flow through 更改目录', async () => {
-    render(renderFrame())
-    fireEvent.click(firstOf(await screen.findAllByText('更改目录')))
-    expect(await screen.findByText('选择知识库目录')).toBeTruthy()
   })
 
   /** The first of several matches, asserted to exist (noUncheckedIndexedAccess). */

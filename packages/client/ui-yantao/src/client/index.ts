@@ -27,7 +27,11 @@ import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 // Type-only: pulls the `ctx.inputTriggers` service merge (ui-input-trigger
 // owns the declaration) — the `@` menu's KB source registers through it.
 import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type {
+  KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbWriteTodosArgs,
+} from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KnownEntities } from './mail-analysis.ts'
+import { runMailAnalysis } from './mail-analysis.ts'
 import { Frame } from './frame/Frame.tsx'
 import { ThemePresenter } from './frame/theme-presenter.ts'
 import { WorkbenchLayout, createPanelSeat } from './frame/layout.ts'
@@ -35,17 +39,21 @@ import { YantaoMark } from './brand/YantaoMark.tsx'
 import { alignWorkspace } from './kb-workspace.ts'
 import { kbReferenceSource } from './kb-reference.ts'
 import {
-  createEntity, loadIntake, loadLinks, loadRevision, loadRoot, loadWorkspace, openExternal, readFile, setKbRoot,
-  writeFile,
+  createEntity, fetchMail, loadIntake, loadLinks, loadRevision, loadRoot, loadTodos, loadWorkspace, markMailRead,
+  openExternal, readFile, setKbRoot, writeFile, writeTodos,
 } from './remote.ts'
+import type { MailMessage } from './remote.ts'
 
 export const name = 'ui-yantao'
 // Cordis forbids reading an undeclared service, and a Remote namespace counts
 // as one of its own: both the `remote` face and this namespace must be listed
 // or the accessor throws "cannot get property remote.yantaoKb without inject".
 // `uiWorkspace` is the host's directory picker the first-run flow calls.
+// `remote.session` is ADR-0019's: the mail analysis creates and drives a real
+// dsh session from the browser.
 export const inject = [
-  'slots', 'theme', 'remote', 'remote.yantaoKb', 'uiWorkspace', 'workspaces', 'inputTriggers',
+  'slots', 'theme', 'remote', 'remote.yantaoKb', 'remote.session', 'uiWorkspace', 'workspaces',
+  'inputTriggers',
 ]
 
 /**
@@ -66,7 +74,7 @@ export function apply(ctx: Context): void {
 
   // ADR-0013: dsh's own workspace follows the KB root, so the middle column's
   // working directory is the directory every kb_* tool reads. Re-run after the
-  // first-run flow (or 更改目录) adopts a new root; a failure here only costs
+  // first-run flow adopts a new root; a failure here only costs
   // the alignment, so it is reported and forgotten.
   const align = (): void => {
     void alignWorkspace({
@@ -111,6 +119,12 @@ export function apply(ctx: Context): void {
       links: (path: string) => loadLinks(ctx, path),
       revision: () => loadRevision(ctx),
       openExternal: (target: string) => openExternal(ctx, target),
+      todos: () => loadTodos(ctx),
+      writeTodos: (args: KbWriteTodosArgs) => writeTodos(ctx, args),
+      mailFetch: (args: KbMailFetchArgs) => fetchMail(ctx, args),
+      mailMarkRead: (args: KbMailMarkReadArgs) => markMailRead(ctx, args),
+      analyseMail: (mails: readonly MailMessage[], known: KnownEntities) =>
+        runMailAnalysis({ ctx, mails, known }),
       onKbRootChanged: align,
     }),
   }, Frame), 'ui-yantao: root frame')

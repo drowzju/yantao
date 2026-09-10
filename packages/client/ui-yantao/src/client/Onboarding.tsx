@@ -1,8 +1,8 @@
 /**
  * First-run directory choice. The KB root is the one thing the workbench
  * cannot invent: until the human points it at a directory there is no tree to
- * show, so the frame puts this overlay over everything and asks once. The same
- * flow is reachable later through 更改目录.
+ * show, so the frame puts this overlay over everything and asks once. Nothing
+ * in the UI re-opens it: a later root change is a `setRoot` call from outside.
  */
 import { useState, type ReactElement } from 'react'
 import type { DirectoryPicker, RootSetter } from './remote.ts'

@@ -13,9 +13,10 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
-  DirectoryPicker, EntityCreator, ExternalOpener, FileReader, FileWriter, LinksLoader, RevisionLoader, RootLoader,
-  RootSetter,
+  DirectoryPicker, EntityCreator, ExternalOpener, FileReader, FileWriter, LinksLoader, MailFetcher, MailMarker,
+  RevisionLoader, RootLoader, RootSetter, TodoLoader, TodoWriter,
 } from '../remote.ts'
+import type { MailAnalyser } from '../mail-analysis.ts'
 import { obsidianUri } from '../remote.ts'
 import type { KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
@@ -57,6 +58,16 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly revision: RevisionLoader
   /** Hand one KB path or allowlisted URI to the desktop's own handler (ADR-0017). */
   readonly openExternal: ExternalOpener
+  /** Read the todo singleton as structured items (ADR-0018). */
+  readonly todos: TodoLoader
+  /** Write the todo singleton's whole item list (ADR-0018). */
+  readonly writeTodos: TodoWriter
+  /** Read the newest mails after the connector's cursor (ADR-0019). */
+  readonly mailFetch: MailFetcher
+  /** Move that cursor forward (ADR-0019). */
+  readonly mailMarkRead: MailMarker
+  /** Run one mail analysis in a dsh session (ADR-0019). */
+  readonly analyseMail: MailAnalyser
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
   readonly onKbRootChanged: () => void
 }
@@ -173,7 +184,7 @@ function DragHandle(props: {
  */
 export function Frame({
   renderSlot, panels, intake, workspace, read, write, createEntity, root, setRoot, pickDirectory, links, revision,
-  openExternal, onKbRootChanged,
+  openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -426,10 +437,15 @@ export function Frame({
           selection={selection}
           onExpand={() => { setIntakeOpen(true) }}
           onOpenFile={openFile}
+          loadTodos={todos}
+          writeTodos={writeTodos}
+          createEntity={createEntity}
           read={read}
           write={write}
-          createEntity={createEntity}
-          onChangeDirectory={() => { setNeedsRoot(true) }}
+          workspace={workspace}
+          mailFetch={mailFetch}
+          mailMarkRead={mailMarkRead}
+          analyseMail={analyseMail}
         />
       </div>
       <CenterPane
@@ -488,10 +504,15 @@ export function Frame({
           selection={selection}
           onExpand={() => { setWorkspaceOpen(true) }}
           onOpenFile={openFile}
+          loadTodos={todos}
+          writeTodos={writeTodos}
+          createEntity={createEntity}
           read={read}
           write={write}
-          createEntity={createEntity}
-          onChangeDirectory={() => { setNeedsRoot(true) }}
+          workspace={workspace}
+          mailFetch={mailFetch}
+          mailMarkRead={mailMarkRead}
+          analyseMail={analyseMail}
         />
       </div>
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>

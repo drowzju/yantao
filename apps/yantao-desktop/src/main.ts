@@ -208,6 +208,10 @@ async function restartHost(): Promise<void> {
 async function main(): Promise<void> {
   await app.whenReady()
 
+  // Electron 默认挂一条 File/Edit/View/Window/Help 菜单栏，工作台用不上（顺带
+  // 也失去了 F12 调试入口）；托盘已经够用。
+  Menu.setApplicationMenu(null)
+
   const target = ensureWindow()
   await target.loadURL(LOADING_PAGE)
   target.show()
