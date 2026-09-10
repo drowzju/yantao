@@ -395,6 +395,8 @@ export {
 export { appendToLogSection, logBullet, replaceStateSection } from './splice.ts'
 export { linksOf, resolveWikiLink, wikilinks } from './links.ts'
 export type { KbLinkSource, KbLinkTarget, KbLinks, WikiLink } from './links.ts'
+export { parseFrontmatter } from './frontmatter.ts'
+export type { Frontmatter } from './frontmatter.ts'
 export { addTodo, parseTodoFile, removeTodo, serializeTodoFile, toggleTodo, updateTodo } from './todo.ts'
 export type { TodoDraft, TodoFile, TodoItem, TodoPatch } from './todo.ts'
 export { entityFileContent, KB_README, shadowNoteContent, todoFileContent } from './templates.ts'

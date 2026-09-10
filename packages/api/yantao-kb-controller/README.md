@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-api-yantao-kb-controller` is the Typert Remote controller behind the yantao workbench UI: fifteen unary methods over the `yantaoKb` namespace — `intakeTree`, `workspaceTree`, `read`, `write`, `deleteFile`, `root`, `setRoot`, `createEntity`, `links`, `revision`, `openExternal`, `todos`, `writeTodos`, `mailFetch`, and `mailMarkRead` — that let the browser list, edit, and extend the knowledge base directly. Every path is KB-relative and confined to the kbRoot the `yantao-kb` plugin publishes as the `yantaoKb` service, so the controller shares the plugin's one configuration point and never duplicates it; `setRoot` re-points that one root. The UI is the human channel, so `write` is a full-file write; the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface.
+`dsh-api-yantao-kb-controller` is the Typert Remote controller behind the yantao workbench UI: sixteen unary methods over the `yantaoKb` namespace — `intakeTree`, `workspaceTree`, `read`, `write`, `deleteFile`, `setRelation`, `root`, `setRoot`, `createEntity`, `links`, `revision`, `openExternal`, `todos`, `writeTodos`, `mailFetch`, and `mailMarkRead` — that let the browser list, edit, and extend the knowledge base directly. Every path is KB-relative and confined to the kbRoot the `yantao-kb` plugin publishes as the `yantaoKb` service, so the controller shares the plugin's one configuration point and never duplicates it; `setRoot` re-points that one root. The UI is the human channel, so `write` is a full-file write; the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface.
 
 ## Table of Contents
 
@@ -31,11 +31,12 @@ The `yantao-web` profile mounts this controller automatically; the workbench UI 
 
 | Method | Signature | Result |
 |---|---|---|
-| `yantaoKb.intakeTree` | `()` | The intake sections (`resources`, `meetings`, `todos`); resource rows pair their shadow note, entity rows carry `archived`/`relation` flags |
+| `yantaoKb.intakeTree` | `()` | The intake sections (`resources`, `meetings`, `todos`); resource rows pair their shadow note, a `.md` with no original beside it is a row of its own; every resource row keeps its file name's suffix, so `周报.eml` and `周报.eml.md` never read as the same thing |
 | `yantaoKb.workspaceTree` | `()` | The workspace sections (`projects`, `areas`, `people`); same row shape as above |
 | `yantaoKb.read` | `(path)` | `{ path, content }` — the file's complete UTF-8 content |
 | `yantaoKb.write` | `(path, content)` | `{ path }` — full-file write, creating missing parent directories |
 | `yantaoKb.deleteFile` | `(path)` | `{ path }` — removes one KB file; the path is confined like every other one, and an absent file is `not-found` |
+| `yantaoKb.setRelation` | `({ path, relation })` | `{ path, relation }` — rewrites one person entity's `relation` inside its frontmatter, leaving the rest of the document byte-identical |
 | `yantaoKb.root` | `()` | `{ root, configured }` — the live KB root, and whether the human has chosen one |
 | `yantaoKb.setRoot` | `(path)` | `{ root, configured, created, existing }` — initializes `path` as a KB, makes it the live root, and remembers it |
 | `yantaoKb.createEntity` | `({ type, name, date?, relation? })` | `{ path }` — one entity note from the KB's canonical template |
@@ -46,6 +47,8 @@ The `yantao-web` profile mounts this controller automatically; the workbench UI 
 | `yantaoKb.writeTodos` | `({ items, expectedText })` | `{ path, text }` — replaces the singleton's items, keeping its preamble (ADR-0018) |
 | `yantaoKb.mailFetch` | `({ since?, until?, limit? })` | `{ since, until?, lastReadAt?, stale, messages, hasMore }` — the newest mails in `[since, until)`, read through a Python/COM subprocess (ADR-0019) |
 | `yantaoKb.mailMarkRead` | `({ lastReadAt? })` | `{ lastReadAt }` — moves that cursor forward; defaults to now (ADR-0019) |
+
+`setRelation` only answers for a person file: anything else is `yantao-kb/rejected` without being rewritten, and so is a relation outside the domain's five. It is a line splice inside the frontmatter, never a YAML round trip — a re-emitted mapping would drop the comments and ordering the human wrote.
 
 `setRoot` takes an absolute path (a relative or empty one is refused) and hands it to the `yantaoKb` service, which persists the choice under `~/.dsh`. `createEntity` accepts `project`, `area`, `person`, and `meeting`; a meeting's file name is prefixed with its own date, and a person carries the `relation` it was given — `self` / `subordinate` / `superior` / `peer` / `external`, the KB domain's own five — defaulting to the domain's own choice when the caller names none.
 

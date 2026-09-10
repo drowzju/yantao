@@ -38,6 +38,10 @@ describe('readOnlyPath', () => {
     expect(readOnlyPath('resources/周报.eml')).toBe(true)
     expect(readOnlyPath('entities/areas/健康.md')).toBe(false)
   })
+
+  it('treats a .md note under 资源 as editable — it is not an original', () => {
+    expect(readOnlyPath('resources/汇报模板.md')).toBe(false)
+  })
 })
 
 describe('openTab', () => {

@@ -82,6 +82,16 @@ describe('yantaoKb.intakeTree', () => {
     expect(meetings.files).toEqual([{ name: '周会', path: 'entities/meetings/周会.md' }])
     expect(todos.files).toEqual([{ name: 'todos', path: 'entities/todos.md' }])
   })
+
+  it('lists a .md with no original beside it as a resource of its own, suffix included', async () => {
+    await seedKb()
+    await seedFile('resources/汇报模板.md', '---\ntype: resource\n---\n')
+    const [resources] = (await ctx.yantaoKbController.intakeTree()).sections as [KbTreeSection]
+    expect(resources.files).toContainEqual({ name: '汇报模板.md', path: 'resources/汇报模板.md' })
+    // The shadow note beside 周报.eml is still that original's, not a row.
+    expect(resources.files).not.toContainEqual({ name: '周报.eml.md', path: 'resources/周报.eml.md' })
+    expect(resources.files.length).toBe(3)
+  })
 })
 
 describe('yantaoKb.workspaceTree', () => {
@@ -142,6 +152,44 @@ describe('yantaoKb.write', () => {
     const failure = await ctx.yantaoKbController.write('../escape-victim.md', 'x').catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
     await expect(readFile(escapeTarget, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+})
+
+describe('yantaoKb.setRelation', () => {
+  it('rewrites the relation a person carries, and adds the field when it is absent', async () => {
+    await seedKb()
+    const path = 'entities/people/我自己.md'
+    const result = await ctx.yantaoKbController.setRelation({ path, relation: 'peer' })
+    expect(result).toEqual({ path, relation: 'peer' })
+    expect(await readFile(join(kbRoot, path), 'utf8')).toContain('relation: peer')
+
+    const plain = await ctx.yantaoKbController.createEntity({ type: 'person', name: '没有关系的' })
+    const added = await ctx.yantaoKbController.setRelation({ path: plain.path, relation: 'superior' })
+    expect(added.relation).toBe('superior')
+    const content = await readFile(join(kbRoot, plain.path), 'utf8')
+    expect(content).toContain('relation: superior')
+    // The splice keeps the document's own sections: nothing else moved.
+    expect(content).toContain('## 状态')
+    expect(content).toContain('- ')
+  })
+
+  it('refuses a file that is not a person, a missing file, and an unknown relation', async () => {
+    await seedKb()
+    const project = 'entities/projects/dsh 学习.md'
+    const notAPerson = await ctx.yantaoKbController.setRelation({ path: project, relation: 'peer' })
+      .catch((error: unknown) => error)
+    expect(remoteErrorOf(notAPerson)).toMatchObject({ code: 'yantao-kb/rejected', details: { path: project } })
+    expect(await readFile(join(kbRoot, project), 'utf8')).not.toContain('relation:')
+
+    const missing = await ctx.yantaoKbController.setRelation({ path: 'entities/people/不存在.md', relation: 'peer' })
+      .catch((error: unknown) => error)
+    expect(remoteErrorOf(missing)).toMatchObject({ code: 'yantao-kb/not-found' })
+
+    const unknown = await ctx.yantaoKbController.setRelation({
+      path: 'entities/people/我自己.md',
+      relation: 'friend',
+    } as unknown as Parameters<typeof ctx.yantaoKbController.setRelation>[0]).catch((error: unknown) => error)
+    expect(remoteErrorOf(unknown)).toMatchObject({ code: 'yantao-kb/rejected' })
   })
 })
 

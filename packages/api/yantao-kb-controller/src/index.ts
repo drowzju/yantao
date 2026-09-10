@@ -17,8 +17,9 @@ import { dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
-  createEntity, entityDisplayPath, initKb, KbError, linksOf, listEntities, parseTodoFile, readKbRootOverride,
-  readMailWatermark, resolveWithinKb, serializeTodoFile, todayStamp, writeMailWatermark,
+  createEntity, entityDisplayPath, initKb, KbError, linksOf, listEntities, parseFrontmatter,
+  parseTodoFile, PERSON_RELATIONS, readKbRootOverride, readMailWatermark, resolveWithinKb, serializeTodoFile,
+  todayStamp, writeMailWatermark,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
 import { fetchMail, MailFetchError } from './mail/fetch.ts'
@@ -37,6 +38,8 @@ import type {
   KbOpenExternalResult,
   KbRevisionResult,
   KbRootResult,
+  KbSetRelationArgs,
+  KbSetRelationResult,
   KbSetRootResult,
   KbTodosResult,
   KbTree,
@@ -113,6 +116,32 @@ function isStale(lastReadAt: string | undefined): boolean {
   return Date.now() - then > MAIL_STALE_DAYS * 24 * 60 * 60 * 1000
 }
 
+/**
+ * Rewrite one scalar field of a KB file's frontmatter, adding it just above
+ * the closing fence when the file does not carry it yet.
+ *
+ * The envelope is parsed first — the file is the human's document, so an
+ * unreadable one is reported rather than repaired — and the splice is a line
+ * edit, never a YAML round trip: a re-emitted mapping would drop the comments
+ * and the ordering the human wrote.
+ * @param content - the file's complete content.
+ * @param displayPath - the KB-relative path, for error prose.
+ * @param key - the field to write.
+ * @param value - the field's new value.
+ * @returns the new content.
+ */
+function withFrontmatterField(content: string, displayPath: string, key: string, value: string): string {
+  parseFrontmatter(content, displayPath)
+  const lines = content.split('\n')
+  const closing = lines.findIndex((line, at) => at > 0 && /^---[ \t\r]*$/.test(line))
+  if (closing < 0) throw new KbError('malformed-frontmatter', `文件 ${displayPath} 的 frontmatter 没有闭合`)
+  const field = lines.findIndex((line, at) => at > 0 && at < closing && new RegExp(`^${key}:`).test(line))
+  const next = [...lines]
+  if (field >= 0) next[field] = `${key}: ${value}`
+  else next.splice(closing, 0, `${key}: ${value}`)
+  return next.join('\n')
+}
+
 /** Read a directory's file names, answering an empty list when the directory is absent. */
 async function readdirFiles(dir: string): Promise<string[]> {
   let entries
@@ -176,17 +205,32 @@ export class YantaoKbController extends TypertRemoteService {
     return { sections: await this.entitySections(WORKSPACE_ENTITY_SECTIONS) }
   }
 
-  /** The `resources` section: originals with their shadow-note pairing (`.md` notes are not rows). */
+  /**
+   * The `resources` section: originals with their shadow-note pairing, plus a
+   * note that has no original beside it — a mail analysis saves its resources
+   * as `resources/<name>.md`, and a note nobody else owns is a row of its own
+   * rather than a shadow nobody can see.
+   *
+   * Every row keeps its file name's suffix, so `周报.eml` and `周报.eml.md`
+   * can never be mistaken for one another on screen.
+   */
   private async resourceSection(): Promise<KbTreeSection> {
     const resourceNames = await readdirFiles(join(this.kbRoot, 'resources'))
     const resourceSet = new Set(resourceNames)
-    const resources: KbTreeFile[] = resourceNames
-      .filter(name => !name.endsWith('.md'))
-      .map(name => ({
-        name,
-        path: `resources/${name}`,
-        ...resourceSet.has(`${name}.md`) ? { notePath: `resources/${name}.md` } : {},
-      }))
+    const resources: KbTreeFile[] = []
+    for (const name of resourceNames) {
+      if (!name.endsWith('.md')) {
+        resources.push({
+          name,
+          path: `resources/${name}`,
+          ...resourceSet.has(`${name}.md`) ? { notePath: `resources/${name}.md` } : {},
+        })
+        continue
+      }
+      // A note with its original beside it is that original's shadow, not a row.
+      if (resourceSet.has(name.slice(0, -'.md'.length))) continue
+      resources.push({ name, path: `resources/${name}` })
+    }
     return { id: 'resources', files: resources }
   }
 
@@ -322,6 +366,70 @@ export class YantaoKbController extends TypertRemoteService {
     } catch (error) {
       throw new RemoteError('yantao-kb/rejected', `无法写入知识库文件 ${path}：${(error as Error).message}`, { path }, { cause: error })
     }
+  }
+
+  /**
+   * Rewrite one person entity's `relation` — the workbench's right-click
+   * 「关系」 on a 人物 row.
+   *
+   * Only a person carries the field, so anything else is refused rather than
+   * silently given one: the relation is how the KB knows who somebody is to
+   * its owner, and a project with a `relation:` line is a mistake a later
+   * reader would have to guess about. The value is checked against the
+   * domain's five, and the write is a line splice inside the frontmatter —
+   * the rest of the document, human-written, is left byte-identical.
+   * @param args - the entity's path and the relation to write.
+   * @returns the path and the relation it now carries.
+   */
+  @Remote('setRelation')
+  async setRelation(args: KbSetRelationArgs): Promise<KbSetRelationResult> {
+    const target = this.confine(args.path, args.path)
+    if (!(PERSON_RELATIONS as readonly string[]).includes(args.relation)) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `无法识别的人物关系「${args.relation}」；可用关系：${PERSON_RELATIONS.join(' / ')}`,
+        { path: args.path },
+      )
+    }
+    let content: string
+    try {
+      content = await readFile(target, 'utf8')
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') {
+        throw new RemoteError('yantao-kb/not-found', `找不到知识库文件：${args.path}`, { path: args.path }, { cause: error })
+      }
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `无法读取知识库文件 ${args.path}：${(error as Error).message}`,
+        { path: args.path },
+        { cause: error },
+      )
+    }
+    let patched: string
+    try {
+      const { data } = parseFrontmatter(content, args.path)
+      if (data.type !== 'person') {
+        throw new KbError('not-a-person', `只有人物实体才有关系：${args.path}`)
+      }
+      patched = withFrontmatterField(content, args.path, 'relation', args.relation)
+    } catch (error) {
+      const message = error instanceof KbError
+        ? error.message
+        : `无法改写 ${args.path} 的关系：${(error as Error).message}`
+      throw new RemoteError('yantao-kb/rejected', message, { path: args.path }, { cause: error })
+    }
+    try {
+      await writeFile(target, patched, 'utf8')
+    } catch (error) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `无法写入知识库文件 ${args.path}：${(error as Error).message}`,
+        { path: args.path },
+        { cause: error },
+      )
+    }
+    return { path: args.path, relation: args.relation }
   }
 
   /**

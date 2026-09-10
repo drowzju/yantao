@@ -10,8 +10,8 @@ import { Frame } from '../src/client/frame/Frame.tsx'
 import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveColumns } from '../src/client/frame/columns.ts'
 import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
 import type {
-  DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader, RevisionLoader,
-  RootLoader, RootSetter, TodoLoader, TodoWriter,
+  DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader, RelationSetter,
+  RevisionLoader, RootLoader, RootSetter, TodoLoader, TodoWriter,
 } from '../src/client/remote.ts'
 import { TAB_STORAGE_KEY } from '../src/client/tabs.ts'
 
@@ -80,6 +80,7 @@ function railProps(overrides: Partial<RailProps> = {}): RailProps {
     read: () => Promise.resolve(''),
     write: () => Promise.resolve(),
     deleteFile: () => Promise.resolve(),
+    setRelation: () => Promise.resolve(),
     workspace: loader(workspace),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
@@ -334,6 +335,31 @@ describe('WorkspaceRail', () => {
     expect(row.textContent).toBe('我自己 · 自己')
   })
 
+  it('sets a person\'s relation from the row menu, and marks the one it carries', async () => {
+    const load = vi.fn(loader(workspace))
+    const setRelation = vi.fn(() => Promise.resolve())
+    render(<WorkspaceRail {...railProps({ load, setRelation })} />)
+    fireEvent.click(await screen.findByText('人物'))
+    fireEvent.contextMenu(await screen.findByText('我自己'), { clientX: 40, clientY: 60 })
+    const current = await screen.findByText('✓ 自己')
+    expect(current.getAttribute('data-relation')).toBe('self')
+    await act(async () => {
+      fireEvent.click(screen.getByText('下属'))
+    })
+    expect(setRelation).toHaveBeenCalledWith('entities/people/我自己.md', 'subordinate')
+    // The tree reloaded, so the row shows what the file now carries.
+    expect(load).toHaveBeenCalledTimes(2)
+  })
+
+  it('offers no relation on a row that is not a person', async () => {
+    const setRelation = vi.fn(() => Promise.resolve())
+    render(<WorkspaceRail {...railProps({ load: loader(workspace), setRelation })} />)
+    fireEvent.click(await screen.findByText('领域'))
+    fireEvent.contextMenu(await screen.findByText('健康'), { clientX: 40, clientY: 60 })
+    expect(await screen.findByText('删除「健康」')).toBeTruthy()
+    expect(screen.queryByText('同事')).toBeNull()
+  })
+
   it('opens a workspace row as an editable file', async () => {
     const onOpenFile = vi.fn()
     render(<WorkspaceRail {...railProps({ load: loader(workspace), onOpenFile })} />)
@@ -365,6 +391,7 @@ interface FrameFaces {
   readonly read: FileReader
   readonly write: FileWriter
   readonly deleteFile: FileDeleter
+  readonly setRelation: RelationSetter
   readonly todos: TodoLoader
   readonly writeTodos: TodoWriter
   readonly createEntity: EntityCreator
@@ -383,6 +410,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     read: () => Promise.resolve(TODO_FILE),
     write: () => Promise.resolve(),
     deleteFile: () => Promise.resolve(),
+    setRelation: () => Promise.resolve(),
     todos: () => Promise.resolve(TODOS),
     writeTodos: () => Promise.resolve({ path: 'entities/todos.md', text: TODO_FILE }),
     createEntity: () => Promise.resolve('entities/areas/新实体.md'),
@@ -407,6 +435,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       read={kb.read}
       write={kb.write}
       deleteFile={kb.deleteFile}
+      setRelation={kb.setRelation}
       createEntity={kb.createEntity}
       root={kb.root}
       setRoot={kb.setRoot}
@@ -584,6 +613,7 @@ describe('Frame', () => {
         read={kb.read}
         write={kb.write}
         deleteFile={kb.deleteFile}
+        setRelation={kb.setRelation}
         createEntity={kb.createEntity}
         root={kb.root}
         setRoot={kb.setRoot}

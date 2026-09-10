@@ -185,6 +185,21 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('write') async write(path: string, content: string): Promise<KbWriteResult>
 
 /**
+ * Rewrite one person entity's `relation` — the workbench's right-click
+ * 「关系」 on a 人物 row.
+ *
+ * Only a person carries the field, so anything else is refused rather than
+ * silently given one: the relation is how the KB knows who somebody is to
+ * its owner, and a project with a `relation:` line is a mistake a later
+ * reader would have to guess about. The value is checked against the
+ * domain's five, and the write is a line splice inside the frontmatter —
+ * the rest of the document, human-written, is left byte-identical.
+ * @param args - the entity's path and the relation to write.
+ * @returns the path and the relation it now carries.
+ */
+@Remote('setRelation') async setRelation(args: KbSetRelationArgs): Promise<KbSetRelationResult>
+
+/**
  * Delete one KB file — the workbench's right-click 「删除」 on an entity row.
  *
  * The human channel owns the KB's files, so this is a real unlink and not an

@@ -3009,6 +3009,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the written path.',
       },
       {
+        signature: '@Remote(\'setRelation\') async setRelation(args: KbSetRelationArgs): Promise<KbSetRelationResult>',
+        description: 'Rewrite one person entity\'s `relation` — the workbench\'s right-click 「关系」 on a 人物 row.\n\nOnly a person carries the field, so anything else is refused rather than silently given one: the relation is how the KB knows who somebody is to its owner, and a project with a `relation:` line is a mistake a later reader would have to guess about. The value is checked against the domain\'s five, and the write is a line splice inside the frontmatter — the rest of the document, human-written, is left byte-identical.',
+        parameters: [{ name: 'args', description: 'the entity\'s path and the relation to write.' }],
+        returns: 'the path and the relation it now carries.',
+      },
+      {
         signature: '@Remote(\'deleteFile\') async deleteFile(path: string): Promise<KbDeleteFileResult>',
         description: 'Delete one KB file — the workbench\'s right-click 「删除」 on an entity row.\n\nThe human channel owns the KB\'s files, so this is a real unlink and not an archive: a row the human created and no longer wants is gone. The path is confined like every other one, and a missing file is `yantao-kb/not-found` rather than a silent success, so the UI can tell "already deleted" from "deleted just now".',
         parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }],
@@ -4543,6 +4549,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KbRootResult',
     declaration: 'export interface KbRootResult {\n    readonly root: string;\n    readonly configured: boolean;\n}',
+  },
+  {
+    name: 'KbSetRelationArgs',
+    declaration: 'export interface KbSetRelationArgs {\n    readonly path: string;\n    readonly relation: PersonRelation;\n}',
+  },
+  {
+    name: 'KbSetRelationResult',
+    declaration: 'export interface KbSetRelationResult {\n    readonly path: string;\n    readonly relation: PersonRelation;\n}',
   },
   {
     name: 'KbSetRootResult',

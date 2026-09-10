@@ -57,12 +57,14 @@ export function tabTitle(path: string): string {
 
 /**
  * Whether a path is read-only for the workbench: 资源 originals are kept
- * byte-for-byte (ADR-0004's human channel still does not rewrite an original),
- * everything else is editable.
+ * byte-for-byte (ADR-0004's human channel still does not rewrite an original).
+ * A `.md` note under `resources/` is not an original — a mail analysis saves
+ * its resources that way — so it opens editable like any other note.
  * @param path - KB-relative path.
  * @returns true when the file opens read-only.
  */
 export function readOnlyPath(path: string): boolean {
+  if (path.endsWith('.md')) return false
   return path.startsWith('resources/') || path === 'resources'
 }
 

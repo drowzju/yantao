@@ -57,6 +57,22 @@ export interface KbWriteResult {
   readonly path: string
 }
 
+/** Parameters of `yantaoKb.setRelation`. */
+export interface KbSetRelationArgs {
+  /** KB-relative path of the person entity. */
+  readonly path: string
+  /** The relation to write into its frontmatter. */
+  readonly relation: PersonRelation
+}
+
+/** Result of `yantaoKb.setRelation`. */
+export interface KbSetRelationResult {
+  /** The KB-relative path that was rewritten. */
+  readonly path: string
+  /** The relation the file now carries. */
+  readonly relation: PersonRelation
+}
+
 /** Result of `yantaoKb.deleteFile`. */
 export interface KbDeleteFileResult {
   /** The KB-relative path that was deleted. */

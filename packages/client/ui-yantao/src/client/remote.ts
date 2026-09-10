@@ -22,7 +22,8 @@ import type {
 import type {
   KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult, KbDeleteFileResult, KbFileContent, KbLinksResult,
   KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
-  KbOpenExternalResult, KbPersonRelation, KbRevisionResult, KbRootResult, KbSetRootResult, KbTodosResult, KbTree,
+  KbOpenExternalResult, KbPersonRelation, KbRevisionResult, KbRootResult, KbSetRelationArgs, KbSetRelationResult,
+  KbSetRootResult, KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 
@@ -34,6 +35,7 @@ export interface KbRemote {
   links(path: string): Promise<RemoteResult<KbLinksResult>>
   write(path: string, content: string): Promise<RemoteResult<KbWriteResult>>
   deleteFile(path: string): Promise<RemoteResult<KbDeleteFileResult>>
+  setRelation(args: KbSetRelationArgs): Promise<RemoteResult<KbSetRelationResult>>
   root(): Promise<RemoteResult<KbRootResult>>
   setRoot(path: string): Promise<RemoteResult<KbSetRootResult>>
   createEntity(args: KbCreateEntityArgs): Promise<RemoteResult<KbCreateEntityResult>>
@@ -64,6 +66,9 @@ export type FileWriter = (path: string, content: string) => Promise<void>
 
 /** Delete one KB file; rejects with the Remote's own message. */
 export type FileDeleter = (path: string) => Promise<void>
+
+/** Rewrite one person entity's relation; rejects with the Remote's own message. */
+export type RelationSetter = (path: string, relation: KbPersonRelation) => Promise<void>
 
 /**
  * Create one entity and resolve its KB-relative path. `relation` only means
@@ -184,6 +189,21 @@ export async function deleteFile(ctx: Context, path: string): Promise<void> {
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   unwrapRemote(await kb.deleteFile(path))
+}
+
+/**
+ * Rewrite one person entity's relation — the 人物 row's right-click 「关系」.
+ * The host owns the file's shape: it refuses a file that is not a person and a
+ * relation the domain does not know.
+ * @param ctx - client root context.
+ * @param path - KB-relative path of the person entity.
+ * @param relation - the relation to write.
+ * @returns a rejected promise carrying the reason on failure.
+ */
+export async function setRelation(ctx: Context, path: string, relation: KbPersonRelation): Promise<void> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  unwrapRemote(await kb.setRelation({ path, relation }))
 }
 
 /**

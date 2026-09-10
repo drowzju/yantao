@@ -40,7 +40,7 @@ import { alignWorkspace } from './kb-workspace.ts'
 import { kbReferenceSource } from './kb-reference.ts'
 import {
   createEntity, deleteFile, fetchMail, loadIntake, loadLinks, loadRevision, loadRoot, loadTodos, loadWorkspace,
-  markMailRead, openExternal, readFile, setKbRoot, writeFile, writeTodos,
+  markMailRead, openExternal, readFile, setKbRoot, setRelation, writeFile, writeTodos,
 } from './remote.ts'
 import type { MailMessage } from './remote.ts'
 
@@ -113,6 +113,7 @@ export function apply(ctx: Context): void {
       read: (path: string) => readFile(ctx, path),
       write: (path: string, content: string) => writeFile(ctx, path, content),
       deleteFile: (path: string) => deleteFile(ctx, path),
+      setRelation: (path: string, relation: KbPersonRelation) => setRelation(ctx, path, relation),
       createEntity: (type: KbCreatableEntityType, name: string, relation?: KbPersonRelation) =>
         createEntity(ctx, { type, name, ...relation !== undefined ? { relation } : {} }),
       root: () => loadRoot(ctx),

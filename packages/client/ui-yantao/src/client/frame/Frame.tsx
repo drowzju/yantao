@@ -14,7 +14,7 @@ import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
   DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader, MailFetcher,
-  MailMarker, RevisionLoader, RootLoader, RootSetter, TodoLoader, TodoWriter,
+  MailMarker, RelationSetter, RevisionLoader, RootLoader, RootSetter, TodoLoader, TodoWriter,
 } from '../remote.ts'
 import type { MailAnalyser } from '../mail-analysis.ts'
 import { obsidianUri } from '../remote.ts'
@@ -46,6 +46,8 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly write: FileWriter
   /** Delete one KB file — the rails' right-click 「删除」 on an entity row. */
   readonly deleteFile: FileDeleter
+  /** Rewrite one person entity's relation — the 人物 row's 「关系」. */
+  readonly setRelation: RelationSetter
   /** Create one entity and resolve its path. */
   readonly createEntity: EntityCreator
   /** Read the KB root's configuration state. */
@@ -185,8 +187,9 @@ function DragHandle(props: {
  * @returns the frame element.
  */
 export function Frame({
-  renderSlot, panels, intake, workspace, read, write, deleteFile, createEntity, root, setRoot, pickDirectory, links,
-  revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, onKbRootChanged,
+  renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
+  pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail,
+  onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -446,6 +449,7 @@ export function Frame({
           read={read}
           write={write}
           deleteFile={deleteFile}
+          setRelation={setRelation}
           workspace={workspace}
           mailFetch={mailFetch}
           mailMarkRead={mailMarkRead}
@@ -515,6 +519,7 @@ export function Frame({
           read={read}
           write={write}
           deleteFile={deleteFile}
+          setRelation={setRelation}
           workspace={workspace}
           mailFetch={mailFetch}
           mailMarkRead={mailMarkRead}

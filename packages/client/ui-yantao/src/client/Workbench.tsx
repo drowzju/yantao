@@ -10,7 +10,7 @@ import type {
   KbPersonRelation, KbTreeFile, KbTreeSection, KbTreeSectionId,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type {
-  EntityCreator, FileDeleter, FileReader, FileWriter, MailFetcher, MailMarker, TodoLoader, TodoWriter,
+  EntityCreator, FileDeleter, FileReader, FileWriter, MailFetcher, MailMarker, RelationSetter, TodoLoader, TodoWriter,
 } from './remote.ts'
 import type { MailAnalyser } from './mail-analysis.ts'
 import type { MailWriteTarget } from './mail-apply.ts'
@@ -231,6 +231,8 @@ function Section({
 interface MenuTarget {
   readonly path: string
   readonly name: string
+  /** The person's relation as the file carries it, so the menu can tick it. */
+  readonly relation?: string
   readonly x: number
   readonly y: number
 }
@@ -261,19 +263,22 @@ const menuItemStyle = {
 const menuNoteStyle = { color: '#6b6455', padding: '2px 8px 4px' } as const
 
 /**
- * The row menu: 删除 asks once before the file goes, and Escape or a click
- * anywhere else dismisses it. The `mousedown` that opened it has already been
+ * The row menu: a person's five relations, each set the moment it is picked,
+ * and 删除 below, which asks once before the file goes. Escape or a click
+ * anywhere else dismisses it; the `mousedown` that opened it has already been
  * dispatched, so it cannot close itself the moment it appears.
- * @param props - the targeted row, the busy flag, and the two actions.
+ * @param props - the targeted row, the busy flag, and the actions.
  * @returns the menu element.
  */
 function RowMenu(props: {
   target: MenuTarget
   busy: boolean
+  /** Write the row's relation; only a person row offers one. */
+  onRelate?: ((path: string, relation: KbPersonRelation) => Promise<void>) | undefined
   onDelete: (path: string) => void
   onClose: () => void
 }): ReactElement {
-  const { target, busy, onDelete, onClose } = props
+  const { target, busy, onRelate, onDelete, onClose } = props
   const [confirming, setConfirming] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -293,6 +298,24 @@ function RowMenu(props: {
 
   return (
     <div ref={ref} style={{ ...menuStyle, left: target.x, top: target.y }} data-row-menu={target.path}>
+      {onRelate !== undefined && (
+        <div data-row-relations="true">
+          <div style={menuNoteStyle}>关系</div>
+          {RELATION_OPTIONS.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              style={menuItemStyle}
+              disabled={busy}
+              data-relation={option.value}
+              data-current={option.value === target.relation || undefined}
+              onClick={() => { void onRelate(target.path, option.value) }}
+            >
+              {option.value === target.relation ? `✓ ${option.label}` : option.label}
+            </button>
+          ))}
+        </div>
+      )}
       {!confirming && (
         <button type="button" style={menuItemStyle} disabled={busy} onClick={() => { setConfirming(true) }}>
           删除「{target.name}」
@@ -314,23 +337,26 @@ function RowMenu(props: {
 /** What a rail needs from its row menu: the open menu, and the actions behind it. */
 interface RowMenuHost {
   readonly menu: MenuTarget | null
-  /** True while a delete is in flight. */
+  /** True while a delete or a relation change is in flight. */
   readonly busy: boolean
   /** Open the menu on one row, at the pointer. */
   readonly open: (file: KbTreeFile, x: number, y: number) => void
   readonly close: () => void
   readonly remove: (path: string) => Promise<void>
+  /** Write a person's relation and reload the tree. */
+  readonly relate: (path: string, relation: KbPersonRelation) => Promise<void>
 }
 
 /**
- * Own one rail's row menu: opening, dismissing, and the delete itself — the
- * file goes through the host, then the tree reloads and the centre pane drops
- * the tab that was showing it.
- * @param args - the delete channel and the three callbacks it reports to.
+ * Own one rail's row menu: opening, dismissing, and the two writes behind it.
+ * A delete goes through the host and then drops the centre pane's tab; a
+ * relation change only rewrites the field, so the tab stays open.
+ * @param args - the write channels and the callbacks they report to.
  * @returns the menu state and its actions.
  */
 function useRowMenu(args: {
   readonly deleteFile: FileDeleter
+  readonly setRelation: RelationSetter
   readonly refresh: () => Promise<void>
   readonly onCloseFile: (path: string) => void
   readonly onError: (message: string) => void
@@ -338,7 +364,7 @@ function useRowMenu(args: {
   const [menu, setMenu] = useState<MenuTarget | null>(null)
   const [busy, setBusy] = useState(false)
   // Every callback is a fresh closure on each render (inject face), so the
-  // delete path reaches them through a ref.
+  // write paths reach them through a ref.
   const latest = useRef(args)
   latest.current = args
   const remove = useCallback(async (path: string): Promise<void> => {
@@ -354,11 +380,29 @@ function useRowMenu(args: {
       setBusy(false)
     }
   }, [])
+  const relate = useCallback(async (path: string, relation: KbPersonRelation): Promise<void> => {
+    setBusy(true)
+    try {
+      await latest.current.setRelation(path, relation)
+      await latest.current.refresh()
+      setMenu(null)
+    } catch (failure: unknown) {
+      latest.current.onError(remoteMessage(failure))
+    } finally {
+      setBusy(false)
+    }
+  }, [])
   const open = useCallback((file: KbTreeFile, x: number, y: number): void => {
-    setMenu({ path: file.path, name: file.name, x, y })
+    setMenu({
+      path: file.path,
+      name: file.name,
+      ...file.relation !== undefined ? { relation: file.relation } : {},
+      x,
+      y,
+    })
   }, [])
   const close = useCallback((): void => { setMenu(null) }, [])
-  return { menu, busy, open, close, remove }
+  return { menu, busy, open, close, remove, relate }
 }
 
 /** The compact column both rails render while collapsed. */
@@ -411,6 +455,8 @@ export interface RailProps {
   readonly write: FileWriter
   /** Delete one KB file — the row menu's 「删除」. */
   readonly deleteFile: FileDeleter
+  /** Rewrite one person entity's relation — the row menu's 「关系」. */
+  readonly setRelation: RelationSetter
   /** Load the workspace side, so the mail analysis can name what exists (ADR-0019). */
   readonly workspace: TreeLoader
   /** Read the newest mails after the connector's cursor (ADR-0019). */
@@ -440,12 +486,12 @@ function RailHeader({ error }: { error: string | null }): ReactElement {
 export function IntakeRail(props: RailProps): ReactElement {
   const {
     collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
-    read, write, deleteFile, workspace, mailFetch, mailMarkRead, analyseMail,
+    read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector'>('resources')
   const [actionError, setActionError] = useState<string | null>(null)
-  const rowMenu = useRowMenu({ deleteFile, refresh, onCloseFile, onError: setActionError })
+  const rowMenu = useRowMenu({ deleteFile, setRelation, refresh, onCloseFile, onError: setActionError })
   // Reveal a selection this rail owns: the tab carrying the file comes to the
   // front, so the highlighted row is a visible one. A selection owned by the
   // other rail leaves the human's own tab choice alone.
@@ -510,7 +556,8 @@ export function IntakeRail(props: RailProps): ReactElement {
           id={tab}
           section={sections?.find(entry => entry.id === tab)}
           selection={selection}
-          onSelect={(path) => { onOpenFile(path, tab === 'resources' ? 'read' : 'edit') }}
+          // An original opens read-only; a `.md` note is ours to edit.
+          onSelect={(path) => { onOpenFile(path, path.endsWith('.md') ? 'edit' : 'read') }}
           onMenu={tab === 'meetings' ? rowMenu.open : undefined}
           showHeading={false}
         />
@@ -546,13 +593,14 @@ export function IntakeRail(props: RailProps): ReactElement {
 export function WorkspaceRail(props: RailProps): ReactElement {
   const {
     collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, createEntity, deleteFile,
+    setRelation: writeRelation,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId>('areas')
   const [actionError, setActionError] = useState<string | null>(null)
   /** The relation a new person gets; 同事 unless the human picks another. */
   const [relation, setRelation] = useState<KbPersonRelation>(DEFAULT_RELATION)
-  const rowMenu = useRowMenu({ deleteFile, refresh, onCloseFile, onError: setActionError })
+  const rowMenu = useRowMenu({ deleteFile, setRelation: writeRelation, refresh, onCloseFile, onError: setActionError })
   // Same reveal as the intake rail: a selection this rail owns pulls its tab
   // forward, one it does not own is left to the other rail.
   useEffect(() => {
@@ -617,6 +665,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
           key={rowMenu.menu.path}
           target={rowMenu.menu}
           busy={rowMenu.busy}
+          onRelate={tab === 'people' ? rowMenu.relate : undefined}
           onDelete={(path) => { void rowMenu.remove(path) }}
           onClose={rowMenu.close}
         />
