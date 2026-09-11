@@ -137,6 +137,17 @@ describe('yantaoKb.read', () => {
     const failure2 = await ctx.yantaoKbController.read(absolute).catch((error: unknown) => error)
     expect(remoteErrorOf(failure2)).toMatchObject({ code: 'yantao-kb/rejected' })
   })
+
+  it('refuses a binary original as yantao-kb/binary instead of decoding it', async () => {
+    await seedKb()
+    // A pdf's first bytes: `%PDF` then the binary header garbage that follows.
+    await writeFile(join(kbRoot, 'resources/书.pdf'), Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x00, 0x9e]))
+    const failure = await ctx.yantaoKbController.read('resources/书.pdf').catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({
+      code: 'yantao-kb/binary',
+      details: { path: 'resources/书.pdf' },
+    })
+  })
 })
 
 describe('yantaoKb.write', () => {

@@ -1,5 +1,5 @@
 ---
-description: "The yantao PARA+P knowledge-base plugin: seven kb_ tools that are the agent's only write path into a file-backed personal KB, for users and maintainers of the yantao profile."
+description: "The yantao PARA+P knowledge-base plugin: eight kb_ tools that are the agent's only write path into a file-backed personal KB, for users and maintainers of the yantao profile."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-yantao-kb` is the domain plugin of the yantao profile: seven model-facing tools over a plain-file personal knowledge base (PARA+P). The KB is a directory of Markdown entity notes (`entities/projects|areas|people|meetings/*.md`, plus the singleton checklist `entities/todos.md`), immutable original materials (`resources/`), and session archives (`sessions/`). Every entity file carries a `## 状态` (State) section the agent may rewrite in full and an append-only `## 流水` (Log) section; the tools enforce that boundary structurally — creation always writes the canonical template, and afterwards the only mutations are rewriting State and appending a dated bullet at the end of Log, leaving every other byte untouched. Mounted by the `yantao` profile bundle, which removes the generic write tools so this family is the agent's only write path.
+`dsh-yantao-kb` is the domain plugin of the yantao profile: eight model-facing tools over a plain-file personal knowledge base (PARA+P). The KB is a directory of Markdown entity notes (`entities/projects|areas|people|meetings/*.md`, plus the singleton checklist `entities/todos.md`), immutable original materials (`resources/`), and session archives (`sessions/`). Every entity file carries a `## 状态` (State) section the agent may rewrite in full and an append-only `## 流水` (Log) section; the tools enforce that boundary structurally — creation always writes the canonical template, and afterwards the only mutations are rewriting State and appending a dated bullet at the end of Log, leaving every other byte untouched. Mounted by the `yantao` profile bundle, which removes the generic write tools so this family is the agent's only write path.
 
 ## Table of Contents
 
@@ -35,7 +35,7 @@ The yantao profile mounts this plugin automatically; `kb_init` then prepares a f
 
 The agent calls `kb_init` (layout + root README + the owner entity「我自己」+ the todo singleton), `kb_create_entity` (the project file from the canonical template), and `kb_append_log` (a `- YYYY-MM-DD …` bullet at the end of the `## 流水` section). The State section of the new file stays byte-identical to the template unless the agent calls `kb_write_state`.
 
-### The seven tools
+### The eight tools
 
 | Tool | Signature | Effect |
 |---|---|---|
@@ -45,7 +45,8 @@ The agent calls `kb_init` (layout + root README + the owner entity「我自己�
 | `kb_write_state` | `(entity, text)` | Replace the whole `## 状态` section body; Log and frontmatter are preserved |
 | `kb_read_entity` | `(type, name)` | Return the entity file's complete content; a meeting is found by its bare name, dated file name and all |
 | `kb_list_entities` | `(type?, includeArchived?)` | List entity names; `archive: true` frontmatter hides unless asked |
-| `kb_register_resource` | `(path)` | Copy an original into `resources/` and write its shadow-note skeleton |
+| `kb_register_resource` | `(path)` | Copy an original into `resources/` unchanged, sanitizing its name; refuses a duplicate (ADR-0020) |
+| `kb_read_resource` | `(path, offset?, length?)` | Return one paginated chunk of the resource's extracted text (`chunk`, `hasMore`), reading from the `.yantao/extracts/` cache the workbench fills; a resource without an extract is an error (ADR-0020) |
 
 ### Configuration
 
@@ -82,13 +83,13 @@ The plugin is stateless: it keeps only the resolved `kbRoot` and every operation
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: Config (`kbRoot`) and the seven `defineTool` registrations |
-| [`src/core.ts`](src/core.ts) | The seven filesystem operations behind the tools |
+| [`src/index.ts`](src/index.ts) | Plugin entry: Config (`kbRoot`) and the eight `defineTool` registrations |
+| [`src/core.ts`](src/core.ts) | The eight filesystem operations behind the tools |
 | [`src/splice.ts`](src/splice.ts) | The State/Log section splicer and bullet builder |
 | [`src/frontmatter.ts`](src/frontmatter.ts) | Read-only frontmatter envelope parsing (js-yaml) |
 | [`src/paths.ts`](src/paths.ts) | `sanitizeFileName`, date stamps, kbRoot-confined path resolution, and the dated-meeting locator |
 | [`src/root-store.ts`](src/root-store.ts) | The persisted KB root override (`~/.dsh/yantao-kb.json`) |
-| [`src/templates.ts`](src/templates.ts) | The canonical entity / shadow-note / root-README file layouts |
+| [`src/templates.ts`](src/templates.ts) | The canonical entity / root-README file layouts |
 | [`src/types.ts`](src/types.ts) | Entity taxonomy and `KbError` |
 | — | No runtime invariant companion is published; the plugin is a stateless tool family whose mutation contract (template-once creation, byte-preserving State rewrites and Log appends) is covered by the package's unit tests. |
 | [`tests/kb.spec.ts`](tests/kb.spec.ts) | Splicer, template, and operation coverage over real temp directories |
@@ -122,11 +123,11 @@ Read these pages when you want to go deeper into the surface that mounts this pl
 
 #### What the model sees
 
-The seven `kb_` schemas (`kb_init`, `kb_create_entity`, `kb_append_log`, `kb_write_state`, `kb_read_entity`, `kb_list_entities`, `kb_register_resource`) with Chinese descriptions that name the trust boundary (`kb_append_log` states it only appends to the Log section and errors instead of recreating a missing anchor; `kb_write_state` states it replaces State and never touches Log). Successful results are compact JSON carrying KB-relative paths; `kb_read_entity` returns the whole entity file. Failures arrive as Chinese `KbError` messages naming the exact problem (missing anchor, existing entity, malformed frontmatter, path escaping the KB root).
+The eight `kb_` schemas (`kb_init`, `kb_create_entity`, `kb_append_log`, `kb_write_state`, `kb_read_entity`, `kb_list_entities`, `kb_register_resource`, `kb_read_resource`) with Chinese descriptions that name the trust boundary (`kb_append_log` states it only appends to the Log section and errors instead of recreating a missing anchor; `kb_write_state` states it replaces State and never touches Log). Successful results are compact JSON carrying KB-relative paths; `kb_read_entity` returns the whole entity file, and `kb_read_resource` returns one bounded chunk of an extracted text. Failures arrive as Chinese `KbError` messages naming the exact problem (missing anchor, existing entity, malformed frontmatter, path escaping the KB root).
 
 #### Token effect
 
-Fixed schema cost for the seven tools, plus one compact result per call; `kb_read_entity` results are data-dependent (the entity file's full text) and unbounded by this package.
+Fixed schema cost for the eight tools, plus one compact result per call; `kb_read_entity` and `kb_read_resource` results are data-dependent (an entity file's full text, one bounded text chunk) and unbounded by this package.
 
 #### KV Cache effect
 

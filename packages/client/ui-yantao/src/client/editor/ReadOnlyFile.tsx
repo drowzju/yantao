@@ -1,7 +1,8 @@
 /**
- * The read-only file view: 资源 originals are shown, never edited (their
- * shadow note is the editable surface), so this pane has no textarea and no
- * save path at all — it only reads.
+ * The read-only file view: 资源 originals are shown, never edited (ADR-0020:
+ * a resource is dumb raw material — thinking happens in entities), so this
+ * pane has no textarea and no save path at all — it only reads. Its one
+ * action is the way a book gets processed: 创建读书项目.
  */
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import type { FileReader } from '../remote.ts'
@@ -13,6 +14,8 @@ export interface ReadOnlyFileProps {
   readonly path: string
   /** Read the file's content. */
   readonly read: FileReader
+  /** Open the reading-project dialog for this resource (ADR-0020). */
+  readonly onCreateReading?: (() => void) | undefined
 }
 
 const wrapStyle = {
@@ -24,7 +27,16 @@ const wrapStyle = {
   fontSize: 13,
 } as const
 
-const bannerStyle = { padding: '4px 8px', background: '#f1f0ec', color: '#6b6455' } as const
+const bannerStyle = {
+  padding: '4px 8px',
+  background: '#f1f0ec',
+  color: '#6b6455',
+  display: 'flex',
+  gap: 8,
+  alignItems: 'center',
+} as const
+
+const bannerButtonStyle = { padding: '1px 8px', fontSize: 12 } as const
 
 const errorStyle = { padding: '4px 8px', background: '#fbe9e7', color: '#b4453a' } as const
 
@@ -44,7 +56,7 @@ const preStyle = {
  * @param props - see {@link ReadOnlyFileProps}.
  * @returns the read-only element.
  */
-export function ReadOnlyFile({ path, read }: ReadOnlyFileProps): ReactElement {
+export function ReadOnlyFile({ path, read, onCreateReading }: ReadOnlyFileProps): ReactElement {
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   // The loader is a fresh closure on every render (inject face), so the
@@ -67,7 +79,14 @@ export function ReadOnlyFile({ path, read }: ReadOnlyFileProps): ReactElement {
 
   return (
     <div style={wrapStyle}>
-      <div style={bannerStyle}>只读（原始资源不改写，编辑其影子笔记）</div>
+      <div style={bannerStyle}>
+        <span>只读（资源原样不改写）</span>
+        {onCreateReading !== undefined && (
+          <button type="button" style={bannerButtonStyle} data-create-reading="true" onClick={onCreateReading}>
+            创建读书项目
+          </button>
+        )}
+      </div>
       {error !== null && <div style={errorStyle}>{error}</div>}
       <pre style={preStyle} data-readonly="true">{content ?? ''}</pre>
     </div>

@@ -8,14 +8,14 @@
  * @module @deepseek-ai/dsh-yantao-kb/core
  */
 
-import { copyFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
 import { existsSync } from 'node:fs'
 import { parseFrontmatter } from './frontmatter.ts'
 import { entityFilePath, resolveEntityLocator, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
 import { appendToLogSection, logBullet, replaceStateSection } from './splice.ts'
 import type { EntityTemplateOptions } from './templates.ts'
-import { entityFileContent, KB_README, shadowNoteContent, todoFileContent } from './templates.ts'
+import { entityFileContent, KB_README, todoFileContent } from './templates.ts'
 import type { EntityType } from './types.ts'
 import { ENTITY_DIRS, ENTITY_TYPES, KbError, SINGLETON_FILES } from './types.ts'
 
@@ -291,13 +291,14 @@ export async function listEntities(kbRoot: string, type?: EntityType, includeArc
 
 /**
  * Register one original material: copy it into `resources/` under its
- * sanitized basename (never overwriting) and write its shadow-note skeleton
- * beside it. The source path must name an existing regular file.
+ * sanitized basename (never overwriting). The source path must name an
+ * existing regular file. Since ADR-0020 registration is a pure copy — no
+ * shadow note is generated beside the resource.
  * @param kbRoot - the knowledge-base root the resource is registered into.
  * @param absolutePath - absolute path of the source file to copy.
- * @returns the KB-relative paths of the copied resource and its shadow note.
+ * @returns the KB-relative path of the copied resource.
  */
-export async function registerResource(kbRoot: string, absolutePath: string): Promise<{ resource: string; note: string }> {
+export async function registerResource(kbRoot: string, absolutePath: string): Promise<{ resource: string }> {
   const root = resolveWithinKb(kbRoot)
   let sourceStat
   try {
@@ -312,13 +313,113 @@ export async function registerResource(kbRoot: string, absolutePath: string): Pr
     throw new KbError('resource-not-file', `要登记的路径不是一个普通文件：${absolutePath}`)
   }
   const base = sanitizeFileName(absolutePath.split(/[\\/]/).pop() ?? '')
+  return { resource: await writeResourceFile(root, base, await readFile(absolutePath)) }
+}
+
+/**
+ * Register one original material from in-memory bytes — the drag-and-drop
+ * intake path (ADR-0020), where the browser hands over the file's content
+ * rather than a path. The name is sanitized into `resources/` and an
+ * existing resource is refused, exactly like {@link registerResource}.
+ * @param kbRoot - the knowledge-base root the resource is registered into.
+ * @param name - the file's name as dropped (sanitized before it lands).
+ * @param content - the file's bytes.
+ * @returns the KB-relative path of the copied resource.
+ */
+export async function registerResourceContent(kbRoot: string, name: string, content: Uint8Array): Promise<{ resource: string }> {
+  const root = resolveWithinKb(kbRoot)
+  const base = sanitizeFileName(name)
+  return { resource: await writeResourceFile(root, base, content) }
+}
+
+/** Write one resource file into `resources/` under a sanitized name, refusing to overwrite. */
+async function writeResourceFile(root: string, base: string, content: Uint8Array): Promise<string> {
+  if (base === '') throw new KbError('resource-invalid-name', '资源名不能为空')
   const resourceTarget = resolveWithinKb(root, 'resources', base)
-  const noteTarget = resolveWithinKb(root, 'resources', `${base}.md`)
-  if (existsSync(resourceTarget) || existsSync(noteTarget)) {
+  if (existsSync(resourceTarget)) {
     throw new KbError('resource-exists', `资源「${base}」已登记过（resources/${base}）；resources/ 下的原始材料不覆盖`)
   }
   await mkdir(dirname(resourceTarget), { recursive: true })
-  await copyFile(absolutePath, resourceTarget)
-  await writeFile(noteTarget, shadowNoteContent(base, todayStamp()), 'utf8')
-  return { resource: displayPath(root, resourceTarget), note: displayPath(root, noteTarget) }
+  await writeFile(resourceTarget, content)
+  return displayPath(root, resourceTarget)
+}
+
+/**
+ * The extraction-cache paths for one resource (ADR-0020): the paged-read
+ * text and its self-describing metadata live under `.yantao/extracts/` —
+ * machine bookkeeping beside the KB, invisible to the trees and never
+ * inside `resources/` (originals are never written).
+ * @param kbRoot - the knowledge-base root the resource lives under.
+ * @param resourcePath - the resource's KB-relative path (`resources/<name>`).
+ * @returns the KB-relative display paths of the extracted text and its metadata.
+ */
+export function extractPaths(kbRoot: string, resourcePath: string): { text: string; meta: string } {
+  resolveWithinKb(kbRoot)
+  const base = sanitizeFileName(resourcePath.split(/[\\/]/).pop() ?? '')
+  if (base === '') throw new KbError('resource-not-found', `资源路径不合法：${resourcePath}`)
+  return {
+    text: `.yantao/extracts/${base}.txt`,
+    meta: `.yantao/extracts/${base}.json`,
+  }
+}
+
+/** One paged read of an extracted resource text (ADR-0020). */
+export interface ResourceChunk {
+  /** The resource's KB-relative path as requested. */
+  resource: string
+  /** The extract's total character count. */
+  total: number
+  /** The requested offset (characters). */
+  offset: number
+  /** The returned text chunk. */
+  chunk: string
+  /** True when more text follows this chunk. */
+  hasMore: boolean
+}
+
+/** The default chunk size of {@link readResourceChunk}, in characters. */
+export const RESOURCE_CHUNK_LENGTH = 20000
+
+/**
+ * Return one chunk of a resource's extracted text, for the agent to page
+ * through a whole book without blowing the context (ADR-0020). The resource
+ * must live under `resources/`; its extract must exist — run the
+ * extraction (controller `extractResource`) first.
+ * @param kbRoot - the knowledge-base root the resource lives under.
+ * @param resourcePath - the resource's KB-relative path (`resources/<name>`).
+ * @param offset - character offset to read from (default 0).
+ * @param length - chunk size in characters (default {@link RESOURCE_CHUNK_LENGTH}).
+ * @returns the chunk with paging bookkeeping.
+ */
+export async function readResourceChunk(
+  kbRoot: string,
+  resourcePath: string,
+  offset = 0,
+  length = RESOURCE_CHUNK_LENGTH,
+): Promise<ResourceChunk> {
+  const root = resolveWithinKb(kbRoot)
+  const absolute = resolveWithinKb(root, resourcePath)
+  const display = displayPath(root, absolute)
+  if (display !== 'resources' && !display.startsWith('resources/')) {
+    throw new KbError('resource-outside', `kb_read_resource 只读 resources/ 下的资源：${resourcePath}`)
+  }
+  const { text } = extractPaths(root, resourcePath)
+  let content: string
+  try {
+    content = await readFile(join(root, text), 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new KbError('extract-missing', `资源「${resourcePath}」还没有文本抽取缓存；请先在工作台创建读书项目触发抽取`)
+    }
+    throw error
+  }
+  const start = Math.max(0, Math.floor(offset))
+  const chunk = content.slice(start, start + Math.max(1, Math.floor(length)))
+  return {
+    resource: display,
+    total: content.length,
+    offset: start,
+    chunk,
+    hasMore: start + chunk.length < content.length,
+  }
 }

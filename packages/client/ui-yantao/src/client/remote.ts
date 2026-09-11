@@ -20,9 +20,11 @@ import type {
   SessionPromptValue, SessionRenameRequest, SessionRenameValue,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {
-  KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult, KbDeleteFileResult, KbFileContent, KbLinksResult,
+  KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult, KbDeleteFileResult, KbExtractArgs,
+  KbExtractResult, KbFileContent, KbLinksResult,
   KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
-  KbOpenExternalResult, KbPersonRelation, KbRevisionResult, KbRootResult, KbSetRelationArgs, KbSetRelationResult,
+  KbOpenExternalResult, KbPersonRelation, KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
+  KbRootResult, KbSetRelationArgs, KbSetRelationResult,
   KbSetRootResult, KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
@@ -45,6 +47,10 @@ export interface KbRemote {
   writeTodos(args: KbWriteTodosArgs): Promise<RemoteResult<KbWriteTodosResult>>
   mailFetch(args: KbMailFetchArgs): Promise<RemoteResult<KbMailFetchResult>>
   mailMarkRead(args: KbMailMarkReadArgs): Promise<RemoteResult<KbMailMarkReadResult>>
+  /** Copy one dropped file into `resources/` (ADR-0020). */
+  registerResource(args: KbRegisterResourceArgs): Promise<RemoteResult<KbRegisterResourceResult>>
+  /** Extract one resource's text into the `.yantao/extracts/` cache (ADR-0020). */
+  extractResource(args: KbExtractArgs): Promise<RemoteResult<KbExtractResult>>
 }
 
 /**
@@ -102,6 +108,12 @@ export type MailFetcher = (args: KbMailFetchArgs) => Promise<KbMailFetchResult>
 
 /** Move the mail connector's cursor forward (ADR-0019). */
 export type MailMarker = (args: KbMailMarkReadArgs) => Promise<KbMailMarkReadResult>
+
+/** Copy one dropped file into `resources/` and resolve its path (ADR-0020). */
+export type ResourceRegistrar = (name: string, contentBase64: string) => Promise<string>
+
+/** Extract one resource's text into the `.yantao/extracts/` cache (ADR-0020). */
+export type ResourceExtractor = (path: string) => Promise<KbExtractResult>
 
 /** One mail as the connector reports it (ADR-0019). */
 export type MailMessage = KbMailMessage
@@ -369,6 +381,37 @@ export async function markMailRead(ctx: Context, args: KbMailMarkReadArgs): Prom
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.mailMarkRead(args))
+}
+
+/**
+ * Copy one dropped file into `resources/` (ADR-0020): the drag-and-drop
+ * intake. The host sanitizes the name and refuses a duplicate — an original
+ * already registered is never overwritten.
+ * @param ctx - client root context.
+ * @param name - the dropped file's basename.
+ * @param contentBase64 - the file's complete content, base64-encoded.
+ * @returns the resource's KB-relative path, or a rejected promise carrying the reason.
+ */
+export async function registerResource(ctx: Context, name: string, contentBase64: string): Promise<string> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.registerResource({ name, contentBase64 })).resource
+}
+
+/**
+ * Extract one resource's text into the `.yantao/extracts/` cache (ADR-0020).
+ * Idempotent on the host: an existing cache answers with `cached: true` and
+ * no extraction runs.
+ * @param ctx - client root context.
+ * @param path - the resource's KB-relative path.
+ * @returns where the text landed, its format and size, or a rejected promise
+ *   carrying the reason (a scan without a text layer, a missing Python
+ *   library — the host's `details.hint` names the remedy).
+ */
+export async function extractResource(ctx: Context, path: string): Promise<KbExtractResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.extractResource({ path }))
 }
 
 /**

@@ -10,7 +10,8 @@ import type {
   KbPersonRelation, KbTreeFile, KbTreeSection, KbTreeSectionId,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type {
-  EntityCreator, FileDeleter, FileReader, FileWriter, MailFetcher, MailMarker, RelationSetter, TodoLoader, TodoWriter,
+  EntityCreator, FileDeleter, FileReader, FileWriter, MailFetcher, MailMarker, RelationSetter, ResourceRegistrar,
+  TodoLoader, TodoWriter,
 } from './remote.ts'
 import type { MailAnalyser } from './mail-analysis.ts'
 import type { MailWriteTarget } from './mail-apply.ts'
@@ -303,10 +304,12 @@ function RowMenu(props: {
   relations?: readonly RelationOption[] | undefined
   /** Write the row's relation; only a person row offers one. */
   onRelate?: ((path: string, relation: KbPersonRelation) => Promise<void>) | undefined
+  /** Open the reading-project dialog for this resource row (ADR-0020). */
+  onCreateReading?: ((path: string) => void) | undefined
   onDelete: (path: string) => void
   onClose: () => void
 }): ReactElement {
-  const { target, busy, relations, onRelate, onDelete, onClose } = props
+  const { target, busy, relations, onRelate, onCreateReading, onDelete, onClose } = props
   const [confirming, setConfirming] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -344,6 +347,17 @@ function RowMenu(props: {
             </button>
           ))}
         </div>
+      )}
+      {onCreateReading !== undefined && (
+        <button
+          type="button"
+          style={menuItemStyle}
+          disabled={busy}
+          data-create-reading="true"
+          onClick={() => { onCreateReading(target.path) }}
+        >
+          创建读书项目
+        </button>
       )}
       {!confirming && (
         <button type="button" style={menuItemStyle} disabled={busy} onClick={() => { setConfirming(true) }}>
@@ -496,6 +510,14 @@ export interface RailProps {
   readonly analyseMail: MailAnalyser
 }
 
+/** Intake-side additions: the intake rail owns resource registration (ADR-0020). */
+export interface IntakeRailProps extends RailProps {
+  /** Copy one dropped file into `resources/`. */
+  readonly registerResource: ResourceRegistrar
+  /** Open the reading-project dialog for one resource. */
+  readonly onCreateReading: (resourcePath: string) => void
+}
+
 /** The rail's error marker: it is the only thing left above the tab strip. */
 function RailHeader({ error }: { error: string | null }): ReactElement {
   return (
@@ -512,14 +534,17 @@ function RailHeader({ error }: { error: string | null }): ReactElement {
  * @param props - see {@link RailProps}.
  * @returns the rail element.
  */
-export function IntakeRail(props: RailProps): ReactElement {
+export function IntakeRail(props: IntakeRailProps): ReactElement {
   const {
     collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
-    read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail,
+    read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource,
+    onCreateReading,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector'>('resources')
   const [actionError, setActionError] = useState<string | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const [dropping, setDropping] = useState(false)
   const rowMenu = useRowMenu({ deleteFile, setRelation, refresh, onCloseFile, onError: setActionError })
   // Reveal a selection this rail owns: the tab carrying the file comes to the
   // front, so the highlighted row is a visible one. A selection owned by the
@@ -547,8 +572,52 @@ export function IntakeRail(props: RailProps): ReactElement {
     createEntity, read, write, todos: loadTodos, writeTodos,
   }
 
+  // ADR-0020: dropping files onto the rail registers them — a pure copy into
+  // `resources/`, one file at a time, failures reported per file while the
+  // rest still land. Every drag event stops propagation here: the
+  // conversation's attachment composer listens at the document level, and a
+  // drag over a rail is not a drag into the conversation — only an explicit
+  // drop on the middle column is.
+  const onDrop = async (event: React.DragEvent<HTMLDivElement>): Promise<void> => {
+    event.preventDefault()
+    event.stopPropagation()
+    setDragOver(false)
+    const files = Array.from(event.dataTransfer.files)
+    if (files.length === 0) return
+    setDropping(true)
+    const failures: string[] = []
+    try {
+      for (const file of files) {
+        try {
+          await registerResource(file.name, await fileToBase64(file))
+        } catch (failure: unknown) {
+          failures.push(`${file.name}：${remoteMessage(failure)}`)
+        }
+      }
+      setTab('resources')
+      await refresh()
+    } finally {
+      setDropping(false)
+    }
+    if (failures.length > 0) setActionError(failures.join('；'))
+  }
+
   return (
-    <div style={railStyle}>
+    <div
+      style={dragOver ? { ...railStyle, outline: '2px dashed #c7d7ff', outlineOffset: -4 } : railStyle}
+      data-drag-over={dragOver || undefined}
+      onDragEnter={(event) => { event.stopPropagation() }}
+      onDragOver={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        setDragOver(true)
+      }}
+      onDragLeave={(event) => {
+        event.stopPropagation()
+        setDragOver(false)
+      }}
+      onDrop={(event) => { void onDrop(event) }}
+    >
       <RailHeader error={error} />
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {INTAKE_PANEL_IDS.map(id => (
@@ -587,7 +656,7 @@ export function IntakeRail(props: RailProps): ReactElement {
           selection={selection}
           // An original opens read-only; a `.md` note is ours to edit.
           onSelect={(path) => { onOpenFile(path, path.endsWith('.md') ? 'edit' : 'read') }}
-          onMenu={tab === 'meetings' ? rowMenu.open : undefined}
+          onMenu={tab === 'meetings' || tab === 'resources' ? rowMenu.open : undefined}
           showHeading={false}
         />
       )}
@@ -604,7 +673,8 @@ export function IntakeRail(props: RailProps): ReactElement {
         <RowMenu
           key={rowMenu.menu.path}
           target={rowMenu.menu}
-          busy={rowMenu.busy}
+          busy={rowMenu.busy || dropping}
+          onCreateReading={tab === 'resources' ? onCreateReading : undefined}
           onDelete={(path) => { void rowMenu.remove(path) }}
           onClose={rowMenu.close}
         />
@@ -654,7 +724,15 @@ export function WorkspaceRail(props: RailProps): ReactElement {
   }
 
   return (
-    <div style={railStyle}>
+    <div
+      style={railStyle}
+      // Same separation as the intake rail: a file drag over this rail never
+      // reaches the conversation's document-level drop target. The dragover
+      // is not accepted, so a release here drops nothing.
+      onDragEnter={(event) => { event.stopPropagation() }}
+      onDragOver={(event) => { event.stopPropagation() }}
+      onDragLeave={(event) => { event.stopPropagation() }}
+    >
       <RailHeader error={error} />
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {WORKSPACE_TAB_IDS.map(id => (
@@ -702,4 +780,29 @@ export function WorkspaceRail(props: RailProps): ReactElement {
       )}
     </div>
   )
+}
+
+/**
+ * One dropped file's bytes as base64. `FileReader` encodes natively, off the
+ * main thread — a book-sized file must not freeze the workbench the way a
+ * `btoa` loop over its every byte would.
+ * @param file - the dropped file.
+ * @returns the base64 text.
+ */
+function fileToBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (): void => {
+      const result = reader.result
+      if (typeof result !== 'string') {
+        reject(new Error('无法读取拖入的文件。'))
+        return
+      }
+      resolve(result.slice(result.indexOf(',') + 1))
+    }
+    reader.onerror = (): void => {
+      reject(reader.error ?? new Error('无法读取拖入的文件。'))
+    }
+    reader.readAsDataURL(file)
+  })
 }

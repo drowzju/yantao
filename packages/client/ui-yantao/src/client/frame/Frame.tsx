@@ -13,9 +13,11 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
-  DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader, MailFetcher,
-  MailMarker, RelationSetter, RevisionLoader, RootLoader, RootSetter, TodoLoader, TodoWriter,
+  DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader,
+  MailFetcher, MailMarker, RelationSetter, ResourceExtractor, ResourceRegistrar, RevisionLoader, RootLoader, RootSetter,
+  TodoLoader, TodoWriter,
 } from '../remote.ts'
+import type { BookReader, DomainConfirmer } from '../reading-flow.ts'
 import type { MailAnalyser } from '../mail-analysis.ts'
 import { obsidianUri } from '../remote.ts'
 import type { KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
@@ -23,6 +25,7 @@ import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileE
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
 import { Onboarding } from '../Onboarding.tsx'
+import { ReadingDialog } from '../ReadingDialog.tsx'
 import {
   CONVERSATION_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath, restoreTabs,
   type TabMode, type TabState,
@@ -72,6 +75,16 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly mailMarkRead: MailMarker
   /** Run one mail analysis in a dsh session (ADR-0019). */
   readonly analyseMail: MailAnalyser
+  /** Copy one dropped file into `resources/` (ADR-0020). */
+  readonly registerResource: ResourceRegistrar
+  /** Extract one resource's text into the cache (ADR-0020). */
+  readonly extractResource: ResourceExtractor
+  /** Create a reading project — a `project` entity with `source:` set (ADR-0020). */
+  readonly createReadingProject: (name: string, source: string) => Promise<string>
+  /** Run the first reading round in a dsh session (ADR-0020). */
+  readonly readBook: BookReader
+  /** Land the confirmed domain links in a second round (ADR-0020). */
+  readonly confirmDomains: DomainConfirmer
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
   readonly onKbRootChanged: () => void
 }
@@ -189,7 +202,7 @@ function DragHandle(props: {
 export function Frame({
   renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail,
-  onKbRootChanged,
+  registerResource, extractResource, createReadingProject, readBook, confirmDomains, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -266,6 +279,18 @@ export function Frame({
   const [restored, setRestored] = useState(false)
   const [treeKey, setTreeKey] = useState(0)
   const [needsRoot, setNeedsRoot] = useState(false)
+  // ADR-0020: the resource the reading-project dialog is open for, if any.
+  const [readingTarget, setReadingTarget] = useState<string | null>(null)
+
+  const openReading = useCallback((resourcePath: string): void => {
+    setReadingTarget(resourcePath)
+  }, [])
+
+  // The 领域 the KB holds, for the reading prompt to match against.
+  const knownAreas = useCallback(async (): Promise<readonly string[]> => {
+    const sections = await workspace()
+    return sections.find(section => section.id === 'areas')?.files.map(file => file.name) ?? []
+  }, [workspace])
 
   // The KB root, kept only so "在 Obsidian 中打开" can name an absolute path.
   const [kbRoot, setKbRoot] = useState('')
@@ -454,6 +479,8 @@ export function Frame({
           mailFetch={mailFetch}
           mailMarkRead={mailMarkRead}
           analyseMail={analyseMail}
+          registerResource={registerResource}
+          onCreateReading={openReading}
         />
       </div>
       <CenterPane
@@ -465,7 +492,13 @@ export function Frame({
         onViewMode={setViewMode}
         renderConversation={() => renderSlot('conversation', {})}
         renderFile={tab => tab.mode === 'read'
-          ? <ReadOnlyFile path={tab.path} read={read} />
+          ? (
+            <ReadOnlyFile
+              path={tab.path}
+              read={read}
+              onCreateReading={readOnlyPath(tab.path) ? () => { openReading(tab.path) } : undefined}
+            />
+          )
           : (
             <div style={bothPanesStyle}>
               <div style={paneStyleFor(viewMode === 'read')}>
@@ -529,6 +562,22 @@ export function Frame({
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>
       {needsRoot && (
         <Onboarding setRoot={setRoot} pickDirectory={pickDirectory} onConfigured={onConfigured} />
+      )}
+      {readingTarget !== null && (
+        <ReadingDialog
+          resourcePath={readingTarget}
+          createReadingProject={createReadingProject}
+          extract={extractResource}
+          readBook={readBook}
+          knownAreas={knownAreas}
+          confirmDomains={confirmDomains}
+          onDone={(projectPath) => {
+            setReadingTarget(null)
+            setTreeKey(key => key + 1)
+            openFile(projectPath, 'edit')
+          }}
+          onCancel={() => { setReadingTarget(null) }}
+        />
       )}
       {/* A handle exists whenever its rail is expanded — including at the
           width limits, because the handle is the only way back from one. */}

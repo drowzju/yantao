@@ -28,6 +28,7 @@
     "docs/adr/0016-desktop-shell-electron.md",
     "docs/adr/0017-editor-strategy-borrow-obsidian-first.md",
     "docs/adr/0018-todo-format-and-two-pane-board.md",
-    "docs/adr/0019-mail-connector-outlook-com.md"
+    "docs/adr/0019-mail-connector-outlook-com.md",
+    "docs/adr/0020-reading-projects-and-resource-intake.md"
   ]
 }

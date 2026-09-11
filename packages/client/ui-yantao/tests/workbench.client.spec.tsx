@@ -5,7 +5,7 @@ import type { ReactElement } from 'react'
 import type { KbTreeSection } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { KbLinksResult, KbTodosResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { TreeLoader } from '../src/client/Workbench.tsx'
-import { IntakeRail, WorkspaceRail, type RailProps } from '../src/client/Workbench.tsx'
+import { IntakeRail, WorkspaceRail, type IntakeRailProps } from '../src/client/Workbench.tsx'
 import { Frame } from '../src/client/frame/Frame.tsx'
 import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveColumns } from '../src/client/frame/columns.ts'
 import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
@@ -71,7 +71,7 @@ const TODOS: KbTodosResult = {
 const loader = (sections: readonly KbTreeSection[]): TreeLoader => () => Promise.resolve(sections)
 
 /** The rail props the frame supplies, with spies standing in for the file channel. */
-function railProps(overrides: Partial<RailProps> = {}): RailProps {
+function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
   return {
     collapsed: false,
     load: loader(intake),
@@ -91,6 +91,8 @@ function railProps(overrides: Partial<RailProps> = {}): RailProps {
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
     analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { people: [], todos: [], projects: [], resources: [] } }),
+    registerResource: () => Promise.resolve('resources/新资源.pdf'),
+    onCreateReading: () => {},
     ...overrides,
   }
 }
@@ -272,9 +274,100 @@ describe('IntakeRail', () => {
     expect(await screen.findByText('周报.eml')).toBeTruthy()
     expect(screen.queryByText('周会')).toBeNull()
   })
+
+  it('registers a dropped file as a resource and reloads the tree', async () => {
+    const registerResource = vi.fn(() => Promise.resolve('resources/三体.epub'))
+    const load = vi.fn(loader(intake))
+    const { container } = render(<IntakeRail {...railProps({ load, registerResource })} />)
+    expect(await screen.findByText('周报.eml')).toBeTruthy()
+    const rail = container.firstElementChild as HTMLElement
+    const file = new File(['书的内容'], '三体.epub', { type: 'application/octet-stream' })
+    await act(async () => {
+      fireEvent.dragOver(rail)
+      fireEvent.drop(rail, { dataTransfer: { files: [file] } })
+    })
+    // The bytes go through a FileReader, so the registration lands a tick
+    // after the drop.
+    await waitFor(() => { expect(registerResource).toHaveBeenCalledOnce() })
+    const [droppedName, droppedPayload] = registerResource.mock.calls[0] as unknown as [string, string]
+    expect(droppedName).toBe('三体.epub')
+    // The content arrives base64-encoded: the file's UTF-8 bytes, not its text.
+    const bytes = new TextEncoder().encode('书的内容')
+    let binary = ''
+    bytes.forEach((byte) => { binary += String.fromCharCode(byte) })
+    expect(droppedPayload).toBe(btoa(binary))
+    // The tree reloaded and the rail switched to the 资源 tab.
+    await waitFor(() => { expect(load).toHaveBeenCalledTimes(2) })
+  })
+
+  it('reports a failed drop per file and still registers the rest', async () => {
+    const registerResource = vi.fn()
+      .mockRejectedValueOnce(new Error('资源「a.pdf」已登记过'))
+      .mockResolvedValueOnce('resources/b.pdf')
+    const { container } = render(<IntakeRail {...railProps({ registerResource })} />)
+    expect(await screen.findByText('周报.eml')).toBeTruthy()
+    const rail = container.firstElementChild as HTMLElement
+    await act(async () => {
+      fireEvent.drop(rail, {
+        dataTransfer: { files: [new File(['a'], 'a.pdf'), new File(['b'], 'b.pdf')] },
+      })
+    })
+    await waitFor(() => { expect(registerResource).toHaveBeenCalledTimes(2) })
+    expect(await screen.findByText(/a.pdf：资源「a.pdf」已登记过/)).toBeTruthy()
+  })
+
+  it('keeps a rail drop away from the conversation\'s document-level drop target', async () => {
+    const registerResource = vi.fn(() => Promise.resolve('resources/三体.epub'))
+    const { container } = render(<IntakeRail {...railProps({ registerResource })} />)
+    expect(await screen.findByText('周报.eml')).toBeTruthy()
+    const rail = container.firstElementChild as HTMLElement
+    // The conversation's composer listens for file drops at the document
+    // level; a drop on the rail registers the resource and nothing else.
+    const conversationDrop = vi.fn()
+    document.addEventListener('drop', conversationDrop)
+    try {
+      await act(async () => {
+        fireEvent.drop(rail, { dataTransfer: { files: [new File(['x'], 'x.pdf')] } })
+      })
+    } finally {
+      document.removeEventListener('drop', conversationDrop)
+    }
+    await waitFor(() => { expect(registerResource).toHaveBeenCalledOnce() })
+    expect(conversationDrop).not.toHaveBeenCalled()
+  })
+
+  it('offers 创建读书项目 on a resource row\'s right-click menu', async () => {
+    const onCreateReading = vi.fn()
+    render(<IntakeRail {...railProps({ onCreateReading })} />)
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('创建读书项目'))
+    expect(onCreateReading).toHaveBeenCalledWith('resources/周报.eml')
+  })
+
+  it('offers no 创建读书项目 on a meeting row', async () => {
+    render(<IntakeRail {...railProps()} />)
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
+    expect(await screen.findByText('删除「周会」')).toBeTruthy()
+    expect(screen.queryByText('创建读书项目')).toBeNull()
+  })
 })
 
 describe('WorkspaceRail', () => {
+  it('keeps a file drag over the rail away from the conversation\'s document-level listeners', async () => {
+    const { container } = render(<WorkspaceRail {...railProps({ load: loader(workspace) })} />)
+    expect(await screen.findByText('健康')).toBeTruthy()
+    const rail = container.firstElementChild as HTMLElement
+    const documentDragOver = vi.fn()
+    document.addEventListener('dragover', documentDragOver)
+    try {
+      fireEvent.dragOver(rail)
+    } finally {
+      document.removeEventListener('dragover', documentDragOver)
+    }
+    expect(documentDragOver).not.toHaveBeenCalled()
+  })
+
   it('switches tabs and creates the tab\'s own entity kind', async () => {
     const createEntity = vi.fn(() => Promise.resolve('entities/projects/新项目.md'))
     const onOpenFile = vi.fn()
@@ -462,6 +555,11 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       mailFetch={() => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] })}
       mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
       analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { people: [], todos: [], projects: [], resources: [] } })}
+      registerResource={() => Promise.resolve('resources/新资源.pdf')}
+      extractResource={() => Promise.resolve({ extractPath: '.yantao/extracts/x.txt', format: 'pdf', chars: 0, cached: false })}
+      createReadingProject={() => Promise.resolve('entities/projects/读书-《新书》.md')}
+      readBook={() => Promise.resolve({ sessionId: '', title: '', proposal: { domains: [] } })}
+      confirmDomains={() => Promise.resolve()}
       writeTodos={kb.writeTodos}
       onKbRootChanged={onKbRootChanged}
     />
@@ -569,6 +667,13 @@ describe('Frame', () => {
     expect(screen.queryByText('源码')).toBeNull()
   })
 
+  it('opens the reading dialog from a read-only original\'s banner', async () => {
+    const { container } = render(renderFrame())
+    fireEvent.click(await screen.findByText('周报.eml'))
+    fireEvent.click(await screen.findByText('创建读书项目'))
+    expect(container.querySelector('[data-reading-dialog]')).not.toBeNull()
+  })
+
   it('highlights the active file in its rail and follows the tab switch', async () => {
     const { container } = render(renderFrame())
     const selectedTitle = (): string | null =>
@@ -641,6 +746,11 @@ describe('Frame', () => {
         mailFetch={() => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] })}
         mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
         analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { people: [], todos: [], projects: [], resources: [] } })}
+        registerResource={() => Promise.resolve('resources/新资源.pdf')}
+        extractResource={() => Promise.resolve({ extractPath: '.yantao/extracts/x.txt', format: 'pdf', chars: 0, cached: false })}
+        createReadingProject={() => Promise.resolve('entities/projects/读书-《新书》.md')}
+        readBook={() => Promise.resolve({ sessionId: '', title: '', proposal: { domains: [] } })}
+        confirmDomains={() => Promise.resolve()}
         onKbRootChanged={onKbRootChanged}
       />,
     )

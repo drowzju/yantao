@@ -16,7 +16,7 @@ export interface KbTreeFile {
   readonly path: string
   /** Present (and true) when the entity's frontmatter carries `archive: true`. */
   readonly archived?: boolean
-  /** For a resource: its shadow-note path, when the note exists. */
+  /** For a resource: the path of its companion note, when one exists. */
   readonly notePath?: string
   /** For a person entity: the declared relation, when present. */
   readonly relation?: string
@@ -145,6 +145,12 @@ export interface KbCreateEntityArgs {
   readonly date?: string
   /** The person-to-owner relation; only a `person` carries it, and it defaults to the KB's own. */
   readonly relation?: PersonRelation
+  /**
+   * The resource the entity is *about*, as a KB-relative path (ADR-0020);
+   * only a reading project carries it, written into its frontmatter as
+   * `source:` — the field that makes `读书-《书名》` a reading project.
+   */
+  readonly source?: string
 }
 
 /** Result of `yantaoKb.createEntity`. */
@@ -285,4 +291,36 @@ export interface KbMailMarkReadArgs {
 export interface KbMailMarkReadResult {
   /** The watermark as it now stands. */
   readonly lastReadAt: string
+}
+
+/** Parameters of `yantaoKb.registerResource` (ADR-0020): the drag-and-drop intake. */
+export interface KbRegisterResourceArgs {
+  /** The dropped file's name (basename only; the host sanitizes it). */
+  readonly name: string
+  /** The file's complete content, base64-encoded. */
+  readonly contentBase64: string
+}
+
+/** Result of `yantaoKb.registerResource` (ADR-0020). */
+export interface KbRegisterResourceResult {
+  /** The KB-relative path of the copied resource, `resources/…`. */
+  readonly resource: string
+}
+
+/** Parameters of `yantaoKb.extractResource` (ADR-0020). */
+export interface KbExtractArgs {
+  /** KB-relative path of the resource to extract, `resources/…`. */
+  readonly path: string
+}
+
+/** Result of `yantaoKb.extractResource` (ADR-0020). */
+export interface KbExtractResult {
+  /** KB-relative path of the cached extract text, `.yantao/extracts/….txt`. */
+  readonly extractPath: string
+  /** The format the extractor ran with. */
+  readonly format: string
+  /** The extract's character count. */
+  readonly chars: number
+  /** True when an existing cache answered and no extraction ran. */
+  readonly cached: boolean
 }

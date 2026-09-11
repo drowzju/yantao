@@ -1,5 +1,5 @@
 ---
-description: "yantao PARA+P 知识库插件：七个 kb_ 工具，是 agent 写入文件型个人知识库的唯一途径，面向 yantao profile 的使用者与维护者。"
+description: "yantao PARA+P 知识库插件：八个 kb_ 工具，是 agent 写入文件型个人知识库的唯一途径，面向 yantao profile 的使用者与维护者。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-yantao-kb` 是 yantao profile 的领域插件：建立在纯文件个人知识库（PARA+P）之上的七个模型侧工具。知识库是一个由 Markdown 实体笔记（`entities/projects|areas|people|meetings/*.md`，以及单例清单 `entities/todos.md`）、永不改写的原始材料（`resources/`）与会话归档（`sessions/`）组成的目录。每个实体文件都有 agent 可整体改写的 `## 状态` 区与只许追加的 `## 流水` 区；工具在结构上执行这条边界——创建永远写入 canonical 模板，此后仅允许改写『状态』区与在『流水』区末尾追加一条带日期的条目，其余每个字节都原样保留。yantao profile bundle 挂载本插件时会移除通用写入工具，使这组工具成为 agent 的唯一写入口。
+`dsh-yantao-kb` 是 yantao profile 的领域插件：建立在纯文件个人知识库（PARA+P）之上的八个模型侧工具。知识库是一个由 Markdown 实体笔记（`entities/projects|areas|people|meetings/*.md`，以及单例清单 `entities/todos.md`）、永不改写的原始材料（`resources/`）与会话归档（`sessions/`）组成的目录。每个实体文件都有 agent 可整体改写的 `## 状态` 区与只许追加的 `## 流水` 区；工具在结构上执行这条边界——创建永远写入 canonical 模板，此后仅允许改写『状态』区与在『流水』区末尾追加一条带日期的条目，其余每个字节都原样保留。yantao profile bundle 挂载本插件时会移除通用写入工具，使这组工具成为 agent 的唯一写入口。
 
 ## 目录
 
@@ -35,7 +35,7 @@ yantao profile 会自动挂载本插件；随后用 `kb_init` 准备一个全新
 
 agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我自己」+ 待办单例）、`kb_create_entity`（按 canonical 模板写入项目文件）、`kb_append_log`（在『流水』区末尾追加 `- YYYY-MM-DD …` 条目）。除非 agent 调用 `kb_write_state`，新文件的『状态』区始终与模板逐字节一致。
 
-### 七个工具
+### 八个工具
 
 | 工具 | 签名 | 作用 |
 |---|---|---|
@@ -45,7 +45,8 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 | `kb_write_state` | `(entity, text)` | 整体替换『状态』区正文；『流水』区与 frontmatter 原样保留 |
 | `kb_read_entity` | `(type, name)` | 返回实体文件的完整内容；会议按裸名即可找到，即使文件名带日期前缀 |
 | `kb_list_entities` | `(type?, includeArchived?)` | 列出实体名；frontmatter 含 `archive: true` 的默认隐藏 |
-| `kb_register_resource` | `(path)` | 把原始材料复制进 `resources/` 并创建影子笔记骨架 |
+| `kb_register_resource` | `(path)` | 把原始材料按原名（经安全文件名处理）原样复制进 `resources/`；同名重复时拒绝（ADR-0020） |
+| `kb_read_resource` | `(path, offset?, length?)` | 分页返回资源抽取文本的一块（`chunk`、`hasMore`），读的是工作台填好的 `.yantao/extracts/` 缓存；尚未抽取的资源会报错（ADR-0020） |
 
 ### 配置
 
@@ -81,13 +82,13 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：Config（`kbRoot`）与七个 `defineTool` 注册 |
-| [`src/core.ts`](src/core.ts) | 工具背后的七个文件系统操作 |
+| [`src/index.ts`](src/index.ts) | 插件入口：Config（`kbRoot`）与八个 `defineTool` 注册 |
+| [`src/core.ts`](src/core.ts) | 工具背后的八个文件系统操作 |
 | [`src/splice.ts`](src/splice.ts) | 『状态』/『流水』区拼接器与日志条目构造 |
 | [`src/frontmatter.ts`](src/frontmatter.ts) | 只读的 frontmatter 信封解析（js-yaml） |
 | [`src/paths.ts`](src/paths.ts) | `sanitizeFileName`、日期戳、限制在 kbRoot 内的路径解析，以及带日期的会议定位 |
 | [`src/root-store.ts`](src/root-store.ts) | 持久化的知识库根目录覆盖（`~/.dsh/yantao-kb.json`） |
-| [`src/templates.ts`](src/templates.ts) | canonical 实体 / 影子笔记 / 根 README 文件布局 |
+| [`src/templates.ts`](src/templates.ts) | canonical 实体 / 根 README 文件布局 |
 | [`src/types.ts`](src/types.ts) | 实体分类与 `KbError` |
 | — | 不发布运行时不变量伴生包；本插件是无状态工具族，其修改契约（仅一次模板创建、逐字节保留的『状态』改写与『流水』追加）由包内单元测试覆盖。 |
 | [`tests/kb.spec.ts`](tests/kb.spec.ts) | 基于真实临时目录的拼接器、模板与操作覆盖 |
@@ -121,11 +122,11 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 
 #### 模型看到什么
 
-七个 `kb_` 模式（`kb_init`、`kb_create_entity`、`kb_append_log`、`kb_write_state`、`kb_read_entity`、`kb_list_entities`、`kb_register_resource`）：中文描述会点名信任边界（`kb_append_log` 声明只向『流水』区追加，缺少锚点时报错而非重建；`kb_write_state` 声明只替换『状态』区、不碰『流水』区）。成功的结果是携带知识库相对路径的紧凑 JSON；`kb_read_entity` 返回实体文件全文。失败以中文 `KbError` 消息到达，指明具体问题（缺少锚点、实体已存在、frontmatter 不合法、路径越出知识库根目录）。
+八个 `kb_` 模式（`kb_init`、`kb_create_entity`、`kb_append_log`、`kb_write_state`、`kb_read_entity`、`kb_list_entities`、`kb_register_resource`、`kb_read_resource`）：中文描述会点名信任边界（`kb_append_log` 声明只向『流水』区追加，缺少锚点时报错而非重建；`kb_write_state` 声明只替换『状态』区、不碰『流水』区）。成功的结果是携带知识库相对路径的紧凑 JSON；`kb_read_entity` 返回实体文件全文，`kb_read_resource` 返回抽取文本中有界的一块。失败以中文 `KbError` 消息到达，指明具体问题（缺少锚点、实体已存在、frontmatter 不合法、路径越出知识库根目录）。
 
 #### Token 影响
 
-七个工具的固定模式开销，外加每次调用一条紧凑结果；`kb_read_entity` 的结果是数据相关的（实体文件全文），本包不设上限。
+八个工具的固定模式开销，外加每次调用一条紧凑结果；`kb_read_entity` 与 `kb_read_resource` 的结果是数据相关的（实体文件全文、抽取文本中有界的一块），本包不设上限。
 
 #### KV Cache 影响
 

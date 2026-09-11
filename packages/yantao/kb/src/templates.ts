@@ -13,6 +13,12 @@ export interface EntityTemplateOptions {
   relation?: PersonRelation
   /** The meeting's own date (YYYY-MM-DD) — only meaningful for meeting; defaults to the creation date. */
   meetingDate?: string
+  /**
+   * The original material a reading project reads (its KB-relative resource path, e.g.
+   * `resources/三体.epub`) — only meaningful for project, and the reading-project discriminator
+   * (ADR-0020): a project carrying `source:` is a reading project.
+   */
+  source?: string
 }
 
 /**
@@ -40,6 +46,7 @@ export function entityFileContent(
   }
   const fields = [`type: ${type}`]
   if (type === 'project') fields.push('areas: []')
+  if (type === 'project' && options.source !== undefined) fields.push(`source: ${options.source}`)
   if (type === 'person') fields.push(`relation: ${options.relation ?? 'subordinate'}`)
   fields.push('tags: []', `created: ${date}`)
   return `---\n${fields.join('\n')}\n---\n\n## 状态\n\n\n## 流水\n\n- ${date} 创建 ${name}\n`
@@ -58,23 +65,15 @@ export function todoFileContent(date: string): string {
   return `---\ntype: todo\ncreated: ${date}\n---\n\n- [ ] [due::${date}] 写下第一个待办\n  缩进两格写正文：这里可以写多行 markdown\n`
 }
 
-/** The shadow-note skeleton living beside a registered resource file.
- * @param source - the resource's sanitized basename (the frontmatter `source` field).
- * @param date - the creation date stamp (YYYY-MM-DD).
- * @returns the complete shadow-note file content.
- */
-export function shadowNoteContent(source: string, date: string): string {
-  return `---\ntype: resource\nsource: ${source}\ncreated: ${date}\ntags: []\n---\n\n## 摘要\n\n\n## 提炼记录\n`
-}
-
 /** The short Chinese readme written at the KB root by kb_init (never overwritten). */
 export const KB_README = `# yantao 知识库
 
 这个目录是 yantao 的个人知识库（PARA+P）。
 
-- \`resources/\` — 原始材料，原样存放、永不改写；每个资源文件配一个同名 \`.md\` 影子笔记。
+- \`resources/\` — 原始材料，原样存放、永不改写；想加工一份材料，就为它建一个项目（如读书项目）。
 - \`entities/projects/\`、\`entities/areas/\`、\`entities/people/\`、\`entities/meetings/\` — 实体笔记，每个实体一个 \`.md\` 文件。
 - \`entities/todos.md\` — 待办单例，Obsidian 复选框清单，没有区段结构；每行形如 \`- [ ] [due::YYYY-MM-DD] 标题\`，条目正文缩进两格写在下方。
+- \`.yantao/\` — 工作台的机器簿记（如读书的文本抽取缓存），不进界面树，请勿手工整理。
 - \`sessions/\` — 会话归档。
 
 实体文件的「状态」区由人和 agent 共同维护（agent 通过 \`kb_write_state\` 写入）；「流水」区只追加、不改写。读写知识库请使用 \`kb_\` 系列工具。

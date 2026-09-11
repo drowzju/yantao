@@ -2964,7 +2964,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: '@Remote(\'intakeTree\') async intakeTree(): Promise<KbTree>',
         description: 'The intake side of the KB: resources, meetings, and the todo singleton. Every section is present even when its directory is absent or empty.',
         parameters: [],
-        returns: 'the three intake sections in display order; resource rows pair their shadow notes.',
+        returns: 'the three intake sections in display order; a resource row pairs its companion note when one exists.',
       },
       {
         signature: '@Remote(\'workspaceTree\') async workspaceTree(): Promise<KbTree>',
@@ -2999,8 +2999,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: '@Remote(\'createEntity\') async createEntity(args: KbCreateEntityArgs): Promise<KbCreateEntityResult>',
         description: 'Create one entity note from the canonical template.',
-        parameters: [{ name: 'args', description: 'the entity kind, its display name, the meeting\'s own date, and the person\'s relation to the KB\'s owner.' }],
+        parameters: [{ name: 'args', description: 'the entity kind, its display name, the meeting\'s own date, the person\'s relation to the KB\'s owner, and — for a reading project — the resource it reads (ADR-0020), written into the frontmatter as `source:`.' }],
         returns: 'the KB-relative path of the created file.',
+      },
+      {
+        signature: '@Remote(\'registerResource\') async registerResource(args: KbRegisterResourceArgs): Promise<KbRegisterResourceResult>',
+        description: 'Copy one dropped file into `resources/` (ADR-0020) — the drag-and-drop intake. The browser cannot hand over a filesystem path, so the content arrives base64-encoded and is decoded here; the copy is pure (no shadow note), and an existing resource is refused rather than overwritten.',
+        parameters: [{ name: 'args', description: 'the file\'s name and its base64-encoded content.' }],
+        returns: 'the KB-relative path of the copied resource.',
+      },
+      {
+        signature: '@Remote(\'extractResource\') async extractResource(args: KbExtractArgs): Promise<KbExtractResult>',
+        description: 'Extract one resource\'s text into the `.yantao/extracts/` cache (ADR-0020) — the reading project\'s raw material, paged out to the agent later by `kb_read_resource`.\n\nThe extraction is a Python subprocess (`extract/extract.py`), and its result is cached as the extract text plus a self-describing metadata JSON (`format`/`chars`/`extractedAt`/`source`). The cache is the idempotency: a second call for the same resource answers from it (`cached: true`) without running the script again — re-extracting is a human deleting the cache directory, not a flag on this method.\n\nEvery failure leaves as a `yantao-kb/extract` error carrying the script\'s own failure kind *and* its remedy, because the useful answer to "the PDF has no text layer" is what that means, not that extraction failed.',
+        parameters: [{ name: 'args', description: 'the resource\'s KB-relative path, `resources/…`.' }],
+        returns: 'where the extract landed, its format and size, and whether the cache answered.',
       },
       {
         signature: '@Remote(\'write\') async write(path: string, content: string): Promise<KbWriteResult>',
@@ -4500,7 +4512,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbCreateEntityArgs',
-    declaration: 'export interface KbCreateEntityArgs {\n    readonly type: KbCreatableEntityType;\n    readonly name: string;\n    readonly date?: string;\n    readonly relation?: PersonRelation;\n}',
+    declaration: 'export interface KbCreateEntityArgs {\n    readonly type: KbCreatableEntityType;\n    readonly name: string;\n    readonly date?: string;\n    readonly relation?: PersonRelation;\n    readonly source?: string;\n}',
   },
   {
     name: 'KbCreateEntityResult',
@@ -4509,6 +4521,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KbDeleteFileResult',
     declaration: 'export interface KbDeleteFileResult {\n    readonly path: string;\n}',
+  },
+  {
+    name: 'KbExtractArgs',
+    declaration: 'export interface KbExtractArgs {\n    readonly path: string;\n}',
+  },
+  {
+    name: 'KbExtractResult',
+    declaration: 'export interface KbExtractResult {\n    readonly extractPath: string;\n    readonly format: string;\n    readonly chars: number;\n    readonly cached: boolean;\n}',
   },
   {
     name: 'KbFileContent',
@@ -4541,6 +4561,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KbOpenExternalResult',
     declaration: 'export interface KbOpenExternalResult {\n    readonly target: string;\n}',
+  },
+  {
+    name: 'KbRegisterResourceArgs',
+    declaration: 'export interface KbRegisterResourceArgs {\n    readonly name: string;\n    readonly contentBase64: string;\n}',
+  },
+  {
+    name: 'KbRegisterResourceResult',
+    declaration: 'export interface KbRegisterResourceResult {\n    readonly resource: string;\n}',
   },
   {
     name: 'KbRevisionResult',

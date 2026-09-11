@@ -10,13 +10,13 @@
 
 _Avoid_: 笔记库
 
-**Resource**: 不可变的原始输入材料，进入知识库后不被修改。
+**Resource**: 不可变的原始输入材料，进入知识库后不被修改（ADR-0020：登记是纯复制，旁边不生成任何笔记）；其抽取文本缓存在 `.yantao/extracts/`，属于机器簿记，不进 `resources/`。
 
 _Avoid_: 资料、素材
 
-**影子笔记 (Shadow Note)**: 与 Resource 同名的 .md 文件，携带元数据、摘要与提炼产物。
+**读书项目 (Reading Project)**: 一种普通 Project，frontmatter 携带 `source:` 判别字段指向 `resources/` 下的原件；标题为 `读书-《书名》`。agent 经 `kb_read_resource` 分页读抽取文本，大纲写进 `## 状态`，过程写进 `## 流水`。
 
-_Avoid_: 元笔记
+_Avoid_: 影子笔记、伴生笔记
 
 **Entity**: PARA+P 中的 Project / Area / People / Meeting 之一（Todo 是单例，单独一条）；一个实体一个 markdown 文件。
 

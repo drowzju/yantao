@@ -171,8 +171,18 @@ describe('ReadOnlyFile', () => {
     render(<ReadOnlyFile path="resources/周报.eml" read={() => Promise.resolve('原始内容')} />)
     await settle()
     expect(screen.getByText('原始内容')).toBeTruthy()
-    expect(screen.getByText('只读（原始资源不改写，编辑其影子笔记）')).toBeTruthy()
+    expect(screen.getByText('只读（资源原样不改写）')).toBeTruthy()
     expect(screen.queryByRole('textbox')).toBeNull()
+    // No reading button without the callback: the banner is prose only.
+    expect(screen.queryByText('创建读书项目')).toBeNull()
+  })
+
+  it('offers 创建读书项目 when the frame hands the action in', async () => {
+    const onCreateReading = vi.fn()
+    render(<ReadOnlyFile path="resources/三体.epub" read={() => Promise.resolve('原始内容')} onCreateReading={onCreateReading} />)
+    await settle()
+    fireEvent.click(screen.getByText('创建读书项目'))
+    expect(onCreateReading).toHaveBeenCalledOnce()
   })
 
   it('reports a read failure', async () => {

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-api-yantao-kb-controller` is the Typert Remote controller behind the yantao workbench UI: sixteen unary methods over the `yantaoKb` namespace — `intakeTree`, `workspaceTree`, `read`, `write`, `deleteFile`, `setRelation`, `root`, `setRoot`, `createEntity`, `links`, `revision`, `openExternal`, `todos`, `writeTodos`, `mailFetch`, and `mailMarkRead` — that let the browser list, edit, and extend the knowledge base directly. Every path is KB-relative and confined to the kbRoot the `yantao-kb` plugin publishes as the `yantaoKb` service, so the controller shares the plugin's one configuration point and never duplicates it; `setRoot` re-points that one root. The UI is the human channel, so `write` is a full-file write; the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface.
+`dsh-api-yantao-kb-controller` is the Typert Remote controller behind the yantao workbench UI: eighteen unary methods over the `yantaoKb` namespace — `intakeTree`, `workspaceTree`, `read`, `write`, `deleteFile`, `setRelation`, `root`, `setRoot`, `createEntity`, `links`, `revision`, `openExternal`, `todos`, `writeTodos`, `mailFetch`, `mailMarkRead`, `registerResource`, and `extractResource` — that let the browser list, edit, and extend the knowledge base directly. Every path is KB-relative and confined to the kbRoot the `yantao-kb` plugin publishes as the `yantaoKb` service, so the controller shares the plugin's one configuration point and never duplicates it; `setRoot` re-points that one root. The UI is the human channel, so `write` is a full-file write; the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface.
 
 ## Table of Contents
 
@@ -31,7 +31,7 @@ The `yantao-web` profile mounts this controller automatically; the workbench UI 
 
 | Method | Signature | Result |
 |---|---|---|
-| `yantaoKb.intakeTree` | `()` | The intake sections (`resources`, `meetings`, `todos`); resource rows pair their shadow note, a `.md` with no original beside it is a row of its own; every resource row keeps its file name's suffix, so `周报.eml` and `周报.eml.md` never read as the same thing |
+| `yantaoKb.intakeTree` | `()` | The intake sections (`resources`, `meetings`, `todos`); resources are listed as plain files — originals keep their file name's suffix, so `周报.eml` and `周报.eml.md` never read as the same thing |
 | `yantaoKb.workspaceTree` | `()` | The workspace sections (`projects`, `areas`, `people`); same row shape as above |
 | `yantaoKb.read` | `(path)` | `{ path, content }` — the file's complete UTF-8 content |
 | `yantaoKb.write` | `(path, content)` | `{ path }` — full-file write, creating missing parent directories |
@@ -39,14 +39,16 @@ The `yantao-web` profile mounts this controller automatically; the workbench UI 
 | `yantaoKb.setRelation` | `({ path, relation })` | `{ path, relation }` — rewrites one person entity's `relation` inside its frontmatter, leaving the rest of the document byte-identical |
 | `yantaoKb.root` | `()` | `{ root, configured }` — the live KB root, and whether the human has chosen one |
 | `yantaoKb.setRoot` | `(path)` | `{ root, configured, created, existing }` — initializes `path` as a KB, makes it the live root, and remembers it |
-| `yantaoKb.createEntity` | `({ type, name, date?, relation? })` | `{ path }` — one entity note from the KB's canonical template |
+| `yantaoKb.createEntity` | `({ type, name, date?, relation?, source? })` | `{ path }` — one entity note from the KB's canonical template; `source` only means anything for a reading project (ADR-0020) |
 | `yantaoKb.links` | `(path)` | `{ outgoing, incoming }` — the file's `[[wiki link]]` graph, resolved host-side and never into `resources/` (ADR-0015) |
 | `yantaoKb.revision` | `()` | `{ root, revision }` — a counter that bumps whenever a file under the KB root changes; it follows `setRoot` (ADR-0017) |
-| `yantaoKb.openExternal` | `(target)` | `{ ok }` — hands a KB path or a whitelisted URL scheme to the OS shell, refusing shell metacharacters (ADR-0017) |
+| `yantaoKb.openExternal` | `(target)` | `{ target }` — hands a KB path or a whitelisted URL scheme to the OS shell, refusing shell metacharacters (ADR-0017) |
 | `yantaoKb.todos` | `()` | `{ path, text, items }` — the `entities/todos.md` singleton parsed into structured items, plus its exact text (ADR-0018) |
 | `yantaoKb.writeTodos` | `({ items, expectedText })` | `{ path, text }` — replaces the singleton's items, keeping its preamble (ADR-0018) |
 | `yantaoKb.mailFetch` | `({ since?, until?, limit? })` | `{ since, until?, lastReadAt?, stale, messages, hasMore }` — the newest mails in `[since, until)`, read through a Python/COM subprocess (ADR-0019) |
 | `yantaoKb.mailMarkRead` | `({ lastReadAt? })` | `{ lastReadAt }` — moves that cursor forward; defaults to now (ADR-0019) |
+| `yantaoKb.registerResource` | `({ name, contentBase64 })` | `{ resource }` — copies one dropped file into `resources/` byte-for-byte, sanitizing the name and refusing a duplicate; no note is generated beside it (ADR-0020) |
+| `yantaoKb.extractResource` | `({ path })` | `{ extractPath, format, chars, cached }` — extracts one resource's text with the bundled Python script into `.yantao/extracts/` and answers from that cache on later calls (`cached: true`); supports txt / md / pdf / epub / doc / docx / ppt / pptx (ADR-0020) |
 
 `setRelation` only answers for a person file: anything else is `yantao-kb/rejected` without being rewritten, and so is a relation outside the domain's five. It is a line splice inside the frontmatter, never a YAML round trip — a re-emitted mapping would drop the comments and ordering the human wrote.
 
@@ -56,11 +58,13 @@ The `yantao-web` profile mounts this controller automatically; the workbench UI 
 
 `mailFetch` / `mailMarkRead` (ADR-0019) are the first connector. `mailFetch` reads only the inbox, caps one page at 50 mails, and bounds itself below with the cursor in `~/.dsh/yantao-kb.json` — or with 30 days ago when the connector has never run, so a first read never walks a whole inbox over COM. `until` is the matching upper bound: without it every read lands on the newest page, so a workbench could never step 往前 into older mail. It answers `stale` when that cursor is missing or older than 30 days (the UI asks whether to re-read the older stretch; it neither skips nor fills it in silently) and `hasMore` when the page came back full — an exact count of what is left would mean touching every item in the folder. Both refuse before a KB root has been chosen, because the cursor is persisted next to it.
 
-Failures are `RemoteError`s: `yantao-kb/not-found` when the path names no file, `yantao-kb/rejected` for an escape attempt, a non-file target, an I/O refusal, or a KB domain refusal (an existing entity, the `todo` singleton) — each carrying the offending `path` in `details` — and `yantao-kb/mail` when the connector fails, carrying the failure's `kind` and the `hint` that tells the human what to install or start.
+`registerResource` / `extractResource` (ADR-0020) are the resource intake. `registerResource` is the drag-and-drop path: the browser sends the file's complete content base64-encoded, and the host copies it into `resources/` unchanged — the same sanitize-and-refuse-duplicate semantics the agent's `kb_register_resource` has, minus the absolute-path input. `extractResource` is the lazy half: it runs only when a reading project asks for the book's text, shells out to the bundled `extract.py` (the ADR-0019 subprocess pattern: JSON on stdout, classified exit codes, `PYTHONIOENCODING=utf-8`), and caches the text plus a self-describing metadata JSON under `.yantao/extracts/` — machine bookkeeping beside the KB, never inside `resources/`. A scan without a text layer, an encrypted or corrupt file is a definite failure (`yantao-kb/extract` carrying `kind` and the `hint` that names the remedy, e.g. `pip install pypdf`), never a silent empty extract.
+
+Failures are `RemoteError`s: `yantao-kb/not-found` when the path names no file, `yantao-kb/rejected` for an escape attempt, a non-file target, an I/O refusal, or a KB domain refusal (an existing entity, the `todo` singleton) — each carrying the offending `path` in `details` — and `yantao-kb/mail` when the connector fails, carrying the failure's `kind` and the `hint` that tells the human what to install or start. `yantao-kb/extract` is the extraction counterpart of that last one.
 
 ### Client consumption
 
-The calling plugin declares both `remote` and `remote.yantaoKb` in its `inject`, then writes `ctx.remote.yantaoKb.tree()` directly; the result is a `RemoteResult<T>` branched with `if (!result.ok)` in place. See the [Remote API cookbook](../../../docs/cookbook/adding-a-remote-api.md).
+The calling plugin declares both `remote` and `remote.yantaoKb` in its `inject`, then writes `ctx.remote.yantaoKb.intakeTree()` / `ctx.remote.yantaoKb.workspaceTree()` directly; the result is a `RemoteResult<T>` branched with `if (!result.ok)` in place. See the [Remote API cookbook](../../../docs/cookbook/adding-a-remote-api.md).
 
 -----
 
@@ -70,16 +74,20 @@ The calling plugin declares both `remote` and `remote.yantaoKb` in its `inject`,
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The controller is a `TypertRemoteService` with `static inject = ['yantaoKb']`: it activates only after the `yantao-kb` plugin has published the resolved KB root, and reads that root per call. Path confinement reuses the kb package's `resolveWithinKb` (escape attempts classify as `yantao-kb/rejected` at the boundary), and the entity sections of `tree` reuse `listEntities`, so the wire view and the agent's tools read the same files the same way. `resources/` and `sessions/` sections are fresh directory reads per call — the UI always sees what a human editor just wrote. `write` performs no frontmatter validation: the human owns the file's structure, and the agent's tools re-validate on their next read.
+The controller is a `TypertRemoteService` with `static inject = ['yantaoKb']`: it activates only after the `yantao-kb` plugin has published the resolved KB root, and reads that root per call. Path confinement reuses the kb package's `resolveWithinKb` (escape attempts classify as `yantao-kb/rejected` at the boundary), and the entity sections of the two trees reuse `listEntities`, so the wire view and the agent's tools read the same files the same way. `resources/` and `sessions/` sections are fresh directory reads per call — the UI always sees what a human editor just wrote. `write` performs no frontmatter validation: the human owns the file's structure, and the agent's tools re-validate on their next read.
 
 ### Source map
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | The controller: service declaration, path confinement, and the three methods |
+| [`src/index.ts`](src/index.ts) | The controller: service declaration, path confinement, and the RPC methods |
+| [`src/extract/extract.py`](src/extract/extract.py) | The text-extraction subprocess (ADR-0020): per-format handlers, classified exit codes, JSON on stdout |
+| [`src/extract/index.ts`](src/extract/index.ts) | That subprocess's spawn wrapper: error classification into `ExtractError{kind,message,hint}`, timeout and stdout caps |
 | [`src/types.ts`](src/types.ts) | Wire payload vocabulary (tree sections, file rows, read/write results) |
 | — | No runtime invariant companion is published; the controller is a stateless adapter whose confinement and shaping contracts are covered by the package's unit tests. |
 | [`tests/controller.spec.ts`](tests/controller.spec.ts) | Tree shaping, read/write round trips, root/setRoot/createEntity, not-found classification, and escape rejection over real temp directories |
+| [`tests/extract.spec.ts`](tests/extract.spec.ts) | The extraction wrapper over a fake spawn: output parsing, error classification, timeout, argv shape |
+| [`tests/intake-rpc.spec.ts`](tests/intake-rpc.spec.ts) | The two intake RPCs over real temp directories: base64 round trips, duplicate refusal, cache idempotence, `source:` pass-through |
 
 ### Invariant ownership
 

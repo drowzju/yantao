@@ -54,6 +54,8 @@ note), **deferred** (deliberately parked — see the note).
 
 | **Mail analysis, end to end (ADR-0019)** — the 连接 tab reads Outlook through `mailFetch`, hands the batch to a real dsh session (`session.create` → `rename` 「邮件分析 YYYY-MM-DD」 → `prompt` → `follow`), and ends in one summary window with four blocks (新人 / 建议待办 / 项目动态 / 值得留存的资源) where **nothing is ticked to begin with**: a person becomes an entity, a todo joins the singleton under `expectedText`, a project note is appended to that entity's 流水, a chosen mail becomes a resource note — and the cursor only moves once a verdict has been dealt with | `packages/client/ui-yantao/src/client/{MailPanel,MailReview,mail-analysis,mail-apply}.tsx`, `packages/client/ui-yantao/src/client/{Workbench.tsx,frame/Frame.tsx,index.ts,remote.ts}` |
 
+| **Reading projects & resource intake (ADR-0020)** — drag-and-drop onto the 资源 rail registers through `yantaoKb.registerResource` (`{ name, contentBase64 }`: pure copy, duplicate-refuse, per-file Chinese errors); right-click a resource row or the read-only banner → app-level dialog (book title + 「是否需要我读取书籍内容为你整理大纲？」) → a plain `project` entity with `source:` frontmatter; lazy py extraction (txt/md/pdf/epub/doc/docx/ppt/pptx) cached under `.yantao/extracts/` with explicit classified failures (`yantao-kb/extract`, no OCR in v1); the eighth tool `kb_read_resource` pages the extract by offset/chunk; the reading flow runs a real session (outline into 状态, process into 流水) and ends in a MailReview-style proposal card confirming `[[领域:…]]` links or a new domain | `packages/yantao/kb/src/{core,index,templates}.ts`, `packages/api/yantao-kb-controller/src/{index,types}.ts` + `src/extract/`, `packages/client/ui-yantao/src/client/{ReadingDialog,ReadingProposal,reading-flow}.tsx` + `{Workbench,remote,frame/Frame,editor/ReadOnlyFile}`, `docs/adr/0020-*`. 验证：kb + controller + ui-yantao 三包测试全绿（controller 92、ui-yantao 182），`build:lib` 与 client bundle 通过 |
+
 ## next
 
 ### Phase 2 — three-pane UI (ADR-0010)
@@ -84,7 +86,6 @@ _None. (The three items that sat here — the client-face rebuild, `tsgolint`, a
 
 | Item | Why parked |
 |---|---|
-| Resource intake watcher (drop a file → auto shadow note) | needs a watcher job; decide between dsh `jobs`/schedule and a plain watcher |
 | Refine loop v1 (human triggers → agent proposes → human approves) | the real product value; needs the editor pane first, and a proposal UI |
 | Session transcripts into `sessions/` | dsh already event-sources every session (`session.vN.jsonl`); this becomes a projection, not new machinery — **also: 会话功能已移除 (ADR-0010), 待重新设计后再启** |
 | FTS + backlinks index | needs a storage decision (drift/sqlite vs dsh `session-query`) once the KB has real content |

@@ -33,7 +33,7 @@ interface KbTreeFile {
   readonly path: string
   /** Present (and true) when the entity's frontmatter carries `archive: true`. */
   readonly archived?: boolean
-  /** For a resource: its shadow-note path, when the note exists. */
+  /** For a resource: the path of its companion note, when one exists. */
   readonly notePath?: string
   /** For a person entity: the declared relation, when present. */
   readonly relation?: string
@@ -56,9 +56,9 @@ interface KbTreeSection {
 ```
 
 ```ts type-equiv
-/** The full KB tree payload returned by `yantaoKb.tree`. */
+/** The tree payload returned by `yantaoKb.intakeTree` / `yantaoKb.workspaceTree`. */
 interface KbTree {
-  /** The five sections in display order. */
+  /** The sections in display order. */
   readonly sections: readonly KbTreeSection[]
 }
 ```
@@ -83,7 +83,7 @@ interface KbWriteResult {
 
 ## Failure vocabulary
 
-Remote failures of this namespace classify as `RemoteError` with two domain codes: `yantao-kb/not-found` when the path names no existing file, and `yantao-kb/rejected` for an escape attempt, a non-file target, or an I/O refusal. Both carry the offending `path` in `details`.
+Remote failures of this namespace classify as `RemoteError` with two domain codes: `yantao-kb/not-found` when the path names no existing file, and `yantao-kb/rejected` for an escape attempt, a non-file target, or an I/O refusal. Both carry the offending `path` in `details`. Connector failures classify as `yantao-kb/mail` and extraction failures as `yantao-kb/extract`, each carrying the failure's `kind` and a `hint` naming the remedy in `details`.
 
 The UI is the human channel, so `write` is a full-file write with no frontmatter validation — the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface. The generated Cordis API below is the method-level authority.
 
@@ -121,7 +121,7 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 /**
  * The intake side of the KB: resources, meetings, and the todo singleton.
  * Every section is present even when its directory is absent or empty.
- * @returns the three intake sections in display order; resource rows pair their shadow notes.
+ * @returns the three intake sections in display order; a resource row pairs its companion note when one exists.
  */
 @Remote('intakeTree') async intakeTree(): Promise<KbTree>
 
@@ -168,10 +168,41 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 /**
  * Create one entity note from the canonical template.
  * @param args - the entity kind, its display name, the meeting's own date,
- *   and the person's relation to the KB's owner.
+ *   the person's relation to the KB's owner, and — for a reading project —
+ *   the resource it reads (ADR-0020), written into the frontmatter as `source:`.
  * @returns the KB-relative path of the created file.
  */
 @Remote('createEntity') async createEntity(args: KbCreateEntityArgs): Promise<KbCreateEntityResult>
+
+/**
+ * Copy one dropped file into `resources/` (ADR-0020) — the drag-and-drop
+ * intake. The browser cannot hand over a filesystem path, so the content
+ * arrives base64-encoded and is decoded here; the copy is pure (no shadow
+ * note), and an existing resource is refused rather than overwritten.
+ * @param args - the file's name and its base64-encoded content.
+ * @returns the KB-relative path of the copied resource.
+ */
+@Remote('registerResource') async registerResource(args: KbRegisterResourceArgs): Promise<KbRegisterResourceResult>
+
+/**
+ * Extract one resource's text into the `.yantao/extracts/` cache (ADR-0020)
+ * — the reading project's raw material, paged out to the agent later by
+ * `kb_read_resource`.
+ *
+ * The extraction is a Python subprocess (`extract/extract.py`), and its
+ * result is cached as the extract text plus a self-describing metadata JSON
+ * (`format`/`chars`/`extractedAt`/`source`). The cache is the idempotency:
+ * a second call for the same resource answers from it (`cached: true`)
+ * without running the script again — re-extracting is a human deleting the
+ * cache directory, not a flag on this method.
+ *
+ * Every failure leaves as a `yantao-kb/extract` error carrying the script's
+ * own failure kind *and* its remedy, because the useful answer to "the PDF
+ * has no text layer" is what that means, not that extraction failed.
+ * @param args - the resource's KB-relative path, `resources/…`.
+ * @returns where the extract landed, its format and size, and whether the cache answered.
+ */
+@Remote('extractResource') async extractResource(args: KbExtractArgs): Promise<KbExtractResult>
 
 /**
  * Write one KB file's complete content (the human channel's full-file

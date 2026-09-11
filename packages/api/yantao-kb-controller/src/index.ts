@@ -6,7 +6,10 @@
  * to the kbRoot the yantao-kb plugin publishes as the `yantaoKb` service —
  * one configuration point, no duplicated config. `root`/`setRoot` answer and
  * choose that root — the service persists the choice under `~/.dsh` — and `createEntity`
- * files a new note from the KB's canonical template. The UI is the human
+ * files a new note from the KB's canonical template. `registerResource` and
+ * `extractResource` are the reading-project intake (ADR-0020): a dropped file
+ * is copied into `resources/`, and its text is extracted into `.yantao/extracts/`
+ * by a Python subprocess for `kb_read_resource` to page out. The UI is the human
  * channel, so `write` is a full-file write; the ADR-0004 trust boundary
  * binds only the agent's kb_ tools, never this surface.
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
@@ -17,11 +20,12 @@ import { dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
-  createEntity, entityDisplayPath, initKb, KbError, linksOf, listEntities, parseFrontmatter,
-  parseTodoFile, PERSON_RELATIONS, readKbRootOverride, readMailWatermark, resolveWithinKb, serializeTodoFile,
-  todayStamp, writeMailWatermark,
+  createEntity, entityDisplayPath, extractPaths, initKb, KbError, linksOf, listEntities, parseFrontmatter,
+  parseTodoFile, PERSON_RELATIONS, readKbRootOverride, readMailWatermark, registerResourceContent, resolveWithinKb,
+  serializeTodoFile, todayStamp, writeMailWatermark,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
+import { EXTRACT_HINTS, ExtractError, extractText } from './extract/index.ts'
 import { fetchMail, MailFetchError } from './mail/fetch.ts'
 import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
 import { KbRevision } from './watch.ts'
@@ -29,6 +33,8 @@ import type {
   KbCreateEntityArgs,
   KbCreateEntityResult,
   KbDeleteFileResult,
+  KbExtractArgs,
+  KbExtractResult,
   KbFileContent,
   KbLinksResult,
   KbMailFetchArgs,
@@ -36,6 +42,8 @@ import type {
   KbMailMarkReadArgs,
   KbMailMarkReadResult,
   KbOpenExternalResult,
+  KbRegisterResourceArgs,
+  KbRegisterResourceResult,
   KbRevisionResult,
   KbRootResult,
   KbSetRelationArgs,
@@ -64,10 +72,17 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'yantao-kb/not-found': { readonly path: string }
     /** The controller refused the operation (path escape, non-file target, I/O failure). */
     'yantao-kb/rejected': { readonly path: string }
+    /** The file is binary, so there is no text preview to read (ADR-0020). */
+    'yantao-kb/binary': { readonly path: string }
     /** The mail connector failed (ADR-0019); `kind` is one of its failure kinds. */
     'yantao-kb/mail': { readonly kind: string; readonly hint: string }
+    /** The document text extraction failed (ADR-0020); `kind` is one of its failure kinds. */
+    'yantao-kb/extract': { readonly kind: string; readonly hint: string }
   }
 }
+
+/** Resource formats the extractor (ADR-0020) knows how to turn into plain text. */
+const EXTRACTABLE_FORMATS = new Set(['txt', 'md', 'pdf', 'epub', 'doc', 'docx', 'ppt', 'pptx'])
 
 /** Entity sections of the intake tree, in display order, mapped to their entity type. */
 const INTAKE_ENTITY_SECTIONS = [
@@ -189,7 +204,7 @@ export class YantaoKbController extends TypertRemoteService {
   /**
    * The intake side of the KB: resources, meetings, and the todo singleton.
    * Every section is present even when its directory is absent or empty.
-   * @returns the three intake sections in display order; resource rows pair their shadow notes.
+   * @returns the three intake sections in display order; a resource row pairs its companion note when one exists.
    */
   @Remote('intakeTree')
   async intakeTree(): Promise<KbTree> {
@@ -206,10 +221,10 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
-   * The `resources` section: originals with their shadow-note pairing, plus a
-   * note that has no original beside it — a mail analysis saves its resources
-   * as `resources/<name>.md`, and a note nobody else owns is a row of its own
-   * rather than a shadow nobody can see.
+   * The `resources` section: originals listed as plain files, plus the
+   * mail-analysis notes saved as `resources/<name>.md` — a note whose
+   * original sits beside it pairs with that original (its `notePath`)
+   * instead of being a row of its own.
    *
    * Every row keeps its file name's suffix, so `周报.eml` and `周报.eml.md`
    * can never be mistaken for one another on screen.
@@ -256,14 +271,22 @@ export class YantaoKbController extends TypertRemoteService {
 
   /**
    * Read one KB file's complete content.
+   *
+   * A resource original is often binary (pdf/epub/…). Decoding it as UTF-8
+   * yields a mojibake string the size of the file, which the RPC channel then
+   * serializes and the workbench renders — the freeze behind left-clicking a
+   * pdf row. A NUL byte is the cheapest reliable marker: every format the
+   * extractor (ADR-0020) calls binary carries one, while no note does. A
+   * binary file is refused instead; its text route is the extract.
    * @param path - KB-relative path with forward slashes.
    * @returns the path and the file's complete UTF-8 content.
    */
   @Remote('read')
   async read(path: string): Promise<KbFileContent> {
     const target = this.confine(path, path)
+    let bytes: Buffer
     try {
-      return { path, content: await readFile(target, 'utf8') }
+      bytes = await readFile(target)
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
       if (code === 'ENOENT') {
@@ -271,6 +294,14 @@ export class YantaoKbController extends TypertRemoteService {
       }
       throw new RemoteError('yantao-kb/rejected', `无法读取知识库文件 ${path}：${(error as Error).message}`, { path }, { cause: error })
     }
+    if (bytes.includes(0)) {
+      throw new RemoteError(
+        'yantao-kb/binary',
+        `「${path}」是二进制文件，工作台不直接预览原文；可用右键「创建读书项目」提取文本。`,
+        { path },
+      )
+    }
+    return { path, content: bytes.toString('utf8') }
   }
 
   /**
@@ -328,7 +359,8 @@ export class YantaoKbController extends TypertRemoteService {
   /**
    * Create one entity note from the canonical template.
    * @param args - the entity kind, its display name, the meeting's own date,
-   *   and the person's relation to the KB's owner.
+   *   the person's relation to the KB's owner, and — for a reading project —
+   *   the resource it reads (ADR-0020), written into the frontmatter as `source:`.
    * @returns the KB-relative path of the created file.
    */
   @Remote('createEntity')
@@ -338,6 +370,7 @@ export class YantaoKbController extends TypertRemoteService {
       return await createEntity(this.kbRoot, args.type, args.name, {
         meetingDate: args.date ?? todayStamp(),
         ...args.relation !== undefined ? { relation: args.relation } : {},
+        ...args.source !== undefined ? { source: args.source } : {},
       })
     } catch (error) {
       const message = error instanceof KbError
@@ -345,6 +378,101 @@ export class YantaoKbController extends TypertRemoteService {
         : `无法创建实体「${args.name}」：${(error as Error).message}`
       throw new RemoteError('yantao-kb/rejected', message, { path: display }, { cause: error })
     }
+  }
+
+  /**
+   * Copy one dropped file into `resources/` (ADR-0020) — the drag-and-drop
+   * intake. The browser cannot hand over a filesystem path, so the content
+   * arrives base64-encoded and is decoded here; the copy is pure (no shadow
+   * note), and an existing resource is refused rather than overwritten.
+   * @param args - the file's name and its base64-encoded content.
+   * @returns the KB-relative path of the copied resource.
+   */
+  @Remote('registerResource')
+  async registerResource(args: KbRegisterResourceArgs): Promise<KbRegisterResourceResult> {
+    const content = Buffer.from(args.contentBase64, 'base64')
+    try {
+      return await registerResourceContent(this.kbRoot, args.name, content)
+    } catch (error) {
+      const message = error instanceof KbError
+        ? error.message
+        : `无法登记资源「${args.name}」：${(error as Error).message}`
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        message,
+        { path: `resources/${args.name}` },
+        { cause: error },
+      )
+    }
+  }
+
+  /**
+   * Extract one resource's text into the `.yantao/extracts/` cache (ADR-0020)
+   * — the reading project's raw material, paged out to the agent later by
+   * `kb_read_resource`.
+   *
+   * The extraction is a Python subprocess (`extract/extract.py`), and its
+   * result is cached as the extract text plus a self-describing metadata JSON
+   * (`format`/`chars`/`extractedAt`/`source`). The cache is the idempotency:
+   * a second call for the same resource answers from it (`cached: true`)
+   * without running the script again — re-extracting is a human deleting the
+   * cache directory, not a flag on this method.
+   *
+   * Every failure leaves as a `yantao-kb/extract` error carrying the script's
+   * own failure kind *and* its remedy, because the useful answer to "the PDF
+   * has no text layer" is what that means, not that extraction failed.
+   * @param args - the resource's KB-relative path, `resources/…`.
+   * @returns where the extract landed, its format and size, and whether the cache answered.
+   */
+  @Remote('extractResource')
+  async extractResource(args: KbExtractArgs): Promise<KbExtractResult> {
+    if (!args.path.startsWith('resources/')) {
+      throw new RemoteError(
+        'yantao-kb/extract',
+        `只能抽取 resources/ 下的资源文件：${args.path}`,
+        { kind: 'unsupported', hint: EXTRACT_HINTS.unsupported },
+      )
+    }
+    const target = this.confine(args.path, args.path)
+    const { text: textRel, meta: metaRel } = extractPaths(this.kbRoot, args.path)
+    const metaPath = join(this.kbRoot, metaRel)
+    try {
+      const cached = JSON.parse(await readFile(metaPath, 'utf8')) as { format?: unknown; chars?: unknown }
+      if (typeof cached.format === 'string' && typeof cached.chars === 'number') {
+        return { extractPath: textRel, format: cached.format, chars: cached.chars, cached: true }
+      }
+    } catch {
+      // No cache (or an unreadable one): extract anew below.
+    }
+    const format = args.path.split('.').pop()?.toLowerCase() ?? ''
+    if (!EXTRACTABLE_FORMATS.has(format)) {
+      throw new RemoteError(
+        'yantao-kb/extract',
+        `不支持抽取这种格式：${args.path}`,
+        { kind: 'unsupported', hint: EXTRACT_HINTS.unsupported },
+      )
+    }
+    let extracted
+    try {
+      extracted = await extractText({ format, input: target })
+    } catch (error: unknown) {
+      const failure = error instanceof ExtractError ? error : undefined
+      throw new RemoteError(
+        'yantao-kb/extract',
+        failure?.message ?? '抽取文档文本失败。',
+        { kind: failure?.kind ?? 'other', hint: failure?.hint ?? EXTRACT_HINTS.other },
+        { cause: error },
+      )
+    }
+    await mkdir(dirname(metaPath), { recursive: true })
+    await writeFile(join(this.kbRoot, textRel), extracted.text, 'utf8')
+    await writeFile(metaPath, JSON.stringify({
+      format: extracted.meta.format,
+      chars: extracted.meta.chars,
+      extractedAt: new Date().toISOString(),
+      source: args.path,
+    }, null, 2), 'utf8')
+    return { extractPath: textRel, format: extracted.meta.format, chars: extracted.meta.chars, cached: false }
   }
 
   /**

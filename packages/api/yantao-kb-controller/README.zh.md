@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-api-yantao-kb-controller` 是 yantao 工作台 UI 背后的 Typert Remote 控制器：`yantaoKb` 命名空间下的十六个一元方法——`intakeTree`、`workspaceTree`、`read`、`write`、`deleteFile`、`setRelation`、`root`、`setRoot`、`createEntity`、`links`、`revision`、`openExternal`、`todos`、`writeTodos`、`mailFetch`、`mailMarkRead`——让浏览器直接列出、编辑与扩充知识库。所有路径都是知识库相对路径，并被限制在 `yantao-kb` 插件以 `yantaoKb` 服务发布的 kbRoot 之内，因此控制器共享插件的唯一配置点，绝不重复配置；`setRoot` 则重新指向这个唯一的根目录。UI 是人类通道，所以 `write` 是整文件写入；ADR-0004 信任边界只约束 agent 的 `kb_` 工具，从不约束本表面。
+`dsh-api-yantao-kb-controller` 是 yantao 工作台 UI 背后的 Typert Remote 控制器：`yantaoKb` 命名空间下的十八个一元方法——`intakeTree`、`workspaceTree`、`read`、`write`、`deleteFile`、`setRelation`、`root`、`setRoot`、`createEntity`、`links`、`revision`、`openExternal`、`todos`、`writeTodos`、`mailFetch`、`mailMarkRead`、`registerResource`、`extractResource`——让浏览器直接列出、编辑与扩充知识库。所有路径都是知识库相对路径，并被限制在 `yantao-kb` 插件以 `yantaoKb` 服务发布的 kbRoot 之内，因此控制器共享插件的唯一配置点，绝不重复配置；`setRoot` 则重新指向这个唯一的根目录。UI 是人类通道，所以 `write` 是整文件写入；ADR-0004 信任边界只约束 agent 的 `kb_` 工具，从不约束本表面。
 
 ## 目录
 
@@ -31,7 +31,7 @@ kind: "package-reference"
 
 | 方法 | 签名 | 结果 |
 |---|---|---|
-| `yantaoKb.intakeTree` | `()` | 收集侧的小节（`resources`、`meetings`、`todos`）；资源行配对影子笔记，旁边没有原件的 `.md` 自己就是一行；每个资源行都保留文件名的后缀，因此 `周报.eml` 与 `周报.eml.md` 不会被看成同一个东西 |
+| `yantaoKb.intakeTree` | `()` | 收集侧的小节（`resources`、`meetings`、`todos`）；资源按普通文件列出——原件保留文件名的后缀，因此 `周报.eml` 与 `周报.eml.md` 不会被看成同一个东西 |
 | `yantaoKb.workspaceTree` | `()` | 工作侧的小节（`projects`、`areas`、`people`）；行结构与上面相同 |
 | `yantaoKb.read` | `(path)` | `{ path, content }`——文件完整 UTF-8 内容 |
 | `yantaoKb.write` | `(path, content)` | `{ path }`——整文件写入，自动创建缺失的父目录 |
@@ -39,14 +39,16 @@ kind: "package-reference"
 | `yantaoKb.setRelation` | `({ path, relation })` | `{ path, relation }`——改写人物实体 frontmatter 里的 `relation`，文件其余部分逐字节保持原样 |
 | `yantaoKb.root` | `()` | `{ root, configured }`——当前生效的知识库根目录，以及人类是否已经选过 |
 | `yantaoKb.setRoot` | `(path)` | `{ root, configured, created, existing }`——把 `path` 初始化为知识库、设为当前根目录并记住它 |
-| `yantaoKb.createEntity` | `({ type, name, date?, relation? })` | `{ path }`——按 canonical 模板创建一个实体笔记 |
+| `yantaoKb.createEntity` | `({ type, name, date?, relation?, source? })` | `{ path }`——按 canonical 模板创建一个实体笔记；`source` 只对读书项目有意义（ADR-0020） |
 | `yantaoKb.links` | `(path)` | `{ outgoing, incoming }`——该文件的 `[[双链]]` 图，在宿主侧解析，且绝不指向 `resources/`（ADR-0015） |
 | `yantaoKb.revision` | `()` | `{ root, revision }`——知识库根目录下任何文件变动就自增的计数器，随 `setRoot` 重建（ADR-0017） |
-| `yantaoKb.openExternal` | `(target)` | `{ ok }`——把知识库内路径或白名单协议的 URL 交给系统打开，拒绝 shell 元字符（ADR-0017） |
+| `yantaoKb.openExternal` | `(target)` | `{ target }`——把知识库内路径或白名单协议的 URL 交给系统打开，拒绝 shell 元字符（ADR-0017） |
 | `yantaoKb.todos` | `()` | `{ path, text, items }`——`entities/todos.md` 单例解析出的结构化条目，外加文件原文（ADR-0018） |
 | `yantaoKb.writeTodos` | `({ items, expectedText })` | `{ path, text }`——替换单例的条目，保留 preamble（ADR-0018） |
 | `yantaoKb.mailFetch` | `({ since?, until?, limit? })` | `{ since, until?, lastReadAt?, stale, messages, hasMore }`——`[since, until)` 区间内的最新邮件，由 Python/COM 子进程读出（ADR-0019） |
 | `yantaoKb.mailMarkRead` | `({ lastReadAt? })` | `{ lastReadAt }`——把断点往前推；缺省为当前时刻（ADR-0019） |
+| `yantaoKb.registerResource` | `({ name, contentBase64 })` | `{ resource }`——把一个拖入的文件逐字节复制进 `resources/`，清理文件名并拒绝重复；旁边不生成任何笔记（ADR-0020） |
+| `yantaoKb.extractResource` | `({ path })` | `{ extractPath, format, chars, cached }`——用内置 Python 脚本把一个资源的文本提取到 `.yantao/extracts/`，之后的调用直接命中缓存（`cached: true`）；支持 txt / md / pdf / epub / doc / docx / ppt / pptx（ADR-0020） |
 
 `setRelation` 只对人物文件作答：其它文件一律 `yantao-kb/rejected` 且不被改写，五种关系之外的取值同样拒绝。它是对 frontmatter 的一行拼接，绝不重排 YAML——重新生成映射会丢掉人类写的注释与顺序。
 
@@ -56,11 +58,13 @@ kind: "package-reference"
 
 `mailFetch` / `mailMarkRead`（ADR-0019）是第一个连接器。`mailFetch` 只读收件箱，单次最多 50 封，并用 `~/.dsh/yantao-kb.json` 里的断点作下界——从没跑过时用「30 天前」，这样首次读取不会去 COM 上把整个收件箱走一遍；`until` 是配对的上界，没有它每次读取都落在最新那一页，工作台就永远没法「往前」读更早的邮件。断点缺失或早于 30 天时它回答 `stale`（由界面问是否补读更早那段：既不静默跳过，也不静默补齐），页面被填满时回答 `hasMore`——要想知道精确还剩多少封，就得把文件夹里每一项都摸一遍。两者都要求先选过知识库目录，因为断点就记在它旁边。
 
-失败是 `RemoteError`：路径没有对应文件时为 `yantao-kb/not-found`；路径逃逸、目标不是文件、I/O 拒绝或知识库领域拒绝（实体已存在、`todo` 单例）时为 `yantao-kb/rejected`——两者的 `details` 都携带出问题的 `path`；连接器失败时为 `yantao-kb/mail`，`details` 带失败种类 `kind` 与告诉人该装什么、该启动什么的 `hint`。
+`registerResource` / `extractResource`（ADR-0020）是资源摄入。`registerResource` 是拖拽路径：浏览器把文件的完整内容 base64 编码后发来，宿主把它原样复制进 `resources/`——与 agent 的 `kb_register_resource` 相同的清理并拒绝重复语义，只是不接受绝对路径输入。`extractResource` 是懒惰的一半：只有读书项目要书的正文时它才运行，通过子进程调用内置的 `extract.py`（ADR-0019 子进程模式：stdout 走 JSON、分类退出码、`PYTHONIOENCODING=utf-8`），把文本连同一份自描述的元数据 JSON 缓存在 `.yantao/extracts/` 下——知识库旁边的机器簿记，绝不进 `resources/`。没有文字层的扫描件、加密或损坏的文件是一次明确的失败（`yantao-kb/extract` 携带 `kind` 与指明补救办法的 `hint`，例如 `pip install pypdf`），绝不是静默的空提取。
+
+失败是 `RemoteError`：路径没有对应文件时为 `yantao-kb/not-found`；路径逃逸、目标不是文件、I/O 拒绝或知识库领域拒绝（实体已存在、`todo` 单例）时为 `yantao-kb/rejected`——两者的 `details` 都携带出问题的 `path`；连接器失败时为 `yantao-kb/mail`，`details` 带失败种类 `kind` 与告诉人该装什么、该启动什么的 `hint`。`yantao-kb/extract` 是最后这一类的提取对应物。
 
 ### Client 消费
 
-调用方插件在 `inject` 中同时声明 `remote` 与 `remote.yantaoKb`，然后直接写 `ctx.remote.yantaoKb.tree()`；结果是 `RemoteResult<T>`，就地用 `if (!result.ok)` 分支。见 [Remote API 手册](../../../docs/cookbook/adding-a-remote-api.zh.md)。
+调用方插件在 `inject` 中同时声明 `remote` 与 `remote.yantaoKb`，然后直接写 `ctx.remote.yantaoKb.intakeTree()` / `ctx.remote.yantaoKb.workspaceTree()`；结果是 `RemoteResult<T>`，就地用 `if (!result.ok)` 分支。见 [Remote API 手册](../../../docs/cookbook/adding-a-remote-api.zh.md)。
 
 -----
 
@@ -70,16 +74,20 @@ kind: "package-reference"
 <details>
 <summary>实现内部——点击展开</summary>
 
-控制器是一个 `TypertRemoteService`，`static inject = ['yantaoKb']`：只有当 `yantao-kb` 插件发布了解析后的 KB 根目录它才激活，并在每次调用时读取该根目录。路径限制复用 kb 包的 `resolveWithinKb`（逃逸尝试在边界被归类为 `yantao-kb/rejected`），`tree` 的实体节复用 `listEntities`，因此 wire 视图与 agent 的工具以同样方式读同样的文件。`resources/` 与 `sessions/` 节是每次调用都重新读取的目录——UI 永远看到人类刚写入的内容。`write` 不做 frontmatter 校验：人类拥有文件结构，agent 的工具会在下次读取时重新校验。
+控制器是一个 `TypertRemoteService`，`static inject = ['yantaoKb']`：只有当 `yantao-kb` 插件发布了解析后的 KB 根目录它才激活，并在每次调用时读取该根目录。路径限制复用 kb 包的 `resolveWithinKb`（逃逸尝试在边界被归类为 `yantao-kb/rejected`），两棵树的实体节复用 `listEntities`，因此 wire 视图与 agent 的工具以同样方式读同样的文件。`resources/` 与 `sessions/` 节是每次调用都重新读取的目录——UI 永远看到人类刚写入的内容。`write` 不做 frontmatter 校验：人类拥有文件结构，agent 的工具会在下次读取时重新校验。
 
 ### 源码地图
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 控制器：服务声明、路径限制与三个方法 |
+| [`src/index.ts`](src/index.ts) | 控制器：服务声明、路径限制与 RPC 方法 |
+| [`src/extract/extract.py`](src/extract/extract.py) | 文本提取子进程（ADR-0020）：按格式的处理器、分类退出码、stdout 走 JSON |
+| [`src/extract/index.ts`](src/extract/index.ts) | 该子进程的 spawn 包装：错误归类为 `ExtractError{kind,message,hint}`、超时与 stdout 上限 |
 | [`src/types.ts`](src/types.ts) | wire 载荷词汇（树节、文件行、读写结果） |
 | — | 不发布运行时不变量伴生包；控制器是无状态适配器，其限制与树形契约由包内单元测试覆盖。 |
 | [`tests/controller.spec.ts`](tests/controller.spec.ts) | 基于真实临时目录的树形、读写往返、root/setRoot/createEntity、not-found 归类与逃逸拒绝覆盖 |
+| [`tests/extract.spec.ts`](tests/extract.spec.ts) | 提取包装基于假 spawn 的覆盖：输出解析、错误归类、超时、argv 形状 |
+| [`tests/intake-rpc.spec.ts`](tests/intake-rpc.spec.ts) | 两个摄入 RPC 基于真实临时目录的覆盖：base64 往返、重复拒绝、缓存幂等、`source:` 透传 |
 
 ### 不变量归属
 

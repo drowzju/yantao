@@ -53,6 +53,8 @@
 
 | **邮件分析打通(ADR-0019)** —— 连接 tab 经 `mailFetch` 读取 Outlook,把整批邮件交给一个真实的 dsh session(`session.create` → `rename`「邮件分析 YYYY-MM-DD」→ `prompt` → `follow`),最后落到一个汇总窗口:四块(新人 / 建议待办 / 项目动态 / 值得留存的资源),**默认一条都不勾选**——确认后新人变成实体、待办带着 `expectedText` 并入单例、项目动态追加到该实体的流水、被挑中的邮件落成 resource 笔记;断点只在这一轮判断被处理完之后才往前走 | `packages/client/ui-yantao/src/client/{MailPanel,MailReview,mail-analysis,mail-apply}.tsx`、`packages/client/ui-yantao/src/client/{Workbench.tsx,frame/Frame.tsx,index.ts,remote.ts}` |
 
+| **读书项目与资源入库(ADR-0020)** —— 拖拽到资源栏经 `yantaoKb.registerResource`(`{ name, contentBase64 }`:纯复制、重名即拒、逐文件中文报错);资源行右键或只读横幅 → 应用级弹窗(书名 + 「是否需要我读取书籍内容为你整理大纲?」)→ 带 `source:` frontmatter 的普通 `project` 实体;惰性 py 抽取(txt/md/pdf/epub/doc/docx/ppt/pptx)缓存于 `.yantao/extracts/`,失败明确分类报错(`yantao-kb/extract`,v1 不做 OCR);第八个工具 `kb_read_resource` 按偏移/分块返回抽取文本;读书流程跑真实 session(大纲写状态区、过程记流水),以 MailReview 式提议卡收尾,确认 `[[领域:…]]` 关联或新建领域 | `packages/yantao/kb/src/{core,index,templates}.ts`、`packages/api/yantao-kb-controller/src/{index,types}.ts` + `src/extract/`、`packages/client/ui-yantao/src/client/{ReadingDialog,ReadingProposal,reading-flow}.tsx` + `{Workbench,remote,frame/Frame,editor/ReadOnlyFile}`、`docs/adr/0020-*`。验证:kb + controller + ui-yantao 三包测试全绿(controller 92、ui-yantao 182),`build:lib` 与 client bundle 通过 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
@@ -79,7 +81,6 @@ _无。(曾在此的三项 —— 客户端 face 重建、`tsgolint`、`toThrowE
 
 | 项 | 为什么搁置 |
 |---|---|
-| Resource 入库 watcher(放入文件 → 自动生成影子笔记) | 需要一个监听任务;先决定用 dsh 的 `jobs`/schedule 还是普通 watcher |
 | 提炼闭环 v1(人触发 → agent 提议 → 人批准) | 真正的价值所在;需要先有编辑器面板与提议 UI |
 | 会话转写落 `sessions/` | dsh 已经把每个会话事件溯源(`session.vN.jsonl`),这活儿应变成"投影"而非新机制 —— **且:会话功能已移除(ADR-0010),待重新设计后再启** |
 | FTS 与 backlinks 索引 | 等知识库有真实内容后再定存储(drift/sqlite 还是 dsh `session-query`) |

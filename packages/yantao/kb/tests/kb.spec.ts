@@ -3,10 +3,10 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, writeState } from '../src/core.ts'
+import { appendLog, createEntity, extractPaths, initKb, listEntities, readEntity, readResourceChunk, registerResource, registerResourceContent, writeState } from '../src/core.ts'
 import { appendToLogSection, logBullet, replaceStateSection } from '../src/splice.ts'
 import { sanitizeFileName, todayStamp } from '../src/paths.ts'
-import { entityFileContent, shadowNoteContent, todoFileContent } from '../src/templates.ts'
+import { entityFileContent, todoFileContent } from '../src/templates.ts'
 import { KbError } from '../src/types.ts'
 
 let kbRoot: string
@@ -95,19 +95,22 @@ describe('entity template', () => {
     expect(content).not.toContain('## 状态')
     expect(content).not.toContain('## 流水')
   })
-  it('matches the canonical shadow-note layout byte-for-byte', () => {
-    expect(shadowNoteContent('周报.eml', '2026-09-05')).toBe(
+  it('matches the canonical reading-project frontmatter byte-for-byte', () => {
+    expect(entityFileContent('project', '读书-三体', '2026-09-05', { source: 'resources/三体.epub' })).toBe(
       '---\n'
-      + 'type: resource\n'
-      + 'source: 周报.eml\n'
-      + 'created: 2026-09-05\n'
+      + 'type: project\n'
+      + 'areas: []\n'
+      + 'source: resources/三体.epub\n'
       + 'tags: []\n'
+      + 'created: 2026-09-05\n'
       + '---\n'
       + '\n'
-      + '## 摘要\n'
+      + '## 状态\n'
       + '\n'
       + '\n'
-      + '## 提炼记录\n',
+      + '## 流水\n'
+      + '\n'
+      + '- 2026-09-05 创建 读书-三体\n',
     )
   })
 })
@@ -476,14 +479,13 @@ describe('kb_list_entities', () => {
 })
 
 describe('kb_register_resource', () => {
-  it('copies the file and writes the shadow-note skeleton', async () => {
+  it('copies the file and writes no shadow note', async () => {
     const source = join(kbRoot, '周报.eml')
     await writeFile(source, 'raw mail bytes')
     const result = await registerResource(kbRoot, source)
     expect(result.resource).toBe('resources/周报.eml')
-    expect(result.note).toBe('resources/周报.eml.md')
     expect(await read('resources/周报.eml')).toBe('raw mail bytes')
-    expect(await read('resources/周报.eml.md')).toBe(shadowNoteContent('周报.eml', TODAY))
+    expect(existsSync(join(kbRoot, 'resources/周报.eml.md'))).toBe(false)
   })
 
   it('refuses to overwrite an already-registered resource', async () => {
@@ -499,5 +501,46 @@ describe('kb_register_resource', () => {
 
   it('errors on a missing source file', async () => {
     await expect(registerResource(kbRoot, join(kbRoot, '不存在.pdf'))).rejects.toThrow(/找不到要登记的文件/)
+  })
+})
+
+describe('registerResourceContent', () => {
+  it('writes the bytes under the sanitized name', async () => {
+    const result = await registerResourceContent(kbRoot, '三体.epub', new Uint8Array([1, 2, 3]))
+    expect(result.resource).toBe('resources/三体.epub')
+    expect(await readFile(join(kbRoot, 'resources/三体.epub'))).toEqual(Buffer.from([1, 2, 3]))
+  })
+
+  it('sanitizes hostile names and refuses overwrites', async () => {
+    await registerResourceContent(kbRoot, 'a/b.txt', new Uint8Array([1]))
+    await expect(registerResourceContent(kbRoot, 'a/b.txt', new Uint8Array([4])))
+      .rejects.toThrow(/已登记过/)
+    expect(existsSync(join(kbRoot, 'resources/a_b.txt'))).toBe(true)
+  })
+})
+
+describe('extractPaths', () => {
+  it('maps a resource to its .yantao/extracts cache paths', () => {
+    expect(extractPaths(kbRoot, 'resources/三体.epub')).toEqual({
+      text: '.yantao/extracts/三体.epub.txt',
+      meta: '.yantao/extracts/三体.epub.json',
+    })
+  })
+})
+
+describe('readResourceChunk', () => {
+  it('pages through the extract with offset and hasMore', async () => {
+    await registerResourceContent(kbRoot, '书.txt', new Uint8Array([0]))
+    await mkdir(join(kbRoot, '.yantao/extracts'), { recursive: true })
+    await writeFile(join(kbRoot, '.yantao/extracts/书.txt.txt'), '一二三四五', 'utf8')
+    const first = await readResourceChunk(kbRoot, 'resources/书.txt', 0, 3)
+    expect(first).toMatchObject({ resource: 'resources/书.txt', total: 5, offset: 0, chunk: '一二三', hasMore: true })
+    const rest = await readResourceChunk(kbRoot, 'resources/书.txt', 3, 3)
+    expect(rest).toMatchObject({ offset: 3, chunk: '四五', hasMore: false })
+  })
+
+  it('errors when the extract is missing and refuses paths outside resources/', async () => {
+    await expect(readResourceChunk(kbRoot, 'resources/没有.txt')).rejects.toThrow(/还没有文本抽取缓存/)
+    await expect(readResourceChunk(kbRoot, 'entities/projects/x.md')).rejects.toThrow(/只读 resources/)
   })
 })
