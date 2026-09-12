@@ -20,8 +20,9 @@ import type {
   SessionPromptValue, SessionRenameRequest, SessionRenameValue,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {
-  KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult, KbDeleteFileResult, KbExtractArgs,
-  KbExtractResult, KbFileContent, KbLinksResult,
+  KbCapabilityCreateArgs, KbCapabilityCreateResult, KbCapabilityListResult, KbCapabilityRegisterDirResult,
+  KbCapabilityRunArgs, KbCapabilityRunResult, KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
+  KbDeleteFileResult, KbExtractResult, KbFileContent, KbLinksResult,
   KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
   KbOpenExternalResult, KbPersonRelation, KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
   KbRootResult, KbSetRelationArgs, KbSetRelationResult,
@@ -47,10 +48,16 @@ export interface KbRemote {
   writeTodos(args: KbWriteTodosArgs): Promise<RemoteResult<KbWriteTodosResult>>
   mailFetch(args: KbMailFetchArgs): Promise<RemoteResult<KbMailFetchResult>>
   mailMarkRead(args: KbMailMarkReadArgs): Promise<RemoteResult<KbMailMarkReadResult>>
+  /** List the registered capabilities (ADR-0021). */
+  capabilityList(): Promise<RemoteResult<KbCapabilityListResult>>
+  /** Run one capability's entry script (ADR-0021). */
+  capabilityRun(args: KbCapabilityRunArgs): Promise<RemoteResult<KbCapabilityRunResult>>
+  /** Register one capability directory (ADR-0021 决定 8's 「添加目录」). */
+  capabilityRegisterDir(path: string): Promise<RemoteResult<KbCapabilityRegisterDirResult>>
+  /** Scaffold one new capability under `.dsh/skills/` (ADR-0021 决定 8's 「新建能力」). */
+  capabilityCreate(args: KbCapabilityCreateArgs): Promise<RemoteResult<KbCapabilityCreateResult>>
   /** Copy one dropped file into `resources/` (ADR-0020). */
   registerResource(args: KbRegisterResourceArgs): Promise<RemoteResult<KbRegisterResourceResult>>
-  /** Extract one resource's text into the `.yantao/extracts/` cache (ADR-0020). */
-  extractResource(args: KbExtractArgs): Promise<RemoteResult<KbExtractResult>>
 }
 
 /**
@@ -103,7 +110,7 @@ export type TodoLoader = () => Promise<KbTodosResult>
 /** Write the todo singleton's whole item list, optimistic-concurrency and all (ADR-0018). */
 export type TodoWriter = (args: KbWriteTodosArgs) => Promise<KbWriteTodosResult>
 
-/** Read the newest mails after the connector's cursor (ADR-0019). */
+/** Read the newest mails through the `mail` capability (ADR-0019, ADR-0021). */
 export type MailFetcher = (args: KbMailFetchArgs) => Promise<KbMailFetchResult>
 
 /** Move the mail connector's cursor forward (ADR-0019). */
@@ -112,8 +119,17 @@ export type MailMarker = (args: KbMailMarkReadArgs) => Promise<KbMailMarkReadRes
 /** Copy one dropped file into `resources/` and resolve its path (ADR-0020). */
 export type ResourceRegistrar = (name: string, contentBase64: string) => Promise<string>
 
-/** Extract one resource's text into the `.yantao/extracts/` cache (ADR-0020). */
+/** Extract one resource's text through the `ebook` capability (ADR-0020, ADR-0021). */
 export type ResourceExtractor = (path: string) => Promise<KbExtractResult>
+
+/** List the registered capabilities (ADR-0021). */
+export type CapabilityLoader = () => Promise<KbCapabilityListResult>
+
+/** Register one capability directory (ADR-0021 决定 8's 「添加目录」). */
+export type CapabilityDirRegistrar = (path: string) => Promise<KbCapabilityRegisterDirResult>
+
+/** Scaffold one new capability under `.dsh/skills/` (ADR-0021 决定 8's 「新建能力」). */
+export type CapabilityCreator = (name: string) => Promise<KbCapabilityCreateResult>
 
 /** One mail as the connector reports it (ADR-0019). */
 export type MailMessage = KbMailMessage
@@ -360,15 +376,16 @@ export async function writeTodos(ctx: Context, args: KbWriteTodosArgs): Promise<
 }
 
 /**
- * Read the newest mails after the connector's cursor (ADR-0019).
+ * Read the newest mails through the `mail` capability (ADR-0019, ADR-0021).
+ * The capability's answer *is* the old connector's payload, so the panel
+ * keeps its shape; only the transport changed.
  * @param ctx - client root context.
  * @param args - an explicit `since` and cap; both are optional.
  * @returns the bound used, the mails, and the two flags the panel reports.
  */
 export async function fetchMail(ctx: Context, args: KbMailFetchArgs): Promise<KbMailFetchResult> {
-  const kb = kbRemoteOf(ctx)
-  if (kb === undefined) throw missing()
-  return unwrapRemote(await kb.mailFetch(args))
+  const run = await runCapability(ctx, { name: 'mail', input: args } as unknown as KbCapabilityRunArgs)
+  return run.result as unknown as KbMailFetchResult
 }
 
 /**
@@ -399,9 +416,9 @@ export async function registerResource(ctx: Context, name: string, contentBase64
 }
 
 /**
- * Extract one resource's text into the `.yantao/extracts/` cache (ADR-0020).
- * Idempotent on the host: an existing cache answers with `cached: true` and
- * no extraction runs.
+ * Extract one resource's text through the `ebook` capability (ADR-0020,
+ * ADR-0021). Idempotent on the host: an existing cache answers with
+ * `cached: true` and no extraction runs.
  * @param ctx - client root context.
  * @param path - the resource's KB-relative path.
  * @returns where the text landed, its format and size, or a rejected promise
@@ -409,9 +426,56 @@ export async function registerResource(ctx: Context, name: string, contentBase64
  *   library — the host's `details.hint` names the remedy).
  */
 export async function extractResource(ctx: Context, path: string): Promise<KbExtractResult> {
+  const run = await runCapability(ctx, { name: 'ebook', input: { path } })
+  return run.result as unknown as KbExtractResult
+}
+
+/**
+ * List the registered capabilities (ADR-0021).
+ * @param ctx - client root context.
+ * @returns the capability rows, or a rejected promise carrying the reason.
+ */
+export async function loadCapabilities(ctx: Context): Promise<KbCapabilityListResult> {
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
-  return unwrapRemote(await kb.extractResource({ path }))
+  return unwrapRemote(await kb.capabilityList())
+}
+
+/**
+ * Run one capability's entry script (ADR-0021).
+ * @param ctx - client root context.
+ * @param args - the capability's name and its input.
+ * @returns the run record, or a rejected promise carrying the reason.
+ */
+export async function runCapability(ctx: Context, args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.capabilityRun(args))
+}
+
+/**
+ * Register one capability directory (ADR-0021 决定 8's 「添加目录」).
+ * @param ctx - client root context.
+ * @param path - the absolute directory to register.
+ * @returns the full directory list as it now stands.
+ */
+export async function registerCapabilityDir(ctx: Context, path: string): Promise<KbCapabilityRegisterDirResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.capabilityRegisterDir(path))
+}
+
+/**
+ * Scaffold one new capability under `.dsh/skills/` (ADR-0021 决定 8's
+ * 「新建能力」).
+ * @param ctx - client root context.
+ * @param name - the capability's kebab-case name.
+ * @returns the scaffolded directory's KB-relative path.
+ */
+export async function createCapability(ctx: Context, name: string): Promise<KbCapabilityCreateResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.capabilityCreate({ name }))
 }
 
 /**

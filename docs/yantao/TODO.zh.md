@@ -57,6 +57,8 @@
 
 | **能力执行缝(ADR-0021 第 1 条)** —— 第十九个 `yantaoKb` RPC `capabilityRun`:控制器经 dsh skill 注册表解析能力(`ctx.skills.get`),`resolveEntry` 读 `metadata.yantao` 声明(entry 限制在 skill 目录内、runtime、`appliesTo` 后缀),`runCapability` 拉起子进程(JSON stdin/stdout、UTF-8 管道、超时、失败分类带中文提示,走 `yantao-kb/capability` RemoteError 类别);产物落 `.yantao/capabilities/<name>/`,状态槽泛化为 `capabilities.<name>.state` —— 邮件断点迁入,遗留 `connectors.mail` 仍可读并在写入时迁移。不加 `kb_*` 工具:能力只由人调用,执行发生在会话前 | `packages/api/yantao-kb-controller/src/capability/run.ts` + `src/{index,types}.ts`、`packages/yantao/kb/src/root-store.ts`、`packages/bundle/yantao-web-app/cordis.patch.yml`(`skill-filesystem` 保持启用,`tool-skill` 保持禁用)。验证:三包 428 测试全绿(`capability-rpc.spec.ts` 10 个),`build:lib` host+client 通过(tsdown 需 `NODE_OPTIONS=--max-old-space-size=4096`,默认堆 ~2.4GB 在无页面文件机器上 OOM),`verify-cordis-catalog` 与 `verify-translation-pairing` 通过 |
 
+| **能力迁移 + 管理 RPC + 能力 tab(ADR-0021 第 2+3 条)** —— mail/ebook 成为内置能力目录,播种进 `<kbRoot>/.dsh/skills/`(`ensureBuiltinCapabilities`,按母本 `metadata.yantao.version` 比对版本);控制器对持久化的 `capabilityDirs` 挂一个 `FileSystemSkillProvider`,`mailFetch` / `extractResource` 退役 —— UI 的邮件读取与读书流程的抽取都改走 `capabilityRun`;三个 RPC 加入表面(`capabilityList` / `capabilityRegisterDir` / `capabilityCreate`,第二十个),连接 tab 变为能力 tab:清单 + 详情两态面板,「添加目录」选取并注册目录,「新建能力」在 `.dsh/skills/<name>/` 下搭 SKILL.md + entry.py 脚手架;邮件能力的详情原样内嵌 MailPanel | `packages/api/yantao-kb-controller/src/{index,types}.ts` + `src/capability/builtin*`、`packages/yantao/kb/src/root-store.ts`、`packages/client/ui-yantao/src/client/{CapabilityPanel,Workbench,remote,MailPanel}.tsx` + `frame/Frame.tsx` + `index.ts`、`scripts/gen-cordis-catalog.ts`。验证:controller 84 + kb 128 + ui-yantao 202 测试全绿,`build:lib:host`、`typecheck:contracts-ready`、client bundle、scoped oxlint、`verify-cordis-catalog`、translation pairing 通过 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
@@ -78,11 +80,7 @@
 
 1. **提议卡泛化** —— 统一提议 schema(新建实体 / 追加流水 / 写状态 / 存资源 / 建关联 五类动作,
     各带理由),MailReview 泛化为通用提议卡;读书收尾提议并入。
-2. **mail / ebook 能力迁移** —— 两个能力目录(SKILL.md + scripts/ + `yantao:` frontmatter),读书项目
-    创建流程改写为 ebook 能力的应用实例;两者落地后 `mailFetch` / `extractResource` 退役。
-3. **能力 tab** —— 连接 tab 改清单 + 详情两态;「添加目录」按钮(写 `customSkillDirs`)与「新建能力」
-    脚手架;`skill-filesystem` 挂载(`tool-skill` 保持禁用)。
-4. **应用入口** —— 资源右键(按扩展名)与实体面板(按类型)按 `appliesTo` 过滤;拖入不弹询问。
+2. **应用入口** —— 资源右键(按扩展名)与实体面板(按类型)按 `appliesTo` 过滤;拖入不弹询问。
 
 ## blocked(附原因)
 

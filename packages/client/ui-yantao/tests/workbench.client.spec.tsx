@@ -13,6 +13,8 @@ import type {
   DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader, RelationSetter,
   RevisionLoader, RootLoader, RootSetter, TodoLoader, TodoWriter,
 } from '../src/client/remote.ts'
+import type { KbCapabilitySummary } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import { CapabilityPanel } from '../src/client/CapabilityPanel.tsx'
 import { TAB_STORAGE_KEY } from '../src/client/tabs.ts'
 
 afterEach(() => {
@@ -93,6 +95,10 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { people: [], todos: [], projects: [], resources: [] } }),
     registerResource: () => Promise.resolve('resources/新资源.pdf'),
     onCreateReading: () => {},
+    capabilityList: () => Promise.resolve({ capabilities: [] }),
+    capabilityRegisterDir: () => Promise.resolve({ directories: [] }),
+    capabilityCreate: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
+    pickDirectory: () => Promise.resolve(null),
     ...overrides,
   }
 }
@@ -141,10 +147,18 @@ describe('WorkbenchLayout', () => {
 describe('IntakeRail', () => {
   it('shows the four intake tabs and the 资源 tab first', async () => {
     render(<IntakeRail {...railProps()} />)
-    for (const label of ['资源', '待办', '会议', '连接']) {
+    for (const label of ['资源', '待办', '会议', '能力']) {
       expect(screen.getByText(label)).toBeTruthy()
     }
     expect(await screen.findByText('周报.eml')).toBeTruthy()
+  })
+
+  it('renders the 能力 tab as the capability panel', async () => {
+    const capabilityList = vi.fn(() => Promise.resolve({ capabilities: CAPABILITIES }))
+    render(<IntakeRail {...railProps({ capabilityList })} />)
+    fireEvent.click(screen.getByText('能力'))
+    expect(await screen.findByText('mail')).toBeTruthy()
+    expect(capabilityList).toHaveBeenCalledOnce()
   })
 
   it('opens a 资源 row read-only', async () => {
@@ -494,6 +508,99 @@ describe('WorkspaceRail', () => {
   })
 })
 
+/** Two capabilities as `capabilityList` answers them (ADR-0021). */
+const CAPABILITIES: KbCapabilitySummary[] = [
+  { name: 'mail', description: '读 Outlook 邮件', source: 'project', entry: 'scripts/entry.py', runtime: 'python' },
+  { name: 'ebook', description: '抽取书籍文本', source: 'project', entry: 'scripts/entry.py', runtime: 'python' },
+]
+
+/** The capability panel's faces, all spies. */
+function capabilityProps(overrides: Partial<Parameters<typeof CapabilityPanel>[0]> = {}): Parameters<typeof CapabilityPanel>[0] {
+  return {
+    load: () => Promise.resolve({ capabilities: CAPABILITIES }),
+    registerDir: () => Promise.resolve({ directories: [] }),
+    create: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
+    pickDirectory: () => Promise.resolve(null),
+    mail: () => <div data-mail-stub="true">邮件面板</div>,
+    ...overrides,
+  }
+}
+
+describe('CapabilityPanel', () => {
+  it('lists the registered capabilities with their descriptions', async () => {
+    render(<CapabilityPanel {...capabilityProps()} />)
+    expect(await screen.findByText('mail')).toBeTruthy()
+    expect(screen.getByText('读 Outlook 邮件')).toBeTruthy()
+    expect(screen.getByText('ebook')).toBeTruthy()
+    expect(screen.getByText('+ 添加目录')).toBeTruthy()
+    expect(screen.getByText('+ 新建能力')).toBeTruthy()
+  })
+
+  it('opens the mail capability\'s detail with the connector panel embedded', async () => {
+    render(<CapabilityPanel {...capabilityProps()} />)
+    fireEvent.click(await screen.findByText('mail'))
+    expect(await screen.findByText('邮件面板')).toBeTruthy()
+    expect(screen.getByText('← 返回清单')).toBeTruthy()
+  })
+
+  it('returns to the list from a detail', async () => {
+    render(<CapabilityPanel {...capabilityProps()} />)
+    fireEvent.click(await screen.findByText('ebook'))
+    fireEvent.click(await screen.findByText('← 返回清单'))
+    expect(await screen.findByText('mail')).toBeTruthy()
+  })
+
+  it('registers a picked directory through 添加目录 and reloads the list', async () => {
+    const registerDir = vi.fn(() => Promise.resolve({ directories: ['/caps'] }))
+    const pickDirectory = vi.fn(() => Promise.resolve('/caps'))
+    const load = vi.fn(() => Promise.resolve({ capabilities: CAPABILITIES }))
+    render(<CapabilityPanel {...capabilityProps({ registerDir, pickDirectory, load })} />)
+    fireEvent.click(await screen.findByText('+ 添加目录'))
+    await waitFor(() => { expect(registerDir).toHaveBeenCalledWith('/caps') })
+    expect(load).toHaveBeenCalledTimes(2)
+  })
+
+  it('registers nothing when the directory picker is cancelled', async () => {
+    const registerDir = vi.fn()
+    render(<CapabilityPanel {...capabilityProps({ registerDir })} />)
+    fireEvent.click(await screen.findByText('+ 添加目录'))
+    await waitFor(() => { expect(screen.getByText('+ 添加目录')).toBeTruthy() })
+    expect(registerDir).not.toHaveBeenCalled()
+  })
+
+  it('scaffolds a new capability through 新建能力 and opens its detail', async () => {
+    const capabilities = [...CAPABILITIES]
+    const load = vi.fn(() => Promise.resolve({ capabilities }))
+    const create = vi.fn((name: string) => {
+      capabilities.push({ name, description: '', source: 'project', entry: 'scripts/entry.py', runtime: 'python' })
+      return Promise.resolve({ path: `.dsh/skills/${name}` })
+    })
+    render(<CapabilityPanel {...capabilityProps({ load, create })} />)
+    fireEvent.click(await screen.findByText('+ 新建能力'))
+    const input = screen.getByPlaceholderText('能力名称（如 paper-digest）')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'paper-digest' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+    expect(create).toHaveBeenCalledWith('paper-digest')
+    expect(await screen.findByText('paper-digest')).toBeTruthy()
+    expect(screen.getByText('← 返回清单')).toBeTruthy()
+  })
+
+  it('surfaces a refused scaffold as the row\'s error', async () => {
+    const create = vi.fn(() => Promise.reject(new Error('能力名称不合规范')))
+    render(<CapabilityPanel {...capabilityProps({ create })} />)
+    fireEvent.click(await screen.findByText('+ 新建能力'))
+    const input = screen.getByPlaceholderText('能力名称（如 paper-digest）')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: '大写' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+    expect(await screen.findByText('能力名称不合规范')).toBeTruthy()
+    expect(screen.queryByText('← 返回清单')).toBeNull()
+  })
+})
+
 /** The frame's file channel and first-run faces, all spies. */
 interface FrameFaces {
   readonly read: FileReader
@@ -557,6 +664,9 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { people: [], todos: [], projects: [], resources: [] } })}
       registerResource={() => Promise.resolve('resources/新资源.pdf')}
       extractResource={() => Promise.resolve({ extractPath: '.yantao/extracts/x.txt', format: 'pdf', chars: 0, cached: false })}
+      capabilityList={() => Promise.resolve({ capabilities: [] })}
+      capabilityRegisterDir={() => Promise.resolve({ directories: [] })}
+      capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
       createReadingProject={() => Promise.resolve('entities/projects/读书-《新书》.md')}
       readBook={() => Promise.resolve({ sessionId: '', title: '', proposal: { domains: [] } })}
       confirmDomains={() => Promise.resolve()}
@@ -748,6 +858,9 @@ describe('Frame', () => {
         analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { people: [], todos: [], projects: [], resources: [] } })}
         registerResource={() => Promise.resolve('resources/新资源.pdf')}
         extractResource={() => Promise.resolve({ extractPath: '.yantao/extracts/x.txt', format: 'pdf', chars: 0, cached: false })}
+        capabilityList={() => Promise.resolve({ capabilities: [] })}
+        capabilityRegisterDir={() => Promise.resolve({ directories: [] })}
+        capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
         createReadingProject={() => Promise.resolve('entities/projects/读书-《新书》.md')}
         readBook={() => Promise.resolve({ sessionId: '', title: '', proposal: { domains: [] } })}
         confirmDomains={() => Promise.resolve()}

@@ -129,5 +129,10 @@ SKILL.md 加资源文件，模型按需加载正文。能力借它的**目录形
 - `.yantao/capabilities/` 加入知识库树的不显示名单（与 `.yantao/extracts/` 同待遇）。
 - ADR-0010 的 connector 预留由本 ADR 取代；ADR-0019/0020 中仍然成立的决定（人工批准、
   默认不落库、断点推进、惰性抽取）被引用而非重写。
-- 词汇表「连接」条目改「能力」——**随代码落地一起改，不提前**（文档不能先于行为）。
+- 词汇表「连接」条目改「能力」——**随代码落地一起改，不提前**（文档不能先于行为）。已随
+  2026-09-12 的迁移落地：UI 页签、词汇表、README 对同步改齐。
+- 落地注记：控制器对持久化在 `~/.dsh/yantao-kb.json` 的 `capabilityDirs` 挂**一个**
+  `FileSystemSkillProvider`（名字 `yantao-capability-dirs`，变更时 dispose 后重注册），内置
+  mail/ebook 由 `ensureBuiltinCapabilities` 播种进 `<kbRoot>/.dsh/skills/`（按版本号比对，
+  人改过的更高版本不覆盖）。
 - 未做：模型可调用（白名单机制）、会话中执行、第二 runtime、多外部源登记、能力市场/签名。

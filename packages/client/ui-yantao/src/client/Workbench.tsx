@@ -10,12 +10,14 @@ import type {
   KbPersonRelation, KbTreeFile, KbTreeSection, KbTreeSectionId,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type {
-  EntityCreator, FileDeleter, FileReader, FileWriter, MailFetcher, MailMarker, RelationSetter, ResourceRegistrar,
+  CapabilityCreator, CapabilityDirRegistrar, CapabilityLoader, EntityCreator, FileDeleter, FileReader, FileWriter,
+  MailFetcher, MailMarker, RelationSetter, ResourceRegistrar,
   TodoLoader, TodoWriter,
 } from './remote.ts'
 import type { MailAnalyser } from './mail-analysis.ts'
 import type { MailWriteTarget } from './mail-apply.ts'
 import { entitiesOfTree } from './mail-apply.ts'
+import { CapabilityPanel } from './CapabilityPanel.tsx'
 import { MailPanel } from './MailPanel.tsx'
 import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { remoteMessage } from './remote.ts'
@@ -26,7 +28,7 @@ import { NewEntityRow } from './NewEntityRow.tsx'
 /** Loads one rail's sections; rejects with a message the rail can render. */
 export type TreeLoader = () => Promise<readonly KbTreeSection[]>
 
-/** Left-rail tabs in display order; `connector` has no KB files yet (ADR-0010 reserves it). */
+/** Left-rail tabs in display order; `connector` is the 能力 tab (ADR-0021). */
 const INTAKE_PANEL_IDS: readonly (KbTreeSectionId | 'connector')[] = ['resources', 'todos', 'meetings', 'connector']
 
 /** Right-rail tabs in display order. */
@@ -61,7 +63,7 @@ export const SECTION_LABELS: Record<string, string> = {
   resources: '资源',
   todos: '待办',
   meetings: '会议',
-  connector: '连接',
+  connector: '能力',
   areas: '领域',
   people: '人物',
   projects: '项目',
@@ -204,7 +206,7 @@ function Section({
   onMenu,
   showHeading = true,
 }: {
-  id: KbTreeSectionId | 'connector'
+  id: KbTreeSectionId
   section: KbTreeSection | undefined
   selection: string | null
   onSelect: (path: string) => void
@@ -215,8 +217,7 @@ function Section({
   return (
     <div>
       {showHeading && <div style={titleStyle}>{SECTION_LABELS[id]}</div>}
-      {id === 'connector' && <div style={{ color: '#9a9488', padding: '4px 6px' }}>预留（连接抽象见 ADR-0010）</div>}
-      {section === undefined && id !== 'connector' && <div style={{ color: '#9a9488', padding: '4px 6px' }}>（空）</div>}
+      {section === undefined && <div style={{ color: '#9a9488', padding: '4px 6px' }}>（空）</div>}
       {section?.files.map(file => (
         <button
           key={file.path}
@@ -510,12 +511,20 @@ export interface RailProps {
   readonly analyseMail: MailAnalyser
 }
 
-/** Intake-side additions: the intake rail owns resource registration (ADR-0020). */
+/** Intake-side additions: the intake rail owns resource registration (ADR-0020) and the 能力 tab (ADR-0021). */
 export interface IntakeRailProps extends RailProps {
   /** Copy one dropped file into `resources/`. */
   readonly registerResource: ResourceRegistrar
   /** Open the reading-project dialog for one resource. */
   readonly onCreateReading: (resourcePath: string) => void
+  /** List the registered capabilities (ADR-0021). */
+  readonly capabilityList: CapabilityLoader
+  /** Register one capability directory (「添加目录」). */
+  readonly capabilityRegisterDir: CapabilityDirRegistrar
+  /** Scaffold one new capability (「新建能力」). */
+  readonly capabilityCreate: CapabilityCreator
+  /** Open the host's native directory picker (「添加目录」's first half). */
+  readonly pickDirectory: () => Promise<string | null>
 }
 
 /** The rail's error marker: it is the only thing left above the tab strip. */
@@ -528,9 +537,10 @@ function RailHeader({ error }: { error: string | null }): ReactElement {
 }
 
 /**
- * The intake rail: 资源 / 待办 / 会议 / 连接 as tabs. 待办 renders the
+ * The intake rail: 资源 / 待办 / 会议 / 能力 as tabs. 待办 renders the
  * singleton as a TODO / DONE board inline (ADR-0018); 会议 can create a
- * meeting inline; 资源 rows open read-only.
+ * meeting inline; 资源 rows open read-only; 能力 lists the registered
+ * capabilities (ADR-0021), the mail one embedding the connector panel.
  * @param props - see {@link RailProps}.
  * @returns the rail element.
  */
@@ -538,7 +548,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const {
     collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
     read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource,
-    onCreateReading,
+    onCreateReading, capabilityList, capabilityRegisterDir, capabilityCreate, pickDirectory,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector'>('resources')
@@ -641,12 +651,20 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
         />
       )}
       {tab === 'connector' && (
-        <MailPanel
-          fetch={mailFetch}
-          mark={mailMarkRead}
-          analyse={analyseMail}
-          target={mailTarget}
-          entities={async () => entitiesOfTree(await workspace())}
+        <CapabilityPanel
+          load={capabilityList}
+          registerDir={capabilityRegisterDir}
+          create={capabilityCreate}
+          pickDirectory={pickDirectory}
+          mail={() => (
+            <MailPanel
+              fetch={mailFetch}
+              mark={mailMarkRead}
+              analyse={analyseMail}
+              target={mailTarget}
+              entities={async () => entitiesOfTree(await workspace())}
+            />
+          )}
         />
       )}
       {tab !== 'todos' && tab !== 'connector' && (

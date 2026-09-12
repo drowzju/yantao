@@ -58,6 +58,8 @@ note), **deferred** (deliberately parked — see the note).
 
 | **Capability execution seam (ADR-0021 item 1)** — the nineteenth `yantaoKb` RPC `capabilityRun`: the controller resolves the capability through the dsh skill registry (`ctx.skills.get`), `resolveEntry` reads the `metadata.yantao` declaration (entry confined inside the skill directory, runtime, `appliesTo` suffixes), and `runCapability` spawns it (JSON stdin/stdout, UTF-8 pipes, timeout, classified failures with Chinese hints under the `yantao-kb/capability` RemoteError kind); artifacts land under `.yantao/capabilities/<name>/` and the state slots generalize to `capabilities.<name>.state` — the mail watermark moves there and legacy `connectors.mail` still reads, migrating on rewrite. No `kb_*` tool is added: capabilities stay human-invocable, execution happens pre-session | `packages/api/yantao-kb-controller/src/capability/run.ts` + `src/{index,types}.ts`, `packages/yantao/kb/src/root-store.ts`, `packages/bundle/yantao-web-app/cordis.patch.yml` (`skill-filesystem` stays enabled, `tool-skill` stays disabled). 验证：三包 428 测试全绿（`capability-rpc.spec.ts` 10 个），`build:lib` host+client 通过（tsdown 需 `NODE_OPTIONS=--max-old-space-size=4096`，默认堆 ~2.4GB 在无页面文件机器上 OOM），`verify-cordis-catalog` 与 `verify-translation-pairing` 通过 |
 
+| **Capability migration + management RPCs + 能力 tab (ADR-0021 items 2+3)** — mail/ebook become builtin capability directories seeded into `<kbRoot>/.dsh/skills/` (`ensureBuiltinCapabilities`, version-checked against the master `metadata.yantao.version`); the controller mounts one `FileSystemSkillProvider` over the persisted `capabilityDirs` and retires `mailFetch` / `extractResource` — the UI's mail read and the reading flow's extract both travel through `capabilityRun`; three RPCs join the surface (`capabilityList` / `capabilityRegisterDir` / `capabilityCreate`, twentieth overall), and the connector tab becomes the 能力 tab: a list + detail two-state panel where 「添加目录」 picks and registers a directory and 「新建能力」 scaffolds SKILL.md + entry.py under `.dsh/skills/<name>/`; the mail capability's detail embeds MailPanel unchanged | `packages/api/yantao-kb-controller/src/{index,types}.ts` + `src/capability/builtin*`, `packages/yantao/kb/src/root-store.ts`, `packages/client/ui-yantao/src/client/{CapabilityPanel,Workbench,remote,MailPanel}.tsx` + `frame/Frame.tsx` + `index.ts`, `scripts/gen-cordis-catalog.ts`. 验证：controller 84 + kb 128 + ui-yantao 202 测试全绿，`build:lib:host`、`typecheck:contracts-ready`、client bundle、scoped oxlint、`verify-cordis-catalog`、translation pairing 通过 |
+
 ## next
 
 ### Phase 2 — three-pane UI (ADR-0010)
@@ -84,13 +86,7 @@ note), **deferred** (deliberately parked — see the note).
 1. **Proposal card generalization** — a unified proposal schema (five actions: create entity / append log /
    write state / save resource / create link, each with a reason field), MailReview generalized into a
    generic proposal card; the reading-flow closing proposal merges into it.
-2. **mail / ebook capability migration** — two capability directories (SKILL.md + scripts/ + `yantao:`
-   frontmatter); the reading-project creation flow rewritten as one application instance of the ebook
-   capability; `mailFetch` / `extractResource` retire once both land.
-3. **Capability tab** — the connector tab becomes a list + detail two-state view; an「添加目录」button
-   (writes `customSkillDirs`) and a「新建能力」scaffold; `skill-filesystem` mounted (`tool-skill` stays
-   disabled).
-4. **Apply entry points** — resource right-click (by extension) and entity panels (by type) filtered by
+2. **Apply entry points** — resource right-click (by extension) and entity panels (by type) filtered by
    `appliesTo`; drag-in never prompts.
 
 ## blocked (with reason)

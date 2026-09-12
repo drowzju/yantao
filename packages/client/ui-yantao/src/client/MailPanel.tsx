@@ -1,5 +1,5 @@
 /**
- * The 连接 tab: the mail connector's own panel (ADR-0019).
+ * The mail capability's detail inside the 能力 tab (ADR-0019, ADR-0021).
  *
  * Three beats, in order — 往前 / 往后 reads one window of Outlook through the
  * host's Python/COM subprocess, where the two buttons step the window back and
@@ -219,7 +219,7 @@ export function MailPanel({ fetch, mark, analyse, target, entities }: MailPanelP
       </div>
       {mails.length === 0 && phase === 'idle' && (
         <div style={mutedStyle}>
-          连接：Outlook（COM 子进程）。「往后」读最新的一批，「往前」往更早读一段；读取后由 agent 分析，确认后才写库。
+          能力「邮件」：Outlook（COM 子进程）。「往后」读最新的一批，「往前」往更早读一段；读取后由 agent 分析，确认后才写库。
         </div>
       )}
       {mails.length > 0 && (

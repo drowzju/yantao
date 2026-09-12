@@ -28,7 +28,7 @@ import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 // owns the declaration) — the `@` menu's KB source registers through it.
 import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {
-  KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation, KbWriteTodosArgs,
+  KbCapabilityRunArgs, KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation, KbWriteTodosArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
@@ -41,8 +41,10 @@ import { YantaoMark } from './brand/YantaoMark.tsx'
 import { alignWorkspace } from './kb-workspace.ts'
 import { kbReferenceSource } from './kb-reference.ts'
 import {
-  createEntity, deleteFile, extractResource, fetchMail, loadIntake, loadLinks, loadRevision, loadRoot, loadTodos,
-  loadWorkspace, markMailRead, openExternal, readFile, registerResource, setKbRoot, setRelation, writeFile, writeTodos,
+  createCapability, createEntity, deleteFile, extractResource, fetchMail, loadCapabilities, loadIntake, loadLinks,
+  loadRevision, loadRoot, loadTodos,
+  loadWorkspace, markMailRead, openExternal, readFile, registerCapabilityDir, registerResource, runCapability, setKbRoot,
+  setRelation, writeFile, writeTodos,
 } from './remote.ts'
 import type { MailMessage } from './remote.ts'
 
@@ -155,6 +157,11 @@ export function apply(ctx: Context): void {
       // ADR-0020: the resource intake and the reading flow.
       registerResource: (name: string, contentBase64: string) => registerResource(ctx, name, contentBase64),
       extractResource: (path: string) => extractResource(ctx, path),
+      // ADR-0021: the capability surface the 能力 tab reads.
+      capabilityList: () => loadCapabilities(ctx),
+      capabilityRun: (args: KbCapabilityRunArgs) => runCapability(ctx, args),
+      capabilityRegisterDir: (path: string) => registerCapabilityDir(ctx, path),
+      capabilityCreate: (name: string) => createCapability(ctx, name),
       createReadingProject: (name: string, source: string) => createEntity(ctx, { type: 'project', name, source }),
       readBook: (options: Parameters<BookReader>[0]) => runReadingFlow({ ctx, ...options }),
       confirmDomains: (options: Parameters<DomainConfirmer>[0]) => runDomainConfirm({ ctx, ...options }),

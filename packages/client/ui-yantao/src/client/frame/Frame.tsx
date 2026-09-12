@@ -13,7 +13,8 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
-  DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader,
+  CapabilityCreator, CapabilityDirRegistrar, CapabilityLoader, DirectoryPicker, EntityCreator, ExternalOpener,
+  FileDeleter, FileReader, FileWriter, LinksLoader,
   MailFetcher, MailMarker, RelationSetter, ResourceExtractor, ResourceRegistrar, RevisionLoader, RootLoader, RootSetter,
   TodoLoader, TodoWriter,
 } from '../remote.ts'
@@ -81,6 +82,12 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly registerResource: ResourceRegistrar
   /** Extract one resource's text into the cache (ADR-0020). */
   readonly extractResource: ResourceExtractor
+  /** List the registered capabilities (ADR-0021). */
+  readonly capabilityList: CapabilityLoader
+  /** Register one capability directory (「添加目录」). */
+  readonly capabilityRegisterDir: CapabilityDirRegistrar
+  /** Scaffold one new capability (「新建能力」). */
+  readonly capabilityCreate: CapabilityCreator
   /** Create a reading project — a `project` entity with `source:` set (ADR-0020). */
   readonly createReadingProject: (name: string, source: string) => Promise<string>
   /** Run the first reading round in a dsh session (ADR-0020). */
@@ -205,7 +212,8 @@ function DragHandle(props: {
 export function Frame({
   renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail,
-  registerResource, extractResource, createReadingProject, readBook, confirmDomains, onKbRootChanged,
+  registerResource, extractResource, capabilityList, capabilityRegisterDir, capabilityCreate, createReadingProject,
+  readBook, confirmDomains, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -500,6 +508,10 @@ export function Frame({
           analyseMail={analyseMail}
           registerResource={registerResource}
           onCreateReading={openReading}
+          capabilityList={capabilityList}
+          capabilityRegisterDir={capabilityRegisterDir}
+          capabilityCreate={capabilityCreate}
+          pickDirectory={pickDirectory}
         />
       </div>
       <CenterPane
