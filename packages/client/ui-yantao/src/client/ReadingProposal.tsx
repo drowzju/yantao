@@ -47,13 +47,15 @@ const footerStyle = {
 
 /**
  * Render the domain proposal window.
- * @param props - the proposal and the two callbacks.
+ * @param props - the proposal, the two callbacks, and whether the second
+ *   round is already writing (buttons hold still while it does).
  * @returns the window element.
  */
 export function ReadingProposal(props: {
   readonly proposal: ReadingProposal
   readonly onConfirm: (domains: readonly string[], newDomain?: string) => void
   readonly onDismiss: () => void
+  readonly busy?: boolean
 }): ReactElement {
   const { proposal } = props
   // Nothing is ticked to begin with: linking is the human's call, and the
@@ -117,12 +119,12 @@ export function ReadingProposal(props: {
           </div>
         )}
         <div style={footerStyle}>
-          <button type="button" style={buttonStyle} onClick={props.onDismiss}>跳过</button>
+          <button type="button" style={buttonStyle} disabled={props.busy === true} onClick={props.onDismiss}>跳过</button>
           <span style={{ flex: 1 }} />
           <button
             type="button"
             style={buttonStyle}
-            disabled={count === 0}
+            disabled={props.busy === true || count === 0}
             onClick={() => { props.onConfirm(domains, confirmedNew) }}
           >
             确认关联（{count}）

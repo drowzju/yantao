@@ -48,6 +48,9 @@ beforeEach(async () => {
     },
     setRoot(): void {},
   } satisfies YantaoKbService)
+  // The controller also injects the skill registry (ADR-0021); mail never
+  // resolves a capability, so an empty stand-in is enough.
+  ctx.provide('skills', { get: async () => undefined } as never)
   fiber = await ctx.plugin(YantaoKbController)
   // The mail cursor is persisted next to the KB root, so the connector needs
   // one to have been chosen.

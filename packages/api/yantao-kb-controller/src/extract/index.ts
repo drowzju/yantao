@@ -12,6 +12,11 @@
  * encrypted file, a timeout, garbage on stdout — into one {@link ExtractError}
  * carrying a Chinese message and a Chinese hint (ADR-0006).
  *
+ * A missing per-format library is not the human's problem to fix: the failed
+ * format's pip package is installed automatically and the extraction retried
+ * once, so a fresh machine goes from "no pypdf" to a read book with no
+ * prompt at all. Only a failed install surfaces the manual remedy.
+ *
  * The `spawn` implementation is injectable, so tests exercise every branch
  * without Python ever being touched.
  * @module @deepseek-ai/dsh-api-yantao-kb-controller/extract
@@ -122,6 +127,19 @@ const PYTHON_KINDS: readonly ExtractErrorKind[] = [
 export const EXTRACT_TIMEOUT_MS = 300_000
 
 /**
+ * The pip package each format needs when its library is missing. `doc`/`ppt`
+ * go through Office COM, so their package is the COM bridge itself.
+ */
+const LIB_PACKAGES: Readonly<Record<string, string>> = {
+  pdf: 'pypdf',
+  epub: 'ebooklib',
+  docx: 'python-docx',
+  pptx: 'python-pptx',
+  doc: 'pywin32',
+  ppt: 'pywin32',
+}
+
+/**
  * How much stdout is kept. A book's plain text is megabytes, not bytes, so the
  * cap is generous — but the cap is applied while accumulating, so a runaway
  * script is answered with `bad-output` rather than with an out-of-memory host.
@@ -173,15 +191,82 @@ function kindFromStderr(stderr: string): ExtractErrorKind | undefined {
 }
 
 /**
+ * Install one format's missing library with pip.
+ * @param python - the interpreter to run pip with.
+ * @param pkg - the package name.
+ * @param spawnImpl - the spawn to use; tests pass a fake.
+ * @param timeoutMs - how long the install may run before it is killed.
+ * @returns when the install exited zero.
+ */
+function pipInstall(
+  python: string,
+  pkg: string,
+  spawnImpl: SpawnLike,
+  timeoutMs: number,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawnImpl(python, ['-m', 'pip', 'install', '--quiet', pkg], {
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+    })
+    const timer = setTimeout(() => {
+      child.kill()
+      reject(new Error('pip install 超时'))
+    }, timeoutMs)
+    child.on('error', (error: Error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+    child.on('close', (code: number | null) => {
+      clearTimeout(timer)
+      if (code === 0) resolve()
+      else reject(new Error(`pip install 退出码 ${String(code)}`))
+    })
+  })
+}
+
+/**
  * Extract one document's text by running the Python script on it.
  *
- * Resolves with the text and its self-describing metadata, or rejects with an
- * {@link ExtractError}.
+ * A `lib-missing` failure is the machine's to fix, not the human's: the
+ * format's pip package is installed automatically and the extraction retried
+ * once. The dependency already being present never reaches this path — the
+ * first run just succeeds, silently. Only a failed install surfaces, carrying
+ * the manual remedy.
  * @param options - the format and input path, and optionally a Python
  *   interpreter, a timeout, or a stand-in spawn.
  * @returns the extract and its metadata.
  */
 export async function extractText(options: ExtractTextOptions): Promise<ExtractResult> {
+  try {
+    return await runExtract(options)
+  } catch (error) {
+    const pkg = error instanceof ExtractError && error.kind === 'lib-missing'
+      ? LIB_PACKAGES[options.format]
+      : undefined
+    if (pkg === undefined) throw error
+    const python = options.python ?? (process.platform === 'win32' ? 'python' : 'python3')
+    const spawnImpl = options.spawn ?? spawn
+    const timeoutMs = options.timeoutMs ?? EXTRACT_TIMEOUT_MS
+    try {
+      await pipInstall(python, pkg, spawnImpl, timeoutMs)
+    } catch {
+      throw new ExtractError(
+        'lib-missing',
+        `缺少该格式所需的 Python 库（自动安装 ${pkg} 没有成功）。`,
+        `请手动安装后再试：pip install ${pkg}。`,
+      )
+    }
+    return runExtract(options)
+  }
+}
+
+/**
+ * Run the Python script on one document — one subprocess call, no retries.
+ * @param options - see {@link extractText}.
+ * @returns the extract and its metadata.
+ */
+async function runExtract(options: ExtractTextOptions): Promise<ExtractResult> {
   const {
     format, input,
     python = process.platform === 'win32' ? 'python' : 'python3',

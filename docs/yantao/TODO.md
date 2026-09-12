@@ -56,6 +56,8 @@ note), **deferred** (deliberately parked — see the note).
 
 | **Reading projects & resource intake (ADR-0020)** — drag-and-drop onto the 资源 rail registers through `yantaoKb.registerResource` (`{ name, contentBase64 }`: pure copy, duplicate-refuse, per-file Chinese errors); right-click a resource row or the read-only banner → app-level dialog (book title + 「是否需要我读取书籍内容为你整理大纲？」) → a plain `project` entity with `source:` frontmatter; lazy py extraction (txt/md/pdf/epub/doc/docx/ppt/pptx) cached under `.yantao/extracts/` with explicit classified failures (`yantao-kb/extract`, no OCR in v1); the eighth tool `kb_read_resource` pages the extract by offset/chunk; the reading flow runs a real session (outline into 状态, process into 流水) and ends in a MailReview-style proposal card confirming `[[领域:…]]` links or a new domain | `packages/yantao/kb/src/{core,index,templates}.ts`, `packages/api/yantao-kb-controller/src/{index,types}.ts` + `src/extract/`, `packages/client/ui-yantao/src/client/{ReadingDialog,ReadingProposal,reading-flow}.tsx` + `{Workbench,remote,frame/Frame,editor/ReadOnlyFile}`, `docs/adr/0020-*`. 验证：kb + controller + ui-yantao 三包测试全绿（controller 92、ui-yantao 182），`build:lib` 与 client bundle 通过 |
 
+| **Capability execution seam (ADR-0021 item 1)** — the nineteenth `yantaoKb` RPC `capabilityRun`: the controller resolves the capability through the dsh skill registry (`ctx.skills.get`), `resolveEntry` reads the `metadata.yantao` declaration (entry confined inside the skill directory, runtime, `appliesTo` suffixes), and `runCapability` spawns it (JSON stdin/stdout, UTF-8 pipes, timeout, classified failures with Chinese hints under the `yantao-kb/capability` RemoteError kind); artifacts land under `.yantao/capabilities/<name>/` and the state slots generalize to `capabilities.<name>.state` — the mail watermark moves there and legacy `connectors.mail` still reads, migrating on rewrite. No `kb_*` tool is added: capabilities stay human-invocable, execution happens pre-session | `packages/api/yantao-kb-controller/src/capability/run.ts` + `src/{index,types}.ts`, `packages/yantao/kb/src/root-store.ts`, `packages/bundle/yantao-web-app/cordis.patch.yml` (`skill-filesystem` stays enabled, `tool-skill` stays disabled). 验证：三包 428 测试全绿（`capability-rpc.spec.ts` 10 个），`build:lib` host+client 通过（tsdown 需 `NODE_OPTIONS=--max-old-space-size=4096`，默认堆 ~2.4GB 在无页面文件机器上 OOM），`verify-cordis-catalog` 与 `verify-translation-pairing` 通过 |
+
 ## next
 
 ### Phase 2 — three-pane UI (ADR-0010)
@@ -77,6 +79,20 @@ note), **deferred** (deliberately parked — see the note).
    转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。
    **先量再动。**
 
+### Capability system (ADR-0021)
+
+1. **Proposal card generalization** — a unified proposal schema (five actions: create entity / append log /
+   write state / save resource / create link, each with a reason field), MailReview generalized into a
+   generic proposal card; the reading-flow closing proposal merges into it.
+2. **mail / ebook capability migration** — two capability directories (SKILL.md + scripts/ + `yantao:`
+   frontmatter); the reading-project creation flow rewritten as one application instance of the ebook
+   capability; `mailFetch` / `extractResource` retire once both land.
+3. **Capability tab** — the connector tab becomes a list + detail two-state view; an「添加目录」button
+   (writes `customSkillDirs`) and a「新建能力」scaffold; `skill-filesystem` mounted (`tool-skill` stays
+   disabled).
+4. **Apply entry points** — resource right-click (by extension) and entity panels (by type) filtered by
+   `appliesTo`; drag-in never prompts.
+
 ## blocked (with reason)
 
 _None. (The three items that sat here — the client-face rebuild, `tsgolint`, and the `toThrowError` rename — all cleared on
@@ -89,7 +105,7 @@ _None. (The three items that sat here — the client-face rebuild, `tsgolint`, a
 | Refine loop v1 (human triggers → agent proposes → human approves) | the real product value; needs the editor pane first, and a proposal UI |
 | Session transcripts into `sessions/` | dsh already event-sources every session (`session.vN.jsonl`); this becomes a projection, not new machinery — **also: 会话功能已移除 (ADR-0010), 待重新设计后再启** |
 | FTS + backlinks index | needs a storage decision (drift/sqlite vs dsh `session-query`) once the KB has real content |
-| Connector implementation (mail, scripts, CLI) | ADR-0010 describes the abstraction; concrete implementation deferred until mail integration is needed |
+| *(moved to next)* Connector implementation → capability system (ADR-0021) | the connector concept is superseded by capabilities; mail is done, the remaining work sits in the「能力系统」section under next |
 | *(moved to done)* — note: a per-package `tsc -b` **recreates** this residue | re-clean with the repo's own `pnpm run clean`, or `git clean -f -- packages` after checking `git clean -n -- packages` |
 | Owning the middle column too (the L3 step in ADR-0011) | the conversation surface is ~23k lines upstream (ui-conversation + ui-chat + ui-tool); no product reason to rewrite it while the middle is still a chat transcript. Revisit if the middle becomes a KB document view. |
 | Slimming the profile (fewer base rows) to cut the ~35s boot | measure first; only after the UI is ours |

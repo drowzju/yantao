@@ -1009,6 +1009,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../../skill/skill
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../../typert/protocol

@@ -37,6 +37,9 @@ beforeEach(async () => {
     },
     setRoot(): void {},
   } satisfies YantaoKbService)
+  // The controller also injects the skill registry (ADR-0021); extraction
+  // never resolves a capability, so an empty stand-in is enough.
+  ctx.provide('skills', { get: async () => undefined } as never)
   fiber = await ctx.plugin(YantaoKbController)
   extractText.mockReset()
 })

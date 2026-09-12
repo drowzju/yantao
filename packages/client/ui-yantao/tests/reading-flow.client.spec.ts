@@ -7,15 +7,34 @@ import {
 
 const SESSION = 'session-1'
 
-/** A session namespace that answers `answers` in turn order and records what it was asked. */
+/** One agent step's durable message: reasoning and tool calls, no text. */
+const STEP_NOISE = {
+  type: 'assistant/message',
+  time: 0,
+  data: { message: { content: [{ type: 'reasoning', text: '先读开头' }, { type: 'tool_call', name: 'kb_read_resource' }] } },
+}
+
+/** The turn-end event, completed. */
+const TURN_END = (seq: number): { type: string; seq: number; time: number; data: unknown } => ({
+  type: 'turn/end', seq, time: 0, data: { turn: 1, reason: { kind: 'completed' } },
+})
+
+/**
+ * A session namespace whose follow stream plays one turn per call: a noisy
+ * intermediate step, the final text, then turn/end — the shape a real
+ * multi-step tool-using turn commits. Records what it was asked.
+ */
 function fakeSession(answers: readonly string[]): {
   session: SessionRemote
-  asked: { titles: string[]; texts: string[] }
+  asked: { titles: string[]; texts: string[]; createArgs: unknown[] }
 } {
-  const asked: { titles: string[]; texts: string[] } = { titles: [], texts: [] }
+  const asked: { titles: string[]; texts: string[]; createArgs: unknown[] } = { titles: [], texts: [], createArgs: [] }
   let turn = 0
   const session = {
-    create: async () => ({ ok: true, value: { sessionId: SESSION } }),
+    create: async (args: unknown) => {
+      asked.createArgs.push(args)
+      return { ok: true, value: { sessionId: SESSION } }
+    },
     rename: async (args: { title: string }) => {
       asked.titles.push(args.title)
       return { ok: true, value: { title: args.title, seq: 1 } }
@@ -25,17 +44,19 @@ function fakeSession(answers: readonly string[]): {
       return { ok: true, value: { accepted: true } }
     },
     follow: () => (async function* () {
-      const answer = answers[Math.min(turn, answers.length - 1)]
       turn += 1
+      const answer = answers[Math.min(turn - 1, answers.length - 1)]
+      yield { ...STEP_NOISE, seq: turn * 10 }
       yield {
         type: 'event',
         event: {
           type: 'assistant/message',
-          seq: turn,
+          seq: turn * 10 + 1,
           time: 0,
           data: { message: { content: [{ type: 'text', text: answer }] } },
         },
       }
+      yield { type: 'event', event: TURN_END(turn * 10 + 2) }
     })(),
   }
   return { session: session as unknown as SessionRemote, asked }
@@ -57,6 +78,13 @@ describe('readingPrompt', () => {
     expect(text).toContain('kb_write_state')
     expect(text).toContain('kb_append_log')
     expect(text).toContain('科幻')
+  })
+
+  it('caps the sampling instead of demanding a full read of a 500k-char book', () => {
+    const text = readingPrompt('三体', 'p', 'resources/三体.epub', [])
+    expect(text).toMatch(/抽样/)
+    expect(text).toMatch(/最多 6 段/)
+    expect(text).not.toMatch(/直到读完/)
   })
 
   it('says when the KB holds no areas yet', () => {
@@ -124,6 +152,58 @@ describe('runReadingFlow', () => {
     expect(run.proposal.domains).toEqual(['认知科学'])
   })
 
+  it('creates the session in the KB root when one is given', async () => {
+    const { session, asked } = fakeSession([PROPOSAL])
+    await runReadingFlow({
+      ctx: ctxWith(session), bookTitle: 'x', projectPath: 'p', resourcePath: 'r', knownAreas: [], cwd: 'D:/yantao-data',
+    })
+    expect(asked.createArgs[0]).toEqual({ cwd: 'D:/yantao-data' })
+  })
+
+  it('waits out the tool steps: the first text-less message is not the answer', async () => {
+    // The fake's first assistant/message carries only reasoning and a tool
+    // call — the regression that made every reading run fail with 「模型没有
+    // 返回可解析的 JSON」. Only the turn's last message parses.
+    const { session } = fakeSession([PROPOSAL])
+    const run = await runReadingFlow({
+      ctx: ctxWith(session), bookTitle: '三体', projectPath: 'p', resourcePath: 'r', knownAreas: [],
+    })
+    expect(run.proposal.domains).toEqual(['认知科学'])
+  })
+
+  it('re-asks once in the same session when the first answer is not JSON', async () => {
+    const { session, asked } = fakeSession(['这本书讲的是历史，我觉得挺好的。', PROPOSAL])
+    const run = await runReadingFlow({
+      ctx: ctxWith(session), bookTitle: 'x', projectPath: 'p', resourcePath: 'r', knownAreas: [],
+    })
+    expect(asked.texts).toHaveLength(2)
+    expect(asked.texts[1]).toContain('只输出一个 JSON')
+    expect(run.proposal.domains).toEqual(['认知科学'])
+  })
+
+  it('attaches the model\'s own words when the re-ask also fails', async () => {
+    const { session } = fakeSession(['我觉得不好归类。', '真的不好归类，抱歉。'])
+    await expect(runReadingFlow({
+      ctx: ctxWith(session), bookTitle: 'x', projectPath: 'p', resourcePath: 'r', knownAreas: [],
+    })).rejects.toThrow(/模型没有返回可解析的 JSON[\s\S]*真的不好归类/)
+  })
+
+  it('reports an interrupted turn instead of parsing a half answer', async () => {
+    const { session } = fakeSession([PROPOSAL])
+    const interrupted = {
+      ...session,
+      follow: () => (async function* () {
+        yield {
+          type: 'event',
+          event: { type: 'turn/end', seq: 1, time: 0, data: { turn: 1, reason: { kind: 'aborted', reason: { cause: 'user' } } } },
+        }
+      })(),
+    } as unknown as SessionRemote
+    await expect(runReadingFlow({
+      ctx: ctxWith(interrupted), bookTitle: 'x', projectPath: 'p', resourcePath: 'r', knownAreas: [],
+    })).rejects.toThrow(/没有正常完成/)
+  })
+
   it('reports the host\'s refusal to create a session', async () => {
     const { session } = fakeSession([PROPOSAL])
     const failing = {
@@ -151,7 +231,7 @@ describe('runReadingFlow', () => {
 })
 
 describe('runDomainConfirm', () => {
-  it('sends the confirmation prompt in the same session', async () => {
+  it('sends the confirmation prompt in the same session and waits out the turn', async () => {
     const { session, asked } = fakeSession(['已写入 [[领域:科幻]]。'])
     await runDomainConfirm({
       ctx: ctxWith(session),

@@ -43,6 +43,10 @@ function fakeSession(answer: string): { session: SessionRemote; asked: { title?:
           data: { message: { content: [{ type: 'text', text: answer }] } },
         },
       }
+      yield {
+        type: 'event',
+        event: { type: 'turn/end', seq: 2, time: 0, data: { turn: 1, reason: { kind: 'completed' } } },
+      }
     })(),
   }
   return { session: session as unknown as SessionRemote, asked }

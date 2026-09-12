@@ -12,10 +12,8 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/reading-flow
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
-import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { sessionRemoteOf } from './remote.ts'
+import { askTurn, jsonRound } from './turn-answer.ts'
 
 /** What the first round proposes: the domains this book belongs under. */
 export interface ReadingProposal {
@@ -29,7 +27,7 @@ export interface ReadingProposal {
 const EMPTY: ReadingProposal = { domains: [] }
 
 /** Where one reading run has got to — the dialog turns it into a line of prose. */
-export type ReadingStage = 'session' | 'prompt' | 'reading' | 'parse'
+export type ReadingStage = 'session' | 'prompt' | 'reading'
 
 /** One progress report: the stage the run has reached. */
 export interface ReadingProgress {
@@ -75,12 +73,14 @@ export function readingPrompt(
   return [
     `你在整理个人知识库。我刚创建了读书项目「读书-《${bookTitle}》」（\`${projectPath}\`），它的 frontmatter 里 \`source:\` 指向书文件 \`${resourcePath}\`。`,
     '',
-    '请这样做：',
+    '这本书的抽取文本可能长达几十万字，从头到尾翻完既做不到也没有必要。请这样做：',
     '',
-    `1. 用 \`kb_read_resource\` 读 \`${resourcePath}\`：每次返回一段文本和 \`hasMore\`，从 offset 0 开始，按返回的提示继续翻页，直到读完。书可能很长，不要跳读关键章节以外就下结论。`,
-    '2. 读完（或确认无法读完）后，用 `kb_write_state` 把这本书的大纲写进读书项目的 `## 状态`：书的核心论点、章节脉络、值得记住的点。用中文写。',
-    '3. 用 `kb_append_log` 在 `## 流水` 记一行今天读完了这本书。',
-    `4. 判断这本书适合挂到哪些领域下面。知识库里已有的领域：${list}`,
+    `1. 用 \`kb_read_resource\` 读 \`${resourcePath}\` 的开头（offset 0）：先看书名、目录、前言，弄清这本书讲什么、分哪些部分。`,
+    '2. 再抽样读最多 6 段：按全书总字数（工具会告诉你）挑有代表性的位置，比如各部分的开头，每次读一段。',
+    '3. 抽样满 6 段就停下，不要继续翻页——通读开头加抽样判断，足够整理出一份可信的大纲。',
+    '4. 用 `kb_write_state` 把这本书的大纲写进读书项目的 `## 状态`：核心论点、章节脉络（目录能看出的）、抽样读到的要点，并注明哪些是通读、哪些是抽样判断。用中文写。',
+    '5. 用 `kb_append_log` 在 `## 流水` 记一行今天整理了这本书（注明是抽样阅读）。',
+    `6. 判断这本书适合挂到哪些领域下面。知识库里已有的领域：${list}`,
     '',
     '最后**只输出一个 JSON 对象，不要输出任何其它文字**：',
     '',
@@ -158,38 +158,21 @@ export function parseProposal(text: string): ReadingProposal {
   return { domains, ...newDomain !== '' ? { newDomain } : {} }
 }
 
-/**
- * The text of one durable assistant message: the content parts' text blocks,
- * read defensively because this arrived as wire JSON.
- * @param data - the `assistant/message` event's `data`.
- * @returns the message's text.
- */
-function messageText(data: unknown): string {
-  if (typeof data !== 'object' || data === null) return ''
-  const message = (data as { message?: unknown }).message
-  if (typeof message !== 'object' || message === null) return ''
-  const content = (message as { content?: unknown }).content
-  if (!Array.isArray(content)) return ''
-  return content
-    .map((part) => {
-      if (typeof part !== 'object' || part === null) return ''
-      const text = (part as { text?: unknown }).text
-      return typeof text === 'string' ? text : ''
-    })
-    .join('')
-}
-
 /** The title a reading session carries, so it can be found again. */
 export function readingSessionTitle(bookTitle: string): string {
   return `读书-《${bookTitle}》 ${stamp()}`
 }
 
+/** The re-ask when the first answer is not readable JSON: JSON alone, nothing else. */
+const REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 domains 和 newDomain 字段），不要输出任何其它文字。'
+
 /**
  * Run the first round: create a session, name it, hand it the reading prompt,
- * and follow it until the assistant's answer lands.
+ * and wait out the turn it starts.
  *
- * The session is created with no workspace of its own, so it inherits the
- * workbench's — which ADR-0013 keeps pointed at the KB root.
+ * The session is created in the KB root's directory when one is given, so it
+ * lands in the session list the KB-scoped views already read (an unnamed
+ * directory would inherit the host process's cwd instead).
  * @param options - the context, the book, the project, and the progress callback.
  * @returns the session id and the proposal.
  */
@@ -199,15 +182,16 @@ export async function runReadingFlow(options: {
   readonly projectPath: string
   readonly resourcePath: string
   readonly knownAreas: readonly string[]
+  readonly cwd?: string
   readonly onProgress?: (progress: ReadingProgress) => void
   readonly signal?: AbortSignal
 }): Promise<ReadingRun> {
-  const { ctx, bookTitle, projectPath, resourcePath, knownAreas, onProgress } = options
+  const { ctx, bookTitle, projectPath, resourcePath, knownAreas, cwd, onProgress } = options
   const session = sessionRemoteOf(ctx)
   if (session === undefined) throw new Error('没有挂载 session Remote 命名空间')
 
   onProgress?.({ stage: 'session' })
-  const created = await session.create({})
+  const created = await session.create(cwd === undefined ? {} : { cwd })
   if (!created.ok) throw created.error
   const sessionId = created.value.sessionId
 
@@ -217,25 +201,19 @@ export async function runReadingFlow(options: {
   const named = await session.rename({ sessionId, title })
   if (!named.ok) throw named.error
 
+  // One turn, waited out to its durable turn/end; an unreadable answer is
+  // re-asked once before the failure surfaces with the model's own words.
   onProgress?.({ stage: 'prompt' })
-  const prompted = await session.prompt({
-    requestId: randomUUID() as SessionRequestId,
-    sessionId,
-    mode: 'queue',
-    content: [{ type: 'text', text: readingPrompt(bookTitle, projectPath, resourcePath, knownAreas) }],
-  }, options.signal)
-  if (!prompted.ok) throw prompted.error
-
-  // Follow until the turn's durable assistant message commits. The streaming
-  // frames are for a typing indicator; the message is the answer.
   onProgress?.({ stage: 'reading' })
-  for await (const frame of session.follow({ address: { kind: 'session', sessionId } }, options.signal)) {
-    if (frame.type !== 'event') continue
-    if (frame.event.type !== 'assistant/message') continue
-    onProgress?.({ stage: 'parse' })
-    return { sessionId, title, proposal: parseProposal(messageText(frame.event.data)) }
-  }
-  throw new Error('会话结束了却没有给出回答。')
+  const proposal = await jsonRound({
+    session,
+    sessionId,
+    prompt: readingPrompt(bookTitle, projectPath, resourcePath, knownAreas),
+    reask: REASK,
+    parse: parseProposal,
+    ...options.signal !== undefined ? { signal: options.signal } : {},
+  })
+  return { sessionId, title, proposal }
 }
 
 /**
@@ -257,20 +235,12 @@ export async function runDomainConfirm(options: {
   const session = sessionRemoteOf(ctx)
   if (session === undefined) throw new Error('没有挂载 session Remote 命名空间')
 
-  const prompted = await session.prompt({
-    requestId: randomUUID() as SessionRequestId,
-    sessionId: sessionId as SessionId,
-    mode: 'queue',
-    content: [{ type: 'text', text: domainConfirmPrompt(projectPath, domains, newDomain) }],
-  }, options.signal)
-  if (!prompted.ok) throw prompted.error
-
-  for await (const frame of session.follow({ address: { kind: 'session', sessionId: sessionId as SessionId } }, options.signal)) {
-    if (frame.type !== 'event') continue
-    if (frame.event.type !== 'assistant/message') continue
-    return
-  }
-  throw new Error('会话结束了却没有给出回答。')
+  await askTurn({
+    session,
+    sessionId,
+    prompt: domainConfirmPrompt(projectPath, domains, newDomain),
+    ...options.signal !== undefined ? { signal: options.signal } : {},
+  })
 }
 
 /** Run the first round — the dialog's seam, so a test can stand in for a session. */
@@ -279,7 +249,9 @@ export type BookReader = (options: {
   readonly projectPath: string
   readonly resourcePath: string
   readonly knownAreas: readonly string[]
+  readonly cwd?: string
   readonly onProgress?: (progress: ReadingProgress) => void
+  readonly signal?: AbortSignal
 }) => Promise<ReadingRun>
 
 /** Run the second round — land the confirmed domain links. */
@@ -288,4 +260,5 @@ export type DomainConfirmer = (options: {
   readonly projectPath: string
   readonly domains: readonly string[]
   readonly newDomain?: string
+  readonly signal?: AbortSignal
 }) => Promise<void>

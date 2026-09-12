@@ -96,6 +96,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0018 | 待办载体:`[due::]`/`[done::]` 结构化行 + 左栏 TODO/DONE 双面板;解析只在宿主侧,agent 不写待办 |
 | 0019 | 第一个连接器:Outlook 邮件(COM 子进程读邮件,dsh session 分析,人工确认后才写库) |
 | 0020 | 读书项目与资源入库:拖放入库、`source:` 字段判别的读书项目、惰性 py 脚本抽取、废除影子笔记配对 |
+| 0021 | 能力系统:连接重构为能力(skill 目录 + 宿主入口 + appliesTo 声明),统一提议流,mail/extract 全量迁移;取舍台账独立成节 |
 
 ## 5. 快速上手
 
@@ -127,7 +128,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 |---|---|
 | [development.md](development.zh.md) | 构建、运行、停止、测试、门禁、坑 |
 | [TODO.md](TODO.zh.md) | 待办:done / next / deferred(每个搁置项都带原因) |
-| [../adr/](../adr/) | ADR 0001–0020(索引见第 4 节) |
+| [../adr/](../adr/) | ADR 0001–0021(索引见第 4 节) |
 | [../subsystems/yantao.md](../subsystems/yantao.zh.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | 上下文地图:yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | 词汇表(规范用词) |

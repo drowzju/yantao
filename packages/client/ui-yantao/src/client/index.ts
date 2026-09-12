@@ -102,6 +102,18 @@ export function apply(ctx: Context): void {
     }
   }, 'ui-yantao: theme presenter')
 
+  // ADR-0020: the KB root as a session directory — a session created with it
+  // lands in the session list the KB-scoped views already read, instead of
+  // inheriting the host process's cwd.
+  const kbCwd = async (): Promise<string | undefined> => {
+    try {
+      const root = await loadRoot(ctx)
+      return root.root === '' ? undefined : root.root
+    } catch {
+      return undefined
+    }
+  }
+
   ctx.effect(() => ctx.slots.register({
     name: 'root',
     children: {
@@ -128,12 +140,18 @@ export function apply(ctx: Context): void {
       writeTodos: (args: KbWriteTodosArgs) => writeTodos(ctx, args),
       mailFetch: (args: KbMailFetchArgs) => fetchMail(ctx, args),
       mailMarkRead: (args: KbMailMarkReadArgs) => markMailRead(ctx, args),
-      analyseMail: (
+      analyseMail: async (
         mails: readonly MailMessage[],
         known: KnownEntities,
         onProgress?: (progress: AnalysisProgress) => void,
-      ) =>
-        runMailAnalysis({ ctx, mails, known, ...onProgress !== undefined ? { onProgress } : {} }),
+      ) => {
+        const cwd = await kbCwd()
+        return runMailAnalysis({
+          ctx, mails, known,
+          ...cwd !== undefined ? { cwd } : {},
+          ...onProgress !== undefined ? { onProgress } : {},
+        })
+      },
       // ADR-0020: the resource intake and the reading flow.
       registerResource: (name: string, contentBase64: string) => registerResource(ctx, name, contentBase64),
       extractResource: (path: string) => extractResource(ctx, path),

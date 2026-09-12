@@ -2974,7 +2974,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'read\') async read(path: string): Promise<KbFileContent>',
-        description: 'Read one KB file\'s complete content.',
+        description: 'Read one KB file\'s complete content.\n\nA resource original is often binary (pdf/epub/…). Decoding it as UTF-8 yields a mojibake string the size of the file, which the RPC channel then serializes and the workbench renders — the freeze behind left-clicking a pdf row. A NUL byte is the cheapest reliable marker: every format the extractor (ADR-0020) calls binary carries one, while no note does. A binary file is refused instead; its text route is the extract.',
         parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }],
         returns: 'the path and the file\'s complete UTF-8 content.',
       },
@@ -3067,6 +3067,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Move the mail connector\'s watermark (ADR-0019): everything at or before `lastReadAt` has been seen, so the next `mailFetch` starts after it.\n\nThe cursor lives in `~/.dsh`, next to the KB root it was read for, and never in the KB itself — that is markdown for humans.',
         parameters: [{ name: 'args', description: 'the stamp to store; defaults to now.' }],
         returns: 'the watermark as it now stands.',
+      },
+      {
+        signature: '@Remote(\'capabilityRun\') async capabilityRun(args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult>',
+        description: 'Run one capability\'s host entry (ADR-0021) — the human channel\'s execution seam, the mail connector\'s and the extractor\'s subprocess pattern generalized. The capability is resolved through `ctx.skills` (the skill-filesystem provider discovers the directories; this controller only consumes the winner), its `metadata.yantao` declaration picks the entry script, and the run is one Python subprocess with a JSON stdin/stdout contract (`capability/run.ts`).\n\nThe controller, not the script, owns every write: artifacts land under `.yantao/capabilities/<name>/` at paths the script cannot choose, and the returned state is persisted under `capabilities.<name>.state` in `~/.dsh/yantao-kb.json` — metadata outside the KB, which stays markdown for humans. Execution exists only here, before a session: the agent gets no `kb_run_capability` tool (ADR-0021 取舍台账第 2 条).',
+        parameters: [{ name: 'args', description: 'the capability\'s skill name and the caller\'s input, handed to the entry script verbatim.' }],
+        returns: 'what the run answered, when it ran, and which artifact paths were written.',
       },
     ],
   },
@@ -4505,6 +4511,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
+  },
+  {
+    name: 'KbCapabilityRunArgs',
+    declaration: 'export interface KbCapabilityRunArgs {\n    readonly name: string;\n    readonly input?: JsonValue;\n}',
+  },
+  {
+    name: 'KbCapabilityRunResult',
+    declaration: 'export interface KbCapabilityRunResult {\n    readonly name: string;\n    readonly runAt: string;\n    readonly result?: JsonValue;\n    readonly artifacts: readonly string[];\n}',
   },
   {
     name: 'KbCreatableEntityType',

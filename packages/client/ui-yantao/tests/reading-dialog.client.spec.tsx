@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { ReadingDialog, bookTitleOf } from '../src/client/ReadingDialog.tsx'
+import { ReadingDialog, ReadingMonitor, bookTitleOf } from '../src/client/ReadingDialog.tsx'
+import { ReadingProposal } from '../src/client/ReadingProposal.tsx'
+import type { ReadingTask } from '../src/client/reading-task.ts'
 import type { ReadingRun } from '../src/client/reading-flow.ts'
 
 afterEach(() => {
@@ -14,17 +16,17 @@ const RUN: ReadingRun = {
   proposal: { domains: ['科幻', '历史'], newDomain: '认知科学' },
 }
 
-/** The dialog's faces, all spies. */
-function dialogProps(overrides: Partial<Parameters<typeof ReadingDialog>[0]> = {}): Parameters<typeof ReadingDialog>[0] {
+/** A task mid-run, for the monitor bar. */
+function task(overrides: Partial<ReadingTask> = {}): ReadingTask {
   return {
+    bookTitle: '三体',
     resourcePath: 'resources/三体.epub',
-    createReadingProject: () => Promise.resolve('entities/projects/读书-《三体》.md'),
-    extract: () => Promise.resolve({ extractPath: '.yantao/extracts/三体.epub.txt', format: 'epub', chars: 100, cached: false }),
-    readBook: () => Promise.resolve(RUN),
-    knownAreas: () => Promise.resolve(['科幻']),
-    confirmDomains: () => Promise.resolve(),
-    onDone: () => {},
-    onCancel: () => {},
+    projectPath: 'entities/projects/读书-《三体》.md',
+    status: 'running',
+    stage: 'reading',
+    run: null,
+    error: null,
+    hint: null,
     ...overrides,
   }
 }
@@ -42,105 +44,110 @@ describe('bookTitleOf', () => {
 
 describe('ReadingDialog', () => {
   it('pre-fills the book title from the file name and offers the read question ticked', () => {
-    render(<ReadingDialog {...dialogProps()} />)
-    const title = screen.getByLabelText('书名') as HTMLInputElement
-    expect(title.value).toBe('三体')
+    render(<ReadingDialog resourcePath="resources/三体.epub" onStart={() => {}} onCancel={() => {}} />)
+    expect(screen.getByLabelText<HTMLInputElement>('书名').value).toBe('三体')
     expect(screen.getByLabelText<HTMLInputElement>('读取书籍内容').checked).toBe(true)
   })
 
-  it('creates the project with the resource as its source, then runs the reading round', async () => {
-    const createReadingProject = vi.fn(() => Promise.resolve('entities/projects/读书-《三体》.md'))
-    const extract = vi.fn(() => Promise.resolve({ extractPath: 'x', format: 'epub', chars: 1, cached: false }))
-    const readBook = vi.fn(() => Promise.resolve(RUN))
-    const knownAreas = vi.fn(() => Promise.resolve(['科幻']))
-    render(<ReadingDialog {...dialogProps({ createReadingProject, extract, readBook, knownAreas })} />)
+  it('hands the two choices to the background task and lets the dialog close', () => {
+    const onStart = vi.fn()
+    render(<ReadingDialog resourcePath="resources/三体.epub" onStart={onStart} onCancel={() => {}} />)
     fireEvent.click(screen.getByText('创建'))
-    await screen.findByText('读完了一本书')
-    expect(createReadingProject).toHaveBeenCalledWith('三体', 'resources/三体.epub')
-    expect(extract).toHaveBeenCalledWith('resources/三体.epub')
-    expect(knownAreas).toHaveBeenCalledOnce()
-    expect(readBook).toHaveBeenCalledOnce()
+    expect(onStart).toHaveBeenCalledWith('三体', true)
   })
 
-  it('lands only the project when the read question is unticked', async () => {
-    const createReadingProject = vi.fn(() => Promise.resolve('entities/projects/读书-《三体》.md'))
-    const extract = vi.fn()
-    const readBook = vi.fn()
-    const onDone = vi.fn()
-    render(<ReadingDialog {...dialogProps({ createReadingProject, extract, readBook, onDone })} />)
+  it('hands an unticked read question through', () => {
+    const onStart = vi.fn()
+    render(<ReadingDialog resourcePath="resources/三体.epub" onStart={onStart} onCancel={() => {}} />)
     fireEvent.click(screen.getByLabelText('读取书籍内容'))
     fireEvent.click(screen.getByText('创建'))
-    await vi.waitFor(() => { expect(onDone).toHaveBeenCalledWith('entities/projects/读书-《三体》.md') })
-    expect(extract).not.toHaveBeenCalled()
-    expect(readBook).not.toHaveBeenCalled()
+    expect(onStart).toHaveBeenCalledWith('三体', false)
   })
 
-  it('keeps the project and shows the remedy when extraction fails', async () => {
-    const extract = vi.fn(() => Promise.reject(Object.assign(new Error('抽取文档文本失败。'), { details: { hint: 'pip install pypdf' } })))
-    const onDone = vi.fn()
-    const onCancel = vi.fn()
-    render(<ReadingDialog {...dialogProps({ extract, onDone, onCancel })} />)
-    fireEvent.click(screen.getByText('创建'))
-    expect(await screen.findByText('抽取文档文本失败。')).toBeTruthy()
-    expect(screen.getByText('pip install pypdf')).toBeTruthy()
-    expect(screen.getByText('读书项目已创建，可以稍后在它里面继续。')).toBeTruthy()
-    fireEvent.click(screen.getByText('关闭'))
-    expect(onDone).toHaveBeenCalledWith('entities/projects/读书-《三体》.md')
-    expect(onCancel).not.toHaveBeenCalled()
+  it('refuses an empty book title', () => {
+    render(<ReadingDialog resourcePath="resources/三体.epub" onStart={() => {}} onCancel={() => {}} />)
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('书名'), { target: { value: '  ' } })
+    expect(screen.getByText<HTMLButtonElement>('创建').disabled).toBe(true)
+  })
+
+  it('refuses to start while another reading task runs', () => {
+    render(<ReadingDialog resourcePath="resources/三体.epub" onStart={() => {}} onCancel={() => {}} disabled />)
+    expect(screen.getByText<HTMLButtonElement>('创建').disabled).toBe(true)
   })
 
   it('closes without creating anything on 取消', () => {
     const onCancel = vi.fn()
-    render(<ReadingDialog {...dialogProps({ onCancel })} />)
+    render(<ReadingDialog resourcePath="resources/三体.epub" onStart={() => {}} onCancel={onCancel} />)
+    fireEvent.click(screen.getByText('取消'))
+    expect(onCancel).toHaveBeenCalledOnce()
+  })
+})
+
+describe('ReadingMonitor', () => {
+  it('shows the running stage and offers the cancel button', () => {
+    const onCancel = vi.fn()
+    render(<ReadingMonitor task={task()} onCancel={onCancel} onDismiss={() => {}} onOpen={() => {}} />)
+    expect(screen.getByText('模型正在读书…（抽样阅读，几分钟内完成）')).toBeTruthy()
     fireEvent.click(screen.getByText('取消'))
     expect(onCancel).toHaveBeenCalledOnce()
   })
 
-  it('refuses an empty book title', () => {
-    render(<ReadingDialog {...dialogProps()} />)
-    const title = screen.getByLabelText('书名') as HTMLInputElement
-    fireEvent.change(title, { target: { value: '  ' } })
-    expect(screen.getByText<HTMLButtonElement>('创建').disabled).toBe(true)
+  it('shows the failure with the remedy and the session to look into', () => {
+    const onDismiss = vi.fn()
+    render(<ReadingMonitor
+      task={task({ status: 'failed', error: '模型没有返回可解析的 JSON。', hint: 'pip install pypdf', run: null })}
+      onCancel={() => {}}
+      onDismiss={onDismiss}
+      onOpen={() => {}}
+    />)
+    expect(screen.getByText('模型没有返回可解析的 JSON。')).toBeTruthy()
+    expect(screen.getByText('pip install pypdf')).toBeTruthy()
+    expect(screen.getByText(/会话「读书-《三体》/)).toBeTruthy()
+    fireEvent.click(screen.getByText('关闭'))
+    expect(onDismiss).toHaveBeenCalledOnce()
+  })
+
+  it('opens the project a failed task kept', () => {
+    const onOpen = vi.fn()
+    render(<ReadingMonitor
+      task={task({ status: 'failed', error: '抽取文档文本失败。', run: null })}
+      onCancel={() => {}}
+      onDismiss={() => {}}
+      onOpen={onOpen}
+    />)
+    fireEvent.click(screen.getByText('打开项目'))
+    expect(onOpen).toHaveBeenCalledWith('entities/projects/读书-《三体》.md')
   })
 })
 
 describe('ReadingProposal', () => {
-  it('confirms the ticked domains and the new one, in one call', async () => {
-    const confirmDomains = vi.fn(() => Promise.resolve())
-    const onDone = vi.fn()
-    render(<ReadingDialog {...dialogProps({ confirmDomains, onDone })} />)
-    fireEvent.click(screen.getByText('创建'))
-    await screen.findByText('读完了一本书')
+  it('confirms the ticked domains and the new one, in one call', () => {
+    const onConfirm = vi.fn()
+    render(<ReadingProposal proposal={RUN.proposal} onConfirm={onConfirm} onDismiss={() => {}} />)
     fireEvent.click(screen.getByLabelText('科幻'))
     fireEvent.click(screen.getByLabelText('新建领域'))
     fireEvent.click(screen.getByText('确认关联（2）'))
-    await vi.waitFor(() => {
-      expect(confirmDomains).toHaveBeenCalledWith({
-        sessionId: 'session-1',
-        projectPath: 'entities/projects/读书-《三体》.md',
-        domains: ['科幻'],
-        newDomain: '认知科学',
-      })
-    })
-    expect(onDone).toHaveBeenCalledWith('entities/projects/读书-《三体》.md')
+    expect(onConfirm).toHaveBeenCalledWith(['科幻'], '认知科学')
   })
 
-  it('skips the linking without touching the project', async () => {
-    const confirmDomains = vi.fn()
-    const onDone = vi.fn()
-    render(<ReadingDialog {...dialogProps({ confirmDomains, onDone })} />)
-    fireEvent.click(screen.getByText('创建'))
-    await screen.findByText('读完了一本书')
+  it('skips the linking without touching the project', () => {
+    const onConfirm = vi.fn()
+    const onDismiss = vi.fn()
+    render(<ReadingProposal proposal={RUN.proposal} onConfirm={onConfirm} onDismiss={onDismiss} />)
     fireEvent.click(screen.getByText('跳过'))
-    expect(confirmDomains).not.toHaveBeenCalled()
-    expect(onDone).toHaveBeenCalledWith('entities/projects/读书-《三体》.md')
+    expect(onConfirm).not.toHaveBeenCalled()
+    expect(onDismiss).toHaveBeenCalledOnce()
   })
 
-  it('starts with nothing ticked: the agent proposes, the human decides', async () => {
-    render(<ReadingDialog {...dialogProps()} />)
-    fireEvent.click(screen.getByText('创建'))
-    await screen.findByText('读完了一本书')
+  it('starts with nothing ticked: the agent proposes, the human decides', () => {
+    render(<ReadingProposal proposal={RUN.proposal} onConfirm={() => {}} onDismiss={() => {}} />)
     expect(screen.getByLabelText<HTMLInputElement>('科幻').checked).toBe(false)
     expect(screen.getByText<HTMLButtonElement>('确认关联（0）').disabled).toBe(true)
+  })
+
+  it('holds its buttons while the second round writes', () => {
+    render(<ReadingProposal proposal={RUN.proposal} onConfirm={() => {}} onDismiss={() => {}} busy />)
+    expect(screen.getByText<HTMLButtonElement>('确认关联（0）').disabled).toBe(true)
+    expect(screen.getByText<HTMLButtonElement>('跳过').disabled).toBe(true)
   })
 })

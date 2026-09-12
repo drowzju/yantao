@@ -75,6 +75,75 @@ describe('extract.extractText failures', () => {
     expect(error.hint).toBe(EXTRACT_HINTS['no-text'])
   })
 
+  it('installs the missing library itself and retries once on lib-missing', async () => {
+    const payload = JSON.stringify({ text: '装好之后读到了', meta: { format: 'pdf', chars: 8 } })
+    const calls: string[][] = []
+    const spawn = ((python: string, args: readonly string[]): FakeChild => {
+      calls.push([python, ...args])
+      const child = new FakeChild()
+      const isPip = args.includes('install')
+      queueMicrotask(() => {
+        if (isPip) {
+          child.emit('close', 0)
+          return
+        }
+        // First extract run: the library is missing. The retry (after the
+        // install) answers with the payload.
+        if (calls.length === 1) {
+          child.stderr.emit('data', JSON.stringify({ error: '缺少 pypdf', kind: 'lib-missing' }))
+          child.emit('close', 4)
+          return
+        }
+        child.stdout.emit('data', payload)
+        child.emit('close', 0)
+      })
+      return child
+    }) as unknown as SpawnLike
+    const result = await extractText({ format: 'pdf', input: 'D:/kb/resources/三体.pdf', spawn })
+    expect(result.text).toBe('装好之后读到了')
+    expect(calls).toHaveLength(3)
+    expect(calls[1]?.slice(0, 4)).toEqual(['python', '-m', 'pip', 'install'])
+    expect(calls[1]?.at(-1)).toBe('pypdf')
+    // The retry is the same extraction, not a different command.
+    expect(calls[2]).toEqual(calls[0])
+  })
+
+  it('names the manual remedy when the automatic install fails', async () => {
+    const spawn = ((_python: string, args: readonly string[]): FakeChild => {
+      const child = new FakeChild()
+      const isPip = args.includes('install')
+      queueMicrotask(() => {
+        if (isPip) child.emit('close', 1)
+        else {
+          child.stderr.emit('data', JSON.stringify({ error: '缺少 python-docx', kind: 'lib-missing' }))
+          child.emit('close', 4)
+        }
+      })
+      return child
+    }) as unknown as SpawnLike
+    const error = await failureOf(extractText({ format: 'docx', input: 'x.docx', spawn }))
+    expect(error.kind).toBe('lib-missing')
+    expect(error.message).toMatch(/自动安装 python-docx 没有成功/)
+    expect(error.hint).toBe('请手动安装后再试：pip install python-docx。')
+  })
+
+  it('does not install anything for a lib-missing format without a package mapping', async () => {
+    let spawns = 0
+    const spawn = ((): FakeChild => {
+      spawns += 1
+      const child = new FakeChild()
+      queueMicrotask(() => {
+        child.stderr.emit('data', JSON.stringify({ error: '缺少某库', kind: 'lib-missing' }))
+        child.emit('close', 4)
+      })
+      return child
+    }) as unknown as SpawnLike
+    const error = await failureOf(extractText({ format: 'mystery', input: 'x.mystery', spawn }))
+    expect(error.kind).toBe('lib-missing')
+    expect(error.hint).toBe(EXTRACT_HINTS['lib-missing'])
+    expect(spawns).toBe(1)
+  })
+
   it('maps exit 4 to lib-missing and names the pip install in the hint', async () => {
     const error = await failureOf(extractText({
       format: 'docx',

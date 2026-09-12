@@ -9,7 +9,10 @@
  * files a new note from the KB's canonical template. `registerResource` and
  * `extractResource` are the reading-project intake (ADR-0020): a dropped file
  * is copied into `resources/`, and its text is extracted into `.yantao/extracts/`
- * by a Python subprocess for `kb_read_resource` to page out. The UI is the human
+ * by a Python subprocess for `kb_read_resource` to page out. `capabilityRun`
+ * is the same pattern generalized (ADR-0021): a capability is a dsh skill
+ * directory declaring a host entry, and this controller runs it, writes its
+ * artifacts, and persists its state. The UI is the human
  * channel, so `write` is a full-file write; the ADR-0004 trust boundary
  * binds only the agent's kb_ tools, never this surface.
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
@@ -19,12 +22,14 @@ import { mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
   createEntity, entityDisplayPath, extractPaths, initKb, KbError, linksOf, listEntities, parseFrontmatter,
-  parseTodoFile, PERSON_RELATIONS, readKbRootOverride, readMailWatermark, registerResourceContent, resolveWithinKb,
-  serializeTodoFile, todayStamp, writeMailWatermark,
+  parseTodoFile, PERSON_RELATIONS, readCapabilityState, readKbRootOverride, readMailWatermark,
+  registerResourceContent, resolveWithinKb, serializeTodoFile, todayStamp, writeCapabilityState, writeMailWatermark,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
+import { CAPABILITY_HINTS, CapabilityError, resolveEntry, runCapability } from './capability/run.ts'
 import { EXTRACT_HINTS, ExtractError, extractText } from './extract/index.ts'
 import { fetchMail, MailFetchError } from './mail/fetch.ts'
 import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
@@ -32,6 +37,8 @@ import { KbRevision } from './watch.ts'
 import type {
   KbCreateEntityArgs,
   KbCreateEntityResult,
+  KbCapabilityRunArgs,
+  KbCapabilityRunResult,
   KbDeleteFileResult,
   KbExtractArgs,
   KbExtractResult,
@@ -78,6 +85,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'yantao-kb/mail': { readonly kind: string; readonly hint: string }
     /** The document text extraction failed (ADR-0020); `kind` is one of its failure kinds. */
     'yantao-kb/extract': { readonly kind: string; readonly hint: string }
+    /** A capability run failed (ADR-0021); `kind` is one of its failure kinds. */
+    'yantao-kb/capability': { readonly kind: string; readonly hint: string }
   }
 }
 
@@ -171,8 +180,8 @@ async function readdirFiles(dir: string): Promise<string[]> {
 
 /** UI-direct KB operations over the `yantaoKb` Remote namespace. */
 export class YantaoKbController extends TypertRemoteService {
-  /** The one KB root, provided by the mounted yantao-kb plugin. */
-  static inject = ['yantaoKb']
+  /** The one KB root, provided by the mounted yantao-kb plugin; `skills` resolves capability directories (ADR-0021). */
+  static inject = ['yantaoKb', 'skills']
 
   /** The KB's change counter (ADR-0017); pointed at the live root on each poll. */
   private readonly revisionWatch = new KbRevision()
@@ -803,6 +812,103 @@ export class YantaoKbController extends TypertRemoteService {
     const lastReadAt = args.lastReadAt ?? new Date().toISOString()
     await writeMailWatermark(lastReadAt)
     return { lastReadAt }
+  }
+
+  /**
+   * Run one capability's host entry (ADR-0021) — the human channel's execution
+   * seam, the mail connector's and the extractor's subprocess pattern
+   * generalized. The capability is resolved through `ctx.skills` (the
+   * skill-filesystem provider discovers the directories; this controller only
+   * consumes the winner), its `metadata.yantao` declaration picks the entry
+   * script, and the run is one Python subprocess with a JSON stdin/stdout
+   * contract (`capability/run.ts`).
+   *
+   * The controller, not the script, owns every write: artifacts land under
+   * `.yantao/capabilities/<name>/` at paths the script cannot choose, and the
+   * returned state is persisted under `capabilities.<name>.state` in
+   * `~/.dsh/yantao-kb.json` — metadata outside the KB, which stays markdown
+   * for humans. Execution exists only here, before a session: the agent gets
+   * no `kb_run_capability` tool (ADR-0021 取舍台账第 2 条).
+   * @param args - the capability's skill name and the caller's input, handed
+   *   to the entry script verbatim.
+   * @returns what the run answered, when it ran, and which artifact paths were written.
+   */
+  @Remote('capabilityRun')
+  async capabilityRun(args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult> {
+    if (readKbRootOverride() === undefined) {
+      throw new RemoteError(
+        'yantao-kb/capability',
+        '还没有选择知识库目录，能力的状态无处记录。',
+        { kind: 'no-root', hint: '先选择一次知识库目录，再运行能力。' },
+      )
+    }
+    const name = args.name
+    const definition = await this.ctx.skills.get(name, { cwd: this.kbRoot })
+    if (definition === undefined) {
+      throw new RemoteError(
+        'yantao-kb/capability',
+        `找不到能力「${name}」。`,
+        { kind: 'not-found', hint: CAPABILITY_HINTS['not-found'] },
+      )
+    }
+    let directory: string
+    let entryPath: string
+    try {
+      const resolved = resolveEntry(definition)
+      directory = resolved.directory
+      entryPath = resolved.entryPath
+    } catch (error: unknown) {
+      const failure = error instanceof CapabilityError ? error : undefined
+      throw new RemoteError(
+        'yantao-kb/capability',
+        failure?.message ?? '能力声明无效。',
+        { kind: failure?.kind ?? 'bad-manifest', hint: failure?.hint ?? CAPABILITY_HINTS['bad-manifest'] },
+        { cause: error },
+      )
+    }
+    const kbRoot = this.kbRoot
+    let output
+    try {
+      output = await runCapability({
+        name,
+        directory,
+        entryPath,
+        kbRoot,
+        input: args.input,
+        state: readCapabilityState(name),
+      })
+    } catch (error: unknown) {
+      const failure = error instanceof CapabilityError ? error : undefined
+      throw new RemoteError(
+        'yantao-kb/capability',
+        failure?.message ?? '能力执行失败。',
+        { kind: failure?.kind ?? 'other', hint: failure?.hint ?? CAPABILITY_HINTS.other },
+        { cause: error },
+      )
+    }
+    const written: string[] = []
+    try {
+      for (const artifact of output.artifacts ?? []) {
+        const dir = join(kbRoot, '.yantao', 'capabilities', name)
+        await mkdir(dir, { recursive: true })
+        await writeFile(join(dir, artifact.name), Buffer.from(artifact.contentBase64, 'base64'))
+        written.push(`.yantao/capabilities/${name}/${artifact.name}`)
+      }
+    } catch (error) {
+      throw new RemoteError(
+        'yantao-kb/capability',
+        `无法写入能力的产物文件：${(error as Error).message}`,
+        { kind: 'other', hint: CAPABILITY_HINTS.other },
+        { cause: error },
+      )
+    }
+    if (output.state !== undefined) await writeCapabilityState(name, output.state)
+    return {
+      name,
+      runAt: new Date().toISOString(),
+      ...output.result !== undefined ? { result: output.result as JsonValue } : {},
+      artifacts: written,
+    }
   }
 }
 

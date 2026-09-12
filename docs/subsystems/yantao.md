@@ -133,6 +133,13 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 
 /**
  * Read one KB file's complete content.
+ *
+ * A resource original is often binary (pdf/epub/…). Decoding it as UTF-8
+ * yields a mojibake string the size of the file, which the RPC channel then
+ * serializes and the workbench renders — the freeze behind left-clicking a
+ * pdf row. A NUL byte is the cheapest reliable marker: every format the
+ * extractor (ADR-0020) calls binary carries one, while no note does. A
+ * binary file is refused instead; its text route is the extract.
  * @param path - KB-relative path with forward slashes.
  * @returns the path and the file's complete UTF-8 content.
  */
@@ -324,6 +331,27 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * @returns the watermark as it now stands.
  */
 @Remote('mailMarkRead') async mailMarkRead(args: KbMailMarkReadArgs): Promise<KbMailMarkReadResult>
+
+/**
+ * Run one capability's host entry (ADR-0021) — the human channel's execution
+ * seam, the mail connector's and the extractor's subprocess pattern
+ * generalized. The capability is resolved through `ctx.skills` (the
+ * skill-filesystem provider discovers the directories; this controller only
+ * consumes the winner), its `metadata.yantao` declaration picks the entry
+ * script, and the run is one Python subprocess with a JSON stdin/stdout
+ * contract (`capability/run.ts`).
+ *
+ * The controller, not the script, owns every write: artifacts land under
+ * `.yantao/capabilities/<name>/` at paths the script cannot choose, and the
+ * returned state is persisted under `capabilities.<name>.state` in
+ * `~/.dsh/yantao-kb.json` — metadata outside the KB, which stays markdown
+ * for humans. Execution exists only here, before a session: the agent gets
+ * no `kb_run_capability` tool (ADR-0021 取舍台账第 2 条).
+ * @param args - the capability's skill name and the caller's input, handed
+ *   to the entry script verbatim.
+ * @returns what the run answered, when it ran, and which artifact paths were written.
+ */
+@Remote('capabilityRun') async capabilityRun(args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult>
 ```
 
 Source: [`packages/api/yantao-kb-controller/src/index.ts`](../../packages/api/yantao-kb-controller/src/index.ts)

@@ -15,10 +15,9 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/mail-analysis
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
-import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { sessionRemoteOf } from './remote.ts'
+import { jsonRound } from './turn-answer.ts'
 
 /** A person the analysis proposes adding to `entities/people/`. */
 export interface MailPerson {
@@ -65,7 +64,7 @@ export interface MailAnalysis {
 }
 
 /** Where one analysis run has got to — the panel turns it into a line of prose. */
-export type AnalysisStage = 'session' | 'prompt' | 'answer' | 'parse'
+export type AnalysisStage = 'session' | 'prompt' | 'answer'
 
 /** One progress report: the stage the run has reached. */
 export interface AnalysisProgress {
@@ -226,27 +225,6 @@ export function parseAnalysis(text: string): MailAnalysis {
   }
 }
 
-/**
- * The text of one durable assistant message: the content parts' text blocks,
- * read defensively because this arrived as wire JSON.
- * @param data - the `assistant/message` event's `data`.
- * @returns the message's text.
- */
-function messageText(data: unknown): string {
-  if (typeof data !== 'object' || data === null) return ''
-  const message = (data as { message?: unknown }).message
-  if (typeof message !== 'object' || message === null) return ''
-  const content = (message as { content?: unknown }).content
-  if (!Array.isArray(content)) return ''
-  return content
-    .map((part) => {
-      if (typeof part !== 'object' || part === null) return ''
-      const text = (part as { text?: unknown }).text
-      return typeof text === 'string' ? text : ''
-    })
-    .join('')
-}
-
 /** The result of one analysis run: the session it happened in, and the verdict. */
 export interface AnalysisRun {
   /** The session's id — the panel offers it for re-reading. */
@@ -257,12 +235,16 @@ export interface AnalysisRun {
   readonly analysis: MailAnalysis
 }
 
+/** The re-ask when the first answer is not readable JSON: JSON alone, nothing else. */
+const REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 people/todos/projects/resources 字段），不要输出任何其它文字。'
+
 /**
- * Run one analysis: create a session, name it, prompt it, and follow it until
- * the assistant's answer lands.
+ * Run one analysis: create a session, name it, prompt it, and wait out the
+ * turn it starts.
  *
- * The session is created with no workspace of its own, so it inherits the
- * workbench's — which ADR-0013 keeps pointed at the KB root.
+ * The session is created in the KB root's directory when one is given, so it
+ * lands in the session list the KB-scoped views already read (an unnamed
+ * directory would inherit the host process's cwd instead).
  * @param options - the context, the batch, what the KB already holds, and the
  *   progress callback.
  * @returns the session id and the verdict.
@@ -271,15 +253,16 @@ export async function runMailAnalysis(options: {
   readonly ctx: Context
   readonly mails: readonly KbMailMessage[]
   readonly known: KnownEntities
+  readonly cwd?: string
   readonly onProgress?: (progress: AnalysisProgress) => void
   readonly signal?: AbortSignal
 }): Promise<AnalysisRun> {
-  const { ctx, mails, known, onProgress } = options
+  const { ctx, mails, known, cwd, onProgress } = options
   const session = sessionRemoteOf(ctx)
   if (session === undefined) throw new Error('没有挂载 session Remote 命名空间')
 
   onProgress?.({ stage: 'session' })
-  const created = await session.create({})
+  const created = await session.create(cwd === undefined ? {} : { cwd })
   if (!created.ok) throw created.error
   const sessionId = created.value.sessionId
 
@@ -289,23 +272,17 @@ export async function runMailAnalysis(options: {
   const named = await session.rename({ sessionId, title })
   if (!named.ok) throw named.error
 
+  // One turn, waited out to its durable turn/end; an unreadable answer is
+  // re-asked once before the failure surfaces with the model's own words.
   onProgress?.({ stage: 'prompt' })
-  const prompted = await session.prompt({
-    requestId: randomUUID() as SessionRequestId,
-    sessionId,
-    mode: 'queue',
-    content: [{ type: 'text', text: mailPrompt(mails, known) }],
-  }, options.signal)
-  if (!prompted.ok) throw prompted.error
-
-  // Follow until the turn's durable assistant message commits. The streaming
-  // frames are for a typing indicator; the message is the answer.
   onProgress?.({ stage: 'answer' })
-  for await (const frame of session.follow({ address: { kind: 'session', sessionId } }, options.signal)) {
-    if (frame.type !== 'event') continue
-    if (frame.event.type !== 'assistant/message') continue
-    onProgress?.({ stage: 'parse' })
-    return { sessionId, title, analysis: parseAnalysis(messageText(frame.event.data)) }
-  }
-  throw new Error('会话结束了却没有给出回答。')
+  const analysis = await jsonRound({
+    session,
+    sessionId,
+    prompt: mailPrompt(mails, known),
+    reask: REASK,
+    parse: parseAnalysis,
+    ...options.signal !== undefined ? { signal: options.signal } : {},
+  })
+  return { sessionId, title, analysis }
 }

@@ -7,6 +7,7 @@
 // The relation vocabulary is the KB domain's, not this package's: one list,
 // read by the agent's tool and by the workbench's picker alike.
 import type { PersonRelation } from '@deepseek-ai/dsh-yantao-kb'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 
 /** One file row in a KB tree section. */
 export interface KbTreeFile {
@@ -323,4 +324,37 @@ export interface KbExtractResult {
   readonly chars: number
   /** True when an existing cache answered and no extraction ran. */
   readonly cached: boolean
+}
+
+/**
+ * One file a capability run asks the controller to write (ADR-0021). Mirrors
+ * `capability/run.ts`'s script contract rather than importing it: `types.ts`
+ * is the contract the Client reads, and `run.ts` drags `node:child_process`
+ * in with it.
+ */
+export interface KbCapabilityArtifact {
+  /** File name inside `.yantao/capabilities/<name>/`; a bare name, never a path. */
+  readonly name: string
+  /** The file's complete content, base64-encoded. */
+  readonly contentBase64: string
+}
+
+/** Parameters of `yantaoKb.capabilityRun` (ADR-0021). */
+export interface KbCapabilityRunArgs {
+  /** The capability's skill name, as `ctx.skills` knows it. */
+  readonly name: string
+  /** The caller's input, handed to the capability's entry script verbatim. */
+  readonly input?: JsonValue
+}
+
+/** Result of `yantaoKb.capabilityRun` (ADR-0021). */
+export interface KbCapabilityRunResult {
+  /** The capability that ran. */
+  readonly name: string
+  /** When the run completed, as an ISO 8601 string. */
+  readonly runAt: string
+  /** The capability's answer to its caller; opaque to the controller. */
+  readonly result?: JsonValue
+  /** KB-relative paths of the files the run wrote under `.yantao/capabilities/<name>/`. */
+  readonly artifacts: readonly string[]
 }

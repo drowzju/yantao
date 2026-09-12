@@ -105,10 +105,40 @@ describe('readMailWatermark', () => {
     await writeMailWatermark('2026-09-10T08:30:00.000Z')
 
     expect(readMailWatermark()).toBe('2026-09-10T08:30:00.000Z')
-    expect(JSON.parse(await readFile(kbRootStatePath(), 'utf8'))).toEqual({
+    const persisted = JSON.parse(await readFile(kbRootStatePath(), 'utf8')) as {
+      root: string
+      capabilities: {
+        mail: {
+          state: { lastReadAt: string }
+          lastRunAt: string
+        }
+      }
+    }
+    expect(persisted.root).toBe(join(home, '知识库'))
+    expect(persisted.capabilities.mail.state).toEqual({ lastReadAt: '2026-09-10T08:30:00.000Z' })
+    expect(typeof persisted.capabilities.mail.lastRunAt).toBe('string')
+  })
+
+  it('reads a legacy connectors watermark and rewrites it into the capability slot', async () => {
+    // Every install between ADR-0019 and ADR-0021 persisted the cursor here.
+    await mkdir(join(home, '.dsh'), { recursive: true })
+    await writeFile(kbRootStatePath(), JSON.stringify({
       root: join(home, '知识库'),
       connectors: { mail: { lastReadAt: '2026-09-10T08:30:00.000Z' } },
-    })
+    }), 'utf8')
+
+    expect(readMailWatermark()).toBe('2026-09-10T08:30:00.000Z')
+    await writeMailWatermark('2026-09-11T09:00:00.000Z')
+    const persisted = JSON.parse(await readFile(kbRootStatePath(), 'utf8')) as Record<string, unknown>
+    expect(persisted.connectors).toBeUndefined()
+    const capabilities = persisted.capabilities as {
+      mail: {
+        state: { lastReadAt: string }
+        lastRunAt: string
+      }
+    }
+    expect(capabilities.mail.state).toEqual({ lastReadAt: '2026-09-11T09:00:00.000Z' })
+    expect(typeof capabilities.mail.lastRunAt).toBe('string')
   })
 
   it('moves forward on the next run', async () => {

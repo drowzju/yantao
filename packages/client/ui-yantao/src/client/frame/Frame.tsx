@@ -25,7 +25,9 @@ import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileE
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
 import { Onboarding } from '../Onboarding.tsx'
-import { ReadingDialog } from '../ReadingDialog.tsx'
+import { ReadingDialog, ReadingMonitor } from '../ReadingDialog.tsx'
+import { ReadingProposal } from '../ReadingProposal.tsx'
+import { useReadingTask } from '../reading-task.ts'
 import {
   CONVERSATION_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath, restoreTabs,
   type TabMode, type TabState,
@@ -102,6 +104,7 @@ const REVISION_POLL_MS = 3000
 
 const frameStyle = {
   display: 'grid',
+  gridTemplateRows: 'minmax(0, 1fr) auto',
   height: '100%',
   minWidth: 0,
   fontFamily: FONT,
@@ -362,6 +365,22 @@ export function Frame({
     setTabs(state => openTab(state, path, mode))
   }, [])
 
+  // ADR-0020: the reading task runs in one background slot — the dialog only
+  // collects the two choices, the bar below reports the stage, and the
+  // proposal window reopens when the first round lands.
+  const openProject = useCallback((projectPath: string): void => {
+    setTreeKey(key => key + 1)
+    openFile(projectPath, 'edit')
+  }, [openFile])
+  const reading = useReadingTask({
+    createReadingProject,
+    extract: extractResource,
+    knownAreas,
+    readBook,
+    confirmDomains,
+    onDone: openProject,
+  })
+
   // ADR-0017: editing belongs to Obsidian, so this only hands the file over.
   // Without a root we still open the KB-relative path and let the host resolve
   // it — the desktop's `.md` handler is usually Obsidian anyway.
@@ -566,17 +585,31 @@ export function Frame({
       {readingTarget !== null && (
         <ReadingDialog
           resourcePath={readingTarget}
-          createReadingProject={createReadingProject}
-          extract={extractResource}
-          readBook={readBook}
-          knownAreas={knownAreas}
-          confirmDomains={confirmDomains}
-          onDone={(projectPath) => {
+          disabled={reading.task !== null}
+          onStart={(title, read) => {
+            const target = readingTarget
             setReadingTarget(null)
-            setTreeKey(key => key + 1)
-            openFile(projectPath, 'edit')
+            // The session lands in the KB root's directory, so it shows up in
+            // the session list the KB-scoped views already read.
+            reading.start(target, title, read, kbRoot === '' ? undefined : kbRoot)
           }}
           onCancel={() => { setReadingTarget(null) }}
+        />
+      )}
+      {reading.task !== null && (
+        <ReadingMonitor
+          task={reading.task}
+          onCancel={reading.cancel}
+          onDismiss={reading.dismiss}
+          onOpen={openProject}
+        />
+      )}
+      {reading.task?.status === 'proposal' && reading.task.run !== null && (
+        <ReadingProposal
+          proposal={reading.task.run.proposal}
+          busy={reading.task.stage === 'writing'}
+          onConfirm={reading.confirm}
+          onDismiss={reading.skip}
         />
       )}
       {/* A handle exists whenever its rail is expanded — including at the

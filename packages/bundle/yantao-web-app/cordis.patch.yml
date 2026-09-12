@@ -133,7 +133,7 @@
     #   ui-workflow-run   → workflow lifecycle node; tool-workflow is disabled below
     #   ui-deliverables   → produced-files tail; kb_ writes are not tracked producers
     #   ui-subagent       → subagent views; no subagent tools in the yantao preset
-    #   ui-skill          → '@' skill references; skill-filesystem is disabled below
+    #   ui-skill          → '@' skill references; capabilities are invoked from the 能力 tab, not the composer
     #   ui-jobs           → background jobs list; tool-jobs is disabled below
     #   ui-goal           → GoalBar; the preset mounts no goal tools
     #   ui-plan           → plan-mode is disabled below
@@ -290,9 +290,9 @@
 - id: tool-str-replace-editor
   disabled: true
 
-- id: skill-filesystem
-  disabled: true
-
+# skill-filesystem stays enabled (ADR-0021): the capability system resolves
+# skill directories through ctx.skills. tool-skill stays disabled — the model
+# never sees a skill catalog; capabilities run from the human's UI only.
 - id: tool-skill
   disabled: true
 

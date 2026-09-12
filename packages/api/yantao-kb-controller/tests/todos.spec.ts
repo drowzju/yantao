@@ -35,6 +35,9 @@ beforeEach(async () => {
       liveRoot = next
     },
   } satisfies YantaoKbService)
+  // The controller also injects the skill registry (ADR-0021); todos never
+  // resolve a capability, so an empty stand-in is enough.
+  ctx.provide('skills', { get: async () => undefined } as never)
   fiber = await ctx.plugin(YantaoKbController)
 })
 

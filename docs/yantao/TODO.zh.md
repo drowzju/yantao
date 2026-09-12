@@ -55,6 +55,8 @@
 
 | **读书项目与资源入库(ADR-0020)** —— 拖拽到资源栏经 `yantaoKb.registerResource`(`{ name, contentBase64 }`:纯复制、重名即拒、逐文件中文报错);资源行右键或只读横幅 → 应用级弹窗(书名 + 「是否需要我读取书籍内容为你整理大纲?」)→ 带 `source:` frontmatter 的普通 `project` 实体;惰性 py 抽取(txt/md/pdf/epub/doc/docx/ppt/pptx)缓存于 `.yantao/extracts/`,失败明确分类报错(`yantao-kb/extract`,v1 不做 OCR);第八个工具 `kb_read_resource` 按偏移/分块返回抽取文本;读书流程跑真实 session(大纲写状态区、过程记流水),以 MailReview 式提议卡收尾,确认 `[[领域:…]]` 关联或新建领域 | `packages/yantao/kb/src/{core,index,templates}.ts`、`packages/api/yantao-kb-controller/src/{index,types}.ts` + `src/extract/`、`packages/client/ui-yantao/src/client/{ReadingDialog,ReadingProposal,reading-flow}.tsx` + `{Workbench,remote,frame/Frame,editor/ReadOnlyFile}`、`docs/adr/0020-*`。验证:kb + controller + ui-yantao 三包测试全绿(controller 92、ui-yantao 182),`build:lib` 与 client bundle 通过 |
 
+| **能力执行缝(ADR-0021 第 1 条)** —— 第十九个 `yantaoKb` RPC `capabilityRun`:控制器经 dsh skill 注册表解析能力(`ctx.skills.get`),`resolveEntry` 读 `metadata.yantao` 声明(entry 限制在 skill 目录内、runtime、`appliesTo` 后缀),`runCapability` 拉起子进程(JSON stdin/stdout、UTF-8 管道、超时、失败分类带中文提示,走 `yantao-kb/capability` RemoteError 类别);产物落 `.yantao/capabilities/<name>/`,状态槽泛化为 `capabilities.<name>.state` —— 邮件断点迁入,遗留 `connectors.mail` 仍可读并在写入时迁移。不加 `kb_*` 工具:能力只由人调用,执行发生在会话前 | `packages/api/yantao-kb-controller/src/capability/run.ts` + `src/{index,types}.ts`、`packages/yantao/kb/src/root-store.ts`、`packages/bundle/yantao-web-app/cordis.patch.yml`(`skill-filesystem` 保持启用,`tool-skill` 保持禁用)。验证:三包 428 测试全绿(`capability-rpc.spec.ts` 10 个),`build:lib` host+client 通过(tsdown 需 `NODE_OPTIONS=--max-old-space-size=4096`,默认堆 ~2.4GB 在无页面文件机器上 OOM),`verify-cordis-catalog` 与 `verify-translation-pairing` 通过 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
@@ -72,6 +74,16 @@
    转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。
    **先量再动。**
 
+### 能力系统(ADR-0021)
+
+1. **提议卡泛化** —— 统一提议 schema(新建实体 / 追加流水 / 写状态 / 存资源 / 建关联 五类动作,
+    各带理由),MailReview 泛化为通用提议卡;读书收尾提议并入。
+2. **mail / ebook 能力迁移** —— 两个能力目录(SKILL.md + scripts/ + `yantao:` frontmatter),读书项目
+    创建流程改写为 ebook 能力的应用实例;两者落地后 `mailFetch` / `extractResource` 退役。
+3. **能力 tab** —— 连接 tab 改清单 + 详情两态;「添加目录」按钮(写 `customSkillDirs`)与「新建能力」
+    脚手架;`skill-filesystem` 挂载(`tool-skill` 保持禁用)。
+4. **应用入口** —— 资源右键(按扩展名)与实体面板(按类型)按 `appliesTo` 过滤;拖入不弹询问。
+
 ## blocked(附原因)
 
 _无。(曾在此的三项 —— 客户端 face 重建、`tsgolint`、`toThrowError` 改名 —— 已于 2026-09-09 全部解除：OOM 前提不再成立，
@@ -84,7 +96,7 @@ _无。(曾在此的三项 —— 客户端 face 重建、`tsgolint`、`toThrowE
 | 提炼闭环 v1(人触发 → agent 提议 → 人批准) | 真正的价值所在;需要先有编辑器面板与提议 UI |
 | 会话转写落 `sessions/` | dsh 已经把每个会话事件溯源(`session.vN.jsonl`),这活儿应变成"投影"而非新机制 —— **且:会话功能已移除(ADR-0010),待重新设计后再启** |
 | FTS 与 backlinks 索引 | 等知识库有真实内容后再定存储(drift/sqlite 还是 dsh `session-query`) |
-| Connector 实现(邮件、脚本、CLI) | ADR-0010 描述了抽象;具体实现推迟到需要邮件集成时 |
+| *(已移入 next)* Connector 实现 → 能力系统(ADR-0021) | 连接概念已被能力取代;邮件已实现,剩余工作排在 next 的「能力系统」小节 |
 | *(已移入 done)* —— 注意:单包 `tsc -b` 会**重新生成**这些残留 | 用仓库自带的 `pnpm run clean` 再清,或先 `git clean -n -- packages` 预览、再 `git clean -f -- packages` |
 | 把中间一列也收归我们(ADR-0011 里的 L3) | 会话面在上游约 23k 行(ui-conversation + ui-chat + ui-tool);中间还是对话流水时没有产品理由重写。若中列变成 KB 文档视图再议。 |
 | 精简 profile(减少 base 行)以缩短约 35 秒启动 | 先测量;等 UI 完全归我们再做 |

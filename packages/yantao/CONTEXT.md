@@ -30,9 +30,9 @@ _Avoid_: 会议记录（那说的是内容，不是实体）
 
 _Avoid_: 任务清单、TODO.md
 
-**连接 (Connector)**: 预留的资源接口抽象：从外部系统（邮箱等）拉取 Resource 的一种接法。不落盘、不进 tree；现在只有 ADR-0010 的描述，没有实现。
+**能力 (Capability)**: 一个 dsh skill 目录（`SKILL.md` 指令 + `scripts/` 宿主入口），frontmatter 的 `yantao:` 段声明入口、运行时与 `appliesTo`（资源扩展名 / 实体类型 / 外部源）。由人触发、宿主在会话前执行、经统一提议流写库；清单与断点存 `~/.dsh/yantao-kb.json`，不进 tree（ADR-0021）。
 
-_Avoid_: 集成、插件
+_Avoid_: 连接（旧称，已被能力取代，见 ADR-0021）、集成、插件
 
 **Archive**: Entity 的一种 frontmatter 状态标签，不是目录。
 

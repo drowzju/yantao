@@ -44,7 +44,6 @@ const STAGE_LABELS: Record<AnalysisStage, string> = {
   session: '正在创建会话…',
   prompt: '正在向模型提问…',
   answer: '模型正在读这批邮件…',
-  parse: '正在解析结论…',
 }
 
 const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' } as const

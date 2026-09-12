@@ -1,11 +1,12 @@
 /**
  * The persisted KB root: one JSON file under dsh's home (`~/.dsh`, the same
- * home the profile store already uses) holding `{ "root": string, "connectors": … }`.
+ * home the profile store already uses) holding `{ "root": string, "capabilities": … }`.
  * It is what lets the workbench remember where the human put the knowledge
  * base, so the plugin's `kbRoot` config is only the first-run fallback. The
- * same file also carries each connector's cursor (ADR-0019's mail watermark),
- * because a cursor belongs to the knowledge base it was read for, and not to
- * the KB itself — that is markdown for humans, not a place for machine state.
+ * same file also carries each capability's machine state (ADR-0021: the
+ * generalized form of ADR-0019's mail watermark), because a cursor belongs to
+ * the knowledge base it was read for, and not to the KB itself — that is
+ * markdown for humans, not a place for machine state.
  * @module @deepseek-ai/dsh-yantao-kb/root-store
  */
 
@@ -14,11 +15,24 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-/** The whole persisted state: the KB root plus the connectors bound to it. */
+/** One capability's persisted machine state (ADR-0021). */
+interface CapabilityState {
+  /** The capability's own state; its shape is the capability's business. */
+  state?: unknown
+  /** ISO 8601 timestamp of the most recent completed run. */
+  lastRunAt?: string
+}
+
+/** The whole persisted state: the KB root plus the capabilities bound to it. */
 interface KbRootState {
   /** The knowledge-base root directory. */
   root: string
-  /** Per-connector machine state; never mirrored into the KB itself. */
+  /** Per-capability machine state; never mirrored into the KB itself. */
+  capabilities?: Record<string, CapabilityState>
+  /**
+   * Legacy pre-ADR-0021 connector cursors, kept readable so an existing mail
+   * watermark survives the upgrade; a write moves it into `capabilities`.
+   */
   connectors?: {
     /** The Outlook mail connector (ADR-0019). */
     mail?: {
@@ -102,16 +116,31 @@ export async function writeKbRootOverride(root: string): Promise<void> {
  * Read the mail connector's watermark: the timestamp it last read up to.
  * Synchronous, like {@link readKbRootOverride} — the connector asks for it
  * while assembling a fetch, on the same path as the root it belongs to.
+ * Reads the ADR-0021 `capabilities.mail` slot first and the legacy
+ * `connectors.mail` one second, so a watermark written before the
+ * generalization still answers.
  * @returns the ISO 8601 timestamp, or `undefined` when mail has never been read.
  */
 export function readMailWatermark(): string | undefined {
-  const lastReadAt = readKbRootState()?.connectors?.mail?.lastReadAt
+  const state = readKbRootState()
+  const generalized = state?.capabilities?.mail?.state
+  const legacy = state?.connectors?.mail?.lastReadAt
+  const lastReadAt = legacyLastReadAt(generalized) ?? legacy
   return typeof lastReadAt === 'string' && lastReadAt !== '' ? lastReadAt : undefined
+}
+
+/** The `lastReadAt` inside a mail capability state, when it carries one. */
+function legacyLastReadAt(state: unknown): string | undefined {
+  if (typeof state !== 'object' || state === null) return undefined
+  const value = (state as { lastReadAt?: unknown }).lastReadAt
+  return typeof value === 'string' ? value : undefined
 }
 
 /**
  * Persist the mail connector's watermark, leaving the KB root and any other
- * connector state as they are.
+ * capability state as they are. The watermark moves into the ADR-0021
+ * `capabilities.mail` slot and the legacy `connectors` key is dropped — it
+ * only ever held the mail cursor, so nothing else can be lost.
  * @param lastReadAt - the ISO 8601 timestamp to remember.
  * @throws when no KB root is persisted yet: a watermark with no knowledge base
  *   to bind it to could never be read back, so it is refused rather than written.
@@ -121,8 +150,51 @@ export async function writeMailWatermark(lastReadAt: string): Promise<void> {
   if (existing === undefined) {
     throw new Error('yantao-kb: cannot persist a mail watermark before a KB root is configured')
   }
+  const previous = mailStateOf(existing)
+  const previousState = typeof previous?.state === 'object' && previous.state !== null ? previous.state : {}
+  const { connectors: _legacy, ...rest } = existing
+  await writeKbRootState({
+    ...rest,
+    capabilities: {
+      ...existing.capabilities,
+      mail: { ...previous, state: { ...previousState, lastReadAt }, lastRunAt: new Date().toISOString() },
+    },
+  })
+}
+
+/** The mail capability's persisted slot under either the new or the legacy key. */
+function mailStateOf(state: KbRootState): CapabilityState | undefined {
+  return state.capabilities?.mail ?? (state.connectors?.mail !== undefined ? { state: { ...state.connectors.mail } } : undefined)
+}
+
+/**
+ * Read one capability's persisted state (ADR-0021). Synchronous, like every
+ * other read here — the runner asks for it while assembling a run.
+ * @param name - the capability's kebab-case name.
+ * @returns the state as the capability last left it, or `undefined` when it has never run.
+ */
+export function readCapabilityState(name: string): unknown {
+  return readKbRootState()?.capabilities?.[name]?.state
+}
+
+/**
+ * Persist one capability's state (ADR-0021), stamping the run that produced
+ * it and leaving the KB root and every other capability as they are.
+ * @param name - the capability's kebab-case name.
+ * @param state - the state to remember; it replaces the previous value whole.
+ * @throws when no KB root is persisted yet: state with no knowledge base to
+ *   bind it to could never be read back, so it is refused rather than written.
+ */
+export async function writeCapabilityState(name: string, state: unknown): Promise<void> {
+  const existing = readKbRootState()
+  if (existing === undefined) {
+    throw new Error(`yantao-kb: cannot persist capability ${name} state before a KB root is configured`)
+  }
   await writeKbRootState({
     ...existing,
-    connectors: { ...existing.connectors, mail: { ...existing.connectors?.mail, lastReadAt } },
+    capabilities: {
+      ...existing.capabilities,
+      [name]: { ...existing.capabilities?.[name], state, lastRunAt: new Date().toISOString() },
+    },
   })
 }
