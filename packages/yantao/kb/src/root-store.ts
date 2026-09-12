@@ -30,13 +30,6 @@ interface KbRootState {
   /** Per-capability machine state; never mirrored into the KB itself. */
   capabilities?: Record<string, CapabilityState>
   /**
-   * Directories the human registered as extra capability roots (ADR-0021
-   * 决定 8「添加目录」); the controller re-registers them into the skill
-   * registry on startup, since skill-filesystem only reads its config at
-   * construction.
-   */
-  capabilityDirs?: string[]
-  /**
    * Legacy pre-ADR-0021 connector cursors, kept readable so an existing mail
    * watermark survives the upgrade; a write moves it into `capabilities`.
    */
@@ -149,24 +142,49 @@ function legacyLastReadAt(state: unknown): string | undefined {
  * `capabilities.mail` slot and the legacy `connectors` key is dropped — it
  * only ever held the mail cursor, so nothing else can be lost.
  * @param lastReadAt - the ISO 8601 timestamp to remember.
+ * @param firstReadAt - the oldest mail of the batch just dealt with; stored as
+ *   the minimum ever seen, so paging 往前 extends the processed range backward.
+ * @returns the processed range as it now stands — `firstReadAt` present only
+ *   when some run has named a start.
  * @throws when no KB root is persisted yet: a watermark with no knowledge base
  *   to bind it to could never be read back, so it is refused rather than written.
  */
-export async function writeMailWatermark(lastReadAt: string): Promise<void> {
+export async function writeMailWatermark(lastReadAt: string, firstReadAt?: string): Promise<{
+  lastReadAt: string
+  firstReadAt?: string
+}> {
   const existing = readKbRootState()
   if (existing === undefined) {
     throw new Error('yantao-kb: cannot persist a mail watermark before a KB root is configured')
   }
   const previous = mailStateOf(existing)
   const previousState = typeof previous?.state === 'object' && previous.state !== null ? previous.state : {}
+  const previousFirstReadAt = typeof (previousState as { firstReadAt?: unknown }).firstReadAt === 'string'
+    ? (previousState as { firstReadAt: string }).firstReadAt
+    : undefined
+  const mergedFirstReadAt = firstReadAt === undefined
+    ? previousFirstReadAt
+    : previousFirstReadAt !== undefined && previousFirstReadAt < firstReadAt ? previousFirstReadAt : firstReadAt
   const { connectors: _legacy, ...rest } = existing
   await writeKbRootState({
     ...rest,
     capabilities: {
       ...existing.capabilities,
-      mail: { ...previous, state: { ...previousState, lastReadAt }, lastRunAt: new Date().toISOString() },
+      mail: {
+        ...previous,
+        state: {
+          ...previousState,
+          lastReadAt,
+          ...mergedFirstReadAt !== undefined ? { firstReadAt: mergedFirstReadAt } : {},
+        },
+        lastRunAt: new Date().toISOString(),
+      },
     },
   })
+  return {
+    lastReadAt,
+    ...mergedFirstReadAt !== undefined ? { firstReadAt: mergedFirstReadAt } : {},
+  }
 }
 
 /** The mail capability's persisted slot under either the new or the legacy key. */
@@ -227,35 +245,4 @@ export function readCapabilityRecord(name: string): CapabilityRecord | undefined
     ...slot.state !== undefined ? { state: slot.state } : {},
     ...slot.lastRunAt !== undefined ? { lastRunAt: slot.lastRunAt } : {},
   }
-}
-
-/**
- * Read the directories the human registered as extra capability roots
- * (ADR-0021 决定 8「添加目录」). Synchronous, like every other read here.
- * @returns the registered absolute paths, in registration order.
- */
-export function readCapabilityDirs(): readonly string[] {
-  const dirs = readKbRootState()?.capabilityDirs
-  return Array.isArray(dirs) ? dirs.filter((dir): dir is string => typeof dir === 'string') : []
-}
-
-/**
- * Register one more extra capability directory (ADR-0021 决定 8「添加目录」),
- * keeping the KB root and every capability's state as they are. Registering
- * the same directory twice is a no-op, not a duplicate.
- * @param dir - the absolute directory path to remember.
- * @returns the full list as it now stands.
- * @throws when no KB root is persisted yet — the registry lives next to the
- *   root it was chosen for.
- */
-export async function writeCapabilityDir(dir: string): Promise<readonly string[]> {
-  const existing = readKbRootState()
-  if (existing === undefined) {
-    throw new Error('yantao-kb: cannot register a capability directory before a KB root is configured')
-  }
-  const current = readCapabilityDirs()
-  if (current.includes(dir)) return current
-  const next = [...current, dir]
-  await writeKbRootState({ ...existing, capabilityDirs: next })
-  return next
 }

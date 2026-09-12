@@ -1,0 +1,8 @@
+{
+  "entry": "scripts/entry.py",
+  "runtime": "python",
+  "version": 2,
+  "appliesTo": {
+    "external": ["mailbox"]
+  }
+}

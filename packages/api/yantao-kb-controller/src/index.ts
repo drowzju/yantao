@@ -8,7 +8,7 @@
  * files a new note from the KB's canonical template; `registerResource` is the
  * reading-project intake (ADR-0020): a dropped file is copied into `resources/`.
  * The capability surface (ADR-0021) is `capabilityList`/`capabilityRun`/
- * `capabilityRegisterDir`/`capabilityCreate`: a capability is a dsh skill
+ * `capabilityCreate`: a capability is a dsh skill
  * directory declaring a host entry, and this controller seeds the shipped
  * ones, lists them, runs them, writes their artifacts, and persists their
  * state. The UI is the human
@@ -21,14 +21,13 @@ import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promi
 import { dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SkillDefinition } from '@deepseek-ai/dsh-skill'
-import { FileSystemSkillProvider } from '@deepseek-ai/dsh-skill-filesystem'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
   createEntity, entityDisplayPath, initKb, KbError, linksOf, listEntities, parseFrontmatter,
-  parseTodoFile, PERSON_RELATIONS, readCapabilityDirs, readCapabilityRecord, readCapabilityState,
+  parseTodoFile, PERSON_RELATIONS, readCapabilityRecord, readCapabilityState,
   readKbRootOverride, registerResourceContent, resolveWithinKb, serializeTodoFile, todayStamp,
-  writeCapabilityDir, writeCapabilityState, writeMailWatermark,
+  writeCapabilityState, writeMailWatermark,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities } from './capability/builtin.ts'
@@ -42,7 +41,6 @@ import type {
   KbCapabilityCreateArgs,
   KbCapabilityCreateResult,
   KbCapabilityListResult,
-  KbCapabilityRegisterDirResult,
   KbCapabilityRunArgs,
   KbCapabilityRunResult,
   KbCapabilitySummary,
@@ -153,16 +151,11 @@ export class YantaoKbController extends TypertRemoteService {
   /** The KB's change counter (ADR-0017); pointed at the live root on each poll. */
   private readonly revisionWatch = new KbRevision()
 
-  /** Disposer of the one provider over the human-added capability directories (ADR-0021 决定 8). */
-  private capabilityDirsDispose: (() => void) | undefined
-
   constructor(ctx: Context) {
     super(ctx, 'yantaoKbController', { namespace: 'yantaoKb' })
     this.ctx.effect(() => () => {
       this.revisionWatch.close()
     })
-    const dirs = readCapabilityDirs()
-    if (dirs.length > 0) this.registerCapabilityDirs(dirs)
   }
 
   /** The one KB root, read per call so a re-chosen root takes effect at once. */
@@ -520,28 +513,6 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
-   * (Re-)register the single provider over the human-added capability
-   * directories (ADR-0021 决定 8). The directories live in
-   * `~/.dsh/yantao-kb.json` — there is no runtime write channel into the
-   * skill-filesystem config — so this controller owns one
-   * `FileSystemSkillProvider` instance and disposes + re-registers it when
-   * the list changes; a second provider with the same name would throw.
-   * @param dirs - the absolute directories to expose as skill roots.
-   */
-  private registerCapabilityDirs(dirs: readonly string[]): void {
-    this.capabilityDirsDispose?.()
-    this.capabilityDirsDispose = undefined
-    if (dirs.length === 0) return
-    this.capabilityDirsDispose = this.ctx.skills.registerProvider(
-      control => new FileSystemSkillProvider(this.ctx, control, {
-        providerName: 'yantao-capability-dirs',
-        includeDefaultRoots: false,
-        customSkillDirs: [...dirs],
-      }),
-    )
-  }
-
-  /**
    * Wait out the skill-filesystem watcher's invalidation lag: writing a new
    * skill directory queues an asynchronous cache invalidation, so a `list`
    * issued immediately after may not see it yet. Bounded — the names are
@@ -694,20 +665,22 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
-   * Move the mail connector's watermark (ADR-0019): everything at or before
-   * `lastReadAt` has been seen, so the next `mailFetch` starts after it.
+   * Move the mail capability's processed range (ADR-0019): everything at or
+   * before `lastReadAt` has been seen, so the next `mailFetch` starts after
+   * it; `firstReadAt` names the oldest mail of the batch just dealt with and
+   * is kept as the minimum ever seen, so the UI can show the processed range
+   * (e.g. 2025-12-31 到 2026-01-31) without re-deriving it.
    *
    * The cursor lives in `~/.dsh`, next to the KB root it was read for, and
    * never in the KB itself — that is markdown for humans.
-   * @param args - the stamp to store; defaults to now.
-   * @returns the watermark as it now stands.
+   * @param args - the stamps to store; `lastReadAt` defaults to now.
+   * @returns the processed range as it now stands.
    */
   @Remote('mailMarkRead')
   async mailMarkRead(args: KbMailMarkReadArgs): Promise<KbMailMarkReadResult> {
     this.requireKbRootState()
     const lastReadAt = args.lastReadAt ?? new Date().toISOString()
-    await writeMailWatermark(lastReadAt)
-    return { lastReadAt }
+    return writeMailWatermark(lastReadAt, args.firstReadAt)
   }
 
   /**
@@ -715,7 +688,8 @@ export class YantaoKbController extends TypertRemoteService {
    * seam, the mail connector's and the extractor's subprocess pattern
    * generalized. The capability is resolved through `ctx.skills` (the
    * skill-filesystem provider discovers the directories; this controller only
-   * consumes the winner), its `metadata.yantao` declaration picks the entry
+   * consumes the winner), its `yantao.json` declaration (legacy
+   * `metadata.yantao` frontmatter accepted) picks the entry
    * script, and the run is one Python subprocess with a JSON stdin/stdout
    * contract (`capability/run.ts`).
    *
@@ -814,7 +788,8 @@ export class YantaoKbController extends TypertRemoteService {
   /**
    * List the capabilities the workbench's 能力 tab shows (ADR-0021 决定 8):
    * every skill `ctx.skills` discovers at the KB root that declares a
-   * `metadata.yantao` entry — plain skills without one are not capabilities
+   * capability manifest (`yantao.json` sidecar, legacy `metadata.yantao`
+   * frontmatter accepted) — plain skills without one are not capabilities
    * and are skipped, not errors. Shipped capabilities are seeded first, so a
    * fresh KB answers with 邮件 and 读书 on its very first open.
    *
@@ -862,48 +837,11 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
-   * Add one directory to the capability search path (ADR-0021 决定 8's
-   * 「添加目录」): the human points the workbench at a folder of capability
-   * directories they manage outside the KB, and from then on `ctx.skills`
-   * discovers them like any other root.
-   *
-   * The list persists in `~/.dsh/yantao-kb.json` (`capabilityDirs`) and this
-   * controller re-registers its single provider over it — see
-   * `registerCapabilityDirs` for why there is exactly one.
-   * @param path - absolute path of the directory to add.
-   * @returns the full list of registered directories as it now stands.
-   */
-  @Remote('capabilityRegisterDir')
-  async capabilityRegisterDir(path: string): Promise<KbCapabilityRegisterDirResult> {
-    const target = path.trim()
-    if (target === '' || !isAbsolute(target)) {
-      throw new RemoteError('yantao-kb/rejected', `能力目录必须是绝对路径：${path}`, { path })
-    }
-    let info
-    try {
-      info = await stat(target)
-    } catch (error) {
-      throw new RemoteError(
-        'yantao-kb/rejected',
-        `目录不存在或无法访问：${target}`,
-        { path: target },
-        { cause: error },
-      )
-    }
-    if (!info.isDirectory()) {
-      throw new RemoteError('yantao-kb/rejected', `能力目录必须是一个目录：${target}`, { path: target })
-    }
-    const dirs = await writeCapabilityDir(target)
-    this.registerCapabilityDirs(dirs)
-    return { directories: [...dirs] }
-  }
-
-  /**
    * Scaffold a new capability directory (ADR-0021 决定 8's 「新建能力」):
-   * `<kbRoot>/.dsh/skills/<name>/` with a SKILL.md frontmatter that already
-   * declares the host entry, and an entry script that speaks the run protocol
-   * and echoes its input — a working capability on the first run, for the
-   * human to grow into theirs.
+   * `<kbRoot>/.dsh/skills/<name>/` with a clean SKILL.md, a `yantao.json`
+   * sidecar that declares the host entry, and an entry script that speaks the
+   * run protocol and echoes its input — a working capability on the first
+   * run, for the human to grow into theirs.
    * @param args - the capability's name (kebab-case; it becomes the skill name).
    * @returns the KB-relative path of the scaffolded directory.
    */
@@ -931,16 +869,14 @@ export class YantaoKbController extends TypertRemoteService {
       `name: ${name}`,
       'description: （一句话说明这个能力做什么。）',
       'disable-model-invocation: true',
-      'metadata:',
-      '  yantao:',
-      '    entry: scripts/entry.py',
-      '    runtime: python',
-      '    version: 1',
       '---',
       '',
       `# ${name}`,
       '',
       '（这里写给人类看：这个能力做什么、怎么用、有什么前提。）',
+      '',
+      '能力声明（入口、运行时、appliesTo）在本目录的 `yantao.json`，不在本文件里——',
+      'SKILL.md 保持纯净，方便直接复用开源 skill 目录。',
       '',
       '## 执行契约',
       '',
@@ -979,9 +915,15 @@ export class YantaoKbController extends TypertRemoteService {
       '    main()',
       '',
     ].join('\n')
+    const yantaoJson = `${JSON.stringify({
+      entry: 'scripts/entry.py',
+      runtime: 'python',
+      version: 1,
+    }, null, 2)}\n`
     try {
       await mkdir(join(directory, 'scripts'), { recursive: true })
       await writeFile(join(directory, 'SKILL.md'), skillMd, 'utf8')
+      await writeFile(join(directory, 'yantao.json'), yantaoJson, 'utf8')
       await writeFile(join(directory, 'scripts', 'entry.py'), entryPy, 'utf8')
     } catch (error) {
       throw new RemoteError(

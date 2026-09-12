@@ -59,6 +59,8 @@
 
 | **能力迁移 + 管理 RPC + 能力 tab(ADR-0021 第 2+3 条)** —— mail/ebook 成为内置能力目录,播种进 `<kbRoot>/.dsh/skills/`(`ensureBuiltinCapabilities`,按母本 `metadata.yantao.version` 比对版本);控制器对持久化的 `capabilityDirs` 挂一个 `FileSystemSkillProvider`,`mailFetch` / `extractResource` 退役 —— UI 的邮件读取与读书流程的抽取都改走 `capabilityRun`;三个 RPC 加入表面(`capabilityList` / `capabilityRegisterDir` / `capabilityCreate`,第二十个),连接 tab 变为能力 tab:清单 + 详情两态面板,「添加目录」选取并注册目录,「新建能力」在 `.dsh/skills/<name>/` 下搭 SKILL.md + entry.py 脚手架;邮件能力的详情原样内嵌 MailPanel | `packages/api/yantao-kb-controller/src/{index,types}.ts` + `src/capability/builtin*`、`packages/yantao/kb/src/root-store.ts`、`packages/client/ui-yantao/src/client/{CapabilityPanel,Workbench,remote,MailPanel}.tsx` + `frame/Frame.tsx` + `index.ts`、`scripts/gen-cordis-catalog.ts`。验证:controller 84 + kb 128 + ui-yantao 202 测试全绿,`build:lib:host`、`typecheck:contracts-ready`、client bundle、scoped oxlint、`verify-cordis-catalog`、translation pairing 通过 |
 
+| **「添加目录」退役(ADR-0021 决定 8 修订)** —— 安装一个能力 = 把目录拷进 `<kbRoot>/.dsh/skills/`(或 `~/.dsh/skills`);`capabilityRegisterDir` RPC、`capabilityDirs` 持久化与控制器专属的 `FileSystemSkillProvider` 全部移除(十九个 RPC),能力 tab 只留「新建能力」 | `packages/api/yantao-kb-controller/src/{index,types}.ts`、`packages/yantao/kb/src/root-store.ts`、`packages/client/ui-yantao/src/client/{CapabilityPanel,Workbench,remote}.tsx` + `frame/Frame.tsx` + `index.ts` |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)

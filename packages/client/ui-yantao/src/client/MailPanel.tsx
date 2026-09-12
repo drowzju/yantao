@@ -17,6 +17,14 @@ import type { MailEntities, MailSelection, MailWriteTarget } from './mail-apply.
 import { applyAnalysis } from './mail-apply.ts'
 import { MailReview } from './MailReview.tsx'
 
+/** The processed-mail range the capability's persisted state carries, as the panel shows it. */
+export interface MailProcessedRange {
+  /** The oldest mail ever processed, when known. */
+  readonly firstReadAt?: string
+  /** The newest mail processed so far (the watermark), when known. */
+  readonly lastReadAt?: string
+}
+
 /** What the panel does with the Remote surface and the KB. */
 export interface MailPanelProps {
   /** Read the newest mails after the connector's cursor. */
@@ -29,6 +37,23 @@ export interface MailPanelProps {
   readonly target: MailWriteTarget
   /** Read what the KB already holds, for the prompt and for the writes. */
   readonly entities: () => Promise<MailEntities>
+  /** The processed range so far, from the capability's persisted state. */
+  readonly processed?: MailProcessedRange
+}
+
+/**
+ * Extract the processed range from a capability's persisted state, tolerating
+ * anything a capability run might have left there.
+ * @param state - the `state` a `capabilityList` row carries, or `undefined`.
+ * @returns the range's known ends, each only when it is a string.
+ */
+export function mailRangeOf(state: unknown): { firstReadAt?: string; lastReadAt?: string } {
+  if (typeof state !== 'object' || state === null) return {}
+  const { firstReadAt, lastReadAt } = state as Record<string, unknown>
+  return {
+    ...(typeof firstReadAt === 'string' ? { firstReadAt } : {}),
+    ...(typeof lastReadAt === 'string' ? { lastReadAt } : {}),
+  }
 }
 
 type Phase = 'idle' | 'fetching' | 'analysing' | 'applying'
@@ -98,11 +123,14 @@ function boundsFor(direction: Direction, mails: readonly KbMailMessage[]): { sin
  * @param props - see {@link MailPanelProps}.
  * @returns the panel element.
  */
-export function MailPanel({ fetch, mark, analyse, target, entities }: MailPanelProps): ReactElement {
+export function MailPanel({ fetch, mark, analyse, target, entities, processed = {} }: MailPanelProps): ReactElement {
   const [mails, setMails] = useState<readonly KbMailMessage[]>([])
   const [stale, setStale] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [lastReadAt, setLastReadAt] = useState<string | undefined>(undefined)
+  // The processed range: seeded from the capability's persisted state, then
+  // kept current with what each 批准/忽略 answers.
+  const [range, setRange] = useState<MailProcessedRange>(processed)
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState<string | null>(null)
   const [hint, setHint] = useState<string | null>(null)
@@ -186,13 +214,37 @@ export function MailPanel({ fetch, mark, analyse, target, entities }: MailPanelP
     } finally {
       setPhase('idle')
     }
-    await mark({ lastReadAt: mails[0]?.receivedAt ?? new Date().toISOString() }).catch(() => {})
+    await moveCursor()
   }
 
   /** Close the window without writing; the mails still count as read. */
   const dismiss = async (): Promise<void> => {
     setReview(null)
-    await mark({ lastReadAt: mails[0]?.receivedAt ?? new Date().toISOString() }).catch(() => {})
+    await moveCursor()
+  }
+
+  /**
+   * Move the cursor past the batch on screen: the newest mail becomes the
+   * watermark, the oldest extends the processed range's start backward.
+   */
+  const moveCursor = async (): Promise<void> => {
+    const oldest = mails[mails.length - 1]?.receivedAt
+    try {
+      const answer = await mark({
+        lastReadAt: mails[0]?.receivedAt ?? new Date().toISOString(),
+        ...(oldest !== undefined ? { firstReadAt: oldest } : {}),
+      })
+      setRange((previous) => {
+        const firstReadAt = answer.firstReadAt !== undefined ? answer.firstReadAt : previous.firstReadAt
+        return {
+          ...(firstReadAt !== undefined ? { firstReadAt } : {}),
+          lastReadAt: answer.lastReadAt,
+        }
+      })
+    } catch {
+      // The verdict is already dealt with; a failed cursor move surfaces on
+      // the next read (the host answers from its watermark), not here.
+    }
   }
 
   const busy = phase !== 'idle'
@@ -226,6 +278,14 @@ export function MailPanel({ fetch, mark, analyse, target, entities }: MailPanelP
         <div style={{ fontSize: 12 }} data-mail-batch="true">
           {mails.length} 封 · {day(mails[mails.length - 1]?.receivedAt ?? '')} → {day(mails[0]?.receivedAt ?? '')}
           {hasMore ? '（还有更多）' : ''}
+        </div>
+      )}
+      {(range.firstReadAt !== undefined || range.lastReadAt !== undefined) && (
+        <div style={mutedStyle} data-mail-processed="true">
+          已处理：
+          {range.firstReadAt !== undefined
+            ? `${day(range.firstReadAt)} 到 ${day(range.lastReadAt ?? range.firstReadAt)}`
+            : day(range.lastReadAt ?? '')}
         </div>
       )}
       {stale && lastReadAt !== undefined && (

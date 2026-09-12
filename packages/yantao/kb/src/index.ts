@@ -422,8 +422,8 @@ export type { InitKbResult, ListedEntity, ResourceChunk } from './core.ts'
 export { RESOURCE_CHUNK_LENGTH } from './core.ts'
 export { entityDisplayPath, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
 export {
-  kbRootStatePath, readCapabilityDirs, readCapabilityRecord, readCapabilityState, readKbRootOverride,
-  readMailWatermark, writeCapabilityDir, writeCapabilityState, writeKbRootOverride, writeMailWatermark,
+  kbRootStatePath, readCapabilityRecord, readCapabilityState, readKbRootOverride,
+  readMailWatermark, writeCapabilityState, writeKbRootOverride, writeMailWatermark,
 } from './root-store.ts'
 export type { CapabilityRecord } from './root-store.ts'
 export { appendToLogSection, logBullet, replaceStateSection } from './splice.ts'

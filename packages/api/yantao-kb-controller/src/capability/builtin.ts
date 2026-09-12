@@ -6,7 +6,7 @@
  * next to the ones they create, and the 「新建能力」 scaffold has working
  * siblings to learn from. Seeding is lazy (called at the top of
  * `capabilityList`/`capabilityRun`), copy-on-missing, and version-driven: a
- * master whose `metadata.yantao.version` is newer than the seeded copy's
+ * master whose declared `version` is newer than the seeded copy's
  * overwrites it, so bug fixes in the shipped scripts actually reach the KB.
  *
  * Discovery is cwd-driven per lookup (`ctx.skills.get(name, { cwd: kbRoot })`
@@ -34,13 +34,21 @@ function builtinRoot(): string {
 }
 
 /**
- * A master's declared version, read straight out of its SKILL.md frontmatter
- * (`metadata.yantao.version`). A directory without a readable version counts
- * as 0, so a versioned master always wins over an unversioned leftover.
+ * A master's declared version, read out of its `yantao.json` sidecar first
+ * (`version` field) and out of the legacy SKILL.md frontmatter
+ * (`metadata.yantao.version`) second. A directory without a readable version
+ * counts as 0, so a versioned master always wins over an unversioned leftover.
  * @param directory - the capability directory to read.
  * @returns the declared version, or 0.
  */
 function manifestVersion(directory: string): number {
+  try {
+    const sidecar: unknown = JSON.parse(readFileSync(join(directory, 'yantao.json'), 'utf8'))
+    const version = (sidecar as { version?: unknown }).version
+    if (typeof version === 'number' && Number.isInteger(version) && version >= 0) return version
+  } catch {
+    // No sidecar (or an unreadable one): the frontmatter fallback decides.
+  }
   try {
     const match = /^\s*version:\s*(\d+)\s*$/m.exec(readFileSync(join(directory, 'SKILL.md'), 'utf8'))
     return match === null ? 0 : Number(match[1])

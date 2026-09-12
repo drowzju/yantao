@@ -282,13 +282,16 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('openExternal') openExternal(target: string): Promise<KbOpenExternalResult>
 
 /**
- * Move the mail connector's watermark (ADR-0019): everything at or before
- * `lastReadAt` has been seen, so the next `mailFetch` starts after it.
+ * Move the mail capability's processed range (ADR-0019): everything at or
+ * before `lastReadAt` has been seen, so the next `mailFetch` starts after
+ * it; `firstReadAt` names the oldest mail of the batch just dealt with and
+ * is kept as the minimum ever seen, so the UI can show the processed range
+ * (e.g. 2025-12-31 到 2026-01-31) without re-deriving it.
  *
  * The cursor lives in `~/.dsh`, next to the KB root it was read for, and
  * never in the KB itself — that is markdown for humans.
- * @param args - the stamp to store; defaults to now.
- * @returns the watermark as it now stands.
+ * @param args - the stamps to store; `lastReadAt` defaults to now.
+ * @returns the processed range as it now stands.
  */
 @Remote('mailMarkRead') async mailMarkRead(args: KbMailMarkReadArgs): Promise<KbMailMarkReadResult>
 
@@ -297,7 +300,8 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * seam, the mail connector's and the extractor's subprocess pattern
  * generalized. The capability is resolved through `ctx.skills` (the
  * skill-filesystem provider discovers the directories; this controller only
- * consumes the winner), its `metadata.yantao` declaration picks the entry
+ * consumes the winner), its `yantao.json` declaration (legacy
+ * `metadata.yantao` frontmatter accepted) picks the entry
  * script, and the run is one Python subprocess with a JSON stdin/stdout
  * contract (`capability/run.ts`).
  *
@@ -316,7 +320,8 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 /**
  * List the capabilities the workbench's 能力 tab shows (ADR-0021 决定 8):
  * every skill `ctx.skills` discovers at the KB root that declares a
- * `metadata.yantao` entry — plain skills without one are not capabilities
+ * capability manifest (`yantao.json` sidecar, legacy `metadata.yantao`
+ * frontmatter accepted) — plain skills without one are not capabilities
  * and are skipped, not errors. Shipped capabilities are seeded first, so a
  * fresh KB answers with 邮件 and 读书 on its very first open.
  *
@@ -329,25 +334,11 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('capabilityList') async capabilityList(): Promise<KbCapabilityListResult>
 
 /**
- * Add one directory to the capability search path (ADR-0021 决定 8's
- * 「添加目录」): the human points the workbench at a folder of capability
- * directories they manage outside the KB, and from then on `ctx.skills`
- * discovers them like any other root.
- *
- * The list persists in `~/.dsh/yantao-kb.json` (`capabilityDirs`) and this
- * controller re-registers its single provider over it — see
- * `registerCapabilityDirs` for why there is exactly one.
- * @param path - absolute path of the directory to add.
- * @returns the full list of registered directories as it now stands.
- */
-@Remote('capabilityRegisterDir') async capabilityRegisterDir(path: string): Promise<KbCapabilityRegisterDirResult>
-
-/**
  * Scaffold a new capability directory (ADR-0021 决定 8's 「新建能力」):
- * `<kbRoot>/.dsh/skills/<name>/` with a SKILL.md frontmatter that already
- * declares the host entry, and an entry script that speaks the run protocol
- * and echoes its input — a working capability on the first run, for the
- * human to grow into theirs.
+ * `<kbRoot>/.dsh/skills/<name>/` with a clean SKILL.md, a `yantao.json`
+ * sidecar that declares the host entry, and an entry script that speaks the
+ * run protocol and echoes its input — a working capability on the first
+ * run, for the human to grow into theirs.
  * @param args - the capability's name (kebab-case; it becomes the skill name).
  * @returns the KB-relative path of the scaffolded directory.
  */

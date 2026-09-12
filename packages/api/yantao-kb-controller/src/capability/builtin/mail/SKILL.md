@@ -2,13 +2,6 @@
 name: mail
 description: 读取本地 Outlook 桌面客户端的邮件，按断点增量拉取最新邮件列表。
 disable-model-invocation: true
-metadata:
-  yantao:
-    entry: scripts/entry.py
-    runtime: python
-    version: 1
-    appliesTo:
-      external: ['mailbox']
 ---
 
 # 邮件能力
@@ -16,6 +9,9 @@ metadata:
 yantao 工作台的邮件能力（ADR-0019 建立，ADR-0021 迁移为能力目录）。它挂到当前已登录的
 经典 Outlook 桌面版 profile 上（pywin32/COM），按人的断点增量读取邮件，交给工作台的
 分析流程；断点只在人批准写库后推进。
+
+能力声明（入口、运行时、appliesTo）在本目录的 `yantao.json`，不在本文件里——
+SKILL.md 保持纯净，方便直接复用开源 skill 目录。
 
 ## 执行契约
 

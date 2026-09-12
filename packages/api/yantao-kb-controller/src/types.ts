@@ -287,12 +287,16 @@ export interface KbMailFetchResult {
 export interface KbMailMarkReadArgs {
   /** The new watermark: the newest mail that has been read. Defaults to now. */
   readonly lastReadAt?: string
+  /** The oldest mail of the batch just dealt with; the range's start, kept as the minimum ever seen. */
+  readonly firstReadAt?: string
 }
 
 /** Result of `yantaoKb.mailMarkRead` (ADR-0019). */
 export interface KbMailMarkReadResult {
   /** The watermark as it now stands. */
   readonly lastReadAt: string
+  /** The oldest mail ever processed, when it is known — the range's start. */
+  readonly firstReadAt?: string
 }
 
 /** Parameters of `yantaoKb.registerResource` (ADR-0020): the drag-and-drop intake. */
@@ -401,12 +405,6 @@ export interface KbCapabilitySummary {
 export interface KbCapabilityListResult {
   /** The capabilities, in discovery order. */
   readonly capabilities: readonly KbCapabilitySummary[]
-}
-
-/** Result of `yantaoKb.capabilityRegisterDir` (ADR-0021 决定 8's 「添加目录」). */
-export interface KbCapabilityRegisterDirResult {
-  /** The full list of registered capability directories as it now stands. */
-  readonly directories: readonly string[]
 }
 
 /** Parameters of `yantaoKb.capabilityCreate` (ADR-0021 决定 8's 「新建能力」). */

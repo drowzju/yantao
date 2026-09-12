@@ -53,6 +53,18 @@ describe('yantaoKb.mailMarkRead', () => {
       .toEqual({ lastReadAt: '2026-09-09T10:00:00.000Z' })
   })
 
+  it('answers the merged range when a firstReadAt is named', async () => {
+    expect(await ctx.yantaoKbController.mailMarkRead({
+      lastReadAt: '2026-01-31T00:00:00.000Z',
+      firstReadAt: '2025-12-31T00:00:00.000Z',
+    })).toEqual({ lastReadAt: '2026-01-31T00:00:00.000Z', firstReadAt: '2025-12-31T00:00:00.000Z' })
+    // A later batch keeps the earliest start and moves the end.
+    expect(await ctx.yantaoKbController.mailMarkRead({
+      lastReadAt: '2026-09-11T09:00:00.000Z',
+      firstReadAt: '2026-08-01T00:00:00.000Z',
+    })).toEqual({ lastReadAt: '2026-09-11T09:00:00.000Z', firstReadAt: '2025-12-31T00:00:00.000Z' })
+  })
+
   it('defaults the stamp to now', async () => {
     const { lastReadAt } = await ctx.yantaoKbController.mailMarkRead({})
     expect(Math.abs(Date.now() - Date.parse(lastReadAt))).toBeLessThan(60_000)

@@ -20,7 +20,7 @@ import type {
   SessionPromptValue, SessionRenameRequest, SessionRenameValue,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {
-  KbCapabilityCreateArgs, KbCapabilityCreateResult, KbCapabilityListResult, KbCapabilityRegisterDirResult,
+  KbCapabilityCreateArgs, KbCapabilityCreateResult, KbCapabilityListResult,
   KbCapabilityRunArgs, KbCapabilityRunResult, KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
   KbDeleteFileResult, KbExtractResult, KbFileContent, KbLinksResult,
   KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
@@ -52,8 +52,6 @@ export interface KbRemote {
   capabilityList(): Promise<RemoteResult<KbCapabilityListResult>>
   /** Run one capability's entry script (ADR-0021). */
   capabilityRun(args: KbCapabilityRunArgs): Promise<RemoteResult<KbCapabilityRunResult>>
-  /** Register one capability directory (ADR-0021 决定 8's 「添加目录」). */
-  capabilityRegisterDir(path: string): Promise<RemoteResult<KbCapabilityRegisterDirResult>>
   /** Scaffold one new capability under `.dsh/skills/` (ADR-0021 决定 8's 「新建能力」). */
   capabilityCreate(args: KbCapabilityCreateArgs): Promise<RemoteResult<KbCapabilityCreateResult>>
   /** Copy one dropped file into `resources/` (ADR-0020). */
@@ -124,9 +122,6 @@ export type ResourceExtractor = (path: string) => Promise<KbExtractResult>
 
 /** List the registered capabilities (ADR-0021). */
 export type CapabilityLoader = () => Promise<KbCapabilityListResult>
-
-/** Register one capability directory (ADR-0021 决定 8's 「添加目录」). */
-export type CapabilityDirRegistrar = (path: string) => Promise<KbCapabilityRegisterDirResult>
 
 /** Scaffold one new capability under `.dsh/skills/` (ADR-0021 决定 8's 「新建能力」). */
 export type CapabilityCreator = (name: string) => Promise<KbCapabilityCreateResult>
@@ -451,18 +446,6 @@ export async function runCapability(ctx: Context, args: KbCapabilityRunArgs): Pr
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.capabilityRun(args))
-}
-
-/**
- * Register one capability directory (ADR-0021 决定 8's 「添加目录」).
- * @param ctx - client root context.
- * @param path - the absolute directory to register.
- * @returns the full directory list as it now stands.
- */
-export async function registerCapabilityDir(ctx: Context, path: string): Promise<KbCapabilityRegisterDirResult> {
-  const kb = kbRemoteOf(ctx)
-  if (kb === undefined) throw missing()
-  return unwrapRemote(await kb.capabilityRegisterDir(path))
 }
 
 /**

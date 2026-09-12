@@ -18,22 +18,26 @@ SKILL.md 加资源文件，模型按需加载正文。能力借它的**目录形
 
 1. **能力 = skill 目录 + 声明式宿主入口**。一个能力是一个合法的 dsh skill 目录：
    `SKILL.md`（指令正文，供人读与未来模型读）+ `scripts/`（宿主可执行入口）。能力层声明
-   放在 frontmatter 的 `metadata.yantao` 段——skill-filesystem 只保留 frontmatter 的
-   `metadata` 键，顶层自定义键会被丢弃，所以必须嵌在这里（不影响 skill 本身的语义）：
+   放在目录根的 **`yantao.json` sidecar**（2026-09-12 修订：初版放在 frontmatter 的
+   `metadata.yantao` 段，但那要求改写 SKILL.md——开源 skill 目录就没法原样拷进来当能力用；
+   外带声明让"复用现成 skill 目录"零侵入。旧 frontmatter 声明仍被读取，作为兼容回退）：
 
-   ```yaml
-   metadata:
-     yantao:
-       entry: scripts/entry.py      # 宿主执行入口
-       runtime: python              # v1 仅 python
-       appliesTo:
-         resource: ['.epub', '.pdf']  # 按扩展名匹配资源文件
-         entity: ['project']          # 可作用于某类实体
-         external: ['mailbox']        # 或声明接某个外部源
+   ```json
+   {
+     "entry": "scripts/entry.py",       // 宿主执行入口
+     "runtime": "python",               // v1 仅 python
+     "version": 1,                      // 播种比对用（内置能力）
+     "appliesTo": {
+       "resource": [".epub", ".pdf"],   // 按扩展名匹配资源文件
+       "entity": ["project"],           // 可作用于某类实体
+       "external": ["mailbox"]          // 或声明接某个外部源
+     }
+   }
    ```
 
-   **"添加能力"因此有两种**：全新写一个（手建或脚手架生成目录），或注册一个下载好的
-   目录（往 `Config.customSkillDirs` 加路径）。不改 controller 代码就能装新能力——这是
+   **"添加能力"因此有两种**：全新写一个（手建或脚手架生成目录），或把一个下载好的
+   目录拷进某个 skill 根目录（`<kbRoot>/.dsh/skills/`、`~/.dsh/skills`，或配置层的
+   `Config.customSkillDirs`）。不改 controller 代码就能装新能力——这是
    选 skill 目录而不是"每个连接器一个 RPC"的根本原因。
 
 2. **仅人可调用**。能力一律 `modelInvocable: false`：`tool-skill` 继续禁用，能力目录不进
@@ -71,9 +75,11 @@ SKILL.md 加资源文件，模型按需加载正文。能力借它的**目录形
 8. **UI：连接 tab 改能力 tab**。清单 + 详情两态：清单列名称、来源目录、appliesTo 摘要、
    上次运行/断点摘要；详情态含描述、入口脚本、状态 JSON、运行按钮。邮箱作为
    `external: ['mailbox']` 能力出现在同一清单里，**没有特权区**——连接 tab 的旧语义被
-   完全吸收。添加：tab 上「添加目录」按钮（写配置）+「新建能力」脚手架（生成带注释模板的
+   完全吸收。添加：tab 上只有「新建能力」脚手架（生成带注释模板的
    SKILL.md + entry.py 存根，默认落项目 `.dsh/skills/`；不生成玩具示例——迁移后的邮件和
-   电子书就是最好的对照样本）。
+   电子书就是最好的对照样本）。装一个能力 = 把目录拷进 `<kbRoot>/.dsh/skills/`（或
+   `~/.dsh/skills`），发现机制自然拾取——「添加目录」按钮及其 `capabilityRegisterDir`
+   RPC 与 `capabilityDirs` 持久化在落地后退役：拷贝比注册更简单，且少一条写配置的通道。
 
 9. **拖入不弹询问**。拖放入库仍是纯复制（ADR-0020 决定 1 不动），应用能力永远是人后续
    主动点。入库和加工是两个决定，不耦合。
@@ -131,8 +137,12 @@ SKILL.md 加资源文件，模型按需加载正文。能力借它的**目录形
   默认不落库、断点推进、惰性抽取）被引用而非重写。
 - 词汇表「连接」条目改「能力」——**随代码落地一起改，不提前**（文档不能先于行为）。已随
   2026-09-12 的迁移落地：UI 页签、词汇表、README 对同步改齐。
-- 落地注记：控制器对持久化在 `~/.dsh/yantao-kb.json` 的 `capabilityDirs` 挂**一个**
-  `FileSystemSkillProvider`（名字 `yantao-capability-dirs`，变更时 dispose 后重注册），内置
-  mail/ebook 由 `ensureBuiltinCapabilities` 播种进 `<kbRoot>/.dsh/skills/`（按版本号比对，
-  人改过的更高版本不覆盖）。
+- 落地注记：内置 mail/ebook 由 `ensureBuiltinCapabilities` 播种进 `<kbRoot>/.dsh/skills/`
+  （按版本号比对，人改过的更高版本不覆盖）。初版曾对持久化在 `~/.dsh/yantao-kb.json` 的
+  `capabilityDirs` 挂一个 `FileSystemSkillProvider`（「添加目录」）；该机制已随决定 8 的
+  修订退役——安装能力只剩拷贝目录一条路。
+- 落地注记（2026-09-12，决定 1 修订）：声明改为目录根的 `yantao.json` sidecar，SKILL.md
+  不再被侵入；`manifestOf` 先读 sidecar、缺失时回退旧的 `metadata.yantao` frontmatter，
+  已播种的旧目录无需迁移。内置 mail/ebook 的 sidecar 版本升到 2，播种机制自动覆盖旧副本；
+  「新建能力」脚手架同样生成干净的 SKILL.md + sidecar。
 - 未做：模型可调用（白名单机制）、会话中执行、第二 runtime、多外部源登记、能力市场/签名。

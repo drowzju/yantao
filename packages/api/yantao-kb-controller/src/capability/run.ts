@@ -3,9 +3,12 @@
  * JSON object back — the mail connector's (ADR-0019) and the extractor's
  * (ADR-0020) pattern, generalized.
  *
- * A capability is a dsh skill directory whose frontmatter carries a
- * `metadata.yantao` declaration (`entry`/`runtime`/`appliesTo`); discovery is
- * `ctx.skills`' business, this module owns the contract between the host and
+ * A capability is a dsh skill directory whose declaration lives in a
+ * `yantao.json` sidecar at the directory root (`entry`/`runtime`/`appliesTo`) —
+ * out-of-band, so an open-source skill directory can be dropped in without
+ * touching its SKILL.md; the legacy `metadata.yantao` frontmatter section still
+ * answers when no sidecar is present. Discovery is `ctx.skills`' business, this
+ * module owns the contract between the host and
  * the entry script. The script reads one JSON object on stdin (`name`,
  * `kbRoot`, the caller's `input`, and the capability's previous `state`) and
  * answers with one JSON object on stdout: either
@@ -22,8 +25,8 @@
  * @module @deepseek-ai/dsh-api-yantao-kb-controller/capability
  */
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { resolve, sep } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join, resolve, sep } from 'node:path'
 import type { SpawnLike } from '../open.ts'
 import type { KbCapabilityArtifact as CapabilityArtifact } from '../types.ts'
 import type { SkillDefinition } from '@deepseek-ai/dsh-skill'
@@ -46,6 +49,16 @@ export interface CapabilityManifest {
   readonly runtime: 'python'
   /** What the capability accepts; absent means "offered from the capability tab only". */
   readonly appliesTo?: CapabilityAppliesTo
+}
+
+/** The `yantao.json` sidecar's shape: the same declaration, out-of-band. */
+interface CapabilitySidecar {
+  /** Entry script path, relative to the skill directory; must stay inside it. */
+  readonly entry?: unknown
+  /** The only runtime in v1. */
+  readonly runtime?: unknown
+  /** What the capability accepts. */
+  readonly appliesTo?: unknown
 }
 
 /** Why a capability run failed; the UI picks its wording and its remedy from this. */
@@ -95,8 +108,8 @@ const CAPABILITY_ERROR_MESSAGES: Readonly<Record<CapabilityErrorKind, string>> =
 
 /** Chinese remedy per failure kind. */
 export const CAPABILITY_HINTS: Readonly<Record<CapabilityErrorKind, string>> = {
-  'not-found': '请确认能力目录还在已注册的技能目录下，且 SKILL.md 的 frontmatter 完好。',
-  'bad-manifest': '请检查 SKILL.md 的 metadata.yantao 段：entry 指向目录内的 .py 脚本，runtime 为 python。',
+  'not-found': '请确认能力目录还在已注册的技能目录下，且 yantao.json（或 SKILL.md frontmatter）完好。',
+  'bad-manifest': '请检查能力目录的 yantao.json：entry 指向目录内的 .py 脚本，runtime 为 python。',
   'python-missing': '请安装 Python 3（安装时勾选 Add to PATH）。',
   timeout: '任务可能过大，请重试一次。',
   'bad-output': '请检查能力的入口脚本：stdout 必须是一个 JSON 对象。',
@@ -109,14 +122,45 @@ function fail(kind: CapabilityErrorKind, message?: string, hint?: string): Capab
   return new CapabilityError(kind, message ?? CAPABILITY_ERROR_MESSAGES[kind], hint ?? CAPABILITY_HINTS[kind])
 }
 
-/** Read and validate one skill definition's `metadata.yantao` declaration. */
-export function manifestOf(definition: SkillDefinition): CapabilityManifest {
+/**
+ * Read the `yantao.json` sidecar of one capability directory, when the
+ * definition names a local directory at all. A missing or unreadable sidecar
+ * answers `undefined` (the frontmatter fallback takes over); a sidecar that
+ * exists but is not a JSON object is a broken declaration, not a fallback.
+ * @param directory - the capability's local directory, when it has one.
+ * @param name - the capability's name, for the error message.
+ * @returns the parsed sidecar, or `undefined` when there is none.
+ */
+function sidecarOf(directory: string | undefined, name: string): CapabilitySidecar | undefined {
+  if (directory === undefined) return undefined
+  let raw: string
+  try {
+    raw = readFileSync(join(directory, 'yantao.json'), 'utf8')
+  } catch {
+    return undefined
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw fail('bad-manifest', `能力「${name}」的 yantao.json 不是合法 JSON。`)
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw fail('bad-manifest', `能力「${name}」的 yantao.json 必须是 JSON 对象。`)
+  }
+  return parsed
+}
+
+/** The legacy `metadata.yantao` frontmatter section of one skill definition. */
+function frontmatterOf(definition: SkillDefinition): unknown {
   const metadata = definition.metadata
-  const declared = typeof metadata === 'object'
-    ? (metadata as { yantao?: unknown }).yantao
-    : undefined
+  return typeof metadata === 'object' ? (metadata as { yantao?: unknown }).yantao : undefined
+}
+
+/** Assemble one manifest from a declaration, validating every field. */
+function manifestFrom(name: string, declared: unknown): CapabilityManifest {
   if (typeof declared !== 'object' || declared === null) {
-    throw fail('bad-manifest', `能力「${definition.name}」的 SKILL.md 没有 metadata.yantao 声明。`)
+    throw fail('bad-manifest', `能力「${name}」没有能力声明（yantao.json 或 SKILL.md 的 metadata.yantao 段）。`)
   }
   const { entry, runtime, appliesTo } = declared as {
     entry?: unknown
@@ -124,12 +168,24 @@ export function manifestOf(definition: SkillDefinition): CapabilityManifest {
     appliesTo?: unknown
   }
   if (typeof entry !== 'string' || entry === '') {
-    throw fail('bad-manifest', `能力「${definition.name}」的声明缺少 entry。`, CAPABILITY_HINTS['bad-manifest'])
+    throw fail('bad-manifest', `能力「${name}」的声明缺少 entry。`, CAPABILITY_HINTS['bad-manifest'])
   }
   if (runtime !== 'python') {
-    throw fail('bad-manifest', `能力「${definition.name}」的 runtime 只支持 python，声明的是 ${String(runtime)}。`)
+    throw fail('bad-manifest', `能力「${name}」的 runtime 只支持 python，声明的是 ${String(runtime)}。`)
   }
-  return { entry, runtime, ...appliesTo !== undefined ? { appliesTo: appliesToOf(definition.name, appliesTo) } : {} }
+  return { entry, runtime, ...appliesTo !== undefined ? { appliesTo: appliesToOf(name, appliesTo) } : {} }
+}
+
+/**
+ * Read and validate one skill definition's capability declaration: the
+ * `yantao.json` sidecar in the capability directory when it exists (the
+ * out-of-band form, so an unmodified open-source skill directory works),
+ * falling back to the legacy `metadata.yantao` frontmatter section.
+ */
+export function manifestOf(definition: SkillDefinition): CapabilityManifest {
+  const directory = definition.resourceBase?.kind === 'directory' ? definition.resourceBase.path : undefined
+  const sidecar = sidecarOf(directory, definition.name)
+  return manifestFrom(definition.name, sidecar ?? frontmatterOf(definition))
 }
 
 /** Validate one `appliesTo` value; unknown shapes are refused, not coerced. */
@@ -167,7 +223,7 @@ function suffixList(name: string, key: string, value: unknown): readonly string[
 /**
  * Resolve one skill definition into a runnable capability: its manifest, the
  * skill directory it lives in, and the entry script's absolute path — which
- * must stay inside that directory, whatever the frontmatter says.
+ * must stay inside that directory, whatever the declaration says.
  * @param definition - the winning skill definition from `ctx.skills.get`.
  * @returns the manifest, the skill directory, and the entry's absolute path.
  */

@@ -3052,31 +3052,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'mailMarkRead\') async mailMarkRead(args: KbMailMarkReadArgs): Promise<KbMailMarkReadResult>',
-        description: 'Move the mail connector\'s watermark (ADR-0019): everything at or before `lastReadAt` has been seen, so the next `mailFetch` starts after it.\n\nThe cursor lives in `~/.dsh`, next to the KB root it was read for, and never in the KB itself — that is markdown for humans.',
-        parameters: [{ name: 'args', description: 'the stamp to store; defaults to now.' }],
-        returns: 'the watermark as it now stands.',
+        description: 'Move the mail capability\'s processed range (ADR-0019): everything at or before `lastReadAt` has been seen, so the next `mailFetch` starts after it; `firstReadAt` names the oldest mail of the batch just dealt with and is kept as the minimum ever seen, so the UI can show the processed range (e.g. 2025-12-31 到 2026-01-31) without re-deriving it.\n\nThe cursor lives in `~/.dsh`, next to the KB root it was read for, and never in the KB itself — that is markdown for humans.',
+        parameters: [{ name: 'args', description: 'the stamps to store; `lastReadAt` defaults to now.' }],
+        returns: 'the processed range as it now stands.',
       },
       {
         signature: '@Remote(\'capabilityRun\') async capabilityRun(args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult>',
-        description: 'Run one capability\'s host entry (ADR-0021) — the human channel\'s execution seam, the mail connector\'s and the extractor\'s subprocess pattern generalized. The capability is resolved through `ctx.skills` (the skill-filesystem provider discovers the directories; this controller only consumes the winner), its `metadata.yantao` declaration picks the entry script, and the run is one Python subprocess with a JSON stdin/stdout contract (`capability/run.ts`).\n\nThe controller, not the script, owns every write: artifacts land under `.yantao/capabilities/<name>/` at paths the script cannot choose, and the returned state is persisted under `capabilities.<name>.state` in `~/.dsh/yantao-kb.json` — metadata outside the KB, which stays markdown for humans. Execution exists only here, before a session: the agent gets no `kb_run_capability` tool (ADR-0021 取舍台账第 2 条).',
+        description: 'Run one capability\'s host entry (ADR-0021) — the human channel\'s execution seam, the mail connector\'s and the extractor\'s subprocess pattern generalized. The capability is resolved through `ctx.skills` (the skill-filesystem provider discovers the directories; this controller only consumes the winner), its `yantao.json` declaration (legacy `metadata.yantao` frontmatter accepted) picks the entry script, and the run is one Python subprocess with a JSON stdin/stdout contract (`capability/run.ts`).\n\nThe controller, not the script, owns every write: artifacts land under `.yantao/capabilities/<name>/` at paths the script cannot choose, and the returned state is persisted under `capabilities.<name>.state` in `~/.dsh/yantao-kb.json` — metadata outside the KB, which stays markdown for humans. Execution exists only here, before a session: the agent gets no `kb_run_capability` tool (ADR-0021 取舍台账第 2 条).',
         parameters: [{ name: 'args', description: 'the capability\'s skill name and the caller\'s input, handed to the entry script verbatim.' }],
         returns: 'what the run answered, when it ran, and which artifact paths were written.',
       },
       {
         signature: '@Remote(\'capabilityList\') async capabilityList(): Promise<KbCapabilityListResult>',
-        description: 'List the capabilities the workbench\'s 能力 tab shows (ADR-0021 决定 8): every skill `ctx.skills` discovers at the KB root that declares a `metadata.yantao` entry — plain skills without one are not capabilities and are skipped, not errors. Shipped capabilities are seeded first, so a fresh KB answers with 邮件 and 读书 on its very first open.\n\nEach row merges the skill\'s declaration with the persisted record (`capabilities.<name>` in `~/.dsh/yantao-kb.json`): when it last ran and the state that run left behind, so the panel can show a real 断点 without running anything.',
+        description: 'List the capabilities the workbench\'s 能力 tab shows (ADR-0021 决定 8): every skill `ctx.skills` discovers at the KB root that declares a capability manifest (`yantao.json` sidecar, legacy `metadata.yantao` frontmatter accepted) — plain skills without one are not capabilities and are skipped, not errors. Shipped capabilities are seeded first, so a fresh KB answers with 邮件 and 读书 on its very first open.\n\nEach row merges the skill\'s declaration with the persisted record (`capabilities.<name>` in `~/.dsh/yantao-kb.json`): when it last ran and the state that run left behind, so the panel can show a real 断点 without running anything.',
         parameters: [],
         returns: 'the capability summaries, in discovery order.',
       },
       {
-        signature: '@Remote(\'capabilityRegisterDir\') async capabilityRegisterDir(path: string): Promise<KbCapabilityRegisterDirResult>',
-        description: 'Add one directory to the capability search path (ADR-0021 决定 8\'s 「添加目录」): the human points the workbench at a folder of capability directories they manage outside the KB, and from then on `ctx.skills` discovers them like any other root.\n\nThe list persists in `~/.dsh/yantao-kb.json` (`capabilityDirs`) and this controller re-registers its single provider over it — see `registerCapabilityDirs` for why there is exactly one.',
-        parameters: [{ name: 'path', description: 'absolute path of the directory to add.' }],
-        returns: 'the full list of registered directories as it now stands.',
-      },
-      {
         signature: '@Remote(\'capabilityCreate\') async capabilityCreate(args: KbCapabilityCreateArgs): Promise<KbCapabilityCreateResult>',
-        description: 'Scaffold a new capability directory (ADR-0021 决定 8\'s 「新建能力」): `<kbRoot>/.dsh/skills/<name>/` with a SKILL.md frontmatter that already declares the host entry, and an entry script that speaks the run protocol and echoes its input — a working capability on the first run, for the human to grow into theirs.',
+        description: 'Scaffold a new capability directory (ADR-0021 决定 8\'s 「新建能力」): `<kbRoot>/.dsh/skills/<name>/` with a clean SKILL.md, a `yantao.json` sidecar that declares the host entry, and an entry script that speaks the run protocol and echoes its input — a working capability on the first run, for the human to grow into theirs.',
         parameters: [{ name: 'args', description: 'the capability\'s name (kebab-case; it becomes the skill name).' }],
         returns: 'the KB-relative path of the scaffolded directory.',
       },
@@ -4535,10 +4529,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbCapabilityListResult {\n    readonly capabilities: readonly KbCapabilitySummary[];\n}',
   },
   {
-    name: 'KbCapabilityRegisterDirResult',
-    declaration: 'export interface KbCapabilityRegisterDirResult {\n    readonly directories: readonly string[];\n}',
-  },
-  {
     name: 'KbCapabilityRunArgs',
     declaration: 'export interface KbCapabilityRunArgs {\n    readonly name: string;\n    readonly input?: JsonValue;\n}',
   },
@@ -4576,11 +4566,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbMailMarkReadArgs',
-    declaration: 'export interface KbMailMarkReadArgs {\n    readonly lastReadAt?: string;\n}',
+    declaration: 'export interface KbMailMarkReadArgs {\n    readonly lastReadAt?: string;\n    readonly firstReadAt?: string;\n}',
   },
   {
     name: 'KbMailMarkReadResult',
-    declaration: 'export interface KbMailMarkReadResult {\n    readonly lastReadAt: string;\n}',
+    declaration: 'export interface KbMailMarkReadResult {\n    readonly lastReadAt: string;\n    readonly firstReadAt?: string;\n}',
   },
   {
     name: 'KbOpenExternalResult',

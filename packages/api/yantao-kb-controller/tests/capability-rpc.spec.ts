@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type { SkillDefinition, SkillRegistry } from '@deepseek-ai/dsh-skill'
 import {
-  readCapabilityDirs, readCapabilityState, writeKbRootOverride, type YantaoKbService,
+  readCapabilityState, writeKbRootOverride, type YantaoKbService,
 } from '@deepseek-ai/dsh-yantao-kb'
 import YantaoKbController from '../src/index.ts'
 
@@ -223,36 +223,21 @@ describe('yantaoKb.capabilityList', () => {
   })
 })
 
-describe('yantaoKb.capabilityRegisterDir', () => {
-  it('registers a directory, persists it, and answers the full list', async () => {
-    const dir = join(home, '我的能力')
-    await mkdir(dir, { recursive: true })
-    expect(await ctx.yantaoKbController.capabilityRegisterDir(dir)).toEqual({ directories: [dir] })
-    expect(readCapabilityDirs()).toEqual([dir])
-    // A second registration of the same directory dedupes rather than doubling.
-    expect((await ctx.yantaoKbController.capabilityRegisterDir(dir)).directories).toEqual([dir])
-  })
-
-  it('refuses a relative path, a missing directory, and a plain file', async () => {
-    const relative = await ctx.yantaoKbController.capabilityRegisterDir('skills').catch((error: unknown) => error)
-    expect(remoteErrorOf(relative)).toMatchObject({ code: 'yantao-kb/rejected' })
-    const missing = await ctx.yantaoKbController.capabilityRegisterDir(join(home, '不存在')).catch((error: unknown) => error)
-    expect(remoteErrorOf(missing)).toMatchObject({ code: 'yantao-kb/rejected' })
-    const file = join(home, 'file.txt')
-    await writeFile(file, 'x', 'utf8')
-    const notDir = await ctx.yantaoKbController.capabilityRegisterDir(file).catch((error: unknown) => error)
-    expect(remoteErrorOf(notDir)).toMatchObject({ code: 'yantao-kb/rejected' })
-  })
-})
-
 describe('yantaoKb.capabilityCreate', () => {
   it('scaffolds a working capability directory and settles it into the registry', async () => {
     const result = await ctx.yantaoKbController.capabilityCreate({ name: 'daily-note' })
     expect(result.path).toBe('.dsh/skills/daily-note')
-    const skillMd = await readFile(join(home, '.dsh', 'skills', 'daily-note', 'SKILL.md'), 'utf8')
+    const directory = join(home, '.dsh', 'skills', 'daily-note')
+    // The SKILL.md stays clean; the declaration lives in the sidecar.
+    const skillMd = await readFile(join(directory, 'SKILL.md'), 'utf8')
     expect(skillMd).toContain('name: daily-note')
-    expect(skillMd).toMatch(/yantao:/)
-    expect(await readFile(join(home, '.dsh', 'skills', 'daily-note', 'scripts', 'entry.py'), 'utf8'))
+    expect(skillMd).not.toMatch(/yantao:/)
+    expect(JSON.parse(await readFile(join(directory, 'yantao.json'), 'utf8'))).toMatchObject({
+      entry: 'scripts/entry.py',
+      runtime: 'python',
+      version: 1,
+    })
+    expect(await readFile(join(directory, 'scripts', 'entry.py'), 'utf8'))
       .toMatch(/json\.load/)
     // The scaffold was probed into the registry, so the panel's next list sees it.
     expect(skillList).toHaveBeenCalledWith({ cwd: home })
@@ -297,5 +282,43 @@ describe('capability manifests', () => {
     expect(() => manifestOf(definition({
       metadata: { yantao: { entry: 'scripts/entry.py', runtime: 'python', appliesTo: { resource: ['epub'] } } },
     }))).toThrow(/带点的扩展名/)
+  })
+
+  it('reads the declaration from the yantao.json sidecar, frontmatter untouched', async () => {
+    const { manifestOf } = await import('../src/capability/run.ts')
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
+      entry: 'scripts/entry.py',
+      runtime: 'python',
+      appliesTo: { external: ['mailbox'] },
+    }), 'utf8')
+    // No `metadata.yantao` at all — the sidecar alone makes it a capability.
+    const manifest = manifestOf(definition({ metadata: {} }))
+    expect(manifest).toEqual({
+      entry: 'scripts/entry.py',
+      runtime: 'python',
+      appliesTo: { external: ['mailbox'] },
+    })
+  })
+
+  it('prefers the sidecar over the frontmatter when both declare', async () => {
+    const { manifestOf } = await import('../src/capability/run.ts')
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
+      entry: 'scripts/other.py', runtime: 'python',
+    }), 'utf8')
+    await writeFile(join(skillDir, 'scripts', 'other.py'), 'print(2)', 'utf8')
+    const manifest = manifestOf(definition())
+    expect(manifest.entry).toBe('scripts/other.py')
+  })
+
+  it('refuses a sidecar that is not valid JSON instead of falling back', async () => {
+    const { manifestOf } = await import('../src/capability/run.ts')
+    await writeFile(join(skillDir, 'yantao.json'), '{ not json', 'utf8')
+    expect(() => manifestOf(definition())).toThrow(/不是合法 JSON/)
+  })
+
+  it('refuses a sidecar without an entry', async () => {
+    const { manifestOf } = await import('../src/capability/run.ts')
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ runtime: 'python' }), 'utf8')
+    expect(() => manifestOf(definition({ metadata: {} }))).toThrow(/缺少 entry/)
   })
 })

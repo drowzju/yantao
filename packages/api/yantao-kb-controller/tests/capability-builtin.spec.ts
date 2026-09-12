@@ -14,10 +14,10 @@ afterEach(async () => {
   await rm(kbRoot, { recursive: true, force: true })
 })
 
-/** The version line the master SKILL.md carries, for writing older/newer seeded copies. */
+/** The version the seeded copy declares, for writing older/newer seeded copies. */
 async function seededVersion(name: string): Promise<number> {
-  const skillMd = await readFile(join(kbRoot, '.dsh', 'skills', name, 'SKILL.md'), 'utf8')
-  return Number(/version:\s*(\d+)/.exec(skillMd)?.[1] ?? 0)
+  const sidecar = await readFile(join(kbRoot, '.dsh', 'skills', name, 'yantao.json'), 'utf8')
+  return (JSON.parse(sidecar) as { version?: number }).version ?? 0
 }
 
 describe('ensureBuiltinCapabilities', () => {
@@ -38,22 +38,33 @@ describe('ensureBuiltinCapabilities', () => {
 
   it('overwrites an older seeded copy when the master is newer', async () => {
     ensureBuiltinCapabilities(kbRoot)
-    // A seeded copy from an older ship: version 0 has no version line at all.
+    // A seeded copy from an older ship: version 0 has no declaration at all.
     const target = join(kbRoot, '.dsh', 'skills', 'mail')
     await rm(target, { recursive: true, force: true })
     await mkdir(target, { recursive: true })
     await writeFile(join(target, 'SKILL.md'), '---\nname: mail\ndescription: 旧版\n---\n', 'utf8')
     expect(ensureBuiltinCapabilities(kbRoot)).toContain('mail')
-    expect(await seededVersion('mail')).toBe(1)
+    expect(await seededVersion('mail')).toBe(2)
     expect(await readFile(join(target, 'scripts', 'entry.py'), 'utf8')).toMatch(/json\.load/)
+  })
+
+  it('overwrites a legacy frontmatter-declared copy whose version is older than the sidecar\'s', async () => {
+    ensureBuiltinCapabilities(kbRoot)
+    // A seeded copy from before the sidecar: the version lives in SKILL.md.
+    const target = join(kbRoot, '.dsh', 'skills', 'mail')
+    const skillMd = await readFile(join(target, 'SKILL.md'), 'utf8')
+    await rm(join(target, 'yantao.json'), { force: true })
+    await writeFile(join(target, 'SKILL.md'), `${skillMd}version: 1\n`, 'utf8')
+    expect(ensureBuiltinCapabilities(kbRoot)).toContain('mail')
+    expect(await seededVersion('mail')).toBe(2)
   })
 
   it('leaves a newer human-edited copy alone even when the master changes', async () => {
     ensureBuiltinCapabilities(kbRoot)
     const target = join(kbRoot, '.dsh', 'skills', 'mail')
     // The human bumped their own copy past the shipped version.
-    const skillMd = await readFile(join(target, 'SKILL.md'), 'utf8')
-    await writeFile(join(target, 'SKILL.md'), skillMd.replace('version: 1', 'version: 9'), 'utf8')
+    const sidecar = await readFile(join(target, 'yantao.json'), 'utf8')
+    await writeFile(join(target, 'yantao.json'), sidecar.replace('"version": 2', '"version": 9'), 'utf8')
     expect(ensureBuiltinCapabilities(kbRoot)).toEqual([])
     expect(await seededVersion('mail')).toBe(9)
   })

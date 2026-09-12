@@ -2,13 +2,6 @@
 name: ebook
 description: 把一份资源文件（pdf/epub/doc/docx/ppt/pptx/txt/md）抽成纯文本，缓存进知识库供读书项目分页读取。
 disable-model-invocation: true
-metadata:
-  yantao:
-    entry: scripts/entry.py
-    runtime: python
-    version: 1
-    appliesTo:
-      resource: ['.txt', '.md', '.pdf', '.epub', '.doc', '.docx', '.ppt', '.pptx']
 ---
 
 # 电子书抽取能力
@@ -16,6 +9,9 @@ metadata:
 yantao 工作台的资源抽取能力（ADR-0020 建立，ADR-0021 迁移为能力目录）。它把
 `resources/` 下的一份原始材料抽成纯文本，缓存到知识库的 `.yantao/extracts/` 下，
 供读书项目（`kb_read_resource`）分页读取；缓存即幂等，重复应用同一资源直接命中。
+
+能力声明（入口、运行时、appliesTo）在本目录的 `yantao.json`，不在本文件里——
+SKILL.md 保持纯净，方便直接复用开源 skill 目录。
 
 ## 执行契约
 

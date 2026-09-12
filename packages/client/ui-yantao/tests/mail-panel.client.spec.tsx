@@ -81,6 +81,37 @@ describe('MailPanel', () => {
     expect(screen.getByText(/Outlook（COM 子进程）/)).toBeTruthy()
   })
 
+  it('shows the processed range from the capability\'s state, and extends it after a verdict', async () => {
+    const panel = props({
+      processed: { firstReadAt: '2025-12-31T00:00:00+00:00', lastReadAt: '2026-01-31T00:00:00+00:00' },
+      mark: vi.fn(async () => ({ lastReadAt: '2026-09-09T10:00:00+00:00', firstReadAt: '2025-12-31T00:00:00+00:00' })),
+    })
+    render(<MailPanel {...panel} />)
+    expect(screen.getByText('已处理：2025-12-31 到 2026-01-31')).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('往后 →'))
+    })
+    await screen.findByText(/1 封 · /)
+    // The read itself does not move the cursor; the range still says 1 月底.
+    expect(screen.getByText('已处理：2025-12-31 到 2026-01-31')).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('分析这 1 封'))
+    })
+    fireEvent.click(screen.getByText('全部接受'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('确认写入（4）'))
+    })
+    // The mark answer moves the range's end; the start stays the minimum.
+    expect(await screen.findByText('已处理：2025-12-31 到 2026-09-09')).toBeTruthy()
+  })
+
+  it('shows only the watermark when the range\'s start is unknown', () => {
+    render(<MailPanel {...props({ processed: { lastReadAt: '2026-01-31T00:00:00+00:00' } })} />)
+    expect(screen.getByText('已处理：2026-01-31')).toBeTruthy()
+  })
+
   it('reads the newest batch with 往后, and an older window with 往前', async () => {
     const fetch = vi.fn(async (_bounds?: { since?: string; until?: string }) => ({
       since: '2026-09-01T00:00:00.000Z', stale: false, hasMore: false, messages: MAILS,
@@ -182,8 +213,11 @@ describe('MailPanel', () => {
     }
     expect(todoArgs.expectedText).toBe(TEXT)
     expect(todoArgs.items.map(item => item.title)).toEqual(['已有的待办', '发汇报'])
-    // The cursor moves with the newest mail that was read.
-    expect(panel.mark).toHaveBeenCalledWith({ lastReadAt: '2026-09-09T10:00:00+00:00' })
+    // The cursor moves with the newest mail that was read; the oldest names the range's start.
+    expect(panel.mark).toHaveBeenCalledWith({
+      lastReadAt: '2026-09-09T10:00:00+00:00',
+      firstReadAt: '2026-09-09T10:00:00+00:00',
+    })
     expect(await screen.findByText(/人物 张三/)).toBeTruthy()
   })
 

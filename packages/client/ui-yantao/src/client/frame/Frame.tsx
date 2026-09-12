@@ -13,7 +13,7 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
-  CapabilityCreator, CapabilityDirRegistrar, CapabilityLoader, DirectoryPicker, EntityCreator, ExternalOpener,
+  CapabilityCreator, CapabilityLoader, DirectoryPicker, EntityCreator, ExternalOpener,
   FileDeleter, FileReader, FileWriter, LinksLoader,
   MailFetcher, MailMarker, RelationSetter, ResourceExtractor, ResourceRegistrar, RevisionLoader, RootLoader, RootSetter,
   TodoLoader, TodoWriter,
@@ -84,8 +84,6 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly extractResource: ResourceExtractor
   /** List the registered capabilities (ADR-0021). */
   readonly capabilityList: CapabilityLoader
-  /** Register one capability directory (「添加目录」). */
-  readonly capabilityRegisterDir: CapabilityDirRegistrar
   /** Scaffold one new capability (「新建能力」). */
   readonly capabilityCreate: CapabilityCreator
   /** Create a reading project — a `project` entity with `source:` set (ADR-0020). */
@@ -212,7 +210,7 @@ function DragHandle(props: {
 export function Frame({
   renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail,
-  registerResource, extractResource, capabilityList, capabilityRegisterDir, capabilityCreate, createReadingProject,
+  registerResource, extractResource, capabilityList, capabilityCreate, createReadingProject,
   readBook, confirmDomains, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
@@ -509,9 +507,7 @@ export function Frame({
           registerResource={registerResource}
           onCreateReading={openReading}
           capabilityList={capabilityList}
-          capabilityRegisterDir={capabilityRegisterDir}
           capabilityCreate={capabilityCreate}
-          pickDirectory={pickDirectory}
         />
       </div>
       <CenterPane

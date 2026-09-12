@@ -155,4 +155,23 @@ describe('writeMailWatermark', () => {
     await expect(writeMailWatermark('2026-09-10T08:30:00.000Z')).rejects.toThrow(/KB root/)
     expect(existsSync(kbRootStatePath())).toBe(false)
   })
+
+  it('keeps the earliest firstReadAt ever seen and answers the merged range', async () => {
+    await writeKbRootOverride(join(home, '知识库'))
+    expect(await writeMailWatermark('2026-01-31T00:00:00.000Z', '2025-12-31T00:00:00.000Z'))
+      .toEqual({ lastReadAt: '2026-01-31T00:00:00.000Z', firstReadAt: '2025-12-31T00:00:00.000Z' })
+
+    // A later batch that starts earlier extends the range backward…
+    await writeMailWatermark('2026-09-11T09:00:00.000Z', '2026-08-01T00:00:00.000Z')
+    // …and one that does not name a start leaves the minimum alone.
+    await writeMailWatermark('2026-09-12T10:00:00.000Z')
+
+    const persisted = JSON.parse(await readFile(kbRootStatePath(), 'utf8')) as {
+      capabilities: { mail: { state: { firstReadAt?: string; lastReadAt?: string } } }
+    }
+    expect(persisted.capabilities.mail.state).toEqual({
+      lastReadAt: '2026-09-12T10:00:00.000Z',
+      firstReadAt: '2025-12-31T00:00:00.000Z',
+    })
+  })
 })

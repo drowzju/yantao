@@ -10,7 +10,7 @@ import type {
   KbPersonRelation, KbTreeFile, KbTreeSection, KbTreeSectionId,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type {
-  CapabilityCreator, CapabilityDirRegistrar, CapabilityLoader, EntityCreator, FileDeleter, FileReader, FileWriter,
+  CapabilityCreator, CapabilityLoader, EntityCreator, FileDeleter, FileReader, FileWriter,
   MailFetcher, MailMarker, RelationSetter, ResourceRegistrar,
   TodoLoader, TodoWriter,
 } from './remote.ts'
@@ -18,7 +18,7 @@ import type { MailAnalyser } from './mail-analysis.ts'
 import type { MailWriteTarget } from './mail-apply.ts'
 import { entitiesOfTree } from './mail-apply.ts'
 import { CapabilityPanel } from './CapabilityPanel.tsx'
-import { MailPanel } from './MailPanel.tsx'
+import { MailPanel, mailRangeOf } from './MailPanel.tsx'
 import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { remoteMessage } from './remote.ts'
 import type { TabMode } from './tabs.ts'
@@ -519,12 +519,8 @@ export interface IntakeRailProps extends RailProps {
   readonly onCreateReading: (resourcePath: string) => void
   /** List the registered capabilities (ADR-0021). */
   readonly capabilityList: CapabilityLoader
-  /** Register one capability directory (「添加目录」). */
-  readonly capabilityRegisterDir: CapabilityDirRegistrar
   /** Scaffold one new capability (「新建能力」). */
   readonly capabilityCreate: CapabilityCreator
-  /** Open the host's native directory picker (「添加目录」's first half). */
-  readonly pickDirectory: () => Promise<string | null>
 }
 
 /** The rail's error marker: it is the only thing left above the tab strip. */
@@ -548,7 +544,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const {
     collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
     read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource,
-    onCreateReading, capabilityList, capabilityRegisterDir, capabilityCreate, pickDirectory,
+    onCreateReading, capabilityList, capabilityCreate,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector'>('resources')
@@ -653,16 +649,15 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
       {tab === 'connector' && (
         <CapabilityPanel
           load={capabilityList}
-          registerDir={capabilityRegisterDir}
           create={capabilityCreate}
-          pickDirectory={pickDirectory}
-          mail={() => (
+          mail={state => (
             <MailPanel
               fetch={mailFetch}
               mark={mailMarkRead}
               analyse={analyseMail}
               target={mailTarget}
               entities={async () => entitiesOfTree(await workspace())}
+              processed={mailRangeOf(state)}
             />
           )}
         />

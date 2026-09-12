@@ -96,9 +96,7 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     registerResource: () => Promise.resolve('resources/新资源.pdf'),
     onCreateReading: () => {},
     capabilityList: () => Promise.resolve({ capabilities: [] }),
-    capabilityRegisterDir: () => Promise.resolve({ directories: [] }),
     capabilityCreate: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
-    pickDirectory: () => Promise.resolve(null),
     ...overrides,
   }
 }
@@ -518,9 +516,7 @@ const CAPABILITIES: KbCapabilitySummary[] = [
 function capabilityProps(overrides: Partial<Parameters<typeof CapabilityPanel>[0]> = {}): Parameters<typeof CapabilityPanel>[0] {
   return {
     load: () => Promise.resolve({ capabilities: CAPABILITIES }),
-    registerDir: () => Promise.resolve({ directories: [] }),
     create: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
-    pickDirectory: () => Promise.resolve(null),
     mail: () => <div data-mail-stub="true">邮件面板</div>,
     ...overrides,
   }
@@ -532,7 +528,6 @@ describe('CapabilityPanel', () => {
     expect(await screen.findByText('mail')).toBeTruthy()
     expect(screen.getByText('读 Outlook 邮件')).toBeTruthy()
     expect(screen.getByText('ebook')).toBeTruthy()
-    expect(screen.getByText('+ 添加目录')).toBeTruthy()
     expect(screen.getByText('+ 新建能力')).toBeTruthy()
   })
 
@@ -543,29 +538,20 @@ describe('CapabilityPanel', () => {
     expect(screen.getByText('← 返回清单')).toBeTruthy()
   })
 
+  it('hands the capability\'s persisted state to the mail detail', async () => {
+    const capabilities = [{ ...CAPABILITIES[0], state: { lastReadAt: '2026-01-31T00:00:00+00:00' } }]
+    const mail = vi.fn(() => <div data-mail-stub="true">邮件面板</div>)
+    render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities }), mail })} />)
+    fireEvent.click(await screen.findByText('mail'))
+    await screen.findByText('邮件面板')
+    expect(mail).toHaveBeenCalledWith({ lastReadAt: '2026-01-31T00:00:00+00:00' })
+  })
+
   it('returns to the list from a detail', async () => {
     render(<CapabilityPanel {...capabilityProps()} />)
     fireEvent.click(await screen.findByText('ebook'))
     fireEvent.click(await screen.findByText('← 返回清单'))
     expect(await screen.findByText('mail')).toBeTruthy()
-  })
-
-  it('registers a picked directory through 添加目录 and reloads the list', async () => {
-    const registerDir = vi.fn(() => Promise.resolve({ directories: ['/caps'] }))
-    const pickDirectory = vi.fn(() => Promise.resolve('/caps'))
-    const load = vi.fn(() => Promise.resolve({ capabilities: CAPABILITIES }))
-    render(<CapabilityPanel {...capabilityProps({ registerDir, pickDirectory, load })} />)
-    fireEvent.click(await screen.findByText('+ 添加目录'))
-    await waitFor(() => { expect(registerDir).toHaveBeenCalledWith('/caps') })
-    expect(load).toHaveBeenCalledTimes(2)
-  })
-
-  it('registers nothing when the directory picker is cancelled', async () => {
-    const registerDir = vi.fn()
-    render(<CapabilityPanel {...capabilityProps({ registerDir })} />)
-    fireEvent.click(await screen.findByText('+ 添加目录'))
-    await waitFor(() => { expect(screen.getByText('+ 添加目录')).toBeTruthy() })
-    expect(registerDir).not.toHaveBeenCalled()
   })
 
   it('scaffolds a new capability through 新建能力 and opens its detail', async () => {
@@ -665,7 +651,6 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       registerResource={() => Promise.resolve('resources/新资源.pdf')}
       extractResource={() => Promise.resolve({ extractPath: '.yantao/extracts/x.txt', format: 'pdf', chars: 0, cached: false })}
       capabilityList={() => Promise.resolve({ capabilities: [] })}
-      capabilityRegisterDir={() => Promise.resolve({ directories: [] })}
       capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
       createReadingProject={() => Promise.resolve('entities/projects/读书-《新书》.md')}
       readBook={() => Promise.resolve({ sessionId: '', title: '', proposal: { domains: [] } })}
@@ -859,7 +844,6 @@ describe('Frame', () => {
         registerResource={() => Promise.resolve('resources/新资源.pdf')}
         extractResource={() => Promise.resolve({ extractPath: '.yantao/extracts/x.txt', format: 'pdf', chars: 0, cached: false })}
         capabilityList={() => Promise.resolve({ capabilities: [] })}
-        capabilityRegisterDir={() => Promise.resolve({ directories: [] })}
         capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
         createReadingProject={() => Promise.resolve('entities/projects/读书-《新书》.md')}
         readBook={() => Promise.resolve({ sessionId: '', title: '', proposal: { domains: [] } })}

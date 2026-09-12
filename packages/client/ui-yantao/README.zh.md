@@ -27,7 +27,7 @@ yantao 工作台自己的客户端插件。dsh 在这里只作**后端**：插�
 
 ## 理解实现
 
-插件刻意做得很薄：`remote.ts` 以防御式方式取 `yantaoKb` 命名空间（命名空间缺失是要报告的状态，不是崩溃），`Workbench.tsx` 是纯展示层，只吃普通数据，每条侧栏只持有自己的加载状态与选中项。`tabs.ts`（打开/关闭/激活/去重与 localStorage 往返）和 `TodoBoard.tsx`（TODO/DONE 双面板，ADR-0018）都是纯模块，它们的规则由单元测试而不是渲染出来的树来钉住。`frame/columns.ts` 是纯宽度求解器（两侧都让位，宽的先让）；`frame/Frame.tsx` 用 ResizeObserver 量自己，不读 window。`root` 注册用裸 `register` 而不是 `slots.inject`：`root` 是运行时内置的槽位，注册表构造时就已声明。ADR-0010 让共享 shell 逐行退场——这次退的是布局这一行。「能力」页签是 ADR-0021 的能力面：`CapabilityPanel.tsx` 列出已注册的能力（「添加目录」注册一个技能目录，「新建能力」在 `.dsh/skills/` 下搭脚手架），邮件能力的详情内嵌 `MailPanel.tsx`——即 ADR-0019 的连接器，其读取现在经由 `capabilityRun('mail', …)`。`mail-analysis.ts` 驱动一个真实的 dsh session，`mail-apply.ts` 负责落笔，`MailReview.tsx` 是判断变成知识库内容的唯一窗口——不勾选就不写。
+插件刻意做得很薄：`remote.ts` 以防御式方式取 `yantaoKb` 命名空间（命名空间缺失是要报告的状态，不是崩溃），`Workbench.tsx` 是纯展示层，只吃普通数据，每条侧栏只持有自己的加载状态与选中项。`tabs.ts`（打开/关闭/激活/去重与 localStorage 往返）和 `TodoBoard.tsx`（TODO/DONE 双面板，ADR-0018）都是纯模块，它们的规则由单元测试而不是渲染出来的树来钉住。`frame/columns.ts` 是纯宽度求解器（两侧都让位，宽的先让）；`frame/Frame.tsx` 用 ResizeObserver 量自己，不读 window。`root` 注册用裸 `register` 而不是 `slots.inject`：`root` 是运行时内置的槽位，注册表构造时就已声明。ADR-0010 让共享 shell 逐行退场——这次退的是布局这一行。「能力」页签是 ADR-0021 的能力面：`CapabilityPanel.tsx` 列出已注册的能力（安装一个能力就是把它的目录拷进 `.dsh/skills/`；「新建能力」在那里搭脚手架），邮件能力的详情内嵌 `MailPanel.tsx`——即 ADR-0019 的连接器，其读取现在经由 `capabilityRun('mail', …)`。`mail-analysis.ts` 驱动一个真实的 dsh session，`mail-apply.ts` 负责落笔，`MailReview.tsx` 是判断变成知识库内容的唯一窗口——不勾选就不写。
 
 **运行时不变量：** 不发布伴生包。本插件不持有进程级全局状态，也没有自己的事件流；它唯一的关系就是所渲染的 Remote 结果，两条侧栏的结构与加载/选中/刷新行为由包内的 client spec 断言。
 

@@ -1,13 +1,13 @@
 /**
  * The 能力 tab (ADR-0021 决定 8): 清单 + 详情 two states. The list names every
  * registered capability — the two built-ins (mail, ebook) plus anything the
- * human added through 「添加目录」 or scaffolded through 「新建能力」. The
+ * human copied into `.dsh/skills/` or scaffolded through 「新建能力」. The
  * mail capability's detail embeds {@link MailPanel}; every other capability's
  * detail is its manifest, read-only.
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { KbCapabilitySummary } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { CapabilityCreator, CapabilityDirRegistrar, CapabilityLoader } from './remote.ts'
+import type { CapabilityCreator, CapabilityLoader } from './remote.ts'
 import { remoteMessage } from './remote.ts'
 import { NewEntityRow } from './NewEntityRow.tsx'
 
@@ -15,14 +15,10 @@ import { NewEntityRow } from './NewEntityRow.tsx'
 export interface CapabilityPanelProps {
   /** List the registered capabilities. */
   readonly load: CapabilityLoader
-  /** Register one capability directory (「添加目录」). */
-  readonly registerDir: CapabilityDirRegistrar
   /** Scaffold one new capability (「新建能力」). */
   readonly create: CapabilityCreator
-  /** Open the host's native directory picker (「添加目录」's first half). */
-  readonly pickDirectory: () => Promise<string | null>
-  /** The mail capability's detail: the connector panel, transport and all. */
-  readonly mail: () => ReactElement
+  /** The mail capability's detail: the connector panel, transport and all; handed the capability's persisted state. */
+  readonly mail: (state: unknown) => ReactElement
 }
 
 const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' } as const
@@ -74,15 +70,14 @@ function CapabilityRow({
  * @param props - see {@link CapabilityPanelProps}.
  * @returns the panel element.
  */
-export function CapabilityPanel({ load, registerDir, create, pickDirectory, mail }: CapabilityPanelProps): ReactElement {
+export function CapabilityPanel({ load, create, mail }: CapabilityPanelProps): ReactElement {
   const [capabilities, setCapabilities] = useState<readonly KbCapabilitySummary[] | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
   // The loader is a fresh closure on every render (inject face), so the
   // effect reads it through a ref instead of taking it as a dependency.
-  const latest = useRef({ load, registerDir, create, pickDirectory })
-  latest.current = { load, registerDir, create, pickDirectory }
+  const latest = useRef({ load, create })
+  latest.current = { load, create }
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -96,32 +91,14 @@ export function CapabilityPanel({ load, registerDir, create, pickDirectory, mail
 
   useEffect(() => { void refresh() }, [refresh])
 
-  /** 「添加目录」: pick a directory, register it, reload the list. */
-  const addDir = async (): Promise<void> => {
-    const path = await latest.current.pickDirectory()
-    if (path === null) return
-    setBusy(true)
-    try {
-      await latest.current.registerDir(path)
-      await refresh()
-    } catch (failure: unknown) {
-      setError(remoteMessage(failure))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   /** 「新建能力」: scaffold under `.dsh/skills/<name>` and reload the list. */
   const scaffold = async (name: string): Promise<void> => {
-    setBusy(true)
     try {
       await latest.current.create(name)
       setSelected(name)
       await refresh()
     } catch (failure: unknown) {
       setError(remoteMessage(failure))
-    } finally {
-      setBusy(false)
     }
   }
 
@@ -133,7 +110,7 @@ export function CapabilityPanel({ load, registerDir, create, pickDirectory, mail
       {current === undefined && (
         <>
           {capabilities !== null && capabilities.length === 0 && (
-            <div style={mutedStyle}>还没有能力。添加一个技能目录，或新建一个。</div>
+            <div style={mutedStyle}>还没有能力。把能力目录拷进 .dsh/skills/，或新建一个。</div>
           )}
           {capabilities?.map(capability => (
             <CapabilityRow
@@ -143,11 +120,6 @@ export function CapabilityPanel({ load, registerDir, create, pickDirectory, mail
               onSelect={setSelected}
             />
           ))}
-          <div style={{ display: 'flex', gap: 4 }}>
-            <button type="button" style={buttonStyle} disabled={busy} onClick={() => { void addDir() }}>
-              + 添加目录
-            </button>
-          </div>
           <NewEntityRow
             label="+ 新建能力"
             placeholder="能力名称（如 paper-digest）"
@@ -177,7 +149,7 @@ export function CapabilityPanel({ load, registerDir, create, pickDirectory, mail
           {current.lastRunAt !== undefined && (
             <div style={mutedStyle}>上次运行：{current.lastRunAt}</div>
           )}
-          {current.name === 'mail' && mail()}
+          {current.name === 'mail' && mail(current.state)}
         </>
       )}
     </div>
