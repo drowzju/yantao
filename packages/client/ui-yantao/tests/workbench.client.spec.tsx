@@ -539,7 +539,7 @@ describe('CapabilityPanel', () => {
   })
 
   it('hands the capability\'s persisted state to the mail detail', async () => {
-    const capabilities = [{ ...CAPABILITIES[0], state: { lastReadAt: '2026-01-31T00:00:00+00:00' } }]
+    const capabilities = [{ ...CAPABILITIES[0]!, state: { lastReadAt: '2026-01-31T00:00:00+00:00' } }]
     const mail = vi.fn(() => <div data-mail-stub="true">邮件面板</div>)
     render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities }), mail })} />)
     fireEvent.click(await screen.findByText('mail'))
