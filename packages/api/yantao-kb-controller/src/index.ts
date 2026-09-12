@@ -3,49 +3,52 @@
  * `intakeTree` shapes the input side (resources, meetings, todos) and
  * `workspaceTree` the workspace side (projects, areas, people);
  * `read`/`write` address single files by KB-relative path, always confined
- * to the kbRoot the yantao-kb plugin publishes as the `yantaoKb` service —
  * one configuration point, no duplicated config. `root`/`setRoot` answer and
  * choose that root — the service persists the choice under `~/.dsh` — and `createEntity`
- * files a new note from the KB's canonical template. `registerResource` and
- * `extractResource` are the reading-project intake (ADR-0020): a dropped file
- * is copied into `resources/`, and its text is extracted into `.yantao/extracts/`
- * by a Python subprocess for `kb_read_resource` to page out. `capabilityRun`
- * is the same pattern generalized (ADR-0021): a capability is a dsh skill
- * directory declaring a host entry, and this controller runs it, writes its
- * artifacts, and persists its state. The UI is the human
+ * files a new note from the KB's canonical template; `registerResource` is the
+ * reading-project intake (ADR-0020): a dropped file is copied into `resources/`.
+ * The capability surface (ADR-0021) is `capabilityList`/`capabilityRun`/
+ * `capabilityRegisterDir`/`capabilityCreate`: a capability is a dsh skill
+ * directory declaring a host entry, and this controller seeds the shipped
+ * ones, lists them, runs them, writes their artifacts, and persists their
+ * state. The UI is the human
  * channel, so `write` is a full-file write; the ADR-0004 trust boundary
  * binds only the agent's kb_ tools, never this surface.
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
  */
 
-import { mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import type { SkillDefinition } from '@deepseek-ai/dsh-skill'
+import { FileSystemSkillProvider } from '@deepseek-ai/dsh-skill-filesystem'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
-  createEntity, entityDisplayPath, extractPaths, initKb, KbError, linksOf, listEntities, parseFrontmatter,
-  parseTodoFile, PERSON_RELATIONS, readCapabilityState, readKbRootOverride, readMailWatermark,
-  registerResourceContent, resolveWithinKb, serializeTodoFile, todayStamp, writeCapabilityState, writeMailWatermark,
+  createEntity, entityDisplayPath, initKb, KbError, linksOf, listEntities, parseFrontmatter,
+  parseTodoFile, PERSON_RELATIONS, readCapabilityDirs, readCapabilityRecord, readCapabilityState,
+  readKbRootOverride, registerResourceContent, resolveWithinKb, serializeTodoFile, todayStamp,
+  writeCapabilityDir, writeCapabilityState, writeMailWatermark,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
-import { CAPABILITY_HINTS, CapabilityError, resolveEntry, runCapability } from './capability/run.ts'
-import { EXTRACT_HINTS, ExtractError, extractText } from './extract/index.ts'
-import { fetchMail, MailFetchError } from './mail/fetch.ts'
+import { ensureBuiltinCapabilities } from './capability/builtin.ts'
+import { CAPABILITY_HINTS, CapabilityError, manifestOf, resolveEntry, runCapability } from './capability/run.ts'
+import type { CapabilityManifest } from './capability/run.ts'
 import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
 import { KbRevision } from './watch.ts'
 import type {
   KbCreateEntityArgs,
   KbCreateEntityResult,
+  KbCapabilityCreateArgs,
+  KbCapabilityCreateResult,
+  KbCapabilityListResult,
+  KbCapabilityRegisterDirResult,
   KbCapabilityRunArgs,
   KbCapabilityRunResult,
+  KbCapabilitySummary,
   KbDeleteFileResult,
-  KbExtractArgs,
-  KbExtractResult,
   KbFileContent,
   KbLinksResult,
-  KbMailFetchArgs,
-  KbMailFetchResult,
   KbMailMarkReadArgs,
   KbMailMarkReadResult,
   KbOpenExternalResult,
@@ -83,15 +86,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'yantao-kb/binary': { readonly path: string }
     /** The mail connector failed (ADR-0019); `kind` is one of its failure kinds. */
     'yantao-kb/mail': { readonly kind: string; readonly hint: string }
-    /** The document text extraction failed (ADR-0020); `kind` is one of its failure kinds. */
-    'yantao-kb/extract': { readonly kind: string; readonly hint: string }
     /** A capability run failed (ADR-0021); `kind` is one of its failure kinds. */
     'yantao-kb/capability': { readonly kind: string; readonly hint: string }
   }
 }
-
-/** Resource formats the extractor (ADR-0020) knows how to turn into plain text. */
-const EXTRACTABLE_FORMATS = new Set(['txt', 'md', 'pdf', 'epub', 'doc', 'docx', 'ppt', 'pptx'])
 
 /** Entity sections of the intake tree, in display order, mapped to their entity type. */
 const INTAKE_ENTITY_SECTIONS = [
@@ -108,37 +106,6 @@ const WORKSPACE_ENTITY_SECTIONS = [
 
 /** KB-relative path of the todo singleton (ADR-0018); a singleton kind resolves whatever its name. */
 const TODOS_PATH = entityDisplayPath('todo', 'todos')
-
-/** How many mails one `mailFetch` returns (ADR-0019). */
-const MAIL_LIMIT = 50
-
-/** How old a mail watermark may be before the read is called stale (ADR-0019). */
-const MAIL_STALE_DAYS = 30
-
-/**
- * The bound a first `mailFetch` uses when there is no watermark: a fresh
- * connector must not answer by walking a decade of inbox.
- * @returns an ISO 8601 stamp `MAIL_STALE_DAYS` days ago.
- */
-function defaultSince(): string {
-  const then = new Date()
-  then.setDate(then.getDate() - MAIL_STALE_DAYS)
-  return then.toISOString()
-}
-
-/**
- * Whether a watermark leaves room for a gap: no watermark means the connector
- * has never run, and an old one means the stretch since it was taken has never
- * been read. The UI asks what to do; neither case is filled in silently.
- * @param lastReadAt - the watermark, when there is one.
- * @returns true when the UI should warn.
- */
-function isStale(lastReadAt: string | undefined): boolean {
-  if (lastReadAt === undefined) return true
-  const then = Date.parse(lastReadAt)
-  if (Number.isNaN(then)) return true
-  return Date.now() - then > MAIL_STALE_DAYS * 24 * 60 * 60 * 1000
-}
 
 /**
  * Rewrite one scalar field of a KB file's frontmatter, adding it just above
@@ -186,11 +153,16 @@ export class YantaoKbController extends TypertRemoteService {
   /** The KB's change counter (ADR-0017); pointed at the live root on each poll. */
   private readonly revisionWatch = new KbRevision()
 
+  /** Disposer of the one provider over the human-added capability directories (ADR-0021 决定 8). */
+  private capabilityDirsDispose: (() => void) | undefined
+
   constructor(ctx: Context) {
     super(ctx, 'yantaoKbController', { namespace: 'yantaoKb' })
     this.ctx.effect(() => () => {
       this.revisionWatch.close()
     })
+    const dirs = readCapabilityDirs()
+    if (dirs.length > 0) this.registerCapabilityDirs(dirs)
   }
 
   /** The one KB root, read per call so a re-chosen root takes effect at once. */
@@ -416,75 +388,6 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
-   * Extract one resource's text into the `.yantao/extracts/` cache (ADR-0020)
-   * — the reading project's raw material, paged out to the agent later by
-   * `kb_read_resource`.
-   *
-   * The extraction is a Python subprocess (`extract/extract.py`), and its
-   * result is cached as the extract text plus a self-describing metadata JSON
-   * (`format`/`chars`/`extractedAt`/`source`). The cache is the idempotency:
-   * a second call for the same resource answers from it (`cached: true`)
-   * without running the script again — re-extracting is a human deleting the
-   * cache directory, not a flag on this method.
-   *
-   * Every failure leaves as a `yantao-kb/extract` error carrying the script's
-   * own failure kind *and* its remedy, because the useful answer to "the PDF
-   * has no text layer" is what that means, not that extraction failed.
-   * @param args - the resource's KB-relative path, `resources/…`.
-   * @returns where the extract landed, its format and size, and whether the cache answered.
-   */
-  @Remote('extractResource')
-  async extractResource(args: KbExtractArgs): Promise<KbExtractResult> {
-    if (!args.path.startsWith('resources/')) {
-      throw new RemoteError(
-        'yantao-kb/extract',
-        `只能抽取 resources/ 下的资源文件：${args.path}`,
-        { kind: 'unsupported', hint: EXTRACT_HINTS.unsupported },
-      )
-    }
-    const target = this.confine(args.path, args.path)
-    const { text: textRel, meta: metaRel } = extractPaths(this.kbRoot, args.path)
-    const metaPath = join(this.kbRoot, metaRel)
-    try {
-      const cached = JSON.parse(await readFile(metaPath, 'utf8')) as { format?: unknown; chars?: unknown }
-      if (typeof cached.format === 'string' && typeof cached.chars === 'number') {
-        return { extractPath: textRel, format: cached.format, chars: cached.chars, cached: true }
-      }
-    } catch {
-      // No cache (or an unreadable one): extract anew below.
-    }
-    const format = args.path.split('.').pop()?.toLowerCase() ?? ''
-    if (!EXTRACTABLE_FORMATS.has(format)) {
-      throw new RemoteError(
-        'yantao-kb/extract',
-        `不支持抽取这种格式：${args.path}`,
-        { kind: 'unsupported', hint: EXTRACT_HINTS.unsupported },
-      )
-    }
-    let extracted
-    try {
-      extracted = await extractText({ format, input: target })
-    } catch (error: unknown) {
-      const failure = error instanceof ExtractError ? error : undefined
-      throw new RemoteError(
-        'yantao-kb/extract',
-        failure?.message ?? '抽取文档文本失败。',
-        { kind: failure?.kind ?? 'other', hint: failure?.hint ?? EXTRACT_HINTS.other },
-        { cause: error },
-      )
-    }
-    await mkdir(dirname(metaPath), { recursive: true })
-    await writeFile(join(this.kbRoot, textRel), extracted.text, 'utf8')
-    await writeFile(metaPath, JSON.stringify({
-      format: extracted.meta.format,
-      chars: extracted.meta.chars,
-      extractedAt: new Date().toISOString(),
-      source: args.path,
-    }, null, 2), 'utf8')
-    return { extractPath: textRel, format: extracted.meta.format, chars: extracted.meta.chars, cached: false }
-  }
-
-  /**
    * Write one KB file's complete content (the human channel's full-file
    * write; missing parent directories are created). The file is not
    * validated — the human owns its structure, and the agent's tools
@@ -613,6 +516,46 @@ export class YantaoKbController extends TypertRemoteService {
         '还没有选择知识库目录，邮件的读取断点无处记录。',
         { kind: 'no-root', hint: '先选择一次知识库目录，再来读邮件。' },
       )
+    }
+  }
+
+  /**
+   * (Re-)register the single provider over the human-added capability
+   * directories (ADR-0021 决定 8). The directories live in
+   * `~/.dsh/yantao-kb.json` — there is no runtime write channel into the
+   * skill-filesystem config — so this controller owns one
+   * `FileSystemSkillProvider` instance and disposes + re-registers it when
+   * the list changes; a second provider with the same name would throw.
+   * @param dirs - the absolute directories to expose as skill roots.
+   */
+  private registerCapabilityDirs(dirs: readonly string[]): void {
+    this.capabilityDirsDispose?.()
+    this.capabilityDirsDispose = undefined
+    if (dirs.length === 0) return
+    this.capabilityDirsDispose = this.ctx.skills.registerProvider(
+      control => new FileSystemSkillProvider(this.ctx, control, {
+        providerName: 'yantao-capability-dirs',
+        includeDefaultRoots: false,
+        customSkillDirs: [...dirs],
+      }),
+    )
+  }
+
+  /**
+   * Wait out the skill-filesystem watcher's invalidation lag: writing a new
+   * skill directory queues an asynchronous cache invalidation, so a `list`
+   * issued immediately after may not see it yet. Bounded — the names are
+   * usually visible on the first probe, and the caller's own error handling
+   * covers the pathological case.
+   * @param names - skill names that must be visible before proceeding.
+   */
+  private async settleSkills(names: readonly string[]): Promise<void> {
+    if (names.length === 0) return
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const summaries = await this.ctx.skills.list({ cwd: this.kbRoot })
+      const known = new Set(summaries.map(summary => summary.name))
+      if (names.every(name => known.has(name))) return
+      await new Promise(resolve => setTimeout(resolve, 200))
     }
   }
 
@@ -751,53 +694,6 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
-   * Read the newest mails in the window `[since, until)` (ADR-0019).
-   *
-   * The lower bound defaults to that watermark, and to 30 days ago when there
-   * is none — a first run must not walk a whole inbox over COM. `until` is the
-   * upper bound the panel uses to page 往前: without it a read always lands on
-   * the newest mails, so going back in time would be impossible. The read only
-   * ever says whether it filled its page (`hasMore`), never how many mails are
-   * left: an exact total would mean touching every item in the folder.
-   *
-   * Every failure leaves as a `yantao-kb/mail` error carrying the script's own
-   * message *and* its remedy, because the useful answer to "Outlook is not
-   * answering" is what to install, not that the fetch failed.
-   * @param args - an explicit `since` and `until` (to re-read an older
-   *   stretch), and a cap.
-   * @returns the bounds used, the watermark before the read, whether a gap may
-   *   have opened, the mails, and whether more are waiting.
-   */
-  @Remote('mailFetch')
-  async mailFetch(args: KbMailFetchArgs): Promise<KbMailFetchResult> {
-    this.requireKbRootState()
-    const lastReadAt = readMailWatermark()
-    const since = args.since ?? lastReadAt ?? defaultSince()
-    const until = args.until
-    const limit = args.limit ?? MAIL_LIMIT
-    let messages
-    try {
-      messages = await fetchMail({ since, until, limit })
-    } catch (error: unknown) {
-      const failure = error instanceof MailFetchError ? error : undefined
-      throw new RemoteError(
-        'yantao-kb/mail',
-        failure?.message ?? '读取 Outlook 邮件失败。',
-        { kind: failure?.kind ?? 'other', hint: failure?.hint ?? '请查看服务端日志了解详情。' },
-        { cause: error },
-      )
-    }
-    return {
-      since,
-      ...until !== undefined ? { until } : {},
-      ...lastReadAt !== undefined ? { lastReadAt } : {},
-      stale: isStale(lastReadAt),
-      messages,
-      hasMore: messages.length >= limit,
-    }
-  }
-
-  /**
    * Move the mail connector's watermark (ADR-0019): everything at or before
    * `lastReadAt` has been seen, so the next `mailFetch` starts after it.
    *
@@ -842,6 +738,10 @@ export class YantaoKbController extends TypertRemoteService {
         { kind: 'no-root', hint: '先选择一次知识库目录，再运行能力。' },
       )
     }
+    // Seed the shipped capabilities before resolving: a first run on a fresh
+    // KB would otherwise answer "not found" for a capability that is about to
+    // be copied in.
+    await this.settleSkills(ensureBuiltinCapabilities(this.kbRoot))
     const name = args.name
     const definition = await this.ctx.skills.get(name, { cwd: this.kbRoot })
     if (definition === undefined) {
@@ -909,6 +809,190 @@ export class YantaoKbController extends TypertRemoteService {
       ...output.result !== undefined ? { result: output.result as JsonValue } : {},
       artifacts: written,
     }
+  }
+
+  /**
+   * List the capabilities the workbench's 能力 tab shows (ADR-0021 决定 8):
+   * every skill `ctx.skills` discovers at the KB root that declares a
+   * `metadata.yantao` entry — plain skills without one are not capabilities
+   * and are skipped, not errors. Shipped capabilities are seeded first, so a
+   * fresh KB answers with 邮件 and 读书 on its very first open.
+   *
+   * Each row merges the skill's declaration with the persisted record
+   * (`capabilities.<name>` in `~/.dsh/yantao-kb.json`): when it last ran and
+   * the state that run left behind, so the panel can show a real 断点 without
+   * running anything.
+   * @returns the capability summaries, in discovery order.
+   */
+  @Remote('capabilityList')
+  async capabilityList(): Promise<KbCapabilityListResult> {
+    const kbRoot = this.kbRoot
+    await this.settleSkills(ensureBuiltinCapabilities(kbRoot))
+    const summaries = await this.ctx.skills.list({ cwd: kbRoot })
+    const capabilities: KbCapabilitySummary[] = []
+    for (const summary of summaries) {
+      let definition: SkillDefinition | undefined
+      try {
+        definition = await this.ctx.skills.get(summary.name, { cwd: kbRoot })
+      } catch {
+        definition = undefined
+      }
+      if (definition === undefined) continue
+      let manifest: CapabilityManifest
+      try {
+        manifest = manifestOf(definition)
+      } catch {
+        // A skill without a (valid) yantao declaration is a skill, not a capability.
+        continue
+      }
+      const record = readCapabilityRecord(summary.name)
+      capabilities.push({
+        name: summary.name,
+        description: summary.description,
+        source: summary.source,
+        ...summary.resourceBase?.kind === 'directory' ? { directory: summary.resourceBase.path } : {},
+        entry: manifest.entry,
+        runtime: manifest.runtime,
+        ...manifest.appliesTo !== undefined ? { appliesTo: manifest.appliesTo } : {},
+        ...record?.lastRunAt !== undefined ? { lastRunAt: record.lastRunAt } : {},
+        ...record?.state !== undefined ? { state: record.state as JsonValue } : {},
+      })
+    }
+    return { capabilities }
+  }
+
+  /**
+   * Add one directory to the capability search path (ADR-0021 决定 8's
+   * 「添加目录」): the human points the workbench at a folder of capability
+   * directories they manage outside the KB, and from then on `ctx.skills`
+   * discovers them like any other root.
+   *
+   * The list persists in `~/.dsh/yantao-kb.json` (`capabilityDirs`) and this
+   * controller re-registers its single provider over it — see
+   * `registerCapabilityDirs` for why there is exactly one.
+   * @param path - absolute path of the directory to add.
+   * @returns the full list of registered directories as it now stands.
+   */
+  @Remote('capabilityRegisterDir')
+  async capabilityRegisterDir(path: string): Promise<KbCapabilityRegisterDirResult> {
+    const target = path.trim()
+    if (target === '' || !isAbsolute(target)) {
+      throw new RemoteError('yantao-kb/rejected', `能力目录必须是绝对路径：${path}`, { path })
+    }
+    let info
+    try {
+      info = await stat(target)
+    } catch (error) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `目录不存在或无法访问：${target}`,
+        { path: target },
+        { cause: error },
+      )
+    }
+    if (!info.isDirectory()) {
+      throw new RemoteError('yantao-kb/rejected', `能力目录必须是一个目录：${target}`, { path: target })
+    }
+    const dirs = await writeCapabilityDir(target)
+    this.registerCapabilityDirs(dirs)
+    return { directories: [...dirs] }
+  }
+
+  /**
+   * Scaffold a new capability directory (ADR-0021 决定 8's 「新建能力」):
+   * `<kbRoot>/.dsh/skills/<name>/` with a SKILL.md frontmatter that already
+   * declares the host entry, and an entry script that speaks the run protocol
+   * and echoes its input — a working capability on the first run, for the
+   * human to grow into theirs.
+   * @param args - the capability's name (kebab-case; it becomes the skill name).
+   * @returns the KB-relative path of the scaffolded directory.
+   */
+  @Remote('capabilityCreate')
+  async capabilityCreate(args: KbCapabilityCreateArgs): Promise<KbCapabilityCreateResult> {
+    const name = args.name.trim()
+    if (!/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(name)) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `能力名只能用小写字母、数字和连字符，且以字母开头：${args.name}`,
+        { path: args.name },
+      )
+    }
+    const directory = join(this.kbRoot, '.dsh', 'skills', name)
+    const exists = await stat(directory).then(() => true, () => false)
+    if (exists) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `能力目录已存在：.dsh/skills/${name}`,
+        { path: name },
+      )
+    }
+    const skillMd = [
+      '---',
+      `name: ${name}`,
+      'description: （一句话说明这个能力做什么。）',
+      'disable-model-invocation: true',
+      'metadata:',
+      '  yantao:',
+      '    entry: scripts/entry.py',
+      '    runtime: python',
+      '    version: 1',
+      '---',
+      '',
+      `# ${name}`,
+      '',
+      '（这里写给人类看：这个能力做什么、怎么用、有什么前提。）',
+      '',
+      '## 执行契约',
+      '',
+      '入口是 `scripts/entry.py`，由工作台以子进程调用：stdin 收一个 JSON 对象',
+      '`{name, kbRoot, input, state}`，stdout 回一个 JSON 对象。',
+      '',
+      '- 成功：`{ok: true, result: …}`，可选带 `state`（持久化到下次运行）和',
+      '  `artifacts`（`[{"name": "文件名", "contentBase64": "…"}]`，由工作台落盘到',
+      '  `.yantao/capabilities/<name>/`）。',
+      '- 失败：`{ok: false, kind, message, hint}`。',
+      '',
+    ].join('\n')
+    const entryPy = [
+      `"""${name} 的入口脚本（ADR-0021 能力协议）。"""`,
+      'import json',
+      'import sys',
+      '',
+      '',
+      'def run(name, kb_root, caller_input, state):',
+      '    """一次能力执行，返回协议 JSON 对象。',
+      '',
+      '    - caller_input：调用方传入的 input（可能为 None）。',
+      '    - state：上次运行持久化的状态（可能为 None），只读；要更新就随',
+      '      输出带回一个 "state" 字段。',
+      '    """',
+      '    return {"ok": True, "result": {"input": caller_input}}',
+      '',
+      '',
+      'def main():',
+      '    payload = json.load(sys.stdin)',
+      '    output = run(payload["name"], payload["kbRoot"], payload.get("input"), payload.get("state"))',
+      '    json.dump(output, sys.stdout, ensure_ascii=False)',
+      '',
+      '',
+      'if __name__ == "__main__":',
+      '    main()',
+      '',
+    ].join('\n')
+    try {
+      await mkdir(join(directory, 'scripts'), { recursive: true })
+      await writeFile(join(directory, 'SKILL.md'), skillMd, 'utf8')
+      await writeFile(join(directory, 'scripts', 'entry.py'), entryPy, 'utf8')
+    } catch (error) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `无法创建能力目录：${(error as Error).message}`,
+        { path: name },
+        { cause: error },
+      )
+    }
+    await this.settleSkills([name])
+    return { path: `.dsh/skills/${name}` }
   }
 }
 

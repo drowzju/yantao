@@ -3,9 +3,10 @@
 读取 Windows 本地 Outlook 桌面客户端的邮件，输出一个 JSON 数组供 Node 侧读取。
 
 用途：
-  这是 yantao 工作台「邮件连接」的取数脚本。它被 Node 以子进程方式调用，
-  把 stdout 里的那一个 JSON 数组解析成邮件列表；stdout 除这个数组外不输出
-  任何其它内容。
+  这是 yantao 工作台「邮件能力」的取数脚本（ADR-0019 建立，ADR-0021 迁入能力
+  目录）。它既被能力入口 `entry.py` 以函数方式调用（`fetch_messages`），也可以
+  在命令行单独运行排查；命令行模式下把 stdout 里的那一个 JSON 数组解析成邮件
+  列表，stdout 除这个数组外不输出任何其它内容。
 
 用法：
   python read_outlook.py --since <ISO8601> [--until <ISO8601>] [--limit N] [--folder NAME] --json
@@ -61,6 +62,14 @@ EXIT_PYWIN32 = 4
 EXIT_FOLDER = 5
 EXIT_OTHER = 6
 
+# kind → 命令行退出码；entry.py 只用 kind，main() 两个都用。
+EXIT_BY_KIND = {
+    "outlook-unavailable": EXIT_OUTLOOK,
+    "python-missing": EXIT_PYWIN32,
+    "folder-missing": EXIT_FOLDER,
+    "other": EXIT_OTHER,
+}
+
 # 正文截断长度。邮件正文可以非常大，而分析只需要前面一段。
 BODY_LIMIT = 3000
 
@@ -77,6 +86,15 @@ OL_FOLDER_INBOX = 6
 PR_SENDER_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x5D01001F"
 
 LOCAL_TZ = datetime.now().astimezone().tzinfo
+
+
+class OutlookError(Exception):
+    """一次可分类的取数失败；kind 与 stderr JSON 的 kind 同词表。"""
+
+    def __init__(self, kind, message):
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
 
 
 def fail(message, kind, code):
@@ -240,6 +258,63 @@ def read_mails(folder, since, until, limit):
     return messages
 
 
+def fetch_messages(since_text, until_text, limit, folder_name):
+    """
+    取数核心：把 [since, until) 窗口里的最新 limit 封邮件取回来。
+    供 entry.py 以函数方式调用；失败抛 OutlookError（kind/message 与命令行
+    stderr 的 JSON 同词表）。
+    """
+    try:
+        import win32com.client
+    except ImportError:
+        raise OutlookError(
+            "python-missing",
+            "缺少 pywin32：请先安装 Python 3，再执行 pip install pywin32，并确认 Python 位数与 Office 一致。",
+        ) from None
+
+    try:
+        since = datetime.fromisoformat(since_text.replace("Z", "+00:00"))
+    except (ValueError, AttributeError) as error:
+        raise OutlookError("other", f"--since 不是合法的 ISO 8601 时间：{since_text}") from error
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=LOCAL_TZ)
+
+    until = None
+    if until_text:
+        try:
+            until = datetime.fromisoformat(until_text.replace("Z", "+00:00"))
+        except (ValueError, AttributeError) as error:
+            raise OutlookError("other", f"--until 不是合法的 ISO 8601 时间：{until_text}") from error
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=LOCAL_TZ)
+
+    try:
+        outlook = win32com.client.Dispatch("Outlook.Application")
+        ns = outlook.GetNamespace("MAPI")
+    except Exception as error:
+        raise OutlookError(
+            "outlook-unavailable",
+            f"无法连接 Outlook：{error}。请确认已安装经典 Outlook 桌面版并已启动、已配置好账户。",
+        ) from error
+
+    try:
+        if folder_name:
+            folder = find_folder(ns, folder_name)
+            if folder is None:
+                raise OutlookError("folder-missing", f"找不到文件夹：{folder_name}")
+        else:
+            folder = ns.GetDefaultFolder(OL_FOLDER_INBOX)
+    except OutlookError:
+        raise
+    except Exception as error:
+        raise OutlookError("folder-missing", f"打开邮件文件夹失败：{error}") from error
+
+    try:
+        return read_mails(folder, since, until, limit)
+    except Exception as error:
+        raise OutlookError("other", f"读取邮件失败：{error}") from error
+
+
 def main():
     parser = argparse.ArgumentParser(description="读取本地 Outlook 邮件并输出 JSON")
     parser.add_argument("--since", required=True, help="只取收件时间晚于该时刻的邮件（ISO 8601）")
@@ -250,39 +325,9 @@ def main():
     args = parser.parse_args()
 
     try:
-        import win32com.client
-    except ImportError:
-        fail("缺少 pywin32：请先安装 Python 3，再执行 pip install pywin32，并确认 Python 位数与 Office 一致。",
-             "python-missing", EXIT_PYWIN32)
-        return
-
-    since = parse_time("--since", args.since)
-    until = parse_time("--until", args.until) if args.until else None
-
-    try:
-        outlook = win32com.client.Dispatch("Outlook.Application")
-        ns = outlook.GetNamespace("MAPI")
-    except Exception as error:
-        fail(f"无法连接 Outlook：{error}。请确认已安装经典 Outlook 桌面版并已启动、已配置好账户。",
-             "outlook-unavailable", EXIT_OUTLOOK)
-        return
-
-    try:
-        if args.folder:
-            folder = find_folder(ns, args.folder)
-            if folder is None:
-                fail(f"找不到文件夹：{args.folder}", "folder-missing", EXIT_FOLDER)
-                return
-        else:
-            folder = ns.GetDefaultFolder(OL_FOLDER_INBOX)
-    except Exception as error:
-        fail(f"打开邮件文件夹失败：{error}", "folder-missing", EXIT_FOLDER)
-        return
-
-    try:
-        messages = read_mails(folder, since, until, args.limit)
-    except Exception as error:
-        fail(f"读取邮件失败：{error}", "other", EXIT_OTHER)
+        messages = fetch_messages(args.since, args.until, args.limit, args.folder)
+    except OutlookError as error:
+        fail(error.message, error.kind, EXIT_BY_KIND.get(error.kind, EXIT_OTHER))
         return
 
     json.dump(messages, sys.stdout, ensure_ascii=False)

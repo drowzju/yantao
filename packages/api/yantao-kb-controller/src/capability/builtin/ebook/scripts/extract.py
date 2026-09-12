@@ -3,15 +3,15 @@
 把一份资源文件抽成纯文本，输出一个 JSON 对象供 Node 侧读取。
 
 用途：
-  这是 yantao 工作台「读书项目」的取数脚本（ADR-0020）。它被 Node 以子进程
-  方式调用，把 resources/ 下的原始材料（pdf/epub/doc/docx/ppt/pptx/txt/md）
-  抽成纯文本；Node 把 stdout 里的 JSON 解析出来，缓存到知识库的
-  `.yantao/extracts/` 下供 `kb_read_resource` 分页读取。stdout 除这一个
-  JSON 对象外不输出任何其它内容。
+  这是 yantao 工作台「读书项目」的取数脚本（ADR-0020 建立，ADR-0021 迁入能力
+  目录）。它既被能力入口 `entry.py` 以函数方式调用（`extract_document`），也
+  可以在命令行单独运行排查；命令行模式下把 resources/ 下的原始材料
+  （pdf/epub/doc/docx/ppt/pptx/txt/md）抽成纯文本，stdout 除这一个 JSON 对象
+  外不输出任何其它内容。
 
 用法：
   python extract.py --format <fmt> --input <path>
-    --format  文件格式：txt md pdf epub doc docx ppt pptx（由 Node 按扩展名判定）
+    --format  文件格式：txt md pdf epub doc docx ppt pptx（由调用方按扩展名判定）
     --input   要抽取的文件的绝对路径
   示例：
     python extract.py --format pdf --input "D:\\kb\\resources\\三体.pdf"
@@ -58,7 +58,27 @@ EXIT_UNSUPPORTED = 7
 EXIT_OTHER = 8
 EXIT_OFFICE = 9
 
+# kind → 命令行退出码；entry.py 只用 kind，main() 两个都用。
+EXIT_BY_KIND = {
+    "input-missing": EXIT_INPUT,
+    "lib-missing": EXIT_LIB,
+    "no-text": EXIT_NO_TEXT,
+    "unreadable": EXIT_UNREADABLE,
+    "unsupported": EXIT_UNSUPPORTED,
+    "doc-unavailable": EXIT_OFFICE,
+    "other": EXIT_OTHER,
+}
+
 FORMATS = ("txt", "md", "pdf", "epub", "doc", "docx", "ppt", "pptx")
+
+
+class ExtractFailure(Exception):
+    """一次可分类的抽取失败；kind 与 stderr JSON 的 kind 同词表。"""
+
+    def __init__(self, kind, message):
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
 
 
 def fail(message, kind, code):
@@ -128,8 +148,7 @@ def extract_pdf(path):
     try:
         from pypdf import PdfReader
     except ImportError:
-        fail("缺少 pypdf：请执行 pip install pypdf。", "lib-missing", EXIT_LIB)
-        return
+        raise ExtractFailure("lib-missing", "缺少 pypdf：请执行 pip install pypdf。") from None
 
     try:
         reader = PdfReader(path)
@@ -137,19 +156,16 @@ def extract_pdf(path):
             try:
                 reader.decrypt("")
             except Exception:
-                fail("这份 PDF 已加密，无法抽取文字。", "unreadable", EXIT_UNREADABLE)
-                return
+                raise ExtractFailure("unreadable", "这份 PDF 已加密，无法抽取文字。") from None
         pages = [(page.extract_text() or "") for page in reader.pages]
-    except SystemExit:
+    except ExtractFailure:
         raise
     except Exception as error:
-        fail(f"无法解析这份 PDF：{error}", "unreadable", EXIT_UNREADABLE)
-        return
+        raise ExtractFailure("unreadable", f"无法解析这份 PDF：{error}") from error
 
     text = "\n\n".join(pages)
     if not text.strip():
-        fail("这份 PDF 没有可抽取的文字层（可能是扫描版）。", "no-text", EXIT_NO_TEXT)
-        return
+        raise ExtractFailure("no-text", "这份 PDF 没有可抽取的文字层（可能是扫描版）。")
     return text
 
 
@@ -163,13 +179,11 @@ def extract_epub(path):
         book = epub.read_epub(path)
         documents = list(book.get_items_of_type(ITEM_DOCUMENT))
     except Exception as error:
-        fail(f"无法解析这份 EPUB：{error}", "unreadable", EXIT_UNREADABLE)
-        return
+        raise ExtractFailure("unreadable", f"无法解析这份 EPUB：{error}") from error
 
     text = "\n\n".join(strip_html(item.get_content()) for item in documents)
     if not text.strip():
-        fail("这份 EPUB 里没有可抽取的文字。", "no-text", EXIT_NO_TEXT)
-        return
+        raise ExtractFailure("no-text", "这份 EPUB 里没有可抽取的文字。")
     return text
 
 
@@ -183,11 +197,9 @@ def extract_epub_zip(path):
             )
             text = "\n\n".join(strip_html(archive.read(name)) for name in names)
     except Exception as error:
-        fail(f"无法解析这份 EPUB：{error}", "unreadable", EXIT_UNREADABLE)
-        return
+        raise ExtractFailure("unreadable", f"无法解析这份 EPUB：{error}") from error
     if not text.strip():
-        fail("这份 EPUB 里没有可抽取的文字。", "no-text", EXIT_NO_TEXT)
-        return
+        raise ExtractFailure("no-text", "这份 EPUB 里没有可抽取的文字。")
     return text
 
 
@@ -195,14 +207,12 @@ def extract_docx(path):
     try:
         import docx
     except ImportError:
-        fail("缺少 python-docx：请执行 pip install python-docx。", "lib-missing", EXIT_LIB)
-        return
+        raise ExtractFailure("lib-missing", "缺少 python-docx：请执行 pip install python-docx。") from None
 
     try:
         document = docx.Document(path)
     except Exception as error:
-        fail(f"无法解析这份 DOCX：{error}", "unreadable", EXIT_UNREADABLE)
-        return
+        raise ExtractFailure("unreadable", f"无法解析这份 DOCX：{error}") from error
 
     parts = [paragraph.text for paragraph in document.paragraphs]
     for table in document.tables:
@@ -215,14 +225,12 @@ def extract_pptx(path):
     try:
         from pptx import Presentation
     except ImportError:
-        fail("缺少 python-pptx：请执行 pip install python-pptx。", "lib-missing", EXIT_LIB)
-        return
+        raise ExtractFailure("lib-missing", "缺少 python-pptx：请执行 pip install python-pptx。") from None
 
     try:
         presentation = Presentation(path)
     except Exception as error:
-        fail(f"无法解析这份 PPTX：{error}", "unreadable", EXIT_UNREADABLE)
-        return
+        raise ExtractFailure("unreadable", f"无法解析这份 PPTX：{error}") from error
 
     parts = []
     for index, slide in enumerate(presentation.slides, 1):
@@ -271,16 +279,14 @@ def office_com_text(application, document_path):
             return "\n".join(parts)
         finally:
             presentation.Close()
-    except SystemExit:
+    except ExtractFailure:
         raise
     except Exception as error:
         name = "Word" if application.startswith("Word") else "PowerPoint"
-        fail(
-            f"无法通过 {name} 读取这份文件：{error}。请确认已安装 {name} 桌面版。",
+        raise ExtractFailure(
             "doc-unavailable",
-            EXIT_OFFICE,
-        )
-        return ""
+            f"无法通过 {name} 读取这份文件：{error}。请确认已安装 {name} 桌面版。",
+        ) from error
     finally:
         if app is not None:
             app.Quit()
@@ -307,27 +313,36 @@ HANDLERS = {
 }
 
 
+def extract_document(path, fmt):
+    """
+    抽取核心：把一份文件抽成统一换行的纯文本。供 entry.py 以函数方式调用；
+    失败抛 ExtractFailure（kind/message 与命令行 stderr 的 JSON 同词表）。
+    """
+    if not os.path.isfile(path):
+        raise ExtractFailure("input-missing", f"找不到要抽取的文件：{path}")
+
+    handler = HANDLERS.get(fmt)
+    if handler is None:
+        raise ExtractFailure("unsupported", f"不支持的格式：{fmt}")
+
+    try:
+        return normalize(handler(path))
+    except ExtractFailure:
+        raise
+    except Exception as error:
+        raise ExtractFailure("other", f"抽取文档文本失败：{error}") from error
+
+
 def main():
     parser = argparse.ArgumentParser(description="把一份资源文件抽成纯文本并输出 JSON")
     parser.add_argument("--format", required=True, choices=FORMATS, help="文件格式")
     parser.add_argument("--input", required=True, help="要抽取的文件路径")
     args = parser.parse_args()
 
-    if not os.path.isfile(args.input):
-        fail(f"找不到要抽取的文件：{args.input}", "input-missing", EXIT_INPUT)
-        return
-
-    handler = HANDLERS.get(args.format)
-    if handler is None:
-        fail(f"不支持的格式：{args.format}", "unsupported", EXIT_UNSUPPORTED)
-        return
-
     try:
-        text = normalize(handler(args.input))
-    except SystemExit:
-        raise
-    except Exception as error:
-        fail(f"抽取文档文本失败：{error}", "other", EXIT_OTHER)
+        text = extract_document(args.input, args.format)
+    except ExtractFailure as error:
+        fail(error.message, error.kind, EXIT_BY_KIND.get(error.kind, EXIT_OTHER))
         return
 
     json.dump(

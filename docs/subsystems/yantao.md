@@ -192,26 +192,6 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('registerResource') async registerResource(args: KbRegisterResourceArgs): Promise<KbRegisterResourceResult>
 
 /**
- * Extract one resource's text into the `.yantao/extracts/` cache (ADR-0020)
- * — the reading project's raw material, paged out to the agent later by
- * `kb_read_resource`.
- *
- * The extraction is a Python subprocess (`extract/extract.py`), and its
- * result is cached as the extract text plus a self-describing metadata JSON
- * (`format`/`chars`/`extractedAt`/`source`). The cache is the idempotency:
- * a second call for the same resource answers from it (`cached: true`)
- * without running the script again — re-extracting is a human deleting the
- * cache directory, not a flag on this method.
- *
- * Every failure leaves as a `yantao-kb/extract` error carrying the script's
- * own failure kind *and* its remedy, because the useful answer to "the PDF
- * has no text layer" is what that means, not that extraction failed.
- * @param args - the resource's KB-relative path, `resources/…`.
- * @returns where the extract landed, its format and size, and whether the cache answered.
- */
-@Remote('extractResource') async extractResource(args: KbExtractArgs): Promise<KbExtractResult>
-
-/**
  * Write one KB file's complete content (the human channel's full-file
  * write; missing parent directories are created). The file is not
  * validated — the human owns its structure, and the agent's tools
@@ -302,26 +282,6 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('openExternal') openExternal(target: string): Promise<KbOpenExternalResult>
 
 /**
- * Read the newest mails in the window `[since, until)` (ADR-0019).
- *
- * The lower bound defaults to that watermark, and to 30 days ago when there
- * is none — a first run must not walk a whole inbox over COM. `until` is the
- * upper bound the panel uses to page 往前: without it a read always lands on
- * the newest mails, so going back in time would be impossible. The read only
- * ever says whether it filled its page (`hasMore`), never how many mails are
- * left: an exact total would mean touching every item in the folder.
- *
- * Every failure leaves as a `yantao-kb/mail` error carrying the script's own
- * message *and* its remedy, because the useful answer to "Outlook is not
- * answering" is what to install, not that the fetch failed.
- * @param args - an explicit `since` and `until` (to re-read an older
- *   stretch), and a cap.
- * @returns the bounds used, the watermark before the read, whether a gap may
- *   have opened, the mails, and whether more are waiting.
- */
-@Remote('mailFetch') async mailFetch(args: KbMailFetchArgs): Promise<KbMailFetchResult>
-
-/**
  * Move the mail connector's watermark (ADR-0019): everything at or before
  * `lastReadAt` has been seen, so the next `mailFetch` starts after it.
  *
@@ -352,6 +312,46 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * @returns what the run answered, when it ran, and which artifact paths were written.
  */
 @Remote('capabilityRun') async capabilityRun(args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult>
+
+/**
+ * List the capabilities the workbench's 能力 tab shows (ADR-0021 决定 8):
+ * every skill `ctx.skills` discovers at the KB root that declares a
+ * `metadata.yantao` entry — plain skills without one are not capabilities
+ * and are skipped, not errors. Shipped capabilities are seeded first, so a
+ * fresh KB answers with 邮件 and 读书 on its very first open.
+ *
+ * Each row merges the skill's declaration with the persisted record
+ * (`capabilities.<name>` in `~/.dsh/yantao-kb.json`): when it last ran and
+ * the state that run left behind, so the panel can show a real 断点 without
+ * running anything.
+ * @returns the capability summaries, in discovery order.
+ */
+@Remote('capabilityList') async capabilityList(): Promise<KbCapabilityListResult>
+
+/**
+ * Add one directory to the capability search path (ADR-0021 决定 8's
+ * 「添加目录」): the human points the workbench at a folder of capability
+ * directories they manage outside the KB, and from then on `ctx.skills`
+ * discovers them like any other root.
+ *
+ * The list persists in `~/.dsh/yantao-kb.json` (`capabilityDirs`) and this
+ * controller re-registers its single provider over it — see
+ * `registerCapabilityDirs` for why there is exactly one.
+ * @param path - absolute path of the directory to add.
+ * @returns the full list of registered directories as it now stands.
+ */
+@Remote('capabilityRegisterDir') async capabilityRegisterDir(path: string): Promise<KbCapabilityRegisterDirResult>
+
+/**
+ * Scaffold a new capability directory (ADR-0021 决定 8's 「新建能力」):
+ * `<kbRoot>/.dsh/skills/<name>/` with a SKILL.md frontmatter that already
+ * declares the host entry, and an entry script that speaks the run protocol
+ * and echoes its input — a working capability on the first run, for the
+ * human to grow into theirs.
+ * @param args - the capability's name (kebab-case; it becomes the skill name).
+ * @returns the KB-relative path of the scaffolded directory.
+ */
+@Remote('capabilityCreate') async capabilityCreate(args: KbCapabilityCreateArgs): Promise<KbCapabilityCreateResult>
 ```
 
 Source: [`packages/api/yantao-kb-controller/src/index.ts`](../../packages/api/yantao-kb-controller/src/index.ts)

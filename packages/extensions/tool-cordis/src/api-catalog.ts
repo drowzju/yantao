@@ -3009,12 +3009,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the KB-relative path of the copied resource.',
       },
       {
-        signature: '@Remote(\'extractResource\') async extractResource(args: KbExtractArgs): Promise<KbExtractResult>',
-        description: 'Extract one resource\'s text into the `.yantao/extracts/` cache (ADR-0020) — the reading project\'s raw material, paged out to the agent later by `kb_read_resource`.\n\nThe extraction is a Python subprocess (`extract/extract.py`), and its result is cached as the extract text plus a self-describing metadata JSON (`format`/`chars`/`extractedAt`/`source`). The cache is the idempotency: a second call for the same resource answers from it (`cached: true`) without running the script again — re-extracting is a human deleting the cache directory, not a flag on this method.\n\nEvery failure leaves as a `yantao-kb/extract` error carrying the script\'s own failure kind *and* its remedy, because the useful answer to "the PDF has no text layer" is what that means, not that extraction failed.',
-        parameters: [{ name: 'args', description: 'the resource\'s KB-relative path, `resources/…`.' }],
-        returns: 'where the extract landed, its format and size, and whether the cache answered.',
-      },
-      {
         signature: '@Remote(\'write\') async write(path: string, content: string): Promise<KbWriteResult>',
         description: 'Write one KB file\'s complete content (the human channel\'s full-file write; missing parent directories are created). The file is not validated — the human owns its structure, and the agent\'s tools re-validate on their next read.',
         parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }, { name: 'content', description: 'the complete new UTF-8 content.' }],
@@ -3057,12 +3051,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the target that was opened.',
       },
       {
-        signature: '@Remote(\'mailFetch\') async mailFetch(args: KbMailFetchArgs): Promise<KbMailFetchResult>',
-        description: 'Read the newest mails in the window `[since, until)` (ADR-0019).\n\nThe lower bound defaults to that watermark, and to 30 days ago when there is none — a first run must not walk a whole inbox over COM. `until` is the upper bound the panel uses to page 往前: without it a read always lands on the newest mails, so going back in time would be impossible. The read only ever says whether it filled its page (`hasMore`), never how many mails are left: an exact total would mean touching every item in the folder.\n\nEvery failure leaves as a `yantao-kb/mail` error carrying the script\'s own message *and* its remedy, because the useful answer to "Outlook is not answering" is what to install, not that the fetch failed.',
-        parameters: [{ name: 'args', description: 'an explicit `since` and `until` (to re-read an older stretch), and a cap.' }],
-        returns: 'the bounds used, the watermark before the read, whether a gap may have opened, the mails, and whether more are waiting.',
-      },
-      {
         signature: '@Remote(\'mailMarkRead\') async mailMarkRead(args: KbMailMarkReadArgs): Promise<KbMailMarkReadResult>',
         description: 'Move the mail connector\'s watermark (ADR-0019): everything at or before `lastReadAt` has been seen, so the next `mailFetch` starts after it.\n\nThe cursor lives in `~/.dsh`, next to the KB root it was read for, and never in the KB itself — that is markdown for humans.',
         parameters: [{ name: 'args', description: 'the stamp to store; defaults to now.' }],
@@ -3073,6 +3061,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Run one capability\'s host entry (ADR-0021) — the human channel\'s execution seam, the mail connector\'s and the extractor\'s subprocess pattern generalized. The capability is resolved through `ctx.skills` (the skill-filesystem provider discovers the directories; this controller only consumes the winner), its `metadata.yantao` declaration picks the entry script, and the run is one Python subprocess with a JSON stdin/stdout contract (`capability/run.ts`).\n\nThe controller, not the script, owns every write: artifacts land under `.yantao/capabilities/<name>/` at paths the script cannot choose, and the returned state is persisted under `capabilities.<name>.state` in `~/.dsh/yantao-kb.json` — metadata outside the KB, which stays markdown for humans. Execution exists only here, before a session: the agent gets no `kb_run_capability` tool (ADR-0021 取舍台账第 2 条).',
         parameters: [{ name: 'args', description: 'the capability\'s skill name and the caller\'s input, handed to the entry script verbatim.' }],
         returns: 'what the run answered, when it ran, and which artifact paths were written.',
+      },
+      {
+        signature: '@Remote(\'capabilityList\') async capabilityList(): Promise<KbCapabilityListResult>',
+        description: 'List the capabilities the workbench\'s 能力 tab shows (ADR-0021 决定 8): every skill `ctx.skills` discovers at the KB root that declares a `metadata.yantao` entry — plain skills without one are not capabilities and are skipped, not errors. Shipped capabilities are seeded first, so a fresh KB answers with 邮件 and 读书 on its very first open.\n\nEach row merges the skill\'s declaration with the persisted record (`capabilities.<name>` in `~/.dsh/yantao-kb.json`): when it last ran and the state that run left behind, so the panel can show a real 断点 without running anything.',
+        parameters: [],
+        returns: 'the capability summaries, in discovery order.',
+      },
+      {
+        signature: '@Remote(\'capabilityRegisterDir\') async capabilityRegisterDir(path: string): Promise<KbCapabilityRegisterDirResult>',
+        description: 'Add one directory to the capability search path (ADR-0021 决定 8\'s 「添加目录」): the human points the workbench at a folder of capability directories they manage outside the KB, and from then on `ctx.skills` discovers them like any other root.\n\nThe list persists in `~/.dsh/yantao-kb.json` (`capabilityDirs`) and this controller re-registers its single provider over it — see `registerCapabilityDirs` for why there is exactly one.',
+        parameters: [{ name: 'path', description: 'absolute path of the directory to add.' }],
+        returns: 'the full list of registered directories as it now stands.',
+      },
+      {
+        signature: '@Remote(\'capabilityCreate\') async capabilityCreate(args: KbCapabilityCreateArgs): Promise<KbCapabilityCreateResult>',
+        description: 'Scaffold a new capability directory (ADR-0021 决定 8\'s 「新建能力」): `<kbRoot>/.dsh/skills/<name>/` with a SKILL.md frontmatter that already declares the host entry, and an entry script that speaks the run protocol and echoes its input — a working capability on the first run, for the human to grow into theirs.',
+        parameters: [{ name: 'args', description: 'the capability\'s name (kebab-case; it becomes the skill name).' }],
+        returns: 'the KB-relative path of the scaffolded directory.',
       },
     ],
   },
@@ -4513,12 +4519,36 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'KbCapabilityAppliesTo',
+    declaration: 'export interface KbCapabilityAppliesTo {\n    readonly resource?: readonly string[];\n    readonly entity?: readonly string[];\n    readonly external?: readonly string[];\n}',
+  },
+  {
+    name: 'KbCapabilityCreateArgs',
+    declaration: 'export interface KbCapabilityCreateArgs {\n    readonly name: string;\n}',
+  },
+  {
+    name: 'KbCapabilityCreateResult',
+    declaration: 'export interface KbCapabilityCreateResult {\n    readonly path: string;\n}',
+  },
+  {
+    name: 'KbCapabilityListResult',
+    declaration: 'export interface KbCapabilityListResult {\n    readonly capabilities: readonly KbCapabilitySummary[];\n}',
+  },
+  {
+    name: 'KbCapabilityRegisterDirResult',
+    declaration: 'export interface KbCapabilityRegisterDirResult {\n    readonly directories: readonly string[];\n}',
+  },
+  {
     name: 'KbCapabilityRunArgs',
     declaration: 'export interface KbCapabilityRunArgs {\n    readonly name: string;\n    readonly input?: JsonValue;\n}',
   },
   {
     name: 'KbCapabilityRunResult',
     declaration: 'export interface KbCapabilityRunResult {\n    readonly name: string;\n    readonly runAt: string;\n    readonly result?: JsonValue;\n    readonly artifacts: readonly string[];\n}',
+  },
+  {
+    name: 'KbCapabilitySummary',
+    declaration: 'export interface KbCapabilitySummary {\n    readonly name: string;\n    readonly description: string;\n    readonly source: string;\n    readonly directory?: string;\n    readonly entry: string;\n    readonly runtime: string;\n    readonly appliesTo?: KbCapabilityAppliesTo;\n    readonly lastRunAt?: string;\n    readonly state?: JsonValue;\n}',
   },
   {
     name: 'KbCreatableEntityType',
@@ -4537,14 +4567,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbDeleteFileResult {\n    readonly path: string;\n}',
   },
   {
-    name: 'KbExtractArgs',
-    declaration: 'export interface KbExtractArgs {\n    readonly path: string;\n}',
-  },
-  {
-    name: 'KbExtractResult',
-    declaration: 'export interface KbExtractResult {\n    readonly extractPath: string;\n    readonly format: string;\n    readonly chars: number;\n    readonly cached: boolean;\n}',
-  },
-  {
     name: 'KbFileContent',
     declaration: 'export interface KbFileContent {\n    readonly path: string;\n    readonly content: string;\n}',
   },
@@ -4553,24 +4575,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbLinksResult {\n    readonly path: string;\n    readonly outgoing: readonly KbLinkTarget[];\n    readonly incoming: readonly KbLinkSource[];\n}',
   },
   {
-    name: 'KbMailFetchArgs',
-    declaration: 'export interface KbMailFetchArgs {\n    readonly since?: string;\n    readonly until?: string;\n    readonly limit?: number;\n}',
-  },
-  {
-    name: 'KbMailFetchResult',
-    declaration: 'export interface KbMailFetchResult {\n    readonly since: string;\n    readonly until?: string;\n    readonly lastReadAt?: string;\n    readonly stale: boolean;\n    readonly messages: readonly KbMailMessage[];\n    readonly hasMore: boolean;\n}',
-  },
-  {
     name: 'KbMailMarkReadArgs',
     declaration: 'export interface KbMailMarkReadArgs {\n    readonly lastReadAt?: string;\n}',
   },
   {
     name: 'KbMailMarkReadResult',
     declaration: 'export interface KbMailMarkReadResult {\n    readonly lastReadAt: string;\n}',
-  },
-  {
-    name: 'KbMailMessage',
-    declaration: 'export interface KbMailMessage {\n    readonly id: string;\n    readonly entryId: string;\n    readonly receivedAt: string;\n    readonly senderName: string;\n    readonly senderAddress: string;\n    readonly subject: string;\n    readonly body: string;\n    readonly truncated: boolean;\n}',
   },
   {
     name: 'KbOpenExternalResult',

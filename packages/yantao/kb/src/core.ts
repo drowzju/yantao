@@ -384,7 +384,7 @@ export const RESOURCE_CHUNK_LENGTH = 20000
  * Return one chunk of a resource's extracted text, for the agent to page
  * through a whole book without blowing the context (ADR-0020). The resource
  * must live under `resources/`; its extract must exist — run the
- * extraction (controller `extractResource`) first.
+ * extraction (the `ebook` capability, via the workbench) first.
  * @param kbRoot - the knowledge-base root the resource lives under.
  * @param resourcePath - the resource's KB-relative path (`resources/<name>`).
  * @param offset - character offset to read from (default 0).

@@ -1,18 +1,23 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type { SkillDefinition, SkillRegistry } from '@deepseek-ai/dsh-skill'
-import { readCapabilityState, writeKbRootOverride, type YantaoKbService } from '@deepseek-ai/dsh-yantao-kb'
+import {
+  readCapabilityDirs, readCapabilityState, writeKbRootOverride, type YantaoKbService,
+} from '@deepseek-ai/dsh-yantao-kb'
 import YantaoKbController from '../src/index.ts'
 
-// Both mocks are read by `vi.mock` factories, which run before any top-level
+// All mocks are read by `vi.mock` factories, which run before any top-level
 // `let` is initialized — hence the hoisted holder.
-const { state } = vi.hoisted(() => ({ state: { home: '', runCapability: vi.fn(), skillGet: vi.fn() } }))
+const { state } = vi.hoisted(() => ({
+  state: { home: '', runCapability: vi.fn(), skillGet: vi.fn(), skillList: vi.fn(), registerProvider: vi.fn() },
+}))
 const runCapability = state.runCapability
 const skillGet = state.skillGet
+const skillList = state.skillList
 
 // The capability state lives in dsh's home, which is the developer's real
 // `~`; point `homedir()` at a throwaway directory so the suite never touches it.
@@ -43,6 +48,18 @@ beforeEach(async () => {
   await writeFile(join(skillDir, 'scripts', 'entry.py'), 'print(1)', 'utf8')
   runCapability.mockReset()
   skillGet.mockReset()
+  // `settleSkills` probes the registry until the names it is waiting for show
+  // up; answering from the seeded directory makes that immediate.
+  skillList.mockReset().mockImplementation(async () => {
+    try {
+      return (await readdir(join(home, '.dsh', 'skills'), { withFileTypes: true }))
+        .filter(entry => entry.isDirectory())
+        .map(entry => ({ name: entry.name }))
+    } catch {
+      return []
+    }
+  })
+  state.registerProvider.mockReset().mockReturnValue(() => {})
   ctx = new Context()
   ctx.provide('yantaoKb', {
     get root(): string {
@@ -53,9 +70,13 @@ beforeEach(async () => {
     },
     setRoot(): void {},
   } satisfies YantaoKbService)
-  // `capabilityRun` resolves the capability through the skill registry; a
-  // one-method stand-in is the whole surface this controller reads.
-  ctx.provide('skills', { get: skillGet } as unknown as SkillRegistry)
+  // The capability RPCs resolve through the skill registry; a three-method
+  // stand-in is the whole surface this controller reads.
+  ctx.provide('skills', {
+    get: skillGet,
+    list: skillList,
+    registerProvider: state.registerProvider,
+  } as unknown as SkillRegistry)
   fiber = await ctx.plugin(YantaoKbController)
   // Capability state is persisted next to the KB root, so a run needs one to
   // have been chosen.
@@ -158,6 +179,92 @@ describe('yantaoKb.capabilityRun', () => {
       message: 'Outlook 没有应答',
       details: { kind: 'capability-failed', hint: '请确认 Outlook 已登录' },
     })
+  })
+})
+
+describe('yantaoKb.capabilityList', () => {
+  it('lists skills that declare a yantao manifest and skips plain skills', async () => {
+    skillList.mockResolvedValue([
+      { name: 'mail', description: '读 Outlook 邮件', source: 'project', resourceBase: { kind: 'directory', path: skillDir } },
+      { name: 'plain', description: '普通技能', source: 'project' },
+    ])
+    skillGet.mockImplementation(async (name: string) =>
+      name === 'mail' ? definition() : definition({ name, metadata: {} }))
+    const { capabilities } = await ctx.yantaoKbController.capabilityList()
+    expect(capabilities).toHaveLength(1)
+    expect(capabilities[0]).toMatchObject({
+      name: 'mail',
+      description: '读 Outlook 邮件',
+      source: 'project',
+      directory: skillDir,
+      entry: 'scripts/entry.py',
+      runtime: 'python',
+    })
+    expect(capabilities[0]?.lastRunAt).toBeUndefined()
+    expect(capabilities[0]?.state).toBeUndefined()
+  })
+
+  it('merges the persisted record: when it last ran and the state it left', async () => {
+    skillGet.mockResolvedValue(definition())
+    skillList.mockResolvedValue([{ name: 'mail', description: '读 Outlook 邮件', source: 'project' }])
+    runCapability.mockResolvedValue({ result: { ok: 1 }, state: { lastReadAt: '2026-09-12T00:00:00.000Z' } })
+    await ctx.yantaoKbController.capabilityRun({ name: 'mail' })
+    const { capabilities } = await ctx.yantaoKbController.capabilityList()
+    expect(capabilities[0]?.lastRunAt).toEqual(expect.any(String))
+    expect(capabilities[0]?.state).toEqual({ lastReadAt: '2026-09-12T00:00:00.000Z' })
+  })
+
+  it('seeds the shipped capabilities into the KB before listing', async () => {
+    skillGet.mockResolvedValue(definition())
+    const { capabilities } = await ctx.yantaoKbController.capabilityList()
+    // The seeding itself is covered by capability-builtin.spec; here it is
+    // enough that a fresh KB answers with the shipped pair.
+    expect(capabilities.map(capability => capability.name)).toEqual(expect.arrayContaining(['mail', 'ebook']))
+  })
+})
+
+describe('yantaoKb.capabilityRegisterDir', () => {
+  it('registers a directory, persists it, and answers the full list', async () => {
+    const dir = join(home, '我的能力')
+    await mkdir(dir, { recursive: true })
+    expect(await ctx.yantaoKbController.capabilityRegisterDir(dir)).toEqual({ directories: [dir] })
+    expect(readCapabilityDirs()).toEqual([dir])
+    // A second registration of the same directory dedupes rather than doubling.
+    expect((await ctx.yantaoKbController.capabilityRegisterDir(dir)).directories).toEqual([dir])
+  })
+
+  it('refuses a relative path, a missing directory, and a plain file', async () => {
+    const relative = await ctx.yantaoKbController.capabilityRegisterDir('skills').catch((error: unknown) => error)
+    expect(remoteErrorOf(relative)).toMatchObject({ code: 'yantao-kb/rejected' })
+    const missing = await ctx.yantaoKbController.capabilityRegisterDir(join(home, '不存在')).catch((error: unknown) => error)
+    expect(remoteErrorOf(missing)).toMatchObject({ code: 'yantao-kb/rejected' })
+    const file = join(home, 'file.txt')
+    await writeFile(file, 'x', 'utf8')
+    const notDir = await ctx.yantaoKbController.capabilityRegisterDir(file).catch((error: unknown) => error)
+    expect(remoteErrorOf(notDir)).toMatchObject({ code: 'yantao-kb/rejected' })
+  })
+})
+
+describe('yantaoKb.capabilityCreate', () => {
+  it('scaffolds a working capability directory and settles it into the registry', async () => {
+    const result = await ctx.yantaoKbController.capabilityCreate({ name: 'daily-note' })
+    expect(result.path).toBe('.dsh/skills/daily-note')
+    const skillMd = await readFile(join(home, '.dsh', 'skills', 'daily-note', 'SKILL.md'), 'utf8')
+    expect(skillMd).toContain('name: daily-note')
+    expect(skillMd).toMatch(/yantao:/)
+    expect(await readFile(join(home, '.dsh', 'skills', 'daily-note', 'scripts', 'entry.py'), 'utf8'))
+      .toMatch(/json\.load/)
+    // The scaffold was probed into the registry, so the panel's next list sees it.
+    expect(skillList).toHaveBeenCalledWith({ cwd: home })
+  })
+
+  it('refuses a bad name and an existing directory', async () => {
+    const bad = await ctx.yantaoKbController.capabilityCreate({ name: '大写X' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(bad)).toMatchObject({ code: 'yantao-kb/rejected' })
+    await ctx.yantaoKbController.capabilityCreate({ name: 'twice' })
+    const again = await ctx.yantaoKbController.capabilityCreate({ name: 'twice' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(again)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((again as Error).message).toMatch(/已存在/)
   })
 })
 

@@ -217,9 +217,10 @@ export interface KbWriteTodosResult {
 }
 
 /**
- * One mail as the connector reports it (ADR-0019). Mirrors `mail/fetch.ts`'s
- * `MailMessage` rather than importing it: `types.ts` is the contract the
- * Client reads, and `fetch.ts` drags `node:child_process` in with it.
+ * One mail as the mail capability reports it (ADR-0019; since ADR-0021 the
+ * `result` of `capabilityRun('mail', …)`). Mirrors the capability's entry
+ * script (`capability/builtin/mail/scripts/entry.py`) rather than importing
+ * it: `types.ts` is the contract the Client reads.
  */
 export interface KbMailMessage {
   /** Stable dedup key: `sha1("receivedAt|senderAddress|subject")`. */
@@ -240,7 +241,7 @@ export interface KbMailMessage {
   readonly truncated: boolean
 }
 
-/** Parameters of `yantaoKb.mailFetch` (ADR-0019). */
+/** Input of the mail capability (ADR-0019): handed to `capabilityRun('mail', …)` as `input`. */
 export interface KbMailFetchArgs {
   /**
    * Lower bound (exclusive) on reception time, as an ISO 8601 string.
@@ -258,7 +259,7 @@ export interface KbMailFetchArgs {
   readonly limit?: number
 }
 
-/** Result of `yantaoKb.mailFetch` (ADR-0019). */
+/** Result of the mail capability (ADR-0019): the `result` of `capabilityRun('mail', …)`. */
 export interface KbMailFetchResult {
   /** The bound the read actually used. */
   readonly since: string
@@ -308,13 +309,13 @@ export interface KbRegisterResourceResult {
   readonly resource: string
 }
 
-/** Parameters of `yantaoKb.extractResource` (ADR-0020). */
+/** Input of the 读书 capability (ADR-0020): handed to `capabilityRun('ebook', …)` as `input`. */
 export interface KbExtractArgs {
   /** KB-relative path of the resource to extract, `resources/…`. */
   readonly path: string
 }
 
-/** Result of `yantaoKb.extractResource` (ADR-0020). */
+/** Result of the 读书 capability (ADR-0020): the `result` of `capabilityRun('ebook', …)`. */
 export interface KbExtractResult {
   /** KB-relative path of the cached extract text, `.yantao/extracts/….txt`. */
   readonly extractPath: string
@@ -357,4 +358,65 @@ export interface KbCapabilityRunResult {
   readonly result?: JsonValue
   /** KB-relative paths of the files the run wrote under `.yantao/capabilities/<name>/`. */
   readonly artifacts: readonly string[]
+}
+
+/**
+ * What a capability accepts (ADR-0021), as declared by its
+ * `metadata.yantao.appliesTo`. Mirrors `capability/run.ts`'s
+ * `CapabilityAppliesTo` rather than importing it: `types.ts` stays free of
+ * `run.ts`'s subprocess machinery.
+ */
+export interface KbCapabilityAppliesTo {
+  /** Resource suffixes (with dot, lowercase), e.g. `['.epub', '.pdf']`. */
+  readonly resource?: readonly string[]
+  /** Entity types the capability accepts, e.g. `['project']`. */
+  readonly entity?: readonly string[]
+  /** External sources the capability reads, e.g. `['mailbox']`. */
+  readonly external?: readonly string[]
+}
+
+/** One capability as the 能力 tab lists it (ADR-0021 决定 8). */
+export interface KbCapabilitySummary {
+  /** The capability's skill name, as `capabilityRun` addresses it. */
+  readonly name: string
+  /** The SKILL.md description. */
+  readonly description: string
+  /** Where the skill directory was discovered (`project`, `user`, …). */
+  readonly source: string
+  /** Absolute path of the capability's directory, when the provider reported one. */
+  readonly directory?: string
+  /** Entry script path, relative to the capability's directory. */
+  readonly entry: string
+  /** The only runtime in v1: `python`. */
+  readonly runtime: string
+  /** What the capability accepts; absent means "offered from the 能力 tab only". */
+  readonly appliesTo?: KbCapabilityAppliesTo
+  /** When the capability last ran, as an ISO 8601 string; absent when never run. */
+  readonly lastRunAt?: string
+  /** The state the last run left behind; opaque to the controller. */
+  readonly state?: JsonValue
+}
+
+/** Result of `yantaoKb.capabilityList` (ADR-0021). */
+export interface KbCapabilityListResult {
+  /** The capabilities, in discovery order. */
+  readonly capabilities: readonly KbCapabilitySummary[]
+}
+
+/** Result of `yantaoKb.capabilityRegisterDir` (ADR-0021 决定 8's 「添加目录」). */
+export interface KbCapabilityRegisterDirResult {
+  /** The full list of registered capability directories as it now stands. */
+  readonly directories: readonly string[]
+}
+
+/** Parameters of `yantaoKb.capabilityCreate` (ADR-0021 决定 8's 「新建能力」). */
+export interface KbCapabilityCreateArgs {
+  /** The capability's name (kebab-case); it becomes the skill name. */
+  readonly name: string
+}
+
+/** Result of `yantaoKb.capabilityCreate` (ADR-0021 决定 8's 「新建能力」). */
+export interface KbCapabilityCreateResult {
+  /** KB-relative path of the scaffolded directory, `.dsh/skills/<name>`. */
+  readonly path: string
 }

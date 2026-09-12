@@ -30,6 +30,13 @@ interface KbRootState {
   /** Per-capability machine state; never mirrored into the KB itself. */
   capabilities?: Record<string, CapabilityState>
   /**
+   * Directories the human registered as extra capability roots (ADR-0021
+   * 决定 8「添加目录」); the controller re-registers them into the skill
+   * registry on startup, since skill-filesystem only reads its config at
+   * construction.
+   */
+  capabilityDirs?: string[]
+  /**
    * Legacy pre-ADR-0021 connector cursors, kept readable so an existing mail
    * watermark survives the upgrade; a write moves it into `capabilities`.
    */
@@ -197,4 +204,58 @@ export async function writeCapabilityState(name: string, state: unknown): Promis
       [name]: { ...existing.capabilities?.[name], state, lastRunAt: new Date().toISOString() },
     },
   })
+}
+
+/** One capability's persisted record, as the capability tab's list shows it. */
+export interface CapabilityRecord {
+  /** The capability's own state; its shape is the capability's business. */
+  readonly state?: unknown
+  /** ISO 8601 timestamp of the most recent completed run, absent when it never ran. */
+  readonly lastRunAt?: string
+}
+
+/**
+ * Read one capability's whole persisted record — state plus run stamp — for
+ * the capability list (ADR-0021 决定 8: the 清单 shows 上次运行/断点摘要).
+ * @param name - the capability's kebab-case name.
+ * @returns the record, or `undefined` when the capability has never run.
+ */
+export function readCapabilityRecord(name: string): CapabilityRecord | undefined {
+  const slot = readKbRootState()?.capabilities?.[name]
+  if (slot === undefined) return undefined
+  return {
+    ...slot.state !== undefined ? { state: slot.state } : {},
+    ...slot.lastRunAt !== undefined ? { lastRunAt: slot.lastRunAt } : {},
+  }
+}
+
+/**
+ * Read the directories the human registered as extra capability roots
+ * (ADR-0021 决定 8「添加目录」). Synchronous, like every other read here.
+ * @returns the registered absolute paths, in registration order.
+ */
+export function readCapabilityDirs(): readonly string[] {
+  const dirs = readKbRootState()?.capabilityDirs
+  return Array.isArray(dirs) ? dirs.filter((dir): dir is string => typeof dir === 'string') : []
+}
+
+/**
+ * Register one more extra capability directory (ADR-0021 决定 8「添加目录」),
+ * keeping the KB root and every capability's state as they are. Registering
+ * the same directory twice is a no-op, not a duplicate.
+ * @param dir - the absolute directory path to remember.
+ * @returns the full list as it now stands.
+ * @throws when no KB root is persisted yet — the registry lives next to the
+ *   root it was chosen for.
+ */
+export async function writeCapabilityDir(dir: string): Promise<readonly string[]> {
+  const existing = readKbRootState()
+  if (existing === undefined) {
+    throw new Error('yantao-kb: cannot register a capability directory before a KB root is configured')
+  }
+  const current = readCapabilityDirs()
+  if (current.includes(dir)) return current
+  const next = [...current, dir]
+  await writeKbRootState({ ...existing, capabilityDirs: next })
+  return next
 }

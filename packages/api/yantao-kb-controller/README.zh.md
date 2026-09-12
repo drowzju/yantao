@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-api-yantao-kb-controller` 是 yantao 工作台 UI 背后的 Typert Remote 控制器：`yantaoKb` 命名空间下的十九个一元方法——`intakeTree`、`workspaceTree`、`read`、`write`、`deleteFile`、`setRelation`、`root`、`setRoot`、`createEntity`、`links`、`revision`、`openExternal`、`todos`、`writeTodos`、`mailFetch`、`mailMarkRead`、`registerResource`、`extractResource`、`capabilityRun`——让浏览器直接列出、编辑与扩充知识库。所有路径都是知识库相对路径，并被限制在 `yantao-kb` 插件以 `yantaoKb` 服务发布的 kbRoot 之内，因此控制器共享插件的唯一配置点，绝不重复配置；`setRoot` 则重新指向这个唯一的根目录。UI 是人类通道，所以 `write` 是整文件写入；ADR-0004 信任边界只约束 agent 的 `kb_` 工具，从不约束本表面。
+`dsh-api-yantao-kb-controller` 是 yantao 工作台 UI 背后的 Typert Remote 控制器：`yantaoKb` 命名空间下的二十个一元方法——`intakeTree`、`workspaceTree`、`read`、`write`、`deleteFile`、`setRelation`、`root`、`setRoot`、`createEntity`、`links`、`revision`、`openExternal`、`todos`、`writeTodos`、`mailMarkRead`、`registerResource`、`capabilityList`、`capabilityRun`、`capabilityRegisterDir`、`capabilityCreate`——让浏览器直接列出、编辑与扩充知识库。所有路径都是知识库相对路径，并被限制在 `yantao-kb` 插件以 `yantaoKb` 服务发布的 kbRoot 之内，因此控制器共享插件的唯一配置点，绝不重复配置；`setRoot` 则重新指向这个唯一的根目录。UI 是人类通道，所以 `write` 是整文件写入；ADR-0004 信任边界只约束 agent 的 `kb_` 工具，从不约束本表面。
 
 ## 目录
 
@@ -45,11 +45,12 @@ kind: "package-reference"
 | `yantaoKb.openExternal` | `(target)` | `{ target }`——把知识库内路径或白名单协议的 URL 交给系统打开，拒绝 shell 元字符（ADR-0017） |
 | `yantaoKb.todos` | `()` | `{ path, text, items }`——`entities/todos.md` 单例解析出的结构化条目，外加文件原文（ADR-0018） |
 | `yantaoKb.writeTodos` | `({ items, expectedText })` | `{ path, text }`——替换单例的条目，保留 preamble（ADR-0018） |
-| `yantaoKb.mailFetch` | `({ since?, until?, limit? })` | `{ since, until?, lastReadAt?, stale, messages, hasMore }`——`[since, until)` 区间内的最新邮件，由 Python/COM 子进程读出（ADR-0019） |
-| `yantaoKb.mailMarkRead` | `({ lastReadAt? })` | `{ lastReadAt }`——把断点往前推；缺省为当前时刻（ADR-0019） |
+| `yantaoKb.mailMarkRead` | `({ lastReadAt? })` | `{ lastReadAt }`——把邮件能力的断点往前推；缺省为当前时刻（ADR-0019） |
 | `yantaoKb.registerResource` | `({ name, contentBase64 })` | `{ resource }`——把一个拖入的文件逐字节复制进 `resources/`，清理文件名并拒绝重复；旁边不生成任何笔记（ADR-0020） |
-| `yantaoKb.extractResource` | `({ path })` | `{ extractPath, format, chars, cached }`——用内置 Python 脚本把一个资源的文本提取到 `.yantao/extracts/`，之后的调用直接命中缓存（`cached: true`）；支持 txt / md / pdf / epub / doc / docx / ppt / pptx（ADR-0020） |
 | `yantaoKb.capabilityRun` | `({ name, input? })` | `{ name, runAt, result?, artifacts }`——把一个能力的宿主入口（声明了 `metadata.yantao` 的 dsh skill 目录）作为 Python 子进程运行，产物写入 `.yantao/capabilities/<name>/`，状态记到 `~/.dsh/yantao-kb.json` 的 `capabilities.<name>.state`（ADR-0021） |
+| `yantaoKb.capabilityList` | `()` | `{ capabilities }`——知识库根目录下每个声明了 `metadata.yantao` 入口的技能，每行合并它的持久化记录（`lastRunAt`、`state`）；内置能力会先被播种进 `<kbRoot>/.dsh/skills/`（ADR-0021） |
+| `yantaoKb.capabilityRegisterDir` | `(path)` | `{ directories }`——把一个绝对目录加进能力搜索路径；列表持久化在 `~/.dsh/yantao-kb.json` 的 `capabilityDirs`，由一个专属 skill provider 暴露（ADR-0021 决定 8） |
+| `yantaoKb.capabilityCreate` | `({ name })` | `{ path }`——在 `.dsh/skills/<name>/` 脚手架出带声明的 SKILL.md 和说执行协议的 `scripts/entry.py`；第一次运行就能工作的能力（ADR-0021 决定 8） |
 
 `setRelation` 只对人物文件作答：其它文件一律 `yantao-kb/rejected` 且不被改写，五种关系之外的取值同样拒绝。它是对 frontmatter 的一行拼接，绝不重排 YAML——重新生成映射会丢掉人类写的注释与顺序。
 
@@ -57,13 +58,15 @@ kind: "package-reference"
 
 `todos` / `writeTodos`（ADR-0018）是编辑 `entities/todos.md` 单例的结构化方式——这一对方法存在的原因是 Client **不能** import kb 包的解析器（bundle purity）。`todos` 把缺失的文件报成 `text: ''` 与空条目，而不是报错；`writeTodos` 拿 `expectedText` 与磁盘上的当前文本比对，不一致就是 `yantao-kb/rejected`——于是工作台之外的修改会被刷新，绝不会被覆盖。文件的 preamble（清单上方人类写的标题）原样保留，只替换条目。
 
-`mailFetch` / `mailMarkRead`（ADR-0019）是第一个连接器。`mailFetch` 只读收件箱，单次最多 50 封，并用 `~/.dsh/yantao-kb.json` 里的断点作下界——从没跑过时用「30 天前」，这样首次读取不会去 COM 上把整个收件箱走一遍；`until` 是配对的上界，没有它每次读取都落在最新那一页，工作台就永远没法「往前」读更早的邮件。断点缺失或早于 30 天时它回答 `stale`（由界面问是否补读更早那段：既不静默跳过，也不静默补齐），页面被填满时回答 `hasMore`——要想知道精确还剩多少封，就得把文件夹里每一项都摸一遍。两者都要求先选过知识库目录，因为断点就记在它旁边。
+`mailMarkRead`（ADR-0019）是第一个连接器的 RPC 表面剩下的那一半：断点写入。读邮件这件事搬进了 `mail` 能力（ADR-0021）——它的结果携带与从前 `mailFetch` 相同的边界、`stale` 与 `hasMore` 簿记——但推进断点是批准时的动作，所以它仍是一个普通 RPC，落在 `writeMailWatermark` 上。它要求先选过知识库目录，因为断点就记在它旁边。
 
-`registerResource` / `extractResource`（ADR-0020）是资源摄入。`registerResource` 是拖拽路径：浏览器把文件的完整内容 base64 编码后发来，宿主把它原样复制进 `resources/`——与 agent 的 `kb_register_resource` 相同的清理并拒绝重复语义，只是不接受绝对路径输入。`extractResource` 是懒惰的一半：只有读书项目要书的正文时它才运行，通过子进程调用内置的 `extract.py`（ADR-0019 子进程模式：stdout 走 JSON、分类退出码、`PYTHONIOENCODING=utf-8`），把文本连同一份自描述的元数据 JSON 缓存在 `.yantao/extracts/` 下——知识库旁边的机器簿记，绝不进 `resources/`。没有文字层的扫描件、加密或损坏的文件是一次明确的失败（`yantao-kb/extract` 携带 `kind` 与指明补救办法的 `hint`，例如 `pip install pypdf`），绝不是静默的空提取。
+`registerResource`（ADR-0020）是拖拽摄入：浏览器把文件的完整内容 base64 编码后发来，宿主把它原样复制进 `resources/`——与 agent 的 `kb_register_resource` 相同的清理并拒绝重复语义，只是不接受绝对路径输入。提取资源文本这件事搬进了 `ebook` 能力（ADR-0021）：同一套内置 Python 提取，现在播种在 `<kbRoot>/.dsh/skills/ebook/`，通过 `capabilityRun` 运行，缓存仍在 `.yantao/extracts/`。
 
 `capabilityRun`（ADR-0021）是把邮件/提取的子进程模式泛化进能力系统的那条执行缝：能力是一个 dsh skill 目录，SKILL.md 的 frontmatter 用 `metadata.yantao` 声明入口（`entry`/`runtime`/`appliesTo`）；发现是 `ctx.skills` 的事，控制器只拥有执行——一次 Python 子进程、stdin/stdout 走 JSON 的契约，产物由控制器写入（脚本自己选不了写路径），返回的状态作为下一次运行的起点持久化。执行只在这里、只在会话之前存在：agent 没有 `kb_run_capability` 工具，`tool-skill` 保持禁用，模型永远看不到技能目录。
 
-失败是 `RemoteError`：路径没有对应文件时为 `yantao-kb/not-found`；路径逃逸、目标不是文件、I/O 拒绝或知识库领域拒绝（实体已存在、`todo` 单例）时为 `yantao-kb/rejected`——两者的 `details` 都携带出问题的 `path`；连接器失败时为 `yantao-kb/mail`，`details` 带失败种类 `kind` 与告诉人该装什么、该启动什么的 `hint`。`yantao-kb/extract` 是最后这一类的提取对应物，`yantao-kb/capability` 是能力对应物（`not-found` / `bad-manifest` / `python-missing` / `timeout` / `bad-output` / `capability-failed`）。
+`capabilityList` / `capabilityRegisterDir` / `capabilityCreate`（ADR-0021 决定 8）是「能力」页签的管理半边。`capabilityList` 先把内置能力播种进知识库（缺失才复制、按版本覆盖，让脚本的修复真正到达 KB），再列出每个声明了 `metadata.yantao` 的技能——普通技能被跳过而不是报错——并与各自的持久化记录合并。`capabilityRegisterDir` 把一个由人类自行管理、位于知识库之外的能力目录加进搜索路径；列表持久化在 `~/.dsh/yantao-kb.json`，由本控制器持有的**唯一**一个 `FileSystemSkillProvider` 服务，列表变化时先 dispose 再重新注册。`capabilityCreate` 在知识库内脚手架一个新能力，入口脚本开箱即可运行。
+
+失败是 `RemoteError`：路径没有对应文件时为 `yantao-kb/not-found`；路径逃逸、目标不是文件、I/O 拒绝或知识库领域拒绝（实体已存在、`todo` 单例）时为 `yantao-kb/rejected`——两者的 `details` 都携带出问题的 `path`；断点写入失败时为 `yantao-kb/mail`，`details` 带失败种类 `kind` 与 `hint`。`yantao-kb/capability` 是能力对应物（`not-found` / `bad-manifest` / `python-missing` / `timeout` / `bad-output` / `capability-failed`），能力自己的失败 `kind` 与补救 `hint` 也一并放在 `details` 里。
 
 ### Client 消费
 
@@ -84,15 +87,15 @@ kind: "package-reference"
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 控制器：服务声明、路径限制与 RPC 方法 |
-| [`src/extract/extract.py`](src/extract/extract.py) | 文本提取子进程（ADR-0020）：按格式的处理器、分类退出码、stdout 走 JSON |
-| [`src/extract/index.ts`](src/extract/index.ts) | 该子进程的 spawn 包装：错误归类为 `ExtractError{kind,message,hint}`、超时与 stdout 上限 |
+| [`src/capability/builtin.ts`](src/capability/builtin.ts) | 内置能力目录的播种器（ADR-0021）：缺失才复制、按版本覆盖，落进 `<kbRoot>/.dsh/skills/` |
+| [`src/capability/builtin/`](src/capability/builtin/) | `mail` 与 `ebook` 能力的母本：SKILL.md + `scripts/`（即旧 `mail/`、`extract/` 模块调用的那几个 Python 子进程） |
 | [`src/capability/run.ts`](src/capability/run.ts) | 能力运行器（ADR-0021）：`metadata.yantao` 声明校验、入口限制在能力目录内、带 `CapabilityError{kind,message,hint}` 的 spawn 包装、产物文件名校验 |
 | [`src/types.ts`](src/types.ts) | wire 载荷词汇（树节、文件行、读写结果） |
 | — | 不发布运行时不变量伴生包；控制器是无状态适配器，其限制与树形契约由包内单元测试覆盖。 |
 | [`tests/controller.spec.ts`](tests/controller.spec.ts) | 基于真实临时目录的树形、读写往返、root/setRoot/createEntity、not-found 归类与逃逸拒绝覆盖 |
-| [`tests/extract.spec.ts`](tests/extract.spec.ts) | 提取包装基于假 spawn 的覆盖：输出解析、错误归类、超时、argv 形状 |
-| [`tests/intake-rpc.spec.ts`](tests/intake-rpc.spec.ts) | 两个摄入 RPC 基于真实临时目录的覆盖：base64 往返、重复拒绝、缓存幂等、`source:` 透传 |
-| [`tests/capability-rpc.spec.ts`](tests/capability-rpc.spec.ts) | capabilityRun RPC 基于假注册表与被 mock 的运行器：no-root/not-found/bad-manifest 拒绝、入口限制、产物写盘、状态往返、脚本失败透传 |
+| [`tests/intake-rpc.spec.ts`](tests/intake-rpc.spec.ts) | 摄入 RPC 基于真实临时目录的覆盖：base64 往返、重复拒绝、`source:` 透传 |
+| [`tests/capability-rpc.spec.ts`](tests/capability-rpc.spec.ts) | 能力 RPC 基于假注册表与被 mock 的运行器：no-root/not-found/bad-manifest 拒绝、入口限制、产物写盘、状态往返、列表合并、目录注册、脚手架 |
+| [`tests/capability-builtin.spec.ts`](tests/capability-builtin.spec.ts) | 播种器基于真实临时目录的覆盖：全新播种、已最新则不动、按版本覆盖、保留人类更新的新版本 |
 
 ### 不变量归属
 
