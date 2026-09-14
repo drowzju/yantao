@@ -97,6 +97,8 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0019 | 第一个连接器:Outlook 邮件(COM 子进程读邮件,dsh session 分析,人工确认后才写库) |
 | 0020 | 读书项目与资源入库:拖放入库、`source:` 字段判别的读书项目、惰性 py 脚本抽取、废除影子笔记配对 |
 | 0021 | 能力系统:连接重构为能力(skill 目录 + 宿主入口 + appliesTo 声明),统一提议流,mail/extract 全量迁移;取舍台账独立成节 |
+| 0022 | 系统提示词分层:yantao 的系统指令以命名 section 叠加在 dsh 注册表上,源文件为仓库 Markdown;persona 保持薄身份声明 |
+| 0023 | 能力的模型侧调用:`kb_run_capability` 按 sidecar `invocation` 字段逐能力门控,动态目录注入,缺 entry 的指令型能力,播种覆盖前备份;重开 ADR-0021 台账第 1、2 条 |
 
 ## 5. 快速上手
 

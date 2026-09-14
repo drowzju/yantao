@@ -99,6 +99,8 @@ Do not invent synonyms in code, commits, or docs — and never call the LLM rout
 | 0019 | First connector: Outlook mail (COM subprocess for reading, a dsh session for analysis, writes land only after human confirmation) |
 | 0020 | Reading projects & resource intake: drag-and-drop registration, a `source:`-field reading project, lazy py-script text extraction, and the shadow-note pairing abolished |
 | 0021 | Capability system: the connector concept rebuilt as capabilities (skill directory + host entry + `appliesTo` declaration), a unified proposal flow, and the full mail/extract migration; the trade-off ledger gets its own section |
+| 0022 | Prompt layering: yantao's system instructions become named sections over dsh's section registry, sourced from repo Markdown; the persona stays a thin identity |
+| 0023 | Agent-side capability invocation: `kb_run_capability` gated per-capability via the sidecar `invocation` field, dynamic catalog injection, entry-less instruction capabilities, and drift-backup on reseed; reopens ADR-0021's ledger items 1–2 |
 
 ## 5. Quick start
 
