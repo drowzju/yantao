@@ -5,17 +5,20 @@
  * host's Python/COM subprocess, where the two buttons step the window back and
  * forward in time; 分析 hands the batch to a dsh session and reports which
  * stage the run has reached, because the wait is the slow part; and the
- * verdict comes back into {@link MailReview}, where nothing is written until
- * the human confirms. The cursor only moves once a verdict has been dealt
- * with, so a failed analysis leaves the mails unread rather than lost.
+ * the verdict comes back into {@link ProposalCard}, where nothing is written
+ * until the human confirms. The cursor only moves once a verdict has been
+ * dealt with, so a failed analysis leaves the mails unread rather than lost.
  */
 import { useEffect, useState, type ReactElement } from 'react'
 import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { MailFetcher, MailMarker } from './remote.ts'
-import type { AnalysisProgress, AnalysisRun, AnalysisStage, MailAnalyser } from './mail-analysis.ts'
-import type { MailEntities, MailSelection, MailWriteTarget } from './mail-apply.ts'
-import { applyAnalysis } from './mail-apply.ts'
-import { MailReview } from './MailReview.tsx'
+import type { AnalysisProgress, AnalysisStage, MailAnalyser } from './mail-analysis.ts'
+import type { MailEntities } from './mail-apply.ts'
+import type { ProposalTarget } from './proposal-apply.ts'
+import { applyProposal } from './proposal-apply.ts'
+import type { Proposal } from './proposal.ts'
+import { analysisToProposal } from './proposal.ts'
+import { ProposalCard } from './ProposalCard.tsx'
 
 /** The processed-mail range the capability's persisted state carries, as the panel shows it. */
 export interface MailProcessedRange {
@@ -34,7 +37,7 @@ export interface MailPanelProps {
   /** Run one analysis over a batch, reporting the stage it has reached. */
   readonly analyse: MailAnalyser
   /** The KB seams the confirmed writes go through. */
-  readonly target: MailWriteTarget
+  readonly target: ProposalTarget
   /** Read what the KB already holds, for the prompt and for the writes. */
   readonly entities: () => Promise<MailEntities>
   /** The processed range so far, from the capability's persisted state. */
@@ -134,7 +137,7 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState<string | null>(null)
   const [hint, setHint] = useState<string | null>(null)
-  const [review, setReview] = useState<{ run: AnalysisRun; known: MailEntities } | null>(null)
+  const [review, setReview] = useState<Proposal | null>(null)
   const [summary, setSummary] = useState<readonly string[]>([])
   const [progress, setProgress] = useState<AnalysisProgress | null>(null)
   const [elapsed, setElapsed] = useState(0)
@@ -182,7 +185,7 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
     try {
       const known = await entities()
       const result = await analyse(mails, known, setProgress)
-      setReview({ run: result, known })
+      setReview(analysisToProposal(result.analysis, known, result.title))
     } catch (failure: unknown) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
@@ -194,18 +197,13 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
   /**
    * Write what was ticked, then move the cursor: the mails have been read and
    * judged, whether the human took anything from them or not.
-   * @param selection - the ticked rows.
+   * @param ticked - the indexes of the ticked actions.
    */
-  const confirm = async (selection: MailSelection): Promise<void> => {
+  const confirm = async (ticked: readonly number[]): Promise<void> => {
     if (review === null) return
     setPhase('applying')
     try {
-      const result = await applyAnalysis({
-        analysis: review.run.analysis,
-        selection,
-        target,
-        entities: review.known,
-      })
+      const result = await applyProposal({ proposal: review, ticked, target })
       setSummary([...result.written, ...result.skipped])
       setReview(null)
       setMails([])
@@ -309,10 +307,10 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
         </div>
       )}
       {review !== null && (
-        <MailReview
-          analysis={review.run.analysis}
-          sessionTitle={review.run.title}
-          onConfirm={(selection) => { void confirm(selection) }}
+        <ProposalCard
+          proposal={review}
+          busy={phase === 'applying'}
+          onConfirm={(ticked) => { void confirm(ticked) }}
           onDismiss={() => { void dismiss() }}
         />
       )}

@@ -14,7 +14,10 @@
 import { useCallback, useRef, useState } from 'react'
 import type { ResourceExtractor } from './remote.ts'
 import { remoteDetails, remoteMessage } from './remote.ts'
-import type { BookReader, DomainConfirmer, ReadingProgress, ReadingRun } from './reading-flow.ts'
+import type { BookReader, ReadingProgress, ReadingRun } from './reading-flow.ts'
+import type { Proposal } from './proposal.ts'
+import { readingProposalOf } from './proposal.ts'
+import type { ProposalApplyResult } from './proposal-apply.ts'
 
 /** What a running task is doing — the monitor bar turns it into a line of prose. */
 export type ReadingStage = 'creating' | 'extracting' | 'session' | 'prompt' | 'reading' | 'writing'
@@ -52,8 +55,11 @@ export interface ReadingTaskFaces {
   readonly knownAreas: () => Promise<readonly string[]>
   /** Run the first reading round in a dsh session. */
   readonly readBook: BookReader
-  /** Land the confirmed domain links in a second round. */
-  readonly confirmDomains: DomainConfirmer
+  /** Land the ticked actions through the shared applier (ADR-0021 决定 4). */
+  readonly apply: (options: {
+    readonly proposal: Proposal
+    readonly ticked: readonly number[]
+  }) => Promise<ProposalApplyResult>
   /** The project exists (and any links landed): open it and reload the tree. */
   readonly onDone: (projectPath: string) => void
 }
@@ -65,7 +71,7 @@ export interface ReadingTaskSlot {
   /** Start the confirm chain for one resource; ignored while a task runs. */
   readonly start: (resourcePath: string, bookTitle: string, read: boolean, cwd?: string) => void
   /** Land what the human ticked in the proposal. */
-  readonly confirm: (domains: readonly string[], newDomain?: string) => void
+  readonly confirm: (ticked: readonly number[]) => void
   /** Dismiss the proposal without linking; the project is kept and opened. */
   readonly skip: () => void
   /** Abort a running task and free the slot. */
@@ -155,15 +161,12 @@ export function useReadingTask(faces: ReadingTaskFaces): ReadingTaskSlot {
     })()
   }, [apply, patch, failureOf])
 
-  const confirm = useCallback((domains: readonly string[], newDomain?: string): void => {
+  const confirm = useCallback((ticked: readonly number[]): void => {
     const live = current.current
     if (live === null || live.run === null || live.projectPath === null) return
     const { run, projectPath } = live
     patch({ status: 'running', stage: 'writing' })
-    void latest.current.confirmDomains({
-      sessionId: run.sessionId, projectPath, domains,
-      ...newDomain !== undefined ? { newDomain } : {},
-    }).then(() => {
+    void latest.current.apply({ proposal: readingProposalOf(run, projectPath), ticked }).then(() => {
       apply(null)
       latest.current.onDone(projectPath)
     }, (failure: unknown) => {

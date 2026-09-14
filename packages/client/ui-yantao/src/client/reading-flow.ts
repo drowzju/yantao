@@ -1,19 +1,21 @@
 /**
  * The reading flow (ADR-0020): one real dsh session reads a book's extracted
  * text through `kb_read_resource` and proposes which 领域 the reading project
- * belongs to — the MailReview two-beat (ADR-0019): the agent proposes, the
- * human confirms, a second round writes.
+ * belongs to — the proposal-card two-beat (ADR-0021 决定 4): the agent
+ * proposes, the human ticks, the shared applier writes.
  *
  * Like the mail analysis, the session is created, named and driven from the
  * browser, and kept (「读书-《书名》」) so the reading can be re-read later.
  * Nothing here writes to the KB: the first round only reads the book and
  * writes the project's own 状态/流水 through the agent's kb_* tools; the
- * domain links land only after the human ticks the proposal.
+ * domain links land only after the human ticks the proposal, through
+ * {@link ./proposal-apply.ts} `applyProposal`'s direct RPCs — the session
+ * ends with its first turn and stays kept either way.
  * @module @deepseek-ai/dsh-client-ui-yantao/reading-flow
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { sessionRemoteOf } from './remote.ts'
-import { askTurn, jsonRound } from './turn-answer.ts'
+import { jsonRound } from './turn-answer.ts'
 
 /** What the first round proposes: the domains this book belongs under. */
 export interface ReadingProposal {
@@ -95,35 +97,6 @@ export function readingPrompt(
     '- `domains` 里的每个名字必须来自上面给出的领域列表；对不上就不要写进去。',
     '- 没有合适的领域就返回空数组；确实需要新领域才填 `newDomain`，宁可少，不可错。',
   ].join('\n')
-}
-
-/**
- * The second-round prompt: land what the human confirmed. Existing domains
- * become `[[领域:名字]]` links in the project's 状态 (the backlink the other
- * way is ADR-0015's automatic work); a confirmed new domain is created first
- * through `kb_create_entity`.
- * @param projectPath - the reading project's KB-relative path.
- * @param domains - the confirmed existing-domain names.
- * @param newDomain - the confirmed new-domain name, when one was chosen.
- * @returns the prompt text.
- */
-export function domainConfirmPrompt(projectPath: string, domains: readonly string[], newDomain?: string): string {
-  const lines = [
-    `读书项目 \`${projectPath}\` 的领域关联已经由人确认。请执行：`,
-    '',
-  ]
-  if (newDomain !== undefined) {
-    lines.push(
-      `1. 先用 \`kb_create_entity\` 创建领域「${newDomain}」。`,
-      `2. 再用 \`kb_write_state\` 把 \`[[领域:${newDomain}]]\` 写进该项目的 \`## 状态\`。`,
-    )
-  } else {
-    lines.push(
-      `1. 用 \`kb_write_state\` 把 ${domains.map(name => `\`[[领域:${name}]]\``).join('、')} 写进该项目的 \`## 状态\`。`,
-    )
-  }
-  lines.push('', '写完后简单说一句做了什么即可。')
-  return lines.join('\n')
 }
 
 /** One string field of a parsed JSON row, or `''` when it is not a string. */
@@ -216,33 +189,6 @@ export async function runReadingFlow(options: {
   return { sessionId, title, proposal }
 }
 
-/**
- * Run the second round: land the confirmed proposal in the project's 状态.
- * The session is addressed by id — the same one the first round ran in, so
- * the whole reading stays in one re-readable place.
- * @param options - the context, the session id, the project, and what was confirmed.
- * @returns when the round's answer has landed.
- */
-export async function runDomainConfirm(options: {
-  readonly ctx: Context
-  readonly sessionId: string
-  readonly projectPath: string
-  readonly domains: readonly string[]
-  readonly newDomain?: string
-  readonly signal?: AbortSignal
-}): Promise<void> {
-  const { ctx, sessionId, projectPath, domains, newDomain } = options
-  const session = sessionRemoteOf(ctx)
-  if (session === undefined) throw new Error('没有挂载 session Remote 命名空间')
-
-  await askTurn({
-    session,
-    sessionId,
-    prompt: domainConfirmPrompt(projectPath, domains, newDomain),
-    ...options.signal !== undefined ? { signal: options.signal } : {},
-  })
-}
-
 /** Run the first round — the dialog's seam, so a test can stand in for a session. */
 export type BookReader = (options: {
   readonly bookTitle: string
@@ -253,12 +199,3 @@ export type BookReader = (options: {
   readonly onProgress?: (progress: ReadingProgress) => void
   readonly signal?: AbortSignal
 }) => Promise<ReadingRun>
-
-/** Run the second round — land the confirmed domain links. */
-export type DomainConfirmer = (options: {
-  readonly sessionId: string
-  readonly projectPath: string
-  readonly domains: readonly string[]
-  readonly newDomain?: string
-  readonly signal?: AbortSignal
-}) => Promise<void>

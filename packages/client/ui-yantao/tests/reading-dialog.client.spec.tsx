@@ -2,7 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ReadingDialog, ReadingMonitor, bookTitleOf } from '../src/client/ReadingDialog.tsx'
-import { ReadingProposal } from '../src/client/ReadingProposal.tsx'
+import { ProposalCard } from '../src/client/ProposalCard.tsx'
+import { readingProposalOf } from '../src/client/proposal.ts'
 import type { ReadingTask } from '../src/client/reading-task.ts'
 import type { ReadingRun } from '../src/client/reading-flow.ts'
 
@@ -120,34 +121,48 @@ describe('ReadingMonitor', () => {
   })
 })
 
-describe('ReadingProposal', () => {
-  it('confirms the ticked domains and the new one, in one call', () => {
+describe('the reading proposal card', () => {
+  /** The proposal the frame mounts for a landed first round. */
+  const PROPOSAL = readingProposalOf(RUN, 'entities/projects/读书-《三体》.md')
+
+  it('lists one 领域关联 row per proposed domain, plus the new domain', () => {
+    render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} />)
+    expect(screen.getByText('领域关联')).toBeTruthy()
+    expect(screen.getByText('[[领域:科幻]]')).toBeTruthy()
+    expect(screen.getByText('[[领域:历史]]')).toBeTruthy()
+    expect(screen.getByText('新建实体')).toBeTruthy()
+    expect(screen.getByText('认知科学')).toBeTruthy()
+    expect(screen.getByText(/会话已保留/)).toBeTruthy()
+  })
+
+  it('confirms the ticked rows as flat indexes, new domain included', () => {
     const onConfirm = vi.fn()
-    render(<ReadingProposal proposal={RUN.proposal} onConfirm={onConfirm} onDismiss={() => {}} />)
-    fireEvent.click(screen.getByLabelText('科幻'))
-    fireEvent.click(screen.getByLabelText('新建领域'))
-    fireEvent.click(screen.getByText('确认关联（2）'))
-    expect(onConfirm).toHaveBeenCalledWith(['科幻'], '认知科学')
+    render(<ProposalCard proposal={PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} />)
+    fireEvent.click(screen.getByLabelText('[[领域:科幻]]'))
+    fireEvent.click(screen.getByLabelText('认知科学'))
+    fireEvent.click(screen.getByText('确认写入（2）'))
+    // Indexes into the flat action list: the link, then the create, then the link.
+    expect(onConfirm).toHaveBeenCalledWith([0, 2])
+  })
+
+  it('starts with nothing ticked: the agent proposes, the human decides', () => {
+    render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} />)
+    expect(screen.getByLabelText<HTMLInputElement>('[[领域:科幻]]').checked).toBe(false)
+    expect(screen.getByText<HTMLButtonElement>('确认写入（0）').disabled).toBe(true)
+  })
+
+  it('holds its buttons while the writes land', () => {
+    render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} busy />)
+    expect(screen.getByText<HTMLButtonElement>('确认写入（0）').disabled).toBe(true)
+    expect(screen.getByText<HTMLButtonElement>('取消').disabled).toBe(true)
   })
 
   it('skips the linking without touching the project', () => {
     const onConfirm = vi.fn()
     const onDismiss = vi.fn()
-    render(<ReadingProposal proposal={RUN.proposal} onConfirm={onConfirm} onDismiss={onDismiss} />)
-    fireEvent.click(screen.getByText('跳过'))
+    render(<ProposalCard proposal={PROPOSAL} onConfirm={onConfirm} onDismiss={onDismiss} />)
+    fireEvent.click(screen.getByText('取消'))
     expect(onConfirm).not.toHaveBeenCalled()
     expect(onDismiss).toHaveBeenCalledOnce()
-  })
-
-  it('starts with nothing ticked: the agent proposes, the human decides', () => {
-    render(<ReadingProposal proposal={RUN.proposal} onConfirm={() => {}} onDismiss={() => {}} />)
-    expect(screen.getByLabelText<HTMLInputElement>('科幻').checked).toBe(false)
-    expect(screen.getByText<HTMLButtonElement>('确认关联（0）').disabled).toBe(true)
-  })
-
-  it('holds its buttons while the second round writes', () => {
-    render(<ReadingProposal proposal={RUN.proposal} onConfirm={() => {}} onDismiss={() => {}} busy />)
-    expect(screen.getByText<HTMLButtonElement>('确认关联（0）').disabled).toBe(true)
-    expect(screen.getByText<HTMLButtonElement>('跳过').disabled).toBe(true)
   })
 })

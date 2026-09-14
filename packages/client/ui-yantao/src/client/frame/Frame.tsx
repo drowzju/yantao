@@ -13,21 +13,25 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
-  CapabilityCreator, CapabilityLoader, DirectoryPicker, EntityCreator, ExternalOpener,
+  CapabilityCreator, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityCreator, ExternalOpener,
   FileDeleter, FileReader, FileWriter, LinksLoader,
   MailFetcher, MailMarker, RelationSetter, ResourceExtractor, ResourceRegistrar, RevisionLoader, RootLoader, RootSetter,
   TodoLoader, TodoWriter,
 } from '../remote.ts'
-import type { BookReader, DomainConfirmer } from '../reading-flow.ts'
+import type { BookReader } from '../reading-flow.ts'
 import type { MailAnalyser } from '../mail-analysis.ts'
-import { obsidianUri } from '../remote.ts'
+import type { Proposal } from '../proposal.ts'
+import { readingProposalOf } from '../proposal.ts'
+import { applyProposal, type ProposalApplyResult } from '../proposal-apply.ts'
+import { proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
+import { ProposalCard } from '../ProposalCard.tsx'
+import { obsidianUri, remoteMessage } from '../remote.ts'
 import type { KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
 import { Onboarding } from '../Onboarding.tsx'
 import { ReadingDialog, ReadingMonitor } from '../ReadingDialog.tsx'
-import { ReadingProposal } from '../ReadingProposal.tsx'
 import { useReadingTask } from '../reading-task.ts'
 import {
   CONVERSATION_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath, restoreTabs,
@@ -86,12 +90,12 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly capabilityList: CapabilityLoader
   /** Scaffold one new capability (「新建能力」). */
   readonly capabilityCreate: CapabilityCreator
+  /** Run one capability with the caller's input (ADR-0021 决定 7's row menus). */
+  readonly capabilityRun: CapabilityRunner
   /** Create a reading project — a `project` entity with `source:` set (ADR-0020). */
   readonly createReadingProject: (name: string, source: string) => Promise<string>
   /** Run the first reading round in a dsh session (ADR-0020). */
   readonly readBook: BookReader
-  /** Land the confirmed domain links in a second round (ADR-0020). */
-  readonly confirmDomains: DomainConfirmer
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
   readonly onKbRootChanged: () => void
 }
@@ -144,6 +148,23 @@ const handleStyle = {
   cursor: 'col-resize',
   zIndex: 21,
   touchAction: 'none',
+} as const
+
+/** The one-line notice a capability run (or its confirmed writes) reports. */
+const noticeStyle = {
+  position: 'absolute',
+  bottom: 10,
+  left: '50%',
+  transform: 'translateX(-50%)',
+  maxWidth: '80%',
+  padding: '6px 12px',
+  background: '#fffdf7',
+  border: '1px solid #e6e2d8',
+  borderRadius: 6,
+  boxShadow: '0 4px 12px rgba(28, 26, 22, 0.15)',
+  fontSize: 12,
+  zIndex: 45,
+  cursor: 'pointer',
 } as const
 
 /**
@@ -210,8 +231,8 @@ function DragHandle(props: {
 export function Frame({
   renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail,
-  registerResource, extractResource, capabilityList, capabilityCreate, createReadingProject,
-  readBook, confirmDomains, onKbRootChanged,
+  registerResource, extractResource, capabilityList, capabilityCreate, capabilityRun, createReadingProject,
+  readBook, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -378,14 +399,37 @@ export function Frame({
     setTreeKey(key => key + 1)
     openFile(projectPath, 'edit')
   }, [openFile])
+  // ADR-0021 决定 4: the confirmed proposal lands through the shared applier's
+  // direct RPCs — the frame owns the KB seams, the task owns the state machine.
+  const applyConfirmed = useCallback(
+    (options: { proposal: Proposal; ticked: readonly number[] }): Promise<ProposalApplyResult> =>
+      applyProposal({ ...options, target: { createEntity, read, write, todos, writeTodos } }),
+    [createEntity, read, write, todos, writeTodos],
+  )
   const reading = useReadingTask({
     createReadingProject,
     extract: extractResource,
     knownAreas,
     readBook,
-    confirmDomains,
+    apply: applyConfirmed,
     onDone: openProject,
   })
+
+  // ADR-0021 决定 7: a row menu's capability run. A run that answers with a
+  // proposal (`{ actions: [...] }`) opens the shared card; anything else is
+  // one dismissable notice at the frame's foot.
+  const [capabilityProposal, setCapabilityProposal] = useState<Proposal | null>(null)
+  const [capabilityNotice, setCapabilityNotice] = useState<string | null>(null)
+  const runRowCapability = useCallback((name: string, path: string): void => {
+    setCapabilityNotice(null)
+    void capabilityRun({ name, input: { path } }).then((result) => {
+      const proposal = proposalOfRunResult(result)
+      if (proposal !== null) setCapabilityProposal(proposal)
+      else setCapabilityNotice(runNoticeOf(result))
+    }, (failure: unknown) => {
+      setCapabilityNotice(`能力「${name}」失败：${remoteMessage(failure)}`)
+    })
+  }, [capabilityRun])
 
   // ADR-0017: editing belongs to Obsidian, so this only hands the file over.
   // Without a root we still open the KB-relative path and let the host resolve
@@ -508,6 +552,7 @@ export function Frame({
           onCreateReading={openReading}
           capabilityList={capabilityList}
           capabilityCreate={capabilityCreate}
+          onRunCapability={runRowCapability}
         />
       </div>
       <CenterPane
@@ -584,6 +629,8 @@ export function Frame({
           mailFetch={mailFetch}
           mailMarkRead={mailMarkRead}
           analyseMail={analyseMail}
+          capabilityList={capabilityList}
+          onRunCapability={runRowCapability}
         />
       </div>
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>
@@ -612,13 +659,39 @@ export function Frame({
           onOpen={openProject}
         />
       )}
-      {reading.task?.status === 'proposal' && reading.task.run !== null && (
-        <ReadingProposal
-          proposal={reading.task.run.proposal}
+      {reading.task?.status === 'proposal' && reading.task.run !== null && reading.task.projectPath !== null && (
+        <ProposalCard
+          proposal={readingProposalOf(reading.task.run, reading.task.projectPath)}
           busy={reading.task.stage === 'writing'}
           onConfirm={reading.confirm}
           onDismiss={reading.skip}
         />
+      )}
+      {capabilityProposal !== null && (
+        <ProposalCard
+          proposal={capabilityProposal}
+          onConfirm={(ticked) => {
+            const proposal = capabilityProposal
+            setCapabilityProposal(null)
+            void applyConfirmed({ proposal, ticked }).then((result) => {
+              setTreeKey(key => key + 1)
+              setCapabilityNotice([...result.written, ...result.skipped].join('；') || '没有写入任何内容。')
+            }, (failure: unknown) => {
+              setCapabilityNotice(`写入失败：${remoteMessage(failure)}`)
+            })
+          }}
+          onDismiss={() => { setCapabilityProposal(null) }}
+        />
+      )}
+      {capabilityNotice !== null && (
+        <div
+          style={noticeStyle}
+          data-capability-notice="true"
+          title="点击关闭"
+          onClick={() => { setCapabilityNotice(null) }}
+        >
+          {capabilityNotice}
+        </div>
       )}
       {/* A handle exists whenever its rail is expanded — including at the
           width limits, because the handle is the only way back from one. */}

@@ -71,7 +71,7 @@ async function openReview(overrides: Partial<MailPanelProps> = {}): Promise<Mail
   await act(async () => {
     fireEvent.click(screen.getByText('分析这 1 封'))
   })
-  await screen.findByText('邮件分析结果')
+  await screen.findByText('邮件分析 2026-09-10')
   return panel
 }
 
@@ -153,7 +153,7 @@ describe('MailPanel', () => {
     await act(async () => {
       release()
     })
-    expect(await screen.findByText('邮件分析结果')).toBeTruthy()
+    expect(await screen.findByText('邮件分析 2026-09-10')).toBeTruthy()
   })
 
   it('shows the host\'s message and its remedy when the read fails', async () => {
@@ -218,7 +218,7 @@ describe('MailPanel', () => {
       lastReadAt: '2026-09-09T10:00:00+00:00',
       firstReadAt: '2026-09-09T10:00:00+00:00',
     })
-    expect(await screen.findByText(/人物 张三/)).toBeTruthy()
+    expect(await screen.findByText(/实体 张三/)).toBeTruthy()
   })
 
   it('writes nothing when the verdict is dismissed, but still counts the mails as read', async () => {
@@ -238,6 +238,6 @@ describe('MailPanel', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('确认写入（4）'))
     })
-    expect(await screen.findByText(/项目 飞书迁移：知识库里没有这个实体/)).toBeTruthy()
+    expect(await screen.findByText(/实体 飞书迁移：知识库里没有这个实体/)).toBeTruthy()
   })
 })

@@ -7,15 +7,16 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type {
-  KbPersonRelation, KbTreeFile, KbTreeSection, KbTreeSectionId,
+  KbCapabilitySummary, KbPersonRelation, KbTreeFile, KbTreeSection, KbTreeSectionId,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type {
   CapabilityCreator, CapabilityLoader, EntityCreator, FileDeleter, FileReader, FileWriter,
   MailFetcher, MailMarker, RelationSetter, ResourceRegistrar,
   TodoLoader, TodoWriter,
 } from './remote.ts'
+import { matchCapabilities } from './capability-match.ts'
 import type { MailAnalyser } from './mail-analysis.ts'
-import type { MailWriteTarget } from './mail-apply.ts'
+import type { ProposalTarget } from './proposal-apply.ts'
 import { entitiesOfTree } from './mail-apply.ts'
 import { CapabilityPanel } from './CapabilityPanel.tsx'
 import { MailPanel, mailRangeOf } from './MailPanel.tsx'
@@ -307,10 +308,14 @@ function RowMenu(props: {
   onRelate?: ((path: string, relation: KbPersonRelation) => Promise<void>) | undefined
   /** Open the reading-project dialog for this resource row (ADR-0020). */
   onCreateReading?: ((path: string) => void) | undefined
+  /** The capabilities whose `appliesTo` accepts this row (ADR-0021 决定 7). */
+  capabilities?: readonly KbCapabilitySummary[] | undefined
+  /** Run one of those capabilities against this row. */
+  onRunCapability?: ((name: string, path: string) => void) | undefined
   onDelete: (path: string) => void
   onClose: () => void
 }): ReactElement {
-  const { target, busy, relations, onRelate, onCreateReading, onDelete, onClose } = props
+  const { target, busy, relations, onRelate, onCreateReading, capabilities, onRunCapability, onDelete, onClose } = props
   const [confirming, setConfirming] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -359,6 +364,24 @@ function RowMenu(props: {
         >
           创建读书项目
         </button>
+      )}
+      {capabilities !== undefined && capabilities.length > 0 && onRunCapability !== undefined && (
+        <div data-row-capabilities="true">
+          <div style={menuNoteStyle}>能力</div>
+          {capabilities.map(capability => (
+            <button
+              key={capability.name}
+              type="button"
+              style={menuItemStyle}
+              disabled={busy}
+              data-capability={capability.name}
+              title={capability.description}
+              onClick={() => { onRunCapability(capability.name, target.path) }}
+            >
+              {capability.name}
+            </button>
+          ))}
+        </div>
       )}
       {!confirming && (
         <button type="button" style={menuItemStyle} disabled={busy} onClick={() => { setConfirming(true) }}>
@@ -449,8 +472,34 @@ function useRowMenu(args: {
   return { menu, busy, open, close, remove, relate }
 }
 
-/** The compact column both rails render while collapsed. */
-function CompactRail({
+/**
+ * The registered capabilities, reloaded once per tree generation: the row
+ * menus' 能力 group filters this list against the row (ADR-0021 决定 7). A
+ * failed load leaves the menus without the group — the 能力 tab is where a
+ * failure shows.
+ * @param load - the capability loader the frame supplies.
+ * @param refreshKey - the frame's tree-generation counter.
+ * @returns the registered capabilities.
+ */
+function useCapabilities(load: CapabilityLoader, refreshKey: number): readonly KbCapabilitySummary[] {
+  const [capabilities, setCapabilities] = useState<readonly KbCapabilitySummary[]>([])
+  // Same fresh-closure discipline as useRail: the loader comes from the
+  // inject face, so the effect reads it through a ref.
+  const latest = useRef(load)
+  latest.current = load
+  useEffect(() => {
+    let stale = false
+    void latest.current().then((result) => {
+      if (!stale) setCapabilities(result.capabilities)
+    }).catch(() => {
+      // The row menu simply offers nothing; the 能力 tab reports the failure.
+    })
+    return () => { stale = true }
+  }, [refreshKey])
+  return capabilities
+}
+
+/** The compact column both rails render while collapsed. */function CompactRail({
   label,
   error,
   onExpand,
@@ -509,6 +558,10 @@ export interface RailProps {
   readonly mailMarkRead: MailMarker
   /** Run one mail analysis in a dsh session (ADR-0019). */
   readonly analyseMail: MailAnalyser
+  /** List the registered capabilities (ADR-0021) — the row menus' 能力 group. */
+  readonly capabilityList: CapabilityLoader
+  /** Run one capability against a row (ADR-0021 决定 7); the frame owns the run. */
+  readonly onRunCapability: (name: string, path: string) => void
 }
 
 /** Intake-side additions: the intake rail owns resource registration (ADR-0020) and the 能力 tab (ADR-0021). */
@@ -517,8 +570,6 @@ export interface IntakeRailProps extends RailProps {
   readonly registerResource: ResourceRegistrar
   /** Open the reading-project dialog for one resource. */
   readonly onCreateReading: (resourcePath: string) => void
-  /** List the registered capabilities (ADR-0021). */
-  readonly capabilityList: CapabilityLoader
   /** Scaffold one new capability (「新建能力」). */
   readonly capabilityCreate: CapabilityCreator
 }
@@ -544,9 +595,10 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const {
     collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
     read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource,
-    onCreateReading, capabilityList, capabilityCreate,
+    onCreateReading, capabilityList, capabilityCreate, onRunCapability,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
+  const capabilities = useCapabilities(capabilityList, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector'>('resources')
   const [actionError, setActionError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -573,8 +625,8 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     onOpenFile(path, 'edit')
   }
 
-  // ADR-0019: the writes a confirmed mail analysis lands on.
-  const mailTarget: MailWriteTarget = {
+  // ADR-0019: the writes a confirmed proposal lands on (mail's share of it).
+  const mailTarget: ProposalTarget = {
     createEntity, read, write, todos: loadTodos, writeTodos,
   }
 
@@ -688,6 +740,12 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           target={rowMenu.menu}
           busy={rowMenu.busy || dropping}
           onCreateReading={tab === 'resources' ? onCreateReading : undefined}
+          capabilities={tab === 'resources'
+            ? matchCapabilities(capabilities, { kind: 'resource', path: rowMenu.menu.path })
+            : tab === 'meetings'
+              ? matchCapabilities(capabilities, { kind: 'entity', path: rowMenu.menu.path, entityType: 'meeting' })
+              : undefined}
+          onRunCapability={onRunCapability}
           onDelete={(path) => { void rowMenu.remove(path) }}
           onClose={rowMenu.close}
         />
@@ -705,9 +763,10 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
 export function WorkspaceRail(props: RailProps): ReactElement {
   const {
     collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, createEntity, deleteFile,
-    setRelation: writeRelation,
+    setRelation: writeRelation, capabilityList, onRunCapability,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
+  const capabilities = useCapabilities(capabilityList, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId>('areas')
   const [actionError, setActionError] = useState<string | null>(null)
   /** The relation a new person gets; 同事 unless the human picks another. */
@@ -787,6 +846,10 @@ export function WorkspaceRail(props: RailProps): ReactElement {
           busy={rowMenu.busy}
           relations={tab === 'people' ? relationsFor(rowMenu.menu.relation) : undefined}
           onRelate={rowMenu.relate}
+          capabilities={kind === undefined
+            ? undefined
+            : matchCapabilities(capabilities, { kind: 'entity', path: rowMenu.menu.path, entityType: kind })}
+          onRunCapability={onRunCapability}
           onDelete={(path) => { void rowMenu.remove(path) }}
           onClose={rowMenu.close}
         />

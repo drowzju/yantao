@@ -123,6 +123,9 @@ export type ResourceExtractor = (path: string) => Promise<KbExtractResult>
 /** List the registered capabilities (ADR-0021). */
 export type CapabilityLoader = () => Promise<KbCapabilityListResult>
 
+/** Run one capability with the caller's input (ADR-0021; agent channel ADR-0023). */
+export type CapabilityRunner = (args: KbCapabilityRunArgs) => Promise<KbCapabilityRunResult>
+
 /** Scaffold one new capability under `.dsh/skills/` (ADR-0021 决定 8's 「新建能力」). */
 export type CapabilityCreator = (name: string) => Promise<KbCapabilityCreateResult>
 

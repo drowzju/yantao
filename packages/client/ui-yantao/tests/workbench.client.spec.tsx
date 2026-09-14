@@ -97,6 +97,7 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     onCreateReading: () => {},
     capabilityList: () => Promise.resolve({ capabilities: [] }),
     capabilityCreate: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
+    onRunCapability: () => {},
     ...overrides,
   }
 }
@@ -156,7 +157,9 @@ describe('IntakeRail', () => {
     render(<IntakeRail {...railProps({ capabilityList })} />)
     fireEvent.click(screen.getByText('能力'))
     expect(await screen.findByText('mail')).toBeTruthy()
-    expect(capabilityList).toHaveBeenCalledOnce()
+    // Twice: once at mount for the row menus' 能力 group, once when the tab
+    // renders the panel.
+    expect(capabilityList).toHaveBeenCalledTimes(2)
   })
 
   it('opens a 资源 row read-only', async () => {
@@ -363,6 +366,44 @@ describe('IntakeRail', () => {
     expect(await screen.findByText('删除「周会」')).toBeTruthy()
     expect(screen.queryByText('创建读书项目')).toBeNull()
   })
+
+  it('offers the matching capability on a resource row\'s menu and runs it', async () => {
+    const onRunCapability = vi.fn()
+    const { container } = render(
+      <IntakeRail {...railProps({
+        capabilityList: () => Promise.resolve({ capabilities: ROW_CAPABILITIES }),
+        onRunCapability,
+      })} />,
+    )
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    const group = await waitFor(() => {
+      const found = container.querySelector('[data-row-capabilities="true"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    // Only the human capability accepting .eml matches; the meeting-scoped one
+    // and the agent-only one stay off the menu.
+    expect(within(group).getByText('eml-digest')).toBeTruthy()
+    expect(within(group).queryByText('meeting-minutes')).toBeNull()
+    expect(within(group).queryByText('agent-only')).toBeNull()
+    fireEvent.click(within(group).getByText('eml-digest'))
+    expect(onRunCapability).toHaveBeenCalledWith('eml-digest', 'resources/周报.eml')
+  })
+
+  it('offers the matching capability on a meeting row\'s menu', async () => {
+    const { container } = render(
+      <IntakeRail {...railProps({ capabilityList: () => Promise.resolve({ capabilities: ROW_CAPABILITIES }) })} />,
+    )
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
+    const group = await waitFor(() => {
+      const found = container.querySelector('[data-row-capabilities="true"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    expect(within(group).getByText('meeting-minutes')).toBeTruthy()
+    expect(within(group).queryByText('eml-digest')).toBeNull()
+  })
 })
 
 describe('WorkspaceRail', () => {
@@ -504,12 +545,44 @@ describe('WorkspaceRail', () => {
     const row = container.querySelector('[data-selected="true"]') as HTMLElement
     expect(row.getAttribute('title')).toBe('entities/projects/dsh 学习.md')
   })
+
+  it('offers the matching capability on a project row\'s menu and runs it', async () => {
+    const onRunCapability = vi.fn()
+    const { container } = render(
+      <WorkspaceRail {...railProps({
+        load: loader(workspace),
+        capabilityList: () => Promise.resolve({ capabilities: ROW_CAPABILITIES }),
+        onRunCapability,
+      })} />,
+    )
+    fireEvent.click(await screen.findByText('项目'))
+    fireEvent.contextMenu(await screen.findByText('dsh 学习'), { clientX: 40, clientY: 60 })
+    const group = await waitFor(() => {
+      const found = container.querySelector('[data-row-capabilities="true"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    // Entity rows match by type: the project-scoped capability is offered,
+    // the resource-suffixed one is not.
+    expect(within(group).getByText('project-review')).toBeTruthy()
+    expect(within(group).queryByText('eml-digest')).toBeNull()
+    fireEvent.click(within(group).getByText('project-review'))
+    expect(onRunCapability).toHaveBeenCalledWith('project-review', 'entities/projects/dsh 学习.md')
+  })
 })
 
 /** Two capabilities as `capabilityList` answers them (ADR-0021). */
 const CAPABILITIES: KbCapabilitySummary[] = [
   { name: 'mail', description: '读 Outlook 邮件', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human', 'agent'] },
   { name: 'ebook', description: '抽取书籍文本', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'] },
+]
+
+/** Capabilities for the row-menu matching tests (ADR-0021 决定 7, ADR-0023 决定 2). */
+const ROW_CAPABILITIES: KbCapabilitySummary[] = [
+  { name: 'eml-digest', description: '读一封邮件', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'], appliesTo: { resource: ['.eml'] } },
+  { name: 'meeting-minutes', description: '整理会议纪要', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'], appliesTo: { entity: ['meeting'] } },
+  { name: 'project-review', description: '回顾一个项目', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'], appliesTo: { entity: ['project'] } },
+  { name: 'agent-only', description: '只给智能体调用', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['agent'], appliesTo: { resource: ['.eml'] } },
 ]
 
 /** The capability panel's faces, all spies. */
@@ -654,7 +727,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
       createReadingProject={() => Promise.resolve('entities/projects/读书-《新书》.md')}
       readBook={() => Promise.resolve({ sessionId: '', title: '', proposal: { domains: [] } })}
-      confirmDomains={() => Promise.resolve()}
+      capabilityRun={() => Promise.resolve({ name: '', runAt: '', artifacts: [] })}
       writeTodos={kb.writeTodos}
       onKbRootChanged={onKbRootChanged}
     />
@@ -847,7 +920,7 @@ describe('Frame', () => {
         capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
         createReadingProject={() => Promise.resolve('entities/projects/读书-《新书》.md')}
         readBook={() => Promise.resolve({ sessionId: '', title: '', proposal: { domains: [] } })}
-        confirmDomains={() => Promise.resolve()}
+        capabilityRun={() => Promise.resolve({ name: '', runAt: '', artifacts: [] })}
         onKbRootChanged={onKbRootChanged}
       />,
     )

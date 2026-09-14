@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { SessionRemote } from '../src/client/remote.ts'
-import { mailPrompt, parseAnalysis, runMailAnalysis, type MailPerson } from '../src/client/mail-analysis.ts'
+import { mailPrompt, parseAnalysis, runMailAnalysis, type MailAnalysis, type MailPerson } from '../src/client/mail-analysis.ts'
+import { analysisToProposal } from '../src/client/proposal.ts'
 
 const SESSION = 'session-1'
 
@@ -154,5 +155,48 @@ describe('runMailAnalysis', () => {
   it('reports a missing session namespace instead of throwing on undefined', async () => {
     await expect(runMailAnalysis({ ctx: {} as Context, mails: [mail()], known: KNOWN }))
       .rejects.toThrow(/session Remote/)
+  })
+})
+
+describe('analysisToProposal', () => {
+  const ENTITIES = {
+    projects: ['飞书迁移'],
+    people: ['李四'],
+    files: [{ name: '飞书迁移', path: 'entities/projects/飞书迁移.md' }],
+  }
+  const ANALYSIS: MailAnalysis = {
+    people: [{ name: '张三', relation: '合作方', reason: '一起做汇报' }],
+    todos: [{ title: '发汇报', due: '2026-09-12', body: '给张三' }],
+    projects: [{ name: '飞书迁移', note: '对方确认了时间' }, { name: '不存在的项目', note: '没有这个项目' }],
+    resources: [{ name: '汇报模板', summary: '两句话' }],
+  }
+
+  it('maps the four blocks into one flat action list, in a fixed order', () => {
+    const proposal = analysisToProposal(ANALYSIS, ENTITIES, '邮件分析 2026-09-10')
+    expect(proposal.title).toBe('邮件分析 2026-09-10')
+    expect(proposal.actions.map(action => action.kind))
+      .toEqual(['create-entity', 'add-todo', 'append-log', 'append-log', 'save-resource'])
+  })
+
+  it('carries the relation into the reason, and resolves project names to paths', () => {
+    const proposal = analysisToProposal(ANALYSIS, ENTITIES, 't')
+    expect(proposal.actions[0]).toMatchObject({
+      kind: 'create-entity', entityType: 'person', name: '张三', reason: '合作方：一起做汇报',
+    })
+    expect(proposal.actions[1]).toMatchObject({ kind: 'add-todo', title: '发汇报', due: '2026-09-12' })
+    expect(proposal.actions[2]).toMatchObject({
+      kind: 'append-log', entityPath: 'entities/projects/飞书迁移.md', entityName: '飞书迁移', text: '对方确认了时间',
+    })
+    // A project the KB does not hold keeps its action with an empty path:
+    // the card still shows it, and the applier still reports the miss.
+    expect(proposal.actions[3]).toMatchObject({ kind: 'append-log', entityPath: '', entityName: '不存在的项目' })
+  })
+
+  it('turns a resource into a sanitised note under resources/', () => {
+    const proposal = analysisToProposal(ANALYSIS, ENTITIES, 't')
+    const action = proposal.actions[4]
+    expect(action).toMatchObject({ kind: 'save-resource', path: 'resources/汇报模板.md' })
+    expect(action.kind === 'save-resource' && action.content).toContain('## 摘要')
+    expect(action.kind === 'save-resource' && action.content).toContain('两句话')
   })
 })

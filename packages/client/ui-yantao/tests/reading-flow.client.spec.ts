@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionRemote } from '../src/client/remote.ts'
-import {
-  domainConfirmPrompt, parseProposal, readingPrompt, readingSessionTitle, runDomainConfirm, runReadingFlow,
-} from '../src/client/reading-flow.ts'
+import { parseProposal, readingPrompt, readingSessionTitle, runReadingFlow, type ReadingRun } from '../src/client/reading-flow.ts'
+import { readingProposalOf } from '../src/client/proposal.ts'
 
 const SESSION = 'session-1'
 
@@ -92,18 +91,48 @@ describe('readingPrompt', () => {
   })
 })
 
-describe('domainConfirmPrompt', () => {
-  it('links existing domains without creating anything', () => {
-    const text = domainConfirmPrompt('p', ['科幻', '历史'])
-    expect(text).toContain('[[领域:科幻]]')
-    expect(text).toContain('[[领域:历史]]')
-    expect(text).not.toContain('kb_create_entity')
+describe('readingProposalOf', () => {
+  const RUN: ReadingRun = {
+    sessionId: 'session-1',
+    title: '读书-《三体》 2026-09-14',
+    proposal: { domains: ['科幻', '历史'], newDomain: '认知科学' },
+  }
+
+  it('turns each existing domain into one link into the project 状态', () => {
+    const proposal = readingProposalOf(RUN, 'entities/projects/读书-《三体》.md')
+    expect(proposal.title).toBe('读书-《三体》 2026-09-14')
+    expect(proposal.actions.slice(0, 2)).toEqual([
+      {
+        kind: 'create-link',
+        entityPath: 'entities/projects/读书-《三体》.md',
+        entityName: '读书-《三体》',
+        link: '[[领域:科幻]]',
+        reason: '模型判断这本书适合挂到「科幻」之下',
+      },
+      {
+        kind: 'create-link',
+        entityPath: 'entities/projects/读书-《三体》.md',
+        entityName: '读书-《三体》',
+        link: '[[领域:历史]]',
+        reason: '模型判断这本书适合挂到「历史」之下',
+      },
+    ])
+    expect(proposal.note).toContain('会话已保留')
   })
 
-  it('creates the new domain first when one was confirmed', () => {
-    const text = domainConfirmPrompt('p', [], '认知科学')
-    expect(text).toContain('kb_create_entity')
-    expect(text).toContain('[[领域:认知科学]]')
+  it('puts the new domain creation before its link — the order the applier runs', () => {
+    const proposal = readingProposalOf(RUN, 'entities/projects/读书-《三体》.md')
+    expect(proposal.actions[2]).toMatchObject({ kind: 'create-entity', entityType: 'area', name: '认知科学' })
+    expect(proposal.actions[3]).toMatchObject({ kind: 'create-link', link: '[[领域:认知科学]]' })
+  })
+
+  it('proposes nothing beyond the links when there is no new domain', () => {
+    const proposal = readingProposalOf(
+      { ...RUN, proposal: { domains: ['科幻'] } },
+      'entities/projects/读书-《三体》.md',
+    )
+    expect(proposal.actions).toHaveLength(1)
+    expect(proposal.actions[0]).toMatchObject({ kind: 'create-link', link: '[[领域:科幻]]' })
   })
 })
 
@@ -226,25 +255,6 @@ describe('runReadingFlow', () => {
   it('reports a missing session namespace instead of throwing on undefined', async () => {
     await expect(runReadingFlow({
       ctx: {} as Context, bookTitle: 'x', projectPath: 'p', resourcePath: 'r', knownAreas: [],
-    })).rejects.toThrow(/session Remote/)
-  })
-})
-
-describe('runDomainConfirm', () => {
-  it('sends the confirmation prompt in the same session and waits out the turn', async () => {
-    const { session, asked } = fakeSession(['已写入 [[领域:科幻]]。'])
-    await runDomainConfirm({
-      ctx: ctxWith(session),
-      sessionId: SESSION,
-      projectPath: 'entities/projects/读书-《三体》.md',
-      domains: ['科幻'],
-    })
-    expect(asked.texts[0]).toContain('[[领域:科幻]]')
-  })
-
-  it('reports a missing session namespace', async () => {
-    await expect(runDomainConfirm({
-      ctx: {} as Context, sessionId: SESSION, projectPath: 'p', domains: [],
     })).rejects.toThrow(/session Remote/)
   })
 })

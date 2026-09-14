@@ -11,8 +11,8 @@
  * {@link ReadingMonitor} is the bottom bar that reports the slot's stage and
  * carries the cancel button; a failed task dies there too, with the model's
  * own words in the error and the session's name spelled out so the原话 can be
- * found again. {@link ReadingProposal} (its own file) is the verdict window
- * the slot reopens when the first round lands.
+ * found again. {@link ProposalCard} (its own file) is the verdict window the
+ * slot reopens when the first round lands.
  * @module @deepseek-ai/dsh-client-ui-yantao/ReadingDialog
  */
 import { useState, type ReactElement } from 'react'
