@@ -190,7 +190,8 @@ function manifestFrom(name: string, declared: unknown): CapabilityManifest {
     throw fail('bad-manifest', `能力「${name}」的 entry 必须是非空字符串，或整个省略（缺 entry 即指令型能力）。`)
   }
   if (runtime !== undefined && runtime !== 'python') {
-    throw fail('bad-manifest', `能力「${name}」的 runtime 只支持 python，声明的是 ${String(runtime)}。`)
+    const shown = typeof runtime === 'string' ? runtime : JSON.stringify(runtime)
+    throw fail('bad-manifest', `能力「${name}」的 runtime 只支持 python，声明的是 ${shown}。`)
   }
   return {
     ...typeof entry === 'string' ? { entry } : {},

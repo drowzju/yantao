@@ -123,7 +123,13 @@ export async function applyProposal(options: {
 
   for (const action of rest) {
     if (action.kind === 'create-entity') {
-      await target.createEntity(action.entityType, action.name)
+      // The mail path names a person's address; the reading path never does.
+      await target.createEntity(
+        action.entityType,
+        action.name,
+        undefined,
+        ...action.email !== undefined ? [action.email] : [],
+      )
       written.push(writtenLine(action))
       continue
     }

@@ -44,8 +44,9 @@
   receivedAt  ISO 8601 字符串，统一换算到 UTC。
   senderAddress  发件人的 SMTP 地址；Exchange 账号的 X.500 地址会先换成 SMTP
            （先读 MAPI 属性，再问 AddressEntry），换不出来时原样返回。
-  本脚本刻意不输出收件人/抄送：分析只需要「谁发给我的」，抄送列表既噪声又是
-  他人隐私。
+  toMe     我在收件人列表里的位置："to"（主送）、"cc"（抄送）、"none"（都不是）、
+           "unknown"（认不出当前账户）。只输出我与这封邮件的关系，不输出其他
+           收件人的名字或地址——完整抄送列表既噪声又是他人隐私。
 """
 
 import argparse
@@ -70,14 +71,18 @@ EXIT_BY_KIND = {
     "other": EXIT_OTHER,
 }
 
-# 正文截断长度。邮件正文可以非常大，而分析只需要前面一段。
-BODY_LIMIT = 3000
+# 正文截断长度。分析只需要前面一段，但留存的原文要尽量完整，取一个折中。
+BODY_LIMIT = 12000
 
 # `Body` 短于这个长度就认为它是空壳，改用 `HTMLBody` 剥标签。
 PLAIN_BODY_MIN = 40
 
 # 43 = olMail。会议邀请等非邮件项一律跳过。
 OL_MAIL = 43
+
+# Recipient.Type：1 = olTo（主送），2 = olCC（抄送）。
+OL_TO = 1
+OL_CC = 2
 
 # 6 = olFolderInbox
 OL_FOLDER_INBOX = 6
@@ -187,6 +192,73 @@ def mail_id(received_at, sender_address, subject):
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
+def current_user(ns):
+    """
+    当前 profile 的账户：返回 (名字, SMTP 地址)；任一拿不到就是空串。
+    Exchange 账号的 `CurrentUser.Address` 是 X.500，与发件人一样先换 SMTP。
+    """
+    try:
+        user = ns.CurrentUser
+        name = str(getattr(user, "Name", "") or "")
+        address = str(getattr(user, "Address", "") or "")
+    except Exception:
+        return "", ""
+    try:
+        exchange = user.GetExchangeUser()
+        if exchange is not None:
+            smtp = exchange.PrimarySmtpAddress
+            smtp = smtp() if callable(smtp) else smtp
+            if smtp:
+                address = str(smtp)
+    except Exception:
+        pass
+    return name, address
+
+
+def recipient_address(recipient):
+    """一个收件人的 SMTP 地址（X.500 先换算），换不出就退回原样地址。"""
+    address = str(getattr(recipient, "Address", "") or "")
+    try:
+        entry = recipient.AddressEntry
+        exchange = entry.GetExchangeUser() if entry is not None else None
+        if exchange is not None:
+            smtp = exchange.PrimarySmtpAddress
+            smtp = smtp() if callable(smtp) else smtp
+            if smtp:
+                return str(smtp)
+    except Exception:
+        pass
+    return address
+
+
+def to_me(item, me_name, me_address):
+    """
+    我在这封邮件收件人列表里的位置："to"（主送）/ "cc"（抄送）/ "none"（都不是）；
+    当前账户完全认不出时 "unknown"。只比较我自己，不收集其他收件人的信息。
+    """
+    if me_name == "" and me_address == "":
+        return "unknown"
+    me_address = me_address.lower()
+    me_name = me_name.lower()
+    in_cc = False
+    try:
+        for recipient in item.Recipients:
+            kind = getattr(recipient, "Type", 0)
+            if kind != OL_TO and kind != OL_CC:
+                continue
+            address = recipient_address(recipient).lower()
+            name = str(getattr(recipient, "Name", "") or "").lower()
+            mine = (me_address != "" and address == me_address) or (me_name != "" and name == me_name)
+            if not mine:
+                continue
+            if kind == OL_TO:
+                return "to"
+            in_cc = True
+    except Exception:
+        return "unknown"
+    return "cc" if in_cc else "none"
+
+
 def find_folder(ns, name):
     """按名称在所有 store 及其子文件夹里递归查找，找不到返回 None。"""
     def walk(folder):
@@ -207,7 +279,7 @@ def find_folder(ns, name):
     return None
 
 
-def read_mails(folder, since, until, limit):
+def read_mails(folder, since, until, limit, me_name="", me_address=""):
     """取 folder 里收件时间落在 [since, until) 的最新 limit 封邮件。"""
     items = folder.Items
     items.Sort("[ReceivedTime]", True)
@@ -247,6 +319,7 @@ def read_mails(folder, since, until, limit):
                 "subject": subject,
                 "body": body,
                 "truncated": truncated,
+                "toMe": to_me(item, me_name, me_address),
             })
         except Exception as error:
             # 单封邮件读属性失败（加密、损坏、权限）不该拖垮整批；只提示，不回传。
@@ -310,7 +383,7 @@ def fetch_messages(since_text, until_text, limit, folder_name):
         raise OutlookError("folder-missing", f"打开邮件文件夹失败：{error}") from error
 
     try:
-        return read_mails(folder, since, until, limit)
+        return read_mails(folder, since, until, limit, *current_user(ns))
     except Exception as error:
         raise OutlookError("other", f"读取邮件失败：{error}") from error
 

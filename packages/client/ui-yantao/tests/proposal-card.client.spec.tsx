@@ -78,6 +78,28 @@ describe('ProposalCard', () => {
     expect(screen.getByText<HTMLButtonElement>('全部接受').disabled).toBe(true)
   })
 
+  it('shows the 重点提醒 block above the groups, without checkboxes', () => {
+    render(
+      <ProposalCard
+        proposal={{
+          ...PROPOSAL,
+          highlights: [{ sender: '老板', subject: '周报截止', why: '上级主送，有截止' }],
+          digest: [{ sender: '系统', subject: '邮催', why: '自动提醒' }],
+        }}
+        onConfirm={() => {}}
+        onDismiss={() => {}}
+      />,
+    )
+    expect(screen.getByText('重点提醒')).toBeTruthy()
+    expect(screen.getByText('老板：周报截止')).toBeTruthy()
+    expect(screen.getByText('上级主送，有截止')).toBeTruthy()
+    expect(screen.getByText('日常通知（汇总）')).toBeTruthy()
+    // Highlights are informational: they add nothing to the tick count.
+    expect(screen.getByText('确认写入（0）')).toBeTruthy()
+    fireEvent.click(screen.getByText('全部接受'))
+    expect(screen.getByText('确认写入（4）')).toBeTruthy()
+  })
+
   it('dismisses without writing anything', () => {
     const onDismiss = vi.fn()
     render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={onDismiss} />)

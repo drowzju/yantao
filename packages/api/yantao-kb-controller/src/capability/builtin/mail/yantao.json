@@ -1,7 +1,7 @@
 {
   "entry": "scripts/entry.py",
   "runtime": "python",
-  "version": 3,
+  "version": 4,
   "appliesTo": {
     "external": [
       "mailbox"

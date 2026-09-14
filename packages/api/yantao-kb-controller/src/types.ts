@@ -21,6 +21,8 @@ export interface KbTreeFile {
   readonly notePath?: string
   /** For a person entity: the declared relation, when present. */
   readonly relation?: string
+  /** For a person entity: the declared e-mail address, when present. */
+  readonly email?: string
 }
 
 /**
@@ -147,6 +149,11 @@ export interface KbCreateEntityArgs {
   /** The person-to-owner relation; only a `person` carries it, and it defaults to the KB's own. */
   readonly relation?: PersonRelation
   /**
+   * The person's e-mail address; only a `person` carries it. Mail analysis
+   * writes the sender address here so later batches match senders by address.
+   */
+  readonly email?: string
+  /**
    * The resource the entity is *about*, as a KB-relative path (ADR-0020);
    * only a reading project carries it, written into its frontmatter as
    * `source:` — the field that makes `读书-《书名》` a reading project.
@@ -235,10 +242,17 @@ export interface KbMailMessage {
   readonly senderAddress: string
   /** Subject line, empty when the mail has none. */
   readonly subject: string
-  /** Plain text body, at most 3000 characters. */
+  /** Plain text body, at most 12000 characters. */
   readonly body: string
-  /** True when `body` was cut at the 3000-character limit. */
+  /** True when `body` was cut at the 12000-character limit. */
   readonly truncated: boolean
+  /**
+   * Where the mailbox's owner sat in this mail's recipient list: `to`
+   * (addressed directly), `cc` (copied only), `none`, or `unknown` when the
+   * account could not be resolved. The recipients themselves are not
+   * reported — only this one relationship.
+   */
+  readonly toMe?: 'to' | 'cc' | 'none' | 'unknown'
 }
 
 /** Input of the mail capability (ADR-0019): handed to `capabilityRun('mail', …)` as `input`. */

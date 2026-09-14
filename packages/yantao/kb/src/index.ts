@@ -222,7 +222,7 @@ export function apply(ctx: Context, config: Config): void {
     description:
       '创建一个实体笔记文件（type + name）。实体名会转换为安全文件名；同名实体已存在时拒绝——'
       + '之后的一切补充都通过 kb_append_log 追加或 kb_write_state 改写状态。'
-      + 'relation 仅对 person 有意义，默认 subordinate；date 仅对 meeting 有意义，是该会议的日期，默认今天。'
+      + 'relation 与 email 仅对 person 有意义，relation 默认 subordinate；date 仅对 meeting 有意义，是该会议的日期，默认今天。'
       + 'todo 是单例，不能用此工具创建。',
     parameters: {
       type: { ...CREATABLE_ENTITY_TYPE_PARAM, required: true },
@@ -231,6 +231,10 @@ export function apply(ctx: Context, config: Config): void {
         type: 'string',
         enum: PERSON_RELATIONS,
         description: '人物与库主的关系（仅 person 使用）：self / subordinate / superior / peer / external',
+      },
+      email: {
+        type: 'string',
+        description: '人物的电子邮箱地址（仅 person 使用）；邮件分析用它把发件人匹配到这个人',
       },
       date: {
         type: 'string',
@@ -249,6 +253,7 @@ export function apply(ctx: Context, config: Config): void {
     },
     execute: args => createEntity(liveRoot.root, args.type, args.name, {
       ...args.relation !== undefined ? { relation: args.relation } : {},
+      ...args.email !== undefined ? { email: args.email } : {},
       ...args.date !== undefined ? { meetingDate: args.date } : {},
     }),
   }))

@@ -130,8 +130,13 @@ export function apply(ctx: Context): void {
       write: (path: string, content: string) => writeFile(ctx, path, content),
       deleteFile: (path: string) => deleteFile(ctx, path),
       setRelation: (path: string, relation: KbPersonRelation) => setRelation(ctx, path, relation),
-      createEntity: (type: KbCreatableEntityType, name: string, relation?: KbPersonRelation) =>
-        createEntity(ctx, { type, name, ...relation !== undefined ? { relation } : {} }),
+      createEntity: (type: KbCreatableEntityType, name: string, relation?: KbPersonRelation, email?: string) =>
+        createEntity(ctx, {
+          type,
+          name,
+          ...relation !== undefined ? { relation } : {},
+          ...email !== undefined ? { email } : {},
+        }),
       root: () => loadRoot(ctx),
       setRoot: (path: string) => setKbRoot(ctx, path),
       pickDirectory: () => ctx.uiWorkspace.pickDirectory(),

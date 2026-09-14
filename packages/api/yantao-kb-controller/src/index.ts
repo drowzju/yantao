@@ -236,8 +236,9 @@ export class YantaoKbController extends TypertRemoteService {
           text: value.content !== undefined
             ? `能力「${value.name}」是指令型，以下是它的指令正文：\n\n${value.content}`
             : `能力「${value.name}」已运行（${value.runAt}）`
-              + `${value.artifacts.length > 0 ? `，产物：${value.artifacts.join('、')}` : ''}。`
-              + `${value.result !== undefined ? `\n结果：${JSON.stringify(value.result)}` : ''}`,
+              + (value.artifacts.length > 0 ? `，产物：${value.artifacts.join('、')}` : '')
+              + '。'
+              + (value.result !== undefined ? `\n结果：${JSON.stringify(value.result)}` : ''),
         }],
       },
       execute: async ({ name, input }) => {
@@ -328,6 +329,7 @@ export class YantaoKbController extends TypertRemoteService {
           path: entityDisplayPath(type, entity.name),
           ...entity.archived ? { archived: true } : {},
           ...entity.relation !== undefined ? { relation: entity.relation } : {},
+          ...entity.email !== undefined ? { email: entity.email } : {},
         })),
       })
     }
@@ -424,8 +426,9 @@ export class YantaoKbController extends TypertRemoteService {
   /**
    * Create one entity note from the canonical template.
    * @param args - the entity kind, its display name, the meeting's own date,
-   *   the person's relation to the KB's owner, and — for a reading project —
-   *   the resource it reads (ADR-0020), written into the frontmatter as `source:`.
+   *   the person's relation to the KB's owner and e-mail address, and — for a
+   *   reading project — the resource it reads (ADR-0020), written into the
+   *   frontmatter as `source:`.
    * @returns the KB-relative path of the created file.
    */
   @Remote('createEntity')
@@ -435,6 +438,7 @@ export class YantaoKbController extends TypertRemoteService {
       return await createEntity(this.kbRoot, args.type, args.name, {
         meetingDate: args.date ?? todayStamp(),
         ...args.relation !== undefined ? { relation: args.relation } : {},
+        ...args.email !== undefined ? { email: args.email } : {},
         ...args.source !== undefined ? { source: args.source } : {},
       })
     } catch (error) {

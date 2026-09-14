@@ -215,6 +215,7 @@ export interface ListedEntity {
   name: string
   archived: boolean
   relation?: string
+  email?: string
 }
 
 /** One entity file to inspect: its KB-relative display path, absolute path, and display name. */
@@ -283,6 +284,7 @@ export async function listEntities(kbRoot: string, type?: EntityType, includeArc
       if (archived && !includeArchived) continue
       const listed: ListedEntity = { type: current, name: entry.name, archived }
       if (current === 'person' && typeof data.relation === 'string') listed.relation = data.relation
+      if (current === 'person' && typeof data.email === 'string') listed.email = data.email
       entities.push(listed)
     }
   }

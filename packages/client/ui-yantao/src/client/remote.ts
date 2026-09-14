@@ -82,10 +82,16 @@ export type FileDeleter = (path: string) => Promise<void>
 export type RelationSetter = (path: string, relation: KbPersonRelation) => Promise<void>
 
 /**
- * Create one entity and resolve its KB-relative path. `relation` only means
- * anything for a `person`; the workbench always sends one for that kind.
+ * Create one entity and resolve its KB-relative path. `relation` and `email`
+ * only mean anything for a `person`; the workbench always sends a relation for
+ * that kind, and the mail path adds the sender's address.
  */
-export type EntityCreator = (type: KbCreatableEntityType, name: string, relation?: KbPersonRelation) => Promise<string>
+export type EntityCreator = (
+  type: KbCreatableEntityType,
+  name: string,
+  relation?: KbPersonRelation,
+  email?: string,
+) => Promise<string>
 
 /** Read the KB root's configuration state. */
 export type RootLoader = () => Promise<KbRootResult>

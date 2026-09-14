@@ -8,6 +8,7 @@
  * human has ticked rows in {@link ProposalCard}.
  * @module @deepseek-ai/dsh-client-ui-yantao/proposal
  */
+import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { MailAnalysis } from './mail-analysis.ts'
 import type { MailEntities } from './mail-apply.ts'
 import type { ReadingRun } from './reading-flow.ts'
@@ -23,6 +24,8 @@ export type ProposalAction =
     readonly entityType: ProposalEntityType
     readonly name: string
     readonly reason: string
+    /** The person's e-mail address, written into the frontmatter `email:` field. */
+    readonly email?: string
   }
   | {
     /** Append one dated bullet to an entity's `## 流水` (the append-only section). */
@@ -64,6 +67,16 @@ export type ProposalAction =
     readonly reason: string
   }
 
+/** One mail the analysis flagged, shown on the card without a checkbox. */
+export interface ProposalHighlight {
+  /** Who sent it. */
+  readonly sender: string
+  /** Its subject line. */
+  readonly subject: string
+  /** One line of why it was flagged. */
+  readonly why: string
+}
+
 /** Everything one run proposes; the human ticks actions, not blocks. */
 export interface Proposal {
   /** The card's heading — which judgement these actions came from. */
@@ -72,6 +85,13 @@ export interface Proposal {
   readonly note?: string
   /** The actions, in the order the applier executes them. */
   readonly actions: readonly ProposalAction[]
+  /**
+   * The 重点提醒 mails: serious, directly addressed, or involving a superior.
+   * Informational — they sit above the action groups, never ticked.
+   */
+  readonly highlights?: readonly ProposalHighlight[]
+  /** The 汇总类 mails (邮催、通知), merged into one block instead of per-mail alarms. */
+  readonly digest?: readonly ProposalHighlight[]
 }
 
 /** What one group of same-kind actions is called on the card. */
@@ -98,14 +118,40 @@ export function safeName(name: string): string {
 }
 
 /**
- * One resource note: the same skeleton a registered resource gets, with the
- * summary the model wrote filled in.
+ * One resource note: the distilled points up front (what a reader skims), the
+ * mail's raw body below them (what a reader verifies against), and the dated
+ * provenance line last. The raw body is kept because a summary alone cannot
+ * answer "它到底说了什么" — the mail is the evidence, the 要点 are the index.
  * @param name - the resource's title.
  * @param summary - the model's summary.
+ * @param mail - the mail the note keeps, when the analysis named one.
  * @returns the note's content.
  */
-export function resourceNote(name: string, summary: string): string {
-  return `---\ntype: resource\nsource: mail\ncreated: ${stamp()}\ntags: []\n---\n\n## 摘要\n\n${summary}\n\n## 提炼记录\n\n- ${stamp()} 由邮件分析留存：${name}\n`
+export function resourceNote(name: string, summary: string, mail?: KbMailMessage): string {
+  const body = mail === undefined || mail.body.trim() === ''
+    ? '（无正文）'
+    : `${mail.body}${mail.truncated ? '\n\n（正文过长，此处截断）' : ''}`
+  return [
+    '---',
+    'type: resource',
+    'source: mail',
+    `created: ${stamp()}`,
+    'tags: []',
+    '---',
+    '',
+    '## 要点',
+    '',
+    summary,
+    '',
+    '## 原文',
+    '',
+    body,
+    '',
+    '## 提炼记录',
+    '',
+    `- ${stamp()} 由邮件分析留存：${name}`,
+    '',
+  ].join('\n')
 }
 
 /**
@@ -125,12 +171,22 @@ function entityNameOf(path: string): string {
  * notes, resources — so the card groups them and the applier runs them in one
  * pass. A project the KB does not hold keeps its action with an empty path:
  * the card still shows it, and the applier still reports the miss.
+ *
+ * The batch itself rides along for two jobs: a resource's 原文 section keeps
+ * the mail it came from, and the per-mail verdicts become the card's 重点提醒
+ * and 汇总类 blocks — informational, above the tickable groups.
  * @param analysis - what the session proposed.
  * @param entities - the workspace picture the names resolve against.
  * @param title - the card's heading; the analysis run's session title.
+ * @param mails - the analysed batch, in the prompt's order (1-based verdicts cite it).
  * @returns the proposal.
  */
-export function analysisToProposal(analysis: MailAnalysis, entities: MailEntities, title: string): Proposal {
+export function analysisToProposal(
+  analysis: MailAnalysis,
+  entities: MailEntities,
+  title: string,
+  mails: readonly KbMailMessage[] = [],
+): Proposal {
   const actions: ProposalAction[] = []
   for (const person of analysis.people) {
     actions.push({
@@ -138,6 +194,7 @@ export function analysisToProposal(analysis: MailAnalysis, entities: MailEntitie
       entityType: 'person',
       name: person.name,
       reason: person.relation !== '' ? `${person.relation}：${person.reason}` : person.reason,
+      ...person.email !== undefined && person.email !== '' ? { email: person.email } : {},
     })
   }
   for (const todo of analysis.todos) {
@@ -163,11 +220,30 @@ export function analysisToProposal(analysis: MailAnalysis, entities: MailEntitie
     actions.push({
       kind: 'save-resource',
       path: `resources/${safeName(resource.name)}.md`,
-      content: resourceNote(resource.name, resource.summary),
+      content: resourceNote(resource.name, resource.summary, resource.mail !== undefined ? mails[resource.mail - 1] : undefined),
       reason: resource.summary,
     })
   }
-  return { title, actions }
+  const highlightOf = (mail: number): ProposalHighlight | undefined => {
+    const source = mails[mail - 1]
+    if (source === undefined) return undefined
+    return { sender: source.senderName, subject: source.subject || '（无主题）', why: '' }
+  }
+  const highlights: ProposalHighlight[] = []
+  const digest: ProposalHighlight[] = []
+  for (const verdict of analysis.verdicts) {
+    const flagged = highlightOf(verdict.mail)
+    if (flagged === undefined) continue
+    const entry = { ...flagged, why: verdict.why }
+    if (verdict.importance === 'focus') highlights.push(entry)
+    if (verdict.importance === 'digest') digest.push(entry)
+  }
+  return {
+    title,
+    actions,
+    ...(highlights.length > 0 ? { highlights } : {}),
+    ...(digest.length > 0 ? { digest } : {}),
+  }
 }
 
 /**

@@ -32,14 +32,14 @@ The `yantao-web` profile mounts this controller automatically; the workbench UI 
 | Method | Signature | Result |
 |---|---|---|
 | `yantaoKb.intakeTree` | `()` | The intake sections (`resources`, `meetings`, `todos`); resources are listed as plain files — originals keep their file name's suffix, so `周报.eml` and `周报.eml.md` never read as the same thing |
-| `yantaoKb.workspaceTree` | `()` | The workspace sections (`projects`, `areas`, `people`); same row shape as above |
+| `yantaoKb.workspaceTree` | `()` | The workspace sections (`projects`, `areas`, `people`); entity rows add `archived`, and on people `relation` and `email` |
 | `yantaoKb.read` | `(path)` | `{ path, content }` — the file's complete UTF-8 content |
 | `yantaoKb.write` | `(path, content)` | `{ path }` — full-file write, creating missing parent directories |
 | `yantaoKb.deleteFile` | `(path)` | `{ path }` — removes one KB file; the path is confined like every other one, and an absent file is `not-found` |
 | `yantaoKb.setRelation` | `({ path, relation })` | `{ path, relation }` — rewrites one person entity's `relation` inside its frontmatter, leaving the rest of the document byte-identical |
 | `yantaoKb.root` | `()` | `{ root, configured }` — the live KB root, and whether the human has chosen one |
 | `yantaoKb.setRoot` | `(path)` | `{ root, configured, created, existing }` — initializes `path` as a KB, makes it the live root, and remembers it |
-| `yantaoKb.createEntity` | `({ type, name, date?, relation?, source? })` | `{ path }` — one entity note from the KB's canonical template; `source` only means anything for a reading project (ADR-0020) |
+| `yantaoKb.createEntity` | `({ type, name, date?, relation?, email?, source? })` | `{ path }` — one entity note from the KB's canonical template; `source` only means anything for a reading project (ADR-0020) |
 | `yantaoKb.links` | `(path)` | `{ outgoing, incoming }` — the file's `[[wiki link]]` graph, resolved host-side and never into `resources/` (ADR-0015) |
 | `yantaoKb.revision` | `()` | `{ root, revision }` — a counter that bumps whenever a file under the KB root changes; it follows `setRoot` (ADR-0017) |
 | `yantaoKb.openExternal` | `(target)` | `{ target }` — hands a KB path or a whitelisted URL scheme to the OS shell, refusing shell metacharacters (ADR-0017) |
@@ -53,7 +53,7 @@ The `yantao-web` profile mounts this controller automatically; the workbench UI 
 
 `setRelation` only answers for a person file: anything else is `yantao-kb/rejected` without being rewritten, and so is a relation outside the domain's five. It is a line splice inside the frontmatter, never a YAML round trip — a re-emitted mapping would drop the comments and ordering the human wrote.
 
-`setRoot` takes an absolute path (a relative or empty one is refused) and hands it to the `yantaoKb` service, which persists the choice under `~/.dsh`. `createEntity` accepts `project`, `area`, `person`, and `meeting`; a meeting's file name is prefixed with its own date, and a person carries the `relation` it was given — `self` / `subordinate` / `superior` / `peer` / `external`, the KB domain's own five — defaulting to the domain's own choice when the caller names none.
+`setRoot` takes an absolute path (a relative or empty one is refused) and hands it to the `yantaoKb` service, which persists the choice under `~/.dsh`. `createEntity` accepts `project`, `area`, `person`, and `meeting`; a meeting's file name is prefixed with its own date, and a person carries the `relation` it was given — `self` / `subordinate` / `superior` / `peer` / `external`, the KB domain's own five — defaulting to the domain's own choice when the caller names none, plus an optional `email` the workspace tree reads back so the mail analysis can match a sender to a person.
 
 `todos`/`writeTodos` (ADR-0018) are the structured way to edit the `entities/todos.md` singleton — the pair exists because the Client cannot import the kb package's parser (bundle purity). `todos` reports an absent file as `text: ''` and no items rather than an error, and `writeTodos` compares the file against `expectedText`: a mismatch is `yantao-kb/rejected`, so an edit made outside the workbench is refreshed, never clobbered. The file's preamble — a heading above the checklist — survives the write; only the items are replaced.
 

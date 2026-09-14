@@ -92,7 +92,7 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     workspace: loader(workspace),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
-    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { people: [], todos: [], projects: [], resources: [] } }),
+    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } }),
     registerResource: () => Promise.resolve('resources/新资源.pdf'),
     onCreateReading: () => {},
     capabilityList: () => Promise.resolve({ capabilities: [] }),
@@ -720,7 +720,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       todos={kb.todos}
       mailFetch={() => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] })}
       mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
-      analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { people: [], todos: [], projects: [], resources: [] } })}
+      analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } })}
       registerResource={() => Promise.resolve('resources/新资源.pdf')}
       extractResource={() => Promise.resolve({ extractPath: '.yantao/extracts/x.txt', format: 'pdf', chars: 0, cached: false })}
       capabilityList={() => Promise.resolve({ capabilities: [] })}
@@ -913,7 +913,7 @@ describe('Frame', () => {
         writeTodos={kb.writeTodos}
         mailFetch={() => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] })}
         mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
-        analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { people: [], todos: [], projects: [], resources: [] } })}
+        analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } })}
         registerResource={() => Promise.resolve('resources/新资源.pdf')}
         extractResource={() => Promise.resolve({ extractPath: '.yantao/extracts/x.txt', format: 'pdf', chars: 0, cached: false })}
         capabilityList={() => Promise.resolve({ capabilities: [] })}

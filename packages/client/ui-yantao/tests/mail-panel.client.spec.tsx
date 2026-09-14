@@ -23,6 +23,7 @@ const MAILS: readonly KbMailMessage[] = [
     subject: '季度汇报',
     body: '正文',
     truncated: false,
+    toMe: 'to',
   },
 ]
 
@@ -33,10 +34,11 @@ const ENTITIES: MailEntities = {
 }
 
 const VERDICT: MailAnalysis = {
+  verdicts: [{ mail: 1, importance: 'focus', why: '上级主送' }],
   people: [{ name: '张三', relation: '合作方', reason: '一起做汇报' }],
   todos: [{ title: '发汇报', due: '2026-09-12', body: '' }],
   projects: [{ name: '飞书迁移', note: '对方确认了时间' }],
-  resources: [{ name: '汇报模板', summary: '两句话' }],
+  resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
 }
 
 /** The panel's props, with spies standing in for the RPCs and the writes. */
@@ -133,10 +135,10 @@ describe('MailPanel', () => {
     expect(bounds.since).toBe(new Date(Date.parse(bounds.until) - 30 * 24 * 3600 * 1000).toISOString())
   })
 
-  it('says which stage the analysis has reached', async () => {
+  it('says which stage the analysis has reached, and how far it has got', async () => {
     let release = (): void => {}
     const analyse = vi.fn((_mails: readonly KbMailMessage[], _known: KnownEntities, onProgress?: (p: AnalysisProgress) => void) => {
-      onProgress?.({ stage: 'answer' })
+      onProgress?.({ stage: 'answer', done: 1, total: 1, verdicts: [{ mail: 1, importance: 'focus', why: '上级主送' }] })
       return new Promise<AnalysisRun>((resolve) => {
         release = () => { resolve(RUN) }
       })
@@ -149,11 +151,19 @@ describe('MailPanel', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('分析这 1 封'))
     })
-    expect(screen.getByText(/模型正在读这批邮件/)).toBeTruthy()
+    expect(screen.getByText(/已分析 1\/1/)).toBeTruthy()
+    // The judged mail lights up with its importance badge.
+    expect(screen.getByText('重点')).toBeTruthy()
     await act(async () => {
       release()
     })
     expect(await screen.findByText('邮件分析 2026-09-10')).toBeTruthy()
+  })
+
+  it('shows the 重点提醒 block above the tickable groups', async () => {
+    await openReview()
+    expect(screen.getByText('重点提醒')).toBeTruthy()
+    expect(screen.getByText(/张三：季度汇报/)).toBeTruthy()
   })
 
   it('shows the host\'s message and its remedy when the read fails', async () => {
@@ -195,7 +205,7 @@ describe('MailPanel', () => {
       fireEvent.click(screen.getByText('确认写入（4）'))
     })
     await waitFor(() => {
-      expect(target.createEntity as unknown as ReturnType<typeof vi.fn>).toHaveBeenCalledWith('person', '张三')
+      expect(target.createEntity as unknown as ReturnType<typeof vi.fn>).toHaveBeenCalledWith('person', '张三', undefined)
     })
 
     const written = (target.write as unknown as ReturnType<typeof vi.fn>).mock.calls

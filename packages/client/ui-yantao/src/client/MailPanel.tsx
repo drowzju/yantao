@@ -9,10 +9,10 @@
  * until the human confirms. The cursor only moves once a verdict has been
  * dealt with, so a failed analysis leaves the mails unread rather than lost.
  */
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactElement } from 'react'
 import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { MailFetcher, MailMarker } from './remote.ts'
-import type { AnalysisProgress, AnalysisStage, MailAnalyser } from './mail-analysis.ts'
+import type { AnalysisProgress, AnalysisStage, MailAnalyser, MailImportance, MailVerdict } from './mail-analysis.ts'
 import type { MailEntities } from './mail-apply.ts'
 import type { ProposalTarget } from './proposal-apply.ts'
 import { applyProposal } from './proposal-apply.ts'
@@ -71,7 +71,21 @@ const STEP_DAYS = 30
 const STAGE_LABELS: Record<AnalysisStage, string> = {
   session: '正在创建会话…',
   prompt: '正在向模型提问…',
-  answer: '模型正在读这批邮件…',
+  answer: '模型正在逐批分析邮件…',
+}
+
+/** What each importance verdict says on a mail row. */
+const IMPORTANCE_LABELS: Record<MailImportance, string> = {
+  focus: '重点',
+  digest: '汇总',
+  normal: '普通',
+}
+
+/** How each importance badge is styled: 重点 shouts, 汇总 mumbles, 普通 stays quiet. */
+const IMPORTANCE_STYLES: Record<MailImportance, CSSProperties> = {
+  focus: { color: '#b4453a', fontWeight: 600 },
+  digest: { color: '#9a9488' },
+  normal: { color: '#6b6455' },
 }
 
 const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' } as const
@@ -83,6 +97,26 @@ const mutedStyle = { color: '#9a9488', fontSize: 12 } as const
 const errorStyle = { color: '#b4453a', fontSize: 12 } as const
 
 const hintStyle = { color: '#6b6455', fontSize: 12 } as const
+
+const mailListStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  maxHeight: 240,
+  overflow: 'auto',
+  fontSize: 12,
+  borderTop: '1px solid #efeade',
+  borderBottom: '1px solid #efeade',
+  padding: '4px 0',
+} as const
+
+const mailRowStyle = { display: 'flex', gap: 6, alignItems: 'baseline', minWidth: 0 } as const
+
+const mailBadgeStyle = { flexShrink: 0, fontSize: 12 } as const
+
+const mailTextMutedStyle = { color: '#9a9488', whiteSpace: 'nowrap' } as const
+
+const mailSubjectStyle = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as const
 
 /**
  * An ISO stamp `days` before `from` — the 往前 bound.
@@ -140,6 +174,8 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
   const [review, setReview] = useState<Proposal | null>(null)
   const [summary, setSummary] = useState<readonly string[]>([])
   const [progress, setProgress] = useState<AnalysisProgress | null>(null)
+  // Per-mail verdicts as the chunks land: mail number (1-based) → its judgement.
+  const [verdicts, setVerdicts] = useState<ReadonlyMap<number, MailVerdict>>(new Map())
   const [elapsed, setElapsed] = useState(0)
 
   // A slow judgement with no feedback reads as a hung one: count the seconds
@@ -162,6 +198,7 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
     setError(null)
     setHint(null)
     setSummary([])
+    setVerdicts(new Map())
     try {
       const result = await fetch(boundsFor(direction, mails))
       setMails(result.messages)
@@ -182,10 +219,17 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
     setError(null)
     setHint(null)
     setProgress({ stage: 'session' })
+    setVerdicts(new Map())
     try {
       const known = await entities()
-      const result = await analyse(mails, known, setProgress)
-      setReview(analysisToProposal(result.analysis, known, result.title))
+      const result = await analyse(mails, known, (update) => {
+        setProgress(update)
+        if (update.verdicts !== undefined) {
+          setVerdicts(new Map(update.verdicts.map(verdict => [verdict.mail, verdict])))
+        }
+      })
+      setVerdicts(new Map(result.analysis.verdicts.map(verdict => [verdict.mail, verdict])))
+      setReview(analysisToProposal(result.analysis, known, result.title, mails))
     } catch (failure: unknown) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
@@ -278,6 +322,27 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
           {hasMore ? '（还有更多）' : ''}
         </div>
       )}
+      {mails.length > 0 && (
+        <div style={mailListStyle} data-mail-list="true">
+          {mails.map((mail, index) => {
+            const verdict = verdicts.get(index + 1)
+            return (
+              <div key={mail.id} style={mailRowStyle} data-mail-row={index + 1}>
+                {verdict !== undefined && (
+                  <span style={{ ...mailBadgeStyle, ...IMPORTANCE_STYLES[verdict.importance] }} data-mail-verdict={verdict.importance}>
+                    {IMPORTANCE_LABELS[verdict.importance]}
+                  </span>
+                )}
+                <span style={mailTextMutedStyle}>{mail.senderName}</span>
+                <span style={mailSubjectStyle} title={mail.subject}>{mail.subject || '（无主题）'}</span>
+                {verdict !== undefined && verdict.why !== '' && verdict.importance === 'focus' && (
+                  <span style={hintStyle} title={verdict.why}>{verdict.why}</span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
       {(range.firstReadAt !== undefined || range.lastReadAt !== undefined) && (
         <div style={mutedStyle} data-mail-processed="true">
           已处理：
@@ -296,7 +361,9 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
       )}
       {phase === 'analysing' && progress !== null && (
         <div style={hintStyle} data-mail-progress={progress.stage}>
-          {STAGE_LABELS[progress.stage]}（已等待 {elapsed} 秒）
+          {STAGE_LABELS[progress.stage]}
+          {progress.done !== undefined && progress.total !== undefined ? `（已分析 ${progress.done}/${progress.total}）` : ''}
+          （已等待 {elapsed} 秒）
         </div>
       )}
       {error !== null && <div style={errorStyle} data-mail-error="true">{error}</div>}

@@ -35,6 +35,18 @@ const cardStyle = {
 
 const groupTitleStyle = { margin: '12px 0 4px', fontSize: 12, fontWeight: 600, color: '#6b6455' } as const
 
+const focusTitleStyle = { margin: '12px 0 4px', fontSize: 12, fontWeight: 700, color: '#b4453a' } as const
+
+const focusRowStyle = {
+  display: 'flex',
+  gap: 8,
+  alignItems: 'baseline',
+  padding: '4px 6px',
+  background: 'rgba(180, 69, 58, 0.08)',
+  borderRadius: 6,
+  fontSize: 12,
+} as const
+
 const rowStyle = { display: 'flex', gap: 8, alignItems: 'flex-start', padding: '3px 0' } as const
 
 const detailStyle = { color: '#6b6455', fontSize: 12 } as const
@@ -108,6 +120,27 @@ export function ProposalCard(props: {
       <div style={cardStyle}>
         <div style={{ fontSize: 13, fontWeight: 600 }}>{proposal.title}</div>
         {proposal.note !== undefined && <div style={{ ...detailStyle, marginTop: 2 }}>{proposal.note}</div>}
+        {proposal.highlights !== undefined && proposal.highlights.length > 0 && (
+          <div data-proposal-highlights="true">
+            <div style={focusTitleStyle}>重点提醒</div>
+            {proposal.highlights.map((entry, index) => (
+              <div key={index} style={focusRowStyle}>
+                <span style={{ fontWeight: 600 }}>{entry.sender}：{entry.subject}</span>
+                <span style={detailStyle}>{entry.why}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {proposal.digest !== undefined && proposal.digest.length > 0 && (
+          <div data-proposal-digest="true">
+            <div style={groupTitleStyle}>日常通知（汇总）</div>
+            {proposal.digest.map((entry, index) => (
+              <div key={index} style={detailStyle}>
+                {entry.sender}：{entry.subject} — {entry.why}
+              </div>
+            ))}
+          </div>
+        )}
         {nothing && <div style={{ ...detailStyle, marginTop: 10 }}>这次没有发现值得进入知识库的内容。</div>}
         {GROUP_ORDER.map((kind) => {
           const rows = proposal.actions

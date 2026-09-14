@@ -7,14 +7,8 @@ import { applyProposal, insertIntoSection } from '../src/client/proposal-apply.t
 const TODOS_PATH = 'entities/todos.md'
 const TEXT = '- [ ] 已有的待办\n'
 
-/** The KB seams, with spies standing in for every write. */
-function target(overrides: Partial<ProposalTarget> = {}): ProposalTarget & {
-  createEntity: ReturnType<typeof vi.fn>
-  read: ReturnType<typeof vi.fn>
-  write: ReturnType<typeof vi.fn>
-  todos: ReturnType<typeof vi.fn>
-  writeTodos: ReturnType<typeof vi.fn>
-} {
+/** The KB seams, with spies standing in for every write; cast to a mock where a call list is read. */
+function target(overrides: Partial<ProposalTarget> = {}): ProposalTarget {
   const todos: KbTodosResult = {
     path: TODOS_PATH,
     text: TEXT,
@@ -38,9 +32,20 @@ describe('applyProposal', () => {
       actions: [{ kind: 'create-entity', entityType: 'person', name: '张三', reason: 'r' }],
     }
     const result = await applyProposal({ proposal, ticked: [0], target: t })
-    expect(t.createEntity).toHaveBeenCalledWith('person', '张三')
+    expect(t.createEntity).toHaveBeenCalledWith('person', '张三', undefined)
     expect(result.written).toEqual(['实体 张三'])
     expect(result.skipped).toEqual([])
+  })
+
+  it('writes a person\'s e-mail address through the create seam', async () => {
+    const t = target()
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'create-entity', entityType: 'person', name: '张三', reason: 'r', email: 'zhangsan@example.com' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(t.createEntity).toHaveBeenCalledWith('person', '张三', undefined, 'zhangsan@example.com')
+    expect(result.written).toEqual(['实体 张三'])
   })
 
   it('appends a dated bullet to the 流水 and never rewrites it', async () => {
@@ -52,7 +57,7 @@ describe('applyProposal', () => {
       }],
     }
     await applyProposal({ proposal, ticked: [0], target: t })
-    const [path, content] = t.write.mock.calls[0] as [string, string]
+    const [path, content] = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
     expect(path).toBe('entities/projects/飞书迁移.md')
     expect(content).toContain('- 2026-01-01 创建')
     expect(content).toMatch(/- \d{4}-\d{2}-\d{2} 确认了时间/)
@@ -67,7 +72,7 @@ describe('applyProposal', () => {
       }],
     }
     await applyProposal({ proposal, ticked: [0], target: t })
-    const [, content] = t.write.mock.calls[0] as [string, string]
+    const [, content] = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
     expect(content).toContain('## 状态')
     expect(content).toContain('合作中')
   })
@@ -111,7 +116,7 @@ describe('applyProposal', () => {
       }],
     }
     await applyProposal({ proposal, ticked: [0], target: t })
-    const [, content] = t.write.mock.calls[0] as [string, string]
+    const [, content] = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
     expect(content).toContain('[[领域:科幻]]')
   })
 
@@ -138,7 +143,10 @@ describe('applyProposal', () => {
     const result = await applyProposal({ proposal, ticked: [0, 1], target: t })
     expect(t.todos).toHaveBeenCalledTimes(1)
     expect(t.writeTodos).toHaveBeenCalledTimes(1)
-    const args = t.writeTodos.mock.calls[0]?.[0] as { expectedText: string; items: readonly { title: string; due?: string }[] }
+    const args = (t.writeTodos as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      expectedText: string
+      items: readonly { title: string; due?: string }[]
+    }
     expect(args.expectedText).toBe(TEXT)
     expect(args.items.map(item => item.title)).toEqual(['已有的待办', '发汇报', '回邮件'])
     expect(args.items[1]?.due).toBe('2026-09-20')
@@ -155,8 +163,8 @@ describe('applyProposal', () => {
       ],
     }
     await applyProposal({ proposal, ticked: [1, 0], target: t })
-    const writeOrder = t.write.mock.invocationCallOrder[0] as number
-    const createOrder = t.createEntity.mock.invocationCallOrder[0] as number
+    const writeOrder = (t.write as unknown as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0] as number
+    const createOrder = (t.createEntity as unknown as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0] as number
     expect(writeOrder).toBeLessThan(createOrder)
   })
 })

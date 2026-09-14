@@ -23,7 +23,9 @@ SKILL.md 保持纯净，方便直接复用开源 skill 目录。
 - `state`：`{lastReadAt?}`——上次读到的水印，由工作台持久化，脚本只读不写
   （推进水印是批准后的另一个动作）。
 - 成功：`{ok: true, result: {since, until?, lastReadAt?, stale, messages, hasMore}}`，
-  `messages` 每封 `{id, entryId, receivedAt, senderName, senderAddress, subject, body, truncated}`。
+  `messages` 每封 `{id, entryId, receivedAt, senderName, senderAddress, subject, body, truncated, toMe}`；
+  `body` 至多 12000 字；`toMe` 是我与这封邮件的关系（to 主送 / cc 抄送 / none 都不是 /
+  unknown 认不出），不含其他收件人的信息。
 - 失败：`{ok: false, kind, message, hint}`，kind ∈ python-missing / outlook-unavailable /
   folder-missing / other。
 

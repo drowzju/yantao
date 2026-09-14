@@ -310,6 +310,13 @@ describe('yantaoKb.createEntity', () => {
     expect(await readFile(join(kbRoot, plain.path), 'utf8')).toContain('relation: subordinate')
   })
 
+  it('writes the email a person was given into the frontmatter, and the tree row carries it back', async () => {
+    const withMail = await ctx.yantaoKbController.createEntity({ type: 'person', name: '张三', email: 'zhangsan@example.com' })
+    expect(await readFile(join(kbRoot, withMail.path), 'utf8')).toContain('email: zhangsan@example.com')
+    const people = (await ctx.yantaoKbController.workspaceTree()).sections.find(section => section.id === 'people')
+    expect(people?.files).toContainEqual({ name: '张三', path: withMail.path, relation: 'subordinate', email: 'zhangsan@example.com' })
+  })
+
   it('rejects the todo singleton and an entity that already exists', async () => {
     const singleton = { type: 'todo', name: 'todos' } as unknown as KbCreateEntityArgs
     const failure = await ctx.yantaoKbController.createEntity(singleton).catch((error: unknown) => error)

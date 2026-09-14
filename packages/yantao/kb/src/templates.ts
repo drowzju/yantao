@@ -11,6 +11,12 @@ import type { EntityType, PersonRelation } from './types.ts'
 export interface EntityTemplateOptions {
   /** Person-to-owner relation (default subordinate) — only meaningful for person. */
   relation?: PersonRelation
+  /**
+   * The person's e-mail address — only meaningful for person. Mail analysis
+   * writes the sender address here so later batches match the sender to the
+   * entity by address first, name second.
+   */
+  email?: string
   /** The meeting's own date (YYYY-MM-DD) — only meaningful for meeting; defaults to the creation date. */
   meetingDate?: string
   /**
@@ -48,6 +54,7 @@ export function entityFileContent(
   if (type === 'project') fields.push('areas: []')
   if (type === 'project' && options.source !== undefined) fields.push(`source: ${options.source}`)
   if (type === 'person') fields.push(`relation: ${options.relation ?? 'subordinate'}`)
+  if (type === 'person' && options.email !== undefined && options.email !== '') fields.push(`email: ${options.email}`)
   fields.push('tags: []', `created: ${date}`)
   return `---\n${fields.join('\n')}\n---\n\n## 状态\n\n\n## 流水\n\n- ${date} 创建 ${name}\n`
 }

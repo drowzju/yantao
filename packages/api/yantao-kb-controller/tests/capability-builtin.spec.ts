@@ -20,6 +20,12 @@ async function seededVersion(name: string): Promise<number> {
   return (JSON.parse(sidecar) as { version?: number }).version ?? 0
 }
 
+/** The version the shipped master declares, so this spec survives version bumps. */
+async function masterVersion(name: string): Promise<number> {
+  const sidecar = await readFile(join(import.meta.dirname, '..', 'src', 'capability', 'builtin', name, 'yantao.json'), 'utf8')
+  return (JSON.parse(sidecar) as { version?: number }).version ?? 0
+}
+
 describe('ensureBuiltinCapabilities', () => {
   it('seeds the shipped capabilities into a fresh KB', () => {
     expect(ensureBuiltinCapabilities(kbRoot)).toEqual(expect.arrayContaining(['mail', 'ebook']))
@@ -44,7 +50,7 @@ describe('ensureBuiltinCapabilities', () => {
     await mkdir(target, { recursive: true })
     await writeFile(join(target, 'SKILL.md'), '---\nname: mail\ndescription: 旧版\n---\n', 'utf8')
     expect(ensureBuiltinCapabilities(kbRoot)).toContain('mail')
-    expect(await seededVersion('mail')).toBe(3)
+    expect(await seededVersion('mail')).toBe(await masterVersion('mail'))
     expect(await readFile(join(target, 'scripts', 'entry.py'), 'utf8')).toMatch(/json\.load/)
   })
 
@@ -56,17 +62,18 @@ describe('ensureBuiltinCapabilities', () => {
     await rm(join(target, 'yantao.json'), { force: true })
     await writeFile(join(target, 'SKILL.md'), `${skillMd}version: 1\n`, 'utf8')
     expect(ensureBuiltinCapabilities(kbRoot)).toContain('mail')
-    expect(await seededVersion('mail')).toBe(3)
+    expect(await seededVersion('mail')).toBe(await masterVersion('mail'))
   })
 
   it('leaves a newer human-edited copy alone even when the master changes', async () => {
     ensureBuiltinCapabilities(kbRoot)
     const target = join(kbRoot, '.dsh', 'skills', 'mail')
     // The human bumped their own copy past the shipped version.
+    const shipped = await masterVersion('mail')
     const sidecar = await readFile(join(target, 'yantao.json'), 'utf8')
-    await writeFile(join(target, 'yantao.json'), sidecar.replace('"version": 3', '"version": 9'), 'utf8')
+    await writeFile(join(target, 'yantao.json'), sidecar.replace(`"version": ${shipped}`, `"version": ${shipped + 5}`), 'utf8')
     expect(ensureBuiltinCapabilities(kbRoot)).toEqual([])
-    expect(await seededVersion('mail')).toBe(9)
+    expect(await seededVersion('mail')).toBe(shipped + 5)
   })
 
   it('copies the whole directory, scripts included', async () => {
@@ -86,18 +93,19 @@ describe('ensureBuiltinCapabilities', () => {
     ensureBuiltinCapabilities(kbRoot)
     const target = join(kbRoot, '.dsh', 'skills', 'mail')
     // The human edited their copy but did not bump the version: the next
-    // versioned master (3) wins over their older copy (2), and the hand edit
+    // versioned master wins over their older copy, and the hand edit
     // survives in the backup.
+    const shipped = await masterVersion('mail')
     await writeFile(join(target, 'SKILL.md'), '---\nname: mail\ndescription: 人改过的版本\n---\n', 'utf8')
     const sidecar = await readFile(join(target, 'yantao.json'), 'utf8')
-    await writeFile(join(target, 'yantao.json'), sidecar.replace('"version": 3', '"version": 2'), 'utf8')
+    await writeFile(join(target, 'yantao.json'), sidecar.replace(`"version": ${shipped}`, `"version": ${shipped - 1}`), 'utf8')
     expect(ensureBuiltinCapabilities(kbRoot)).toContain('mail')
     const backups = await readdir(join(kbRoot, '.yantao', 'capability-backups', 'mail'))
     expect(backups).toHaveLength(1)
     expect(await readFile(join(kbRoot, '.yantao', 'capability-backups', 'mail', backups[0]!, 'SKILL.md'), 'utf8'))
       .toMatch(/人改过的版本/)
     // The live copy is the master's again.
-    expect(await seededVersion('mail')).toBe(3)
+    expect(await seededVersion('mail')).toBe(await masterVersion('mail'))
   })
 
   it('backupIfDrifted copies a drifted tree and skips an identical one', async () => {
