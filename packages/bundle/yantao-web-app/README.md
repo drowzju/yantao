@@ -64,7 +64,7 @@ Omitted from the stock roster (each is a web-app-side insert, so absence suffice
 
 ### The trust boundary on this surface
 
-Tools on the web surface are per-preset. The base agent-plane rows are disabled as on stock, and the default preset ships only the Chinese persona, so a session's merged catalog is exactly the global (host-plane) layer: the six `kb_` tools from `dsh-yantao-kb`. The shipped presets stay selectable in General settings — switching presets is the human's informed act; the boundary is the default posture.
+Tools on the web surface are per-preset. The base agent-plane rows are disabled as on stock, and the default preset ships only the Chinese persona, so a session's merged catalog is exactly the global (host-plane) layer: the nine `kb_` tools — eight from `dsh-yantao-kb` plus `kb_run_capability` from the yantao-kb-controller (ADR-0023). The shipped presets stay selectable in General settings — switching presets is the human's informed act; the boundary is the default posture.
 
 ### Source map
 

@@ -44,7 +44,7 @@ The patch overrides base rows by id and mounts one plugin, each replacement stat
 | `llm-pi-ai` | `providers.model-gateway` | Registers the intranet model gateway route: the OpenAI-completions protocol against the gateway endpoint, `GLM5.1` plus the `GLM` and `glm52` aliases, and the `deepseek` thinking wire format |
 | `agent-default-model` | `provider: model-gateway`, `model: GLM5.1` | Agents created without an explicit selection — the headless runner's among them — use the gateway route |
 | `system-prompt` | Chinese persona | States the workbench identity and the trust boundary as hard rules: the State section is human-only, KB access goes through kb_ tools, `kb_append_log` only appends to the Log section |
-| `yantao-kb` (inserted) | `@deepseek-ai/dsh-yantao-kb` | Mounts the six kb_ tools — the agent's only write path into the knowledge base |
+| `yantao-kb` (inserted) | `@deepseek-ai/dsh-yantao-kb` | Mounts the eight kb_ tools — the agent's only write path into the knowledge base |
 | `tool-bash`, `tool-pwsh`, `tool-str-replace-editor` | `disabled: true` | Removes every generic write capability (shell commands, the editor); read/search stay |
 
 ### Changing the defaults

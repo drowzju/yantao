@@ -12,7 +12,7 @@ ADR-0021 把能力定为"仅人可调用"（取舍台账第 1、2 条），并�
 决定：
 
 1. **推翻 ADR-0021 取舍台账第 2 条**：新增 `kb_run_capability` 工具，agent 可以在会话中
-   调用能力。信任边界从七个 `kb_*` 工具变为八个——这是有意识的扩张，不是泄漏：执行的
+   调用能力。信任边界从八个 `kb_*` 工具变为九个——这是有意识的扩张，不是泄漏：执行的
    仍是"人安装并审定过的能力脚本"，agent 获得的只是选择执行时机的通道。
 
 2. **门控：sidecar 逐能力显式 opt-in**。`yantao.json` 增加 `invocation` 字段：
@@ -83,7 +83,7 @@ ADR-0021 把能力定为"仅人可调用"（取舍台账第 1、2 条），并�
 - 新工具 = 新 RPC 面：`pnpm run build:lib` + `pnpm run gen-cordis-catalog` 必须跑；
   controller README 对（RPC 表 + "N unary methods" 句）与 `docs/subsystems/yantao.md`
   **随实现同步**，不提前。
-- `AGENTS.md` 硬规则 2 的"七个 `kb_*` 工具"措辞随实现改为八个。
+- `AGENTS.md` 硬规则 2 的"八个 `kb_*` 工具"措辞随实现改为九个（`kb_read_resource` 落地时已到八个，起草时按旧账写作七个）。
 - mail/ebook sidecar 加 `invocation` 字段，版本 bump 到 3，播种机制自动覆盖旧副本
   （配合决定 7，人改过的副本先备份）。
 - 「新建能力」脚手架生成的 sidecar 模板加 `invocation` 注释示例。

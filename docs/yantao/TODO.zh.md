@@ -61,6 +61,8 @@
 
 | **「添加目录」退役(ADR-0021 决定 8 修订)** —— 安装一个能力 = 把目录拷进 `<kbRoot>/.dsh/skills/`(或 `~/.dsh/skills`);`capabilityRegisterDir` RPC、`capabilityDirs` 持久化与控制器专属的 `FileSystemSkillProvider` 全部移除(十九个 RPC),能力 tab 只留「新建能力」 | `packages/api/yantao-kb-controller/src/{index,types}.ts`、`packages/yantao/kb/src/root-store.ts`、`packages/client/ui-yantao/src/client/{CapabilityPanel,Workbench,remote}.tsx` + `frame/Frame.tsx` + `index.ts` |
 
+| **agent 能力调用(ADR-0023)** —— 第九个工具 `kb_run_capability`:模型按名调用能力,可附自由 JSON `input`;目录在 `agent/pre-step` 注入(每轮从 skill 注册表现算,不硬编码);逐能力 opt-in 在 `yantao.json` sidecar 的 `invocation` 字段(默认 `["human"]`;对仅人工能力发起 agent 调用报 `not-invocable`,且门在指令分支之前,指令型能力无法绕过);指令型能力(无 `entry` 的清单)以 SKILL.md 正文作 `content` 应答;播种在版本升级覆盖前把漂移的 KB 副本备份到 `<kbRoot>/.yantao/capability-backups/<name>/<时间戳>/`;内置 mail/ebook sidecar 升到 version 3,对两个通道开放;能力 tab 显示 invocation 徽标与指令型能力说明 | `packages/api/yantao-kb-controller/src/{index,types}.ts` + `src/capability/{run,builtin}.ts`、`packages/client/ui-yantao/src/client/CapabilityPanel.tsx`。验证:controller 103 + kb + ui-yantao 335 测试全绿,`build:lib`、`verify-cordis-catalog`、model-experience gate 通过 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)

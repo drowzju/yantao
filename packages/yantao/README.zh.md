@@ -24,7 +24,7 @@ yantao 组承载 `yantao` profile 挂载的个人知识工作台领域：一个�
 
 | 包 | 职责 | ctx key |
 |---|---|---|
-| [`kb`](kb/README.zh.md) | PARA+P 知识库领域插件：建立在文件型知识库之上的六个 `kb_` 信任边界工具 | 注册到 `ctx.tools` |
+| [`kb`](kb/README.zh.md) | PARA+P 知识库领域插件：建立在文件型知识库之上的八个 `kb_` 信任边界工具 | 注册到 `ctx.tools` |
 
 -----
 

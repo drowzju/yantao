@@ -64,7 +64,7 @@ MODEL_GATEWAY_API_KEY=<key> dsh --profile yantao-web
 
 ### 本表面上的信任边界
 
-web 表面上的工具是按 preset 分配的。base agent 层行与 stock 一样被禁用，而默认 preset 只带中文 persona，因此会话的合并目录恰好是全局（宿主）层：来自 `dsh-yantao-kb` 的六个 `kb_` 工具。shipped preset 在通用设置中仍然可选——切换 preset 是人类知情后的行为；边界是默认姿态。
+web 表面上的工具是按 preset 分配的。base agent 层行与 stock 一样被禁用，而默认 preset 只带中文 persona，因此会话的合并目录恰好是全局（宿主）层：九个 `kb_` 工具——八个来自 `dsh-yantao-kb`，加上 yantao-kb-controller 的 `kb_run_capability`（ADR-0023）。shipped preset 在通用设置中仍然可选——切换 preset 是人类知情后的行为；边界是默认姿态。
 
 ### 源码地图
 

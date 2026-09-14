@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/yantao/README.md
-README.md: e3f2880ba74b080b2042a86bd1dc6dea9677c486
-README.zh.md: 51a99d472adc284c469e609977eb6aad9020c8d3
+README.md: 2083f6a305af4699e7dffb2a1896f593052edae6
+README.zh.md: 98ae3c1ad625395e29130d600bdcea6cbbeb632c

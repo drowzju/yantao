@@ -60,7 +60,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 ```
 
 - **dsh 是后端。** 我们的 UI 通过 Typert RPC 与转发事件流消费它,而浏览器外壳归我们:工作台插件注册运行时内置的 `root` 槽位、自绘三栏外框(ADR-0011),`ui-layout` 已退出名单。中间一列是 tab 化的:常驻的「对话」tab 通过 `conversation` 座位承载宿主的会话面(ADR-0009),每个打开的 KB 文件各占一个可关闭 tab,自动保存并带冲突检查(ADR-0012)。
-- **信任边界在工具层。** agent 有七个 `kb_*` 工具、没有通用写能力;它现在可以通过 `kb_write_state` 写实体的「状态」区——这正是 ADR-0010 对 ADR-0004 的修订:边界是工具集,不是区段。**UI 是人类通道**,可以编辑任何内容。
+- **信任边界在工具层。** agent 有九个 `kb_*` 工具、没有通用写能力;它现在可以通过 `kb_write_state` 写实体的「状态」区——这正是 ADR-0010 对 ADR-0004 的修订:边界是工具集,不是区段;它运行能力也只能通过 `kb_run_capability`,由 sidecar 的 `invocation` 字段逐能力把关(ADR-0023)。**UI 是人类通道**,可以编辑任何内容。
 - **知识存在文件里**,不是数据库:KB 根下的 `resources/`、`entities/{projects,areas,people,meetings}/`、`entities/todos.md` 单例,以及暂不使用的 `sessions/`(ADR-0005,目录结构调整见 ADR-0010)。每个实体文件里的「状态」/「流水」两区就是人与 agent 的边界。
 - **知识库根目录由人选。** 首次进入会要求选一个目录并持久化到 `~/.dsh/yantao-kb.json`(`yantaoKb.root()` / `setRoot()`);两条侧栏通过 `yantaoKb.createEntity()` 就地新建实体(ADR-0012)。
 

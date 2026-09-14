@@ -47,7 +47,7 @@ The `yantao-web` profile mounts this controller automatically; the workbench UI 
 | `yantaoKb.writeTodos` | `({ items, expectedText })` | `{ path, text }` — replaces the singleton's items, keeping its preamble (ADR-0018) |
 | `yantaoKb.mailMarkRead` | `({ lastReadAt?, firstReadAt? })` | `{ lastReadAt, firstReadAt? }` — moves the mail capability's cursor forward and keeps the earliest `firstReadAt` as the processed range's start; `lastReadAt` defaults to now (ADR-0019) |
 | `yantaoKb.registerResource` | `({ name, contentBase64 })` | `{ resource }` — copies one dropped file into `resources/` byte-for-byte, sanitizing the name and refusing a duplicate; no note is generated beside it (ADR-0020) |
-| `yantaoKb.capabilityRun` | `({ name, input? })` | `{ name, runAt, result?, artifacts }` — runs one capability's host entry (a dsh skill directory declaring itself through a `yantao.json` sidecar, legacy `metadata.yantao` frontmatter accepted) as a Python subprocess, writes its artifacts under `.yantao/capabilities/<name>/`, and persists its state under `capabilities.<name>.state` in `~/.dsh/yantao-kb.json` (ADR-0021) |
+| `yantaoKb.capabilityRun` | `({ name, input? })` | `{ name, runAt, result?, content?, artifacts }` — runs one capability's host entry (a dsh skill directory declaring itself through a `yantao.json` sidecar, legacy `metadata.yantao` frontmatter accepted) as a Python subprocess, writes its artifacts under `.yantao/capabilities/<name>/`, and persists its state under `capabilities.<name>.state` in `~/.dsh/yantao-kb.json`; an instruction capability (no `entry`) answers with its SKILL.md body as `content` instead of spawning (ADR-0021, ADR-0023) |
 | `yantaoKb.capabilityList` | `()` | `{ capabilities }` — every skill at the KB root that declares a capability manifest, each row merged with its persisted record (`lastRunAt`, `state`); the shipped capabilities are seeded into `<kbRoot>/.dsh/skills/` first (ADR-0021) |
 | `yantaoKb.capabilityCreate` | `({ name })` | `{ path }` — scaffolds `.dsh/skills/<name>/` with a clean SKILL.md, a declaring `yantao.json` sidecar, and a protocol-speaking `scripts/entry.py`; a working capability on the first run (ADR-0021 决定 8) |
 
@@ -61,11 +61,11 @@ The `yantao-web` profile mounts this controller automatically; the workbench UI 
 
 `registerResource` (ADR-0020) is the drag-and-drop intake: the browser sends the file's complete content base64-encoded, and the host copies it into `resources/` unchanged — the same sanitize-and-refuse-duplicate semantics the agent's `kb_register_resource` has, minus the absolute-path input. Extracting a resource's text moved into the `ebook` capability (ADR-0021): the same bundled Python extraction, now seeded into `<kbRoot>/.dsh/skills/ebook/` and run through `capabilityRun`, still caching under `.yantao/extracts/`.
 
-`capabilityRun` (ADR-0021) is the mail/extract subprocess pattern generalized into the capability system: a capability is a dsh skill directory whose declaration lives in a `yantao.json` sidecar at the directory root (`entry`/`runtime`/`appliesTo` — out-of-band, so an unmodified open-source skill directory can be dropped in; the legacy `metadata.yantao` frontmatter section still answers when no sidecar is present), discovery is `ctx.skills`' business, and this controller owns only the execution seam — one Python subprocess with a JSON stdin/stdout contract, artifacts written by the controller (never by the script, which cannot choose its own write paths), and the returned state persisted as the next run's starting point. Execution exists only here, before a session: the agent gets no `kb_run_capability` tool, and `tool-skill` stays disabled so the model never sees a skill catalog.
+`capabilityRun` (ADR-0021) is the mail/extract subprocess pattern generalized into the capability system: a capability is a dsh skill directory whose declaration lives in a `yantao.json` sidecar at the directory root (`entry`/`runtime`/`appliesTo`/`invocation` — out-of-band, so an unmodified open-source skill directory can be dropped in; the legacy `metadata.yantao` frontmatter section still answers when no sidecar is present), discovery is `ctx.skills`' business, and this controller owns only the execution seam — one Python subprocess with a JSON stdin/stdout contract, artifacts written by the controller (never by the script, which cannot choose its own write paths), and the returned state persisted as the next run's starting point. Since ADR-0023 the same seam serves both channels: the human calls it here, the agent through the `kb_run_capability` tool — but only for capabilities whose sidecar declared `"invocation": ["agent"]` (the default is human-only), and a capability without an `entry` is an instruction capability whose SKILL.md body is the whole answer. `tool-skill` stays disabled so the model never sees a raw skill catalog; the agent learns what it may run from the per-turn injected catalog instead.
 
 `capabilityList` / `capabilityCreate` (ADR-0021 决定 8) are the 能力 tab's management half. `capabilityList` seeds the shipped capabilities into the KB first (copy-on-missing, version-driven, so script fixes reach the KB), then lists every skill that declares a capability manifest — plain skills are skipped, not errors — merged with each one's persisted record. Installing a capability has no RPC: the human copies the directory into `<kbRoot>/.dsh/skills/` (or any other skill root) and discovery picks it up. `capabilityCreate` scaffolds a new capability inside the KB with a working protocol-speaking entry script.
 
-Failures are `RemoteError`s: `yantao-kb/not-found` when the path names no file, `yantao-kb/rejected` for an escape attempt, a non-file target, an I/O refusal, or a KB domain refusal (an existing entity, the `todo` singleton) — each carrying the offending `path` in `details` — and `yantao-kb/mail` when the watermark write fails for want of a root, carrying the failure's `kind` and `hint`. `yantao-kb/capability` is the capability counterpart (`not-found` / `bad-manifest` / `python-missing` / `timeout` / `bad-output` / `capability-failed`), and the capability's own failure `kind` and remedy ride in `details` too.
+Failures are `RemoteError`s: `yantao-kb/not-found` when the path names no file, `yantao-kb/rejected` for an escape attempt, a non-file target, an I/O refusal, or a KB domain refusal (an existing entity, the `todo` singleton) — each carrying the offending `path` in `details` — and `yantao-kb/mail` when the watermark write fails for want of a root, carrying the failure's `kind` and `hint`. `yantao-kb/capability` is the capability counterpart (`not-found` / `not-invocable` / `bad-manifest` / `python-missing` / `timeout` / `bad-output` / `capability-failed`), and the capability's own failure `kind` and remedy ride in `details` too; `not-invocable` (ADR-0023) is the agent calling a capability whose sidecar did not declare `"agent"`.
 
 ### Client consumption
 
@@ -79,22 +79,23 @@ The calling plugin declares both `remote` and `remote.yantaoKb` in its `inject`,
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The controller is a `TypertRemoteService` with `static inject = ['yantaoKb', 'skills']`: it activates only after the `yantao-kb` plugin has published the resolved KB root (and the skill registry is mounted, so `capabilityRun` can resolve capability directories), and reads that root per call. Path confinement reuses the kb package's `resolveWithinKb` (escape attempts classify as `yantao-kb/rejected` at the boundary), and the entity sections of the two trees reuse `listEntities`, so the wire view and the agent's tools read the same files the same way. `resources/` and `sessions/` sections are fresh directory reads per call — the UI always sees what a human editor just wrote. `write` performs no frontmatter validation: the human owns the file's structure, and the agent's tools re-validate on their next read.
+The controller is a `TypertRemoteService` with `static inject = ['yantaoKb', 'skills', 'tools']`: it activates only after the `yantao-kb` plugin has published the resolved KB root (and the skill registry is mounted, so `capabilityRun` can resolve capability directories), reads that root per call, and registers the `kb_run_capability` tool plus the pre-step catalog listener through the injected tool layer (ADR-0023). Path confinement reuses the kb package's `resolveWithinKb` (escape attempts classify as `yantao-kb/rejected` at the boundary), and the entity sections of the two trees reuse `listEntities`, so the wire view and the agent's tools read the same files the same way. `resources/` and `sessions/` sections are fresh directory reads per call — the UI always sees what a human editor just wrote. `write` performs no frontmatter validation: the human owns the file's structure, and the agent's tools re-validate on their next read.
 
 ### Source map
 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | The controller: service declaration, path confinement, and the RPC methods |
-| [`src/capability/builtin.ts`](src/capability/builtin.ts) | The shipped capability directories' seeder (ADR-0021): copy-on-missing, version-driven, into `<kbRoot>/.dsh/skills/` |
+| [`src/capability/builtin.ts`](src/capability/builtin.ts) | The shipped capability directories' seeder (ADR-0021): copy-on-missing, version-driven, into `<kbRoot>/.dsh/skills/`; a drifted copy is backed up before a version bump overwrites it (ADR-0023 决定 7) |
 | [`src/capability/builtin/`](src/capability/builtin/) | The `mail` and `ebook` capability masters: SKILL.md + `yantao.json` declaration + `scripts/` (the Python subprocesses the old `mail/` and `extract/` modules shelled out to) |
 | [`src/capability/run.ts`](src/capability/run.ts) | The capability runner (ADR-0021): `yantao.json` sidecar manifest validation (legacy frontmatter fallback), entry confinement inside the skill directory, the spawn wrapper with `CapabilityError{kind,message,hint}`, artifact-name validation |
 | [`src/types.ts`](src/types.ts) | Wire payload vocabulary (tree sections, file rows, read/write results) |
 | — | No runtime invariant companion is published; the controller is a stateless adapter whose confinement and shaping contracts are covered by the package's unit tests. |
 | [`tests/controller.spec.ts`](tests/controller.spec.ts) | Tree shaping, read/write round trips, root/setRoot/createEntity, not-found classification, and escape rejection over real temp directories |
 | [`tests/intake-rpc.spec.ts`](tests/intake-rpc.spec.ts) | The intake RPCs over real temp directories: base64 round trips, duplicate refusal, `source:` pass-through |
-| [`tests/capability-rpc.spec.ts`](tests/capability-rpc.spec.ts) | The capability RPCs over a fake registry and a mocked runner: no-root/not-found/bad-manifest refusals, entry confinement, artifact write-out, state round trip, list/merge, dir registration, scaffolding |
-| [`tests/capability-builtin.spec.ts`](tests/capability-builtin.spec.ts) | The seeder over real temp directories: fresh seeding, up-to-date no-op, version-driven overwrite, newer-human-copy preservation |
+| [`tests/capability-rpc.spec.ts`](tests/capability-rpc.spec.ts) | The capability RPCs over a fake registry and a mocked runner: no-root/not-found/bad-manifest refusals, entry confinement, artifact write-out, state round trip, list/merge, dir registration, scaffolding, instruction capabilities and the sidecar `invocation` declaration |
+| [`tests/capability-tool.spec.ts`](tests/capability-tool.spec.ts) | The `kb_run_capability` tool and the pre-step catalog (ADR-0023): registration, the agent gate, the instruction answer, and the catalog injection over a fake registry |
+| [`tests/capability-builtin.spec.ts`](tests/capability-builtin.spec.ts) | The seeder over real temp directories: fresh seeding, up-to-date no-op, version-driven overwrite, newer-human-copy preservation, drift backup |
 
 ### Invariant ownership
 
@@ -120,11 +121,19 @@ Read these pages when you want to go deeper into the plugin that owns the KB or 
 <a id="model-experience"></a>
 ## Model Experience
 
-None, as the controller is a UI-facing API and transport owner that registers no prompt, tool, or session event; the kb_ tools and the chat agent own every model-visible effect.
+### Tools and prompt-side effects
+
+#### What the model sees
+
+The `kb_run_capability` tool: the model names a capability from the per-turn catalog and may pass a free-form JSON `input`; a script capability answers with `{ name, runAt, result?, artifacts }`, an instruction capability with its SKILL.md body as `content` for the model to follow. A capability whose sidecar did not declare `"invocation": ["agent"]` fails `not-invocable` with a Chinese remedy hint. On every user-prompted step, an `agent/pre-step` listener appends one catalog message listing the agent-open capabilities, re-derived from the skill registry that turn.
+
+#### Token effect
+
+Fixed schema cost for the one tool, plus one compact result per call; an instruction capability's answer is its SKILL.md body, bounded only by that document. The catalog message adds one short row per agent-invocable capability on each user-prompted turn.
 
 #### KV Cache effect
 
-The controller adds nothing to any request prefix; it never participates in a model request.
+The catalog message rides at the end of the user-prompted step's messages, so it enters that turn's request suffix and stays in the prefix of later requests in the same turn chain; its text changes whenever the agent-invocable set changes, invalidating the cached prefix from that point. With no agent-invocable capability nothing is injected and the prefix is untouched.
 
 ## Known Limitations and Deferred Work
 

@@ -47,7 +47,7 @@ kind: "package-reference"
 | `yantaoKb.writeTodos` | `({ items, expectedText })` | `{ path, text }`——替换单例的条目，保留 preamble（ADR-0018） |
 | `yantaoKb.mailMarkRead` | `({ lastReadAt?, firstReadAt? })` | `{ lastReadAt, firstReadAt? }`——把邮件能力的断点往前推，并把最早的 `firstReadAt` 记为已处理范围的起点；`lastReadAt` 缺省为当前时刻（ADR-0019） |
 | `yantaoKb.registerResource` | `({ name, contentBase64 })` | `{ resource }`——把一个拖入的文件逐字节复制进 `resources/`，清理文件名并拒绝重复；旁边不生成任何笔记（ADR-0020） |
-| `yantaoKb.capabilityRun` | `({ name, input? })` | `{ name, runAt, result?, artifacts }`——把一个能力的宿主入口（通过目录根的 `yantao.json` sidecar 声明自己的 dsh skill 目录，兼容旧的 `metadata.yantao` frontmatter）作为 Python 子进程运行，产物写入 `.yantao/capabilities/<name>/`，状态记到 `~/.dsh/yantao-kb.json` 的 `capabilities.<name>.state`（ADR-0021） |
+| `yantaoKb.capabilityRun` | `({ name, input? })` | `{ name, runAt, result?, content?, artifacts }`——把一个能力的宿主入口（通过目录根的 `yantao.json` sidecar 声明自己的 dsh skill 目录，兼容旧的 `metadata.yantao` frontmatter）作为 Python 子进程运行，产物写入 `.yantao/capabilities/<name>/`，状态记到 `~/.dsh/yantao-kb.json` 的 `capabilities.<name>.state`；指令型能力（无 `entry`）不 spawn，改以 SKILL.md 正文作为 `content` 作答（ADR-0021、ADR-0023） |
 | `yantaoKb.capabilityList` | `()` | `{ capabilities }`——知识库根目录下每个声明了能力清单的技能，每行合并它的持久化记录（`lastRunAt`、`state`）；内置能力会先被播种进 `<kbRoot>/.dsh/skills/`（ADR-0021） |
 | `yantaoKb.capabilityCreate` | `({ name })` | `{ path }`——在 `.dsh/skills/<name>/` 脚手架出干净的 SKILL.md、声明用的 `yantao.json` sidecar 和说执行协议的 `scripts/entry.py`；第一次运行就能工作的能力（ADR-0021 决定 8） |
 
@@ -61,11 +61,11 @@ kind: "package-reference"
 
 `registerResource`（ADR-0020）是拖拽摄入：浏览器把文件的完整内容 base64 编码后发来，宿主把它原样复制进 `resources/`——与 agent 的 `kb_register_resource` 相同的清理并拒绝重复语义，只是不接受绝对路径输入。提取资源文本这件事搬进了 `ebook` 能力（ADR-0021）：同一套内置 Python 提取，现在播种在 `<kbRoot>/.dsh/skills/ebook/`，通过 `capabilityRun` 运行，缓存仍在 `.yantao/extracts/`。
 
-`capabilityRun`（ADR-0021）是把邮件/提取的子进程模式泛化进能力系统的那条执行缝：能力是一个 dsh skill 目录，声明放在目录根的 `yantao.json` sidecar 里（`entry`/`runtime`/`appliesTo`——外带声明，开源 skill 目录可以原样拷进来直接当能力用；没有 sidecar 时兼容读取旧的 `metadata.yantao` frontmatter）；发现是 `ctx.skills` 的事，控制器只拥有执行——一次 Python 子进程、stdin/stdout 走 JSON 的契约，产物由控制器写入（脚本自己选不了写路径），返回的状态作为下一次运行的起点持久化。执行只在这里、只在会话之前存在：agent 没有 `kb_run_capability` 工具，`tool-skill` 保持禁用，模型永远看不到技能目录。
+`capabilityRun`（ADR-0021）是把邮件/提取的子进程模式泛化进能力系统的那条执行缝：能力是一个 dsh skill 目录，声明放在目录根的 `yantao.json` sidecar 里（`entry`/`runtime`/`appliesTo`/`invocation`——外带声明，开源 skill 目录可以原样拷进来直接当能力用；没有 sidecar 时兼容读取旧的 `metadata.yantao` frontmatter）；发现是 `ctx.skills` 的事，控制器只拥有执行——一次 Python 子进程、stdin/stdout 走 JSON 的契约，产物由控制器写入（脚本自己选不了写路径），返回的状态作为下一次运行的起点持久化。从 ADR-0023 起同一条缝服务两个通道：人通过本 RPC 调用，agent 通过 `kb_run_capability` 工具——但只有 sidecar 声明了 `"invocation": ["agent"]` 的能力才对 agent 开放（缺省仅人类），而没有 `entry` 的能力是指令型能力，其 SKILL.md 正文就是全部答案。`tool-skill` 保持禁用，模型永远看不到裸技能目录；agent 能运行什么，由每轮注入的能力目录告知。
 
 `capabilityList` / `capabilityCreate`（ADR-0021 决定 8）是「能力」页签的管理半边。`capabilityList` 先把内置能力播种进知识库（缺失才复制、按版本覆盖，让脚本的修复真正到达 KB），再列出每个声明了能力清单的技能——普通技能被跳过而不是报错——并与各自的持久化记录合并。安装一个能力没有 RPC：人把能力目录拷进 `<kbRoot>/.dsh/skills/`（或任何其他 skill 根目录），发现机制自然会拾取。`capabilityCreate` 在知识库内脚手架一个新能力，入口脚本开箱即可运行。
 
-失败是 `RemoteError`：路径没有对应文件时为 `yantao-kb/not-found`；路径逃逸、目标不是文件、I/O 拒绝或知识库领域拒绝（实体已存在、`todo` 单例）时为 `yantao-kb/rejected`——两者的 `details` 都携带出问题的 `path`；断点写入失败时为 `yantao-kb/mail`，`details` 带失败种类 `kind` 与 `hint`。`yantao-kb/capability` 是能力对应物（`not-found` / `bad-manifest` / `python-missing` / `timeout` / `bad-output` / `capability-failed`），能力自己的失败 `kind` 与补救 `hint` 也一并放在 `details` 里。
+失败是 `RemoteError`：路径没有对应文件时为 `yantao-kb/not-found`；路径逃逸、目标不是文件、I/O 拒绝或知识库领域拒绝（实体已存在、`todo` 单例）时为 `yantao-kb/rejected`——两者的 `details` 都携带出问题的 `path`；断点写入失败时为 `yantao-kb/mail`，`details` 带失败种类 `kind` 与 `hint`。`yantao-kb/capability` 是能力对应物（`not-found` / `not-invocable` / `bad-manifest` / `python-missing` / `timeout` / `bad-output` / `capability-failed`），能力自己的失败 `kind` 与补救 `hint` 也一并放在 `details` 里；`not-invocable`（ADR-0023）指 agent 调用了 sidecar 未声明 `"agent"` 的能力。
 
 ### Client 消费
 
@@ -79,22 +79,23 @@ kind: "package-reference"
 <details>
 <summary>实现内部——点击展开</summary>
 
-控制器是一个 `TypertRemoteService`，`static inject = ['yantaoKb', 'skills']`：只有当 `yantao-kb` 插件发布了解析后的 KB 根目录（且技能注册表已挂载，`capabilityRun` 才能解析能力目录）它才激活，并在每次调用时读取该根目录。路径限制复用 kb 包的 `resolveWithinKb`（逃逸尝试在边界被归类为 `yantao-kb/rejected`），两棵树的实体节复用 `listEntities`，因此 wire 视图与 agent 的工具以同样方式读同样的文件。`resources/` 与 `sessions/` 节是每次调用都重新读取的目录——UI 永远看到人类刚写入的内容。`write` 不做 frontmatter 校验：人类拥有文件结构，agent 的工具会在下次读取时重新校验。
+控制器是一个 `TypertRemoteService`，`static inject = ['yantaoKb', 'skills', 'tools']`：只有当 `yantao-kb` 插件发布了解析后的 KB 根目录（且技能注册表已挂载，`capabilityRun` 才能解析能力目录）它才激活，在每次调用时读取该根目录，并通过注入的工具层注册 `kb_run_capability` 工具与 pre-step 目录监听（ADR-0023）。路径限制复用 kb 包的 `resolveWithinKb`（逃逸尝试在边界被归类为 `yantao-kb/rejected`），两棵树的实体节复用 `listEntities`，因此 wire 视图与 agent 的工具以同样方式读同样的文件。`resources/` 与 `sessions/` 节是每次调用都重新读取的目录——UI 永远看到人类刚写入的内容。`write` 不做 frontmatter 校验：人类拥有文件结构，agent 的工具会在下次读取时重新校验。
 
 ### 源码地图
 
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 控制器：服务声明、路径限制与 RPC 方法 |
-| [`src/capability/builtin.ts`](src/capability/builtin.ts) | 内置能力目录的播种器（ADR-0021）：缺失才复制、按版本覆盖，落进 `<kbRoot>/.dsh/skills/` |
+| [`src/capability/builtin.ts`](src/capability/builtin.ts) | 内置能力目录的播种器（ADR-0021）：缺失才复制、按版本覆盖，落进 `<kbRoot>/.dsh/skills/`；版本升级覆盖前先备份漂移的副本（ADR-0023 决定 7） |
 | [`src/capability/builtin/`](src/capability/builtin/) | `mail` 与 `ebook` 能力的母本：SKILL.md + `yantao.json` 声明 + `scripts/`（即旧 `mail/`、`extract/` 模块调用的那几个 Python 子进程） |
 | [`src/capability/run.ts`](src/capability/run.ts) | 能力运行器（ADR-0021）：`yantao.json` sidecar 声明校验（兼容旧 frontmatter 回退）、入口限制在能力目录内、带 `CapabilityError{kind,message,hint}` 的 spawn 包装、产物文件名校验 |
 | [`src/types.ts`](src/types.ts) | wire 载荷词汇（树节、文件行、读写结果） |
 | — | 不发布运行时不变量伴生包；控制器是无状态适配器，其限制与树形契约由包内单元测试覆盖。 |
 | [`tests/controller.spec.ts`](tests/controller.spec.ts) | 基于真实临时目录的树形、读写往返、root/setRoot/createEntity、not-found 归类与逃逸拒绝覆盖 |
 | [`tests/intake-rpc.spec.ts`](tests/intake-rpc.spec.ts) | 摄入 RPC 基于真实临时目录的覆盖：base64 往返、重复拒绝、`source:` 透传 |
-| [`tests/capability-rpc.spec.ts`](tests/capability-rpc.spec.ts) | 能力 RPC 基于假注册表与被 mock 的运行器：no-root/not-found/bad-manifest 拒绝、入口限制、产物写盘、状态往返、列表合并、目录注册、脚手架 |
-| [`tests/capability-builtin.spec.ts`](tests/capability-builtin.spec.ts) | 播种器基于真实临时目录的覆盖：全新播种、已最新则不动、按版本覆盖、保留人类更新的新版本 |
+| [`tests/capability-rpc.spec.ts`](tests/capability-rpc.spec.ts) | 能力 RPC 基于假注册表与被 mock 的运行器：no-root/not-found/bad-manifest 拒绝、入口限制、产物写盘、状态往返、列表合并、目录注册、脚手架、指令型能力与 sidecar `invocation` 声明 |
+| [`tests/capability-tool.spec.ts`](tests/capability-tool.spec.ts) | `kb_run_capability` 工具与 pre-step 目录（ADR-0023）：注册、agent 门、指令型作答、目录注入，基于假注册表 |
+| [`tests/capability-builtin.spec.ts`](tests/capability-builtin.spec.ts) | 播种器基于真实临时目录的覆盖：全新播种、已最新则不动、按版本覆盖、保留人类更新的新版本、漂移备份 |
 
 ### 不变量归属
 
@@ -120,11 +121,19 @@ kind: "package-reference"
 <a id="model-experience"></a>
 ## 模型体验
 
-无，因为本控制器是面向 UI 的 API 与传输拥有者，不注册任何提示、工具或会话事件；kb_ 工具与聊天 agent 拥有所有面向模型的效果。
+### 工具与提示侧效果
+
+#### 模型看到什么
+
+`kb_run_capability` 工具：模型从每轮注入的目录里点名一个能力，可附自由 JSON `input`；脚本能力以 `{ name, runAt, result?, artifacts }` 作答，指令型能力返回其 SKILL.md 正文作为 `content` 供模型照办。sidecar 未声明 `"invocation": ["agent"]` 的能力一律 `not-invocable`，附中文补救提示。每个用户提示的步骤，`agent/pre-step` 监听器追加一条目录消息，按当轮技能注册表重新推导列出对 agent 开放的能力。
+
+#### Token 影响
+
+一个工具的固定模式开销，外加每次调用一条紧凑结果；指令型能力的答案就是它的 SKILL.md 正文，上界只在该文档本身。目录消息在每个用户提示的回合为每个 agent 可调用能力增加一行短条目。
 
 #### KV Cache 影响
 
-本控制器不向任何请求前缀添加内容；它从不参与模型请求。
+目录消息挂在用户提示步骤的消息末尾，因此进入该轮请求的后缀，并在同一轮链的后续请求中留在前缀里；只要 agent 可调用集合变化，其文本随之变化，缓存前缀从该点失效。没有任何 agent 可调用能力时不注入任何内容，前缀不受影响。
 
 ## 已知限制与延期工作
 
