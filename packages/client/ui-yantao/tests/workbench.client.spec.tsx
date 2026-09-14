@@ -508,8 +508,8 @@ describe('WorkspaceRail', () => {
 
 /** Two capabilities as `capabilityList` answers them (ADR-0021). */
 const CAPABILITIES: KbCapabilitySummary[] = [
-  { name: 'mail', description: '读 Outlook 邮件', source: 'project', entry: 'scripts/entry.py', runtime: 'python' },
-  { name: 'ebook', description: '抽取书籍文本', source: 'project', entry: 'scripts/entry.py', runtime: 'python' },
+  { name: 'mail', description: '读 Outlook 邮件', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human', 'agent'] },
+  { name: 'ebook', description: '抽取书籍文本', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'] },
 ]
 
 /** The capability panel's faces, all spies. */
@@ -558,7 +558,7 @@ describe('CapabilityPanel', () => {
     const capabilities = [...CAPABILITIES]
     const load = vi.fn(() => Promise.resolve({ capabilities }))
     const create = vi.fn((name: string) => {
-      capabilities.push({ name, description: '', source: 'project', entry: 'scripts/entry.py', runtime: 'python' })
+      capabilities.push({ name, description: '', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'] })
       return Promise.resolve({ path: `.dsh/skills/${name}` })
     })
     render(<CapabilityPanel {...capabilityProps({ load, create })} />)

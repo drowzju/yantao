@@ -1,8 +1,14 @@
 {
   "entry": "scripts/entry.py",
   "runtime": "python",
-  "version": 2,
+  "version": 3,
   "appliesTo": {
-    "external": ["mailbox"]
-  }
+    "external": [
+      "mailbox"
+    ]
+  },
+  "invocation": [
+    "human",
+    "agent"
+  ]
 }

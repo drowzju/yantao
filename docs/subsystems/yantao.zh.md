@@ -309,8 +309,9 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * `.yantao/capabilities/<name>/` at paths the script cannot choose, and the
  * returned state is persisted under `capabilities.<name>.state` in
  * `~/.dsh/yantao-kb.json` — metadata outside the KB, which stays markdown
- * for humans. Execution exists only here, before a session: the agent gets
- * no `kb_run_capability` tool (ADR-0021 取舍台账第 2 条).
+ * for humans. The agent has its own channel into the same seam:
+ * `kb_run_capability` (ADR-0023), gated per capability by the sidecar's
+ * `invocation` declaration.
  * @param args - the capability's skill name and the caller's input, handed
  *   to the entry script verbatim.
  * @returns what the run answered, when it ran, and which artifact paths were written.

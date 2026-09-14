@@ -20,7 +20,10 @@
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { SkillDefinition } from '@deepseek-ai/dsh-skill'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
@@ -32,7 +35,7 @@ import {
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities } from './capability/builtin.ts'
 import { CAPABILITY_HINTS, CapabilityError, manifestOf, resolveEntry, runCapability } from './capability/run.ts'
-import type { CapabilityManifest } from './capability/run.ts'
+import type { CapabilityInvoker, CapabilityManifest } from './capability/run.ts'
 import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
 import { KbRevision } from './watch.ts'
 import type {
@@ -143,10 +146,36 @@ async function readdirFiles(dir: string): Promise<string[]> {
   return entries.filter(entry => entry.isFile()).map(entry => entry.name)
 }
 
+/**
+ * Render the agent-facing capability catalog (ADR-0023 决定 5). The same rows
+ * ride the message source as `entries`, so the workbench renders the
+ * injection structurally; this prose is what the model reads.
+ */
+function renderCapabilityCatalog(entries: readonly { name: string; description: string }[]): string {
+  return '当前对 agent 开放的知识库能力（用 kb_run_capability 调用，name 取自下表；'
+    + '指令型能力返回指令正文，照其行事）：\n'
+    + entries.map(entry => `- ${entry.name}: ${entry.description}`).join('\n')
+}
+
+/** Re-throw a capability-declaration failure as the Remote channel's bad-manifest error. */
+function badManifestError(error: unknown): RemoteError {
+  const failure = error instanceof CapabilityError ? error : undefined
+  return new RemoteError(
+    'yantao-kb/capability',
+    failure?.message ?? '能力声明无效。',
+    { kind: failure?.kind ?? 'bad-manifest', hint: failure?.hint ?? CAPABILITY_HINTS['bad-manifest'] },
+    { cause: error },
+  )
+}
+
 /** UI-direct KB operations over the `yantaoKb` Remote namespace. */
 export class YantaoKbController extends TypertRemoteService {
-  /** The one KB root, provided by the mounted yantao-kb plugin; `skills` resolves capability directories (ADR-0021). */
-  static inject = ['yantaoKb', 'skills']
+  /**
+   * The one KB root, provided by the mounted yantao-kb plugin; `skills`
+   * resolves capability directories (ADR-0021); `tools` carries
+   * `kb_run_capability` (ADR-0023).
+   */
+  static inject = ['yantaoKb', 'skills', 'tools']
 
   /** The KB's change counter (ADR-0017); pointed at the live root on each poll. */
   private readonly revisionWatch = new KbRevision()
@@ -156,6 +185,68 @@ export class YantaoKbController extends TypertRemoteService {
     this.ctx.effect(() => () => {
       this.revisionWatch.close()
     })
+    // The agent-facing capability catalog (ADR-0023 决定 5): on a user-prompted
+    // step, append one message listing the capabilities declared
+    // `"invocation": ["agent", …]`. Nothing is hard-coded in any prompt —
+    // capabilities are runtime-creatable, so the catalog is re-derived per
+    // turn; with no agent-invocable capability the turn is untouched.
+    this.ctx.effect(() => this.ctx.on('agent/pre-step', async (_event, next): Promise<PreStepDecision> => {
+      const decision = await next()
+      if (decision.kind === 'reject') return decision
+      const messages = decision.messages
+      const last = messages[messages.length - 1]
+      if (last === undefined || last.source.kind !== 'user') return decision
+      const entries = await this.agentCapabilityCatalog()
+      if (entries.length === 0) return decision
+      return {
+        ...decision,
+        messages: [...messages, createUserMessage({
+          source: {
+            kind: 'plugin', plugin: 'yantao-kb-controller', form: 'catalog', entries,
+          },
+          content: [{ type: 'text', text: renderCapabilityCatalog(entries) }],
+        })],
+      }
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'kb_run_capability',
+      description:
+        '运行一个能力（capability）。可用能力以每轮注入的能力目录为准——目录里没有的不要猜。'
+        + '能力是人安装并审定过的：普通能力执行其入口脚本（JSON stdin/stdout 子进程契约），'
+        + '指令型能力返回其 SKILL.md 指令正文，你按指令行事。'
+        + '只有声明了 "invocation": ["agent"] 的能力才能这样调用，其余会报 not-invocable。',
+      parameters: {
+        name: { type: 'string', required: true, description: '能力名，取自注入的能力目录' },
+        input: { type: 'object', additionalProperties: true, description: '交给能力的输入，按目录中该能力的说明构造；无要求时省略' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            name: { type: 'string', required: true },
+            runAt: { type: 'string', required: true },
+            result: { type: 'json' },
+            content: { type: 'string' },
+            artifacts: { type: 'array', items: { type: 'string' }, required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: value.content !== undefined
+            ? `能力「${value.name}」是指令型，以下是它的指令正文：\n\n${value.content}`
+            : `能力「${value.name}」已运行（${value.runAt}）`
+              + `${value.artifacts.length > 0 ? `，产物：${value.artifacts.join('、')}` : ''}。`
+              + `${value.result !== undefined ? `\n结果：${JSON.stringify(value.result)}` : ''}`,
+        }],
+      },
+      execute: async ({ name, input }) => {
+        const answer = await this.runByName(name, input, 'agent')
+        // The wire schema declares a mutable artifacts array; the internal
+        // result keeps it readonly.
+        return { ...answer, artifacts: [...answer.artifacts] }
+      },
+    }))
   }
 
   /** The one KB root, read per call so a re-chosen root takes effect at once. */
@@ -697,14 +788,31 @@ export class YantaoKbController extends TypertRemoteService {
    * `.yantao/capabilities/<name>/` at paths the script cannot choose, and the
    * returned state is persisted under `capabilities.<name>.state` in
    * `~/.dsh/yantao-kb.json` — metadata outside the KB, which stays markdown
-   * for humans. Execution exists only here, before a session: the agent gets
-   * no `kb_run_capability` tool (ADR-0021 取舍台账第 2 条).
+   * for humans. The agent has its own channel into the same seam:
+   * `kb_run_capability` (ADR-0023), gated per capability by the sidecar's
+   * `invocation` declaration.
    * @param args - the capability's skill name and the caller's input, handed
    *   to the entry script verbatim.
    * @returns what the run answered, when it ran, and which artifact paths were written.
    */
   @Remote('capabilityRun')
   async capabilityRun(args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult> {
+    return await this.runByName(args.name, args.input, 'human')
+  }
+
+  /**
+   * Resolve and run one capability for either invoker (ADR-0023): the human
+   * RPC and the agent's `kb_run_capability` share this seam. The agent path
+   * passes the sidecar's `invocation` gate first — undeclared means refused
+   * with `not-invocable` — and an instruction capability (a declaration with
+   * no `entry`) answers with the SKILL.md body instead of spawning anything:
+   * no subprocess, no state, no artifacts.
+   * @param name - the capability's skill name.
+   * @param input - the caller's input, handed to the entry script verbatim.
+   * @param invoker - which channel is calling; only `'agent'` is gated.
+   * @returns what the run answered, when it ran, and which artifact paths were written.
+   */
+  private async runByName(name: string, input: unknown, invoker: CapabilityInvoker): Promise<KbCapabilityRunResult> {
     if (readKbRootOverride() === undefined) {
       throw new RemoteError(
         'yantao-kb/capability',
@@ -716,7 +824,6 @@ export class YantaoKbController extends TypertRemoteService {
     // KB would otherwise answer "not found" for a capability that is about to
     // be copied in.
     await this.settleSkills(ensureBuiltinCapabilities(this.kbRoot))
-    const name = args.name
     const definition = await this.ctx.skills.get(name, { cwd: this.kbRoot })
     if (definition === undefined) {
       throw new RemoteError(
@@ -725,6 +832,31 @@ export class YantaoKbController extends TypertRemoteService {
         { kind: 'not-found', hint: CAPABILITY_HINTS['not-found'] },
       )
     }
+    let manifest: CapabilityManifest
+    try {
+      manifest = manifestOf(definition)
+    } catch (error: unknown) {
+      throw badManifestError(error)
+    }
+    // The invocation gate (ADR-0023 决定 2): the agent only reaches what the
+    // sidecar declared `"agent"`; the human channel is ungated.
+    if (invoker === 'agent' && !manifest.invocation.includes('agent')) {
+      throw new RemoteError(
+        'yantao-kb/capability',
+        `能力「${name}」没有对 agent 开放（yantao.json 未声明 "invocation": ["agent"]）。`,
+        { kind: 'not-invocable', hint: CAPABILITY_HINTS['not-invocable'] },
+      )
+    }
+    // An instruction capability (no entry, ADR-0023 决定 6) has no script:
+    // the SKILL.md body is the whole answer. Nothing spawns, nothing persists.
+    if (manifest.entry === undefined) {
+      return {
+        name,
+        runAt: new Date().toISOString(),
+        content: definition.content,
+        artifacts: [],
+      }
+    }
     let directory: string
     let entryPath: string
     try {
@@ -732,13 +864,7 @@ export class YantaoKbController extends TypertRemoteService {
       directory = resolved.directory
       entryPath = resolved.entryPath
     } catch (error: unknown) {
-      const failure = error instanceof CapabilityError ? error : undefined
-      throw new RemoteError(
-        'yantao-kb/capability',
-        failure?.message ?? '能力声明无效。',
-        { kind: failure?.kind ?? 'bad-manifest', hint: failure?.hint ?? CAPABILITY_HINTS['bad-manifest'] },
-        { cause: error },
-      )
+      throw badManifestError(error)
     }
     const kbRoot = this.kbRoot
     let output
@@ -748,7 +874,7 @@ export class YantaoKbController extends TypertRemoteService {
         directory,
         entryPath,
         kbRoot,
-        input: args.input,
+        input,
         state: readCapabilityState(name),
       })
     } catch (error: unknown) {
@@ -783,6 +909,38 @@ export class YantaoKbController extends TypertRemoteService {
       ...output.result !== undefined ? { result: output.result as JsonValue } : {},
       artifacts: written,
     }
+  }
+
+  /**
+   * The agent-facing capability catalog (ADR-0023 决定 5): every capability
+   * whose sidecar declares `"agent"` in `invocation`, as `{name, description}`
+   * rows. Plain skills without a yantao declaration are not capabilities and
+   * never appear; a KB with no agent-invocable capability answers empty and
+   * the pre-step leaves the turn untouched.
+   * @returns the catalog rows, in discovery order.
+   */
+  private async agentCapabilityCatalog(): Promise<readonly { name: string; description: string }[]> {
+    const kbRoot = this.kbRoot
+    const summaries = await this.ctx.skills.list({ cwd: kbRoot })
+    const entries: { name: string; description: string }[] = []
+    for (const summary of summaries) {
+      let definition: SkillDefinition | undefined
+      try {
+        definition = await this.ctx.skills.get(summary.name, { cwd: kbRoot })
+      } catch {
+        definition = undefined
+      }
+      if (definition === undefined) continue
+      let manifest: CapabilityManifest
+      try {
+        manifest = manifestOf(definition)
+      } catch {
+        continue
+      }
+      if (!manifest.invocation.includes('agent')) continue
+      entries.push({ name: summary.name, description: summary.description })
+    }
+    return entries
   }
 
   /**
@@ -826,9 +984,9 @@ export class YantaoKbController extends TypertRemoteService {
         description: summary.description,
         source: summary.source,
         ...summary.resourceBase?.kind === 'directory' ? { directory: summary.resourceBase.path } : {},
-        entry: manifest.entry,
-        runtime: manifest.runtime,
+        ...manifest.entry !== undefined ? { entry: manifest.entry, runtime: manifest.runtime } : {},
         ...manifest.appliesTo !== undefined ? { appliesTo: manifest.appliesTo } : {},
+        invocation: manifest.invocation,
         ...record?.lastRunAt !== undefined ? { lastRunAt: record.lastRunAt } : {},
         ...record?.state !== undefined ? { state: record.state as JsonValue } : {},
       })
@@ -888,6 +1046,12 @@ export class YantaoKbController extends TypertRemoteService {
       '  `.yantao/capabilities/<name>/`）。',
       '- 失败：`{ok: false, kind, message, hint}`。',
       '',
+      '## 对 agent 开放（ADR-0023）',
+      '',
+      'yantao.json 里的 `invocation` 决定谁能调用：缺省 `["human"]`（只有能力 tab），',
+      '声明 `["human", "agent"]` 后 agent 可在会话中经 `kb_run_capability` 调用。',
+      '省略 `entry` 即指令型能力——没有脚本，agent 调用时直接收到本 SKILL.md 正文作为指令。',
+      '',
     ].join('\n')
     const entryPy = [
       `"""${name} 的入口脚本（ADR-0021 能力协议）。"""`,
@@ -918,6 +1082,7 @@ export class YantaoKbController extends TypertRemoteService {
     const yantaoJson = `${JSON.stringify({
       entry: 'scripts/entry.py',
       runtime: 'python',
+      invocation: ['human'],
       version: 1,
     }, null, 2)}\n`
     try {

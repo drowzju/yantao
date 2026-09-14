@@ -3058,7 +3058,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'capabilityRun\') async capabilityRun(args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult>',
-        description: 'Run one capability\'s host entry (ADR-0021) — the human channel\'s execution seam, the mail connector\'s and the extractor\'s subprocess pattern generalized. The capability is resolved through `ctx.skills` (the skill-filesystem provider discovers the directories; this controller only consumes the winner), its `yantao.json` declaration (legacy `metadata.yantao` frontmatter accepted) picks the entry script, and the run is one Python subprocess with a JSON stdin/stdout contract (`capability/run.ts`).\n\nThe controller, not the script, owns every write: artifacts land under `.yantao/capabilities/<name>/` at paths the script cannot choose, and the returned state is persisted under `capabilities.<name>.state` in `~/.dsh/yantao-kb.json` — metadata outside the KB, which stays markdown for humans. Execution exists only here, before a session: the agent gets no `kb_run_capability` tool (ADR-0021 取舍台账第 2 条).',
+        description: 'Run one capability\'s host entry (ADR-0021) — the human channel\'s execution seam, the mail connector\'s and the extractor\'s subprocess pattern generalized. The capability is resolved through `ctx.skills` (the skill-filesystem provider discovers the directories; this controller only consumes the winner), its `yantao.json` declaration (legacy `metadata.yantao` frontmatter accepted) picks the entry script, and the run is one Python subprocess with a JSON stdin/stdout contract (`capability/run.ts`).\n\nThe controller, not the script, owns every write: artifacts land under `.yantao/capabilities/<name>/` at paths the script cannot choose, and the returned state is persisted under `capabilities.<name>.state` in `~/.dsh/yantao-kb.json` — metadata outside the KB, which stays markdown for humans. The agent has its own channel into the same seam: `kb_run_capability` (ADR-0023), gated per capability by the sidecar\'s `invocation` declaration.',
         parameters: [{ name: 'args', description: 'the capability\'s skill name and the caller\'s input, handed to the entry script verbatim.' }],
         returns: 'what the run answered, when it ran, and which artifact paths were written.',
       },
@@ -4534,11 +4534,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbCapabilityRunResult',
-    declaration: 'export interface KbCapabilityRunResult {\n    readonly name: string;\n    readonly runAt: string;\n    readonly result?: JsonValue;\n    readonly artifacts: readonly string[];\n}',
+    declaration: 'export interface KbCapabilityRunResult {\n    readonly name: string;\n    readonly runAt: string;\n    readonly result?: JsonValue;\n    readonly content?: string;\n    readonly artifacts: readonly string[];\n}',
   },
   {
     name: 'KbCapabilitySummary',
-    declaration: 'export interface KbCapabilitySummary {\n    readonly name: string;\n    readonly description: string;\n    readonly source: string;\n    readonly directory?: string;\n    readonly entry: string;\n    readonly runtime: string;\n    readonly appliesTo?: KbCapabilityAppliesTo;\n    readonly lastRunAt?: string;\n    readonly state?: JsonValue;\n}',
+    declaration: 'export interface KbCapabilitySummary {\n    readonly name: string;\n    readonly description: string;\n    readonly source: string;\n    readonly directory?: string;\n    readonly entry?: string;\n    readonly runtime?: string;\n    readonly invocation: readonly string[];\n    readonly appliesTo?: KbCapabilityAppliesTo;\n    readonly lastRunAt?: string;\n    readonly state?: JsonValue;\n}',
   },
   {
     name: 'KbCreatableEntityType',

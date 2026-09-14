@@ -4,7 +4,8 @@
  * (ADR-0020) pattern, generalized.
  *
  * A capability is a dsh skill directory whose declaration lives in a
- * `yantao.json` sidecar at the directory root (`entry`/`runtime`/`appliesTo`) —
+ * `yantao.json` sidecar at the directory root (`entry`/`runtime`/`appliesTo`/
+ * `invocation`) —
  * out-of-band, so an open-source skill directory can be dropped in without
  * touching its SKILL.md; the legacy `metadata.yantao` frontmatter section still
  * answers when no sidecar is present. Discovery is `ctx.skills`' business, this
@@ -41,30 +42,45 @@ export interface CapabilityAppliesTo {
   readonly external?: readonly string[]
 }
 
+/** Who may invoke a capability (ADR-0023 决定 2): the 能力 tab, the agent's `kb_run_capability`, or both. */
+export type CapabilityInvoker = 'human' | 'agent'
+
 /** The `metadata.yantao` declaration that turns a skill directory into a capability. */
 export interface CapabilityManifest {
-  /** Entry script path, relative to the skill directory; must stay inside it. */
-  readonly entry: string
-  /** The only runtime in v1 (ADR-0021 取舍台账第 7 条). */
-  readonly runtime: 'python'
+  /**
+   * Entry script path, relative to the skill directory; must stay inside it.
+   * Absent marks an *instruction capability* (ADR-0023 决定 6): no script —
+   * "running" it hands the agent the SKILL.md body as its instructions.
+   */
+  readonly entry?: string
+  /** The only runtime in v1 (ADR-0021 取舍台账第 7 条); present exactly when `entry` is. */
+  readonly runtime?: 'python'
   /** What the capability accepts; absent means "offered from the capability tab only". */
   readonly appliesTo?: CapabilityAppliesTo
+  /**
+   * Who may invoke this capability (ADR-0023 决定 2). Defaults to
+   * `['human']` — undeclared means invisible and uncallable from the agent.
+   */
+  readonly invocation: readonly CapabilityInvoker[]
 }
 
 /** The `yantao.json` sidecar's shape: the same declaration, out-of-band. */
 interface CapabilitySidecar {
-  /** Entry script path, relative to the skill directory; must stay inside it. */
+  /** Entry script path, relative to the skill directory; absent = instruction capability. */
   readonly entry?: unknown
   /** The only runtime in v1. */
   readonly runtime?: unknown
   /** What the capability accepts. */
   readonly appliesTo?: unknown
+  /** Who may invoke the capability; absent defaults to `['human']`. */
+  readonly invocation?: unknown
 }
 
 /** Why a capability run failed; the UI picks its wording and its remedy from this. */
 export type CapabilityErrorKind =
   | 'not-found'
   | 'bad-manifest'
+  | 'not-invocable'
   | 'python-missing'
   | 'timeout'
   | 'bad-output'
@@ -99,6 +115,7 @@ export class CapabilityError extends Error {
 const CAPABILITY_ERROR_MESSAGES: Readonly<Record<CapabilityErrorKind, string>> = {
   'not-found': '找不到这个能力。',
   'bad-manifest': '能力声明无效。',
+  'not-invocable': '这个能力没有对 agent 开放。',
   'python-missing': '无法启动 Python：找不到解释器。',
   timeout: '能力执行超时。',
   'bad-output': '能力脚本返回的不是预期的 JSON。',
@@ -110,6 +127,7 @@ const CAPABILITY_ERROR_MESSAGES: Readonly<Record<CapabilityErrorKind, string>> =
 export const CAPABILITY_HINTS: Readonly<Record<CapabilityErrorKind, string>> = {
   'not-found': '请确认能力目录还在已注册的技能目录下，且 yantao.json（或 SKILL.md frontmatter）完好。',
   'bad-manifest': '请检查能力目录的 yantao.json：entry 指向目录内的 .py 脚本，runtime 为 python。',
+  'not-invocable': '请在能力的 yantao.json 里声明 "invocation": ["human", "agent"]，再由人确认后使用。',
   'python-missing': '请安装 Python 3（安装时勾选 Add to PATH）。',
   timeout: '任务可能过大，请重试一次。',
   'bad-output': '请检查能力的入口脚本：stdout 必须是一个 JSON 对象。',
@@ -162,18 +180,37 @@ function manifestFrom(name: string, declared: unknown): CapabilityManifest {
   if (typeof declared !== 'object' || declared === null) {
     throw fail('bad-manifest', `能力「${name}」没有能力声明（yantao.json 或 SKILL.md 的 metadata.yantao 段）。`)
   }
-  const { entry, runtime, appliesTo } = declared as {
+  const { entry, runtime, appliesTo, invocation } = declared as {
     entry?: unknown
     runtime?: unknown
     appliesTo?: unknown
+    invocation?: unknown
   }
-  if (typeof entry !== 'string' || entry === '') {
-    throw fail('bad-manifest', `能力「${name}」的声明缺少 entry。`, CAPABILITY_HINTS['bad-manifest'])
+  if (entry !== undefined && (typeof entry !== 'string' || entry === '')) {
+    throw fail('bad-manifest', `能力「${name}」的 entry 必须是非空字符串，或整个省略（缺 entry 即指令型能力）。`)
   }
-  if (runtime !== 'python') {
+  if (runtime !== undefined && runtime !== 'python') {
     throw fail('bad-manifest', `能力「${name}」的 runtime 只支持 python，声明的是 ${String(runtime)}。`)
   }
-  return { entry, runtime, ...appliesTo !== undefined ? { appliesTo: appliesToOf(name, appliesTo) } : {} }
+  return {
+    ...typeof entry === 'string' ? { entry } : {},
+    ...typeof entry === 'string' ? { runtime: 'python' as const } : {},
+    ...appliesTo !== undefined ? { appliesTo: appliesToOf(name, appliesTo) } : {},
+    invocation: invocationOf(name, invocation),
+  }
+}
+
+/**
+ * Validate one `invocation` value (ADR-0023 决定 2): a non-empty array drawn
+ * from `human`/`agent`; absent defaults to `['human']` — undeclared means the
+ * agent never sees the capability.
+ */
+function invocationOf(name: string, value: unknown): readonly CapabilityInvoker[] {
+  if (value === undefined) return ['human']
+  if (!Array.isArray(value) || value.length === 0 || value.some(item => item !== 'human' && item !== 'agent')) {
+    throw fail('bad-manifest', `能力「${name}」的 invocation 必须是由 "human" 和/或 "agent" 组成的非空数组。`)
+  }
+  return value as readonly CapabilityInvoker[]
 }
 
 /**
@@ -236,6 +273,11 @@ export function resolveEntry(definition: SkillDefinition): {
     throw fail('bad-manifest', `能力「${definition.name}」没有可执行的本地目录（远程或打包资源没有宿主入口）。`)
   }
   const manifest = manifestOf(definition)
+  // An instruction capability (no entry, ADR-0023 决定 6) has no subprocess to
+  // resolve; the caller branches on `manifest.entry` before coming here.
+  if (manifest.entry === undefined) {
+    throw fail('bad-manifest', `能力「${definition.name}」是指令型能力，没有入口脚本可执行。`)
+  }
   const directory = definition.resourceBase.path
   const entryPath = resolve(directory, manifest.entry)
   if (!entryPath.startsWith(resolve(directory) + sep)) {

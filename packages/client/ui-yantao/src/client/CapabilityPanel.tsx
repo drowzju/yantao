@@ -133,9 +133,14 @@ export function CapabilityPanel({ load, create, mail }: CapabilityPanelProps): R
           <div style={titleStyle}>{current.name}</div>
           <div>{current.description}</div>
           <div style={mutedStyle}>
-            {current.runtime} · {current.entry}
+            {current.entry !== undefined
+              ? `${current.runtime} · ${current.entry}`
+              : '指令型能力：没有脚本，agent 调用时返回下面的 SKILL.md 指令正文'}
             {current.directory !== undefined ? ` · ${current.directory}` : ''}
           </div>
+          {current.invocation.includes('agent') && (
+            <div style={mutedStyle}>已对 agent 开放（kb_run_capability）</div>
+          )}
           {current.appliesTo !== undefined && (
             <div style={mutedStyle}>
               接受：

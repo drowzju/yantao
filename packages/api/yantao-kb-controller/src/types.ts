@@ -352,7 +352,7 @@ export interface KbCapabilityRunArgs {
   readonly input?: JsonValue
 }
 
-/** Result of `yantaoKb.capabilityRun` (ADR-0021). */
+/** Result of `yantaoKb.capabilityRun` (ADR-0021; agent channel ADR-0023). */
 export interface KbCapabilityRunResult {
   /** The capability that ran. */
   readonly name: string
@@ -360,6 +360,12 @@ export interface KbCapabilityRunResult {
   readonly runAt: string
   /** The capability's answer to its caller; opaque to the controller. */
   readonly result?: JsonValue
+  /**
+   * The SKILL.md body of an *instruction capability* (ADR-0023 决定 6) —
+   * the run's whole answer when there is no entry script. Mutually exclusive
+   * with `result`.
+   */
+  readonly content?: string
   /** KB-relative paths of the files the run wrote under `.yantao/capabilities/<name>/`. */
   readonly artifacts: readonly string[]
 }
@@ -389,10 +395,12 @@ export interface KbCapabilitySummary {
   readonly source: string
   /** Absolute path of the capability's directory, when the provider reported one. */
   readonly directory?: string
-  /** Entry script path, relative to the capability's directory. */
-  readonly entry: string
-  /** The only runtime in v1: `python`. */
-  readonly runtime: string
+  /** Entry script path, relative to the capability's directory; absent = instruction capability (ADR-0023 决定 6). */
+  readonly entry?: string
+  /** The only runtime in v1: `python`; absent on an instruction capability. */
+  readonly runtime?: string
+  /** Who may invoke the capability (ADR-0023 决定 2): a subset of `['human', 'agent']`. */
+  readonly invocation: readonly string[]
   /** What the capability accepts; absent means "offered from the 能力 tab only". */
   readonly appliesTo?: KbCapabilityAppliesTo
   /** When the capability last ran, as an ISO 8601 string; absent when never run. */

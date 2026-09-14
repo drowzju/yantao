@@ -13,7 +13,10 @@ import YantaoKbController from '../src/index.ts'
 // All mocks are read by `vi.mock` factories, which run before any top-level
 // `let` is initialized — hence the hoisted holder.
 const { state } = vi.hoisted(() => ({
-  state: { home: '', runCapability: vi.fn(), skillGet: vi.fn(), skillList: vi.fn(), registerProvider: vi.fn() },
+  state: {
+    home: '', runCapability: vi.fn(), skillGet: vi.fn(), skillList: vi.fn(),
+    registerProvider: vi.fn(), registerTool: vi.fn(),
+  },
 }))
 const runCapability = state.runCapability
 const skillGet = state.skillGet
@@ -60,6 +63,7 @@ beforeEach(async () => {
     }
   })
   state.registerProvider.mockReset().mockReturnValue(() => {})
+  state.registerTool.mockReset().mockReturnValue(() => {})
   ctx = new Context()
   ctx.provide('yantaoKb', {
     get root(): string {
@@ -77,6 +81,9 @@ beforeEach(async () => {
     list: skillList,
     registerProvider: state.registerProvider,
   } as unknown as SkillRegistry)
+  // The controller registers kb_run_capability (ADR-0023); a one-method
+  // stand-in captures the registration without the real tool registry.
+  ctx.provide('tools', { register: state.registerTool } as unknown as never)
   fiber = await ctx.plugin(YantaoKbController)
   // Capability state is persisted next to the KB root, so a run needs one to
   // have been chosen.
@@ -180,6 +187,24 @@ describe('yantaoKb.capabilityRun', () => {
       details: { kind: 'capability-failed', hint: '请确认 Outlook 已登录' },
     })
   })
+  it('answers an instruction capability with the SKILL.md body instead of a run', async () => {
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human', 'agent'] }), 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {}, content: '# 指令正文' }))
+    const result = await ctx.yantaoKbController.capabilityRun({ name: 'mail' })
+    expect(result).toMatchObject({ name: 'mail', content: '# 指令正文', artifacts: [] })
+    expect(result.result).toBeUndefined()
+    expect(runCapability).not.toHaveBeenCalled()
+  })
+
+  it('answers an instruction capability with no sidecar entry as human-only when the frontmatter declares', async () => {
+    skillGet.mockResolvedValue(definition({
+      metadata: { yantao: { runtime: 'python' } },
+      content: '# 指令正文',
+    }))
+    const result = await ctx.yantaoKbController.capabilityRun({ name: 'mail' })
+    expect(result.content).toBe('# 指令正文')
+    expect(runCapability).not.toHaveBeenCalled()
+  })
 })
 
 describe('yantaoKb.capabilityList', () => {
@@ -221,6 +246,26 @@ describe('yantaoKb.capabilityList', () => {
     // enough that a fresh KB answers with the shipped pair.
     expect(capabilities.map(capability => capability.name)).toEqual(expect.arrayContaining(['mail', 'ebook']))
   })
+
+  it('lists instruction capabilities with entry/runtime absent and invocation present', async () => {
+    skillList.mockResolvedValue([{ name: 'mail', description: '读 Outlook 邮件', source: 'project' }])
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human', 'agent'] }), 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {} }))
+    const { capabilities } = await ctx.yantaoKbController.capabilityList()
+    expect(capabilities).toHaveLength(1)
+    expect(capabilities[0]).toMatchObject({ name: 'mail', invocation: ['human', 'agent'] })
+    expect(capabilities[0]?.entry).toBeUndefined()
+    expect(capabilities[0]?.runtime).toBeUndefined()
+  })
+
+  it('reports a sidecar-declared capability as open to both channels', async () => {
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
+      entry: 'scripts/entry.py', runtime: 'python', invocation: ['human', 'agent'],
+    }), 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {} }))
+    const { capabilities } = await ctx.yantaoKbController.capabilityList()
+    expect(capabilities.find(capability => capability.name === 'mail')?.invocation).toEqual(['human', 'agent'])
+  })
 })
 
 describe('yantaoKb.capabilityCreate', () => {
@@ -235,6 +280,7 @@ describe('yantaoKb.capabilityCreate', () => {
     expect(JSON.parse(await readFile(join(directory, 'yantao.json'), 'utf8'))).toMatchObject({
       entry: 'scripts/entry.py',
       runtime: 'python',
+      invocation: ['human'],
       version: 1,
     })
     expect(await readFile(join(directory, 'scripts', 'entry.py'), 'utf8'))
@@ -297,6 +343,7 @@ describe('capability manifests', () => {
       entry: 'scripts/entry.py',
       runtime: 'python',
       appliesTo: { external: ['mailbox'] },
+      invocation: ['human'],
     })
   })
 
@@ -316,9 +363,31 @@ describe('capability manifests', () => {
     expect(() => manifestOf(definition())).toThrow(/不是合法 JSON/)
   })
 
-  it('refuses a sidecar without an entry', async () => {
+  it('treats a sidecar without an entry as an instruction capability, human-only by default', async () => {
     const { manifestOf } = await import('../src/capability/run.ts')
     await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ runtime: 'python' }), 'utf8')
-    expect(() => manifestOf(definition({ metadata: {} }))).toThrow(/缺少 entry/)
+    const manifest = manifestOf(definition({ metadata: {} }))
+    expect(manifest.entry).toBeUndefined()
+    expect(manifest.invocation).toEqual(['human'])
+  })
+
+  it('reads invocation off the sidecar and refuses a malformed one', async () => {
+    const { manifestOf } = await import('../src/capability/run.ts')
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
+      entry: 'scripts/entry.py', runtime: 'python', invocation: ['human', 'agent'],
+    }), 'utf8')
+    expect(manifestOf(definition({ metadata: {} })).invocation).toEqual(['human', 'agent'])
+    for (const invocation of [['model'], 'agent', []]) {
+      await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
+        entry: 'scripts/entry.py', runtime: 'python', invocation,
+      }), 'utf8')
+      expect(() => manifestOf(definition({ metadata: {} }))).toThrow(/invocation/)
+    }
+  })
+
+  it('refuses an empty string entry', async () => {
+    const { manifestOf } = await import('../src/capability/run.ts')
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ entry: '', runtime: 'python' }), 'utf8')
+    expect(() => manifestOf(definition({ metadata: {} }))).toThrow(/entry/)
   })
 })
