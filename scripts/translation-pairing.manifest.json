@@ -30,6 +30,9 @@
     "docs/adr/0018-todo-format-and-two-pane-board.md",
     "docs/adr/0019-mail-connector-outlook-com.md",
     "docs/adr/0020-reading-projects-and-resource-intake.md",
-    "docs/adr/0021-capability-system.md"
+    "docs/adr/0021-capability-system.md",
+    "docs/adr/0022-prompt-layering.md",
+    "docs/adr/0023-agent-capability-invocation.md",
+    "packages/yantao/kb/prompt/sections/README.md"
   ]
 }

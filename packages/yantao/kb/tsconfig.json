@@ -15,10 +15,13 @@
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../core/tools"
+      "path": "../../core/agent"
     },
     {
-      "path": "../../core/agent"
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../core/tools"
     },
     {
       "path": "../../llm/llm"

@@ -14,6 +14,7 @@ import { homedir } from 'node:os'
 import { join, relative } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -21,13 +22,14 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { appendLog, createEntity, initKb, listEntities, readEntity, readResourceChunk, registerResource, writeState } from './core.ts'
 import { kbMentions, renderKbMentions } from './mentions.ts'
 import { readKbRootOverride, writeKbRootOverride } from './root-store.ts'
+import { registerPromptSections } from './sections.ts'
 import { ENTITY_TYPES, PERSON_RELATIONS } from './types.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'yantao-kb'
 
-/** Services required by the KB tool family. */
-export const inject = ['tools']
+/** Services required by the KB tool family and the prompt-section layer. */
+export const inject = ['tools', 'systemPrompt']
 
 /** Plugin config; `kbRoot` is the only knob. */
 export interface Config {
@@ -160,6 +162,10 @@ export function apply(ctx: Context, config: Config): void {
     () => ctx.provide('yantaoKb', liveRoot satisfies YantaoKbService),
     'yantao-kb: provide KB root service',
   )
+
+  // The prompt-section layer (ADR-0022): yantao's domain disciplines as
+  // named sections over dsh's registry, sourced from prompt/sections/*.md.
+  registerPromptSections(ctx)
 
   // `@` mentions: the composer inserts a KB-relative path, and nothing else in
   // this profile tells the model what one is. Read the cited files and hand
