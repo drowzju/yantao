@@ -150,4 +150,10 @@ SKILL.md 加资源文件，模型按需加载正文。能力借它的**目录形
   工具调用；无 `entry` 的能力是指令型能力，运行返回 SKILL.md 正文。内置 mail/ebook 的
   sidecar 升到 3 并声明双通道。版本升级覆盖漂移副本前，先备份到
   `<kbRoot>/.yantao/capability-backups/<name>/<时间戳>/`。
+- 落地注记（2026-09-14，决定 4/7/9）：统一提议 schema 落地为**六类**——`add-todo` 为邮件待办
+  所增（扩的是 schema 本身，取舍台账第 3 条的旁路未开）。提议卡泛化为 `ProposalCard`，邮件
+  分析、读书收尾、能力运行三处共用；批准写库统一经 `proposal-apply.ts` 的直连客户端 RPC。
+  决定 7 落地为行菜单「能力」组：`capability-match.ts` 按 sidecar `appliesTo`（资源按后缀、
+  实体按类型）且仅 `human` 可调的能力进入菜单；内置能力暂无 `entity` 声明，实体行菜单暂空、
+  机制先落位。决定 9 复核：拖入仍是纯复制，未改。
 - 未做：运行时审批、指令型能力的人工审查流（ADR-0023 接管）、第二 runtime、多外部源登记、能力市场/签名。

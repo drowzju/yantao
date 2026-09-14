@@ -64,6 +64,8 @@ note), **deferred** (deliberately parked — see the note).
 
 | **Agent capability invocation (ADR-0023)** — the ninth tool `kb_run_capability`: the model names a capability from a per-turn catalog (injected at `agent/pre-step`, re-derived from the skill registry each turn, never hard-coded) and may pass free-form JSON `input`; per-capability opt-in lives in the `yantao.json` sidecar's `invocation` field (default `["human"]`; an agent call on a human-only capability fails `not-invocable`, and the gate sits before the instruction branch so no instruction capability bypasses it); instruction capabilities (manifest without `entry`) answer with their SKILL.md body as `content`; seeding backs up a drifted KB copy to `<kbRoot>/.yantao/capability-backups/<name>/<timestamp>/` before a version-bump overwrite; shipped mail/ebook sidecars bump to version 3, open to both channels; the 能力 tab shows the invocation badge and instruction-capability meta | `packages/api/yantao-kb-controller/src/{index,types}.ts` + `src/capability/{run,builtin}.ts`, `packages/client/ui-yantao/src/client/CapabilityPanel.tsx`. 验证：controller 103 + kb + ui-yantao 335 测试全绿，`build:lib`、`verify-cordis-catalog`、model-experience gate 通过 |
 
+| **Proposal card generalization + apply entry points (ADR-0021 items 1+2)** — `proposal.ts` shapes a mail analysis, a reading extraction, or a capability run's answer as one flat action list of six kinds (create entity / append log / write state / save resource / create link / add todo, each with a reason; `add-todo` exists for the mail todos), `ProposalCard.tsx` replaces `MailReview.tsx` and `ReadingProposal.tsx` as the single tick-to-write window, and `proposal-apply.ts` lands the ticked rows through direct client RPCs — the reading flow's second agent confirm round is gone (`domainConfirmPrompt` / `DomainConfirmer` deleted; the session keeps after its first turn), and the ticked todos batch into one optimistic-concurrency `writeTodos`. `capability-match.ts` filters the row menus' 能力 group by the sidecar's `appliesTo` (resource suffix / entity type, human invocation only); clicking runs through the frame's `capabilityRun` and opens the card or a notice | `packages/client/ui-yantao/src/client/{proposal,proposal-apply,capability-match}.ts`, `{ProposalCard,MailPanel,Workbench,reading-flow,reading-task,ReadingDialog,remote}.tsx` + `frame/Frame.tsx` + `index.ts`, `MailReview.tsx` / `ReadingProposal.tsx` deleted. 验证：ui-yantao 217 测试全绿（新增 proposal-card 7、proposal-apply 10），tsc、client bundle、scoped oxlint、translation pairing 通过 |
+
 ## next
 
 ### Phase 2 — three-pane UI (ADR-0010)
@@ -84,14 +86,6 @@ note), **deferred** (deliberately parked — see the note).
    下一步：在宿主启动时打时间戳，分清 **tsx 现转译** 与 **cordis 逐行挂载插件** 各占多少；
    转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。
    **先量再动。**
-
-### Capability system (ADR-0021)
-
-1. **Proposal card generalization** — a unified proposal schema (five actions: create entity / append log /
-   write state / save resource / create link, each with a reason field), MailReview generalized into a
-   generic proposal card; the reading-flow closing proposal merges into it.
-2. **Apply entry points** — resource right-click (by extension) and entity panels (by type) filtered by
-   `appliesTo`; drag-in never prompts.
 
 ## blocked (with reason)
 

@@ -68,4 +68,9 @@ status: accepted
   不提前（文档不能先于行为）。
 - `.yantao/` 目录加入知识库树的不显示名单（与 `sessions/` 同待遇）。
 - 邮件路径不动：它写的资源笔记本来就是"资源即笔记"，与新世界相容。
+- 落地注记（2026-09-14，随 ADR-0021 决定 4）：决定 9 的两段式收尾改为直连 RPC——`DomainConfirmer`
+  第二轮 agent 确认退役，读书提议由 `readingProposalOf` 塑成统一六类 schema，经 `proposal-apply.ts`
+  的直连客户端 RPC 落笔；会话在首轮 turn/end 后自然结束并保留（可回去看它为什么这么判断）。
+  `writing` 阶段退化为快速 RPC 相位，失败照旧落 `failed`（项目保留）。信任边界不动：写库仍由
+  人在提议卡上勾选确认，agent 侧零新工具。
 - 未做：OCR（扫描版）、阻塞式 ask-user、非书资源的通用加工项目、读书进度的断点续读。

@@ -63,6 +63,8 @@
 
 | **agent 能力调用(ADR-0023)** —— 第九个工具 `kb_run_capability`:模型按名调用能力,可附自由 JSON `input`;目录在 `agent/pre-step` 注入(每轮从 skill 注册表现算,不硬编码);逐能力 opt-in 在 `yantao.json` sidecar 的 `invocation` 字段(默认 `["human"]`;对仅人工能力发起 agent 调用报 `not-invocable`,且门在指令分支之前,指令型能力无法绕过);指令型能力(无 `entry` 的清单)以 SKILL.md 正文作 `content` 应答;播种在版本升级覆盖前把漂移的 KB 副本备份到 `<kbRoot>/.yantao/capability-backups/<name>/<时间戳>/`;内置 mail/ebook sidecar 升到 version 3,对两个通道开放;能力 tab 显示 invocation 徽标与指令型能力说明 | `packages/api/yantao-kb-controller/src/{index,types}.ts` + `src/capability/{run,builtin}.ts`、`packages/client/ui-yantao/src/client/CapabilityPanel.tsx`。验证:controller 103 + kb + ui-yantao 335 测试全绿,`build:lib`、`verify-cordis-catalog`、model-experience gate 通过 |
 
+| **提议卡泛化 + 应用入口(ADR-0021 第 1+2 条)** —— `proposal.ts` 把邮件分析、读书抽取、能力运行的答案统一成一份六类动作的扁平清单(新建实体 / 追加流水 / 写状态 / 存资源 / 建关联 / 待办,各带理由;`add-todo` 为邮件待办所增),`ProposalCard.tsx` 取代 `MailReview.tsx` 与 `ReadingProposal.tsx` 成为唯一的勾选写入窗口,`proposal-apply.ts` 把勾选行经直连客户端 RPC 落笔——读书流废除第二轮 agent 确认(`domainConfirmPrompt`/`DomainConfirmer` 删除;会话首轮结束即保留),勾选的待办合并为一次乐观并发 `writeTodos`。`capability-match.ts` 按 sidecar 的 `appliesTo`(资源后缀/实体类型,仅 human 可调)过滤行菜单「能力」组;点击由外框经 `capabilityRun` 运行,弹提议卡或提示条 | `packages/client/ui-yantao/src/client/{proposal,proposal-apply,capability-match}.ts`、`{ProposalCard,MailPanel,Workbench,reading-flow,reading-task,ReadingDialog,remote}.tsx` + `frame/Frame.tsx` + `index.ts`,删除 `MailReview.tsx`/`ReadingProposal.tsx`。验证:ui-yantao 217 测试全绿(新增 proposal-card 7、proposal-apply 10),tsc、client bundle、scoped oxlint、translation pairing 通过 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
@@ -79,12 +81,6 @@
    下一步：在宿主启动时打时间戳，分清 **tsx 现转译** 与 **cordis 逐行挂载插件** 各占多少；
    转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。
    **先量再动。**
-
-### 能力系统(ADR-0021)
-
-1. **提议卡泛化** —— 统一提议 schema(新建实体 / 追加流水 / 写状态 / 存资源 / 建关联 五类动作,
-    各带理由),MailReview 泛化为通用提议卡;读书收尾提议并入。
-2. **应用入口** —— 资源右键(按扩展名)与实体面板(按类型)按 `appliesTo` 过滤;拖入不弹询问。
 
 ## blocked(附原因)
 
