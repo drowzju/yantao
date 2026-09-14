@@ -4,15 +4,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  kbRootStatePath,
-  readKbRootOverride,
-  readMailWatermark,
-  writeKbRootOverride,
+  capabilityStatePath,
+  importLegacyRootState,
+  readCapabilityRecord,
+  readCapabilityState,
+  writeCapabilityState,
   writeMailWatermark,
 } from '../src/root-store.ts'
 
-// The store addresses dsh's home, which is the developer's real `~`; point
-// `homedir()` at a throwaway directory so the suite never touches it.
+// The retired legacy file lives under dsh's home, which is the developer's
+// real `~`; point `homedir()` at a throwaway directory so the suite never
+// touches it.
 let home: string
 
 vi.mock('node:os', async importOriginal => ({
@@ -20,158 +22,140 @@ vi.mock('node:os', async importOriginal => ({
   homedir: () => home,
 }))
 
+let kbRoot: string
+
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'yantao-kb-home-'))
+  kbRoot = join(home, '知识库')
 })
 
 afterEach(async () => {
   await rm(home, { recursive: true, force: true })
 })
 
-describe('kbRootStatePath', () => {
-  it('is the one state file under dsh home', () => {
-    expect(kbRootStatePath()).toBe(join(home, '.dsh', 'yantao-kb.json'))
+describe('capabilityStatePath', () => {
+  it('is the one state file inside the KB (ADR-0024)', () => {
+    expect(capabilityStatePath(kbRoot)).toBe(join(kbRoot, '.yantao', 'state.json'))
   })
 })
 
-describe('readKbRootOverride', () => {
+describe('readCapabilityState / writeCapabilityState', () => {
   it('is undefined before anything is persisted', () => {
-    expect(readKbRootOverride()).toBeUndefined()
+    expect(readCapabilityState(kbRoot, 'mail')).toBeUndefined()
+    expect(readCapabilityRecord(kbRoot, 'mail')).toBeUndefined()
   })
 
-  it('reads back the root writeKbRootOverride persisted', async () => {
-    const root = join(home, '知识库')
-    await writeKbRootOverride(root)
-    expect(readKbRootOverride()).toBe(root)
-    expect(JSON.parse(await readFile(kbRootStatePath(), 'utf8'))).toEqual({ root })
-  })
-
-  it('is undefined for every malformed or wrong-typed state file', async () => {
-    await mkdir(join(home, '.dsh'), { recursive: true })
-    for (const broken of ['{ not json', 'null', '42', '[]', '{"root":42}', '{"root":""}']) {
-      await writeFile(kbRootStatePath(), broken, 'utf8')
-      expect(readKbRootOverride()).toBeUndefined()
+  it('is undefined for a malformed state file', async () => {
+    await mkdir(join(kbRoot, '.yantao'), { recursive: true })
+    for (const broken of ['{ not json', 'null', '42', '[]']) {
+      await writeFile(capabilityStatePath(kbRoot), broken, 'utf8')
+      expect(readCapabilityState(kbRoot, 'mail')).toBeUndefined()
     }
   })
 
-  it('reads the root out of an old file that holds nothing but it', async () => {
-    // Every install before ADR-0019 has exactly this shape.
-    const root = join(home, '知识库')
-    await mkdir(join(home, '.dsh'), { recursive: true })
-    await writeFile(kbRootStatePath(), JSON.stringify({ root }), 'utf8')
-
-    expect(readKbRootOverride()).toBe(root)
-    expect(readMailWatermark()).toBeUndefined()
-  })
-})
-
-describe('writeKbRootOverride', () => {
-  it('keeps a mail watermark that is already persisted', async () => {
-    await writeKbRootOverride(join(home, 'first'))
-    await writeMailWatermark('2026-09-10T08:30:00.000Z')
-
-    await writeKbRootOverride(join(home, 'second'))
-
-    expect(readKbRootOverride()).toBe(join(home, 'second'))
-    expect(readMailWatermark()).toBe('2026-09-10T08:30:00.000Z')
-  })
-})
-
-describe('readMailWatermark', () => {
-  it('is undefined before anything is persisted', () => {
-    expect(readMailWatermark()).toBeUndefined()
-  })
-
-  it('is undefined for every malformed or wrong-typed state file', async () => {
-    await mkdir(join(home, '.dsh'), { recursive: true })
-    for (const broken of [
-      '{ not json',
-      'null',
-      '[]',
-      '{"root":"/kb"}',
-      '{"root":"/kb","connectors":42}',
-      '{"root":"/kb","connectors":{"mail":42}}',
-      '{"root":"/kb","connectors":{"mail":{"lastReadAt":42}}}',
-      '{"root":"/kb","connectors":{"mail":{"lastReadAt":""}}}',
-      '{"connectors":{"mail":{"lastReadAt":"2026-09-10T08:30:00.000Z"}}}',
-    ]) {
-      await writeFile(kbRootStatePath(), broken, 'utf8')
-      expect(readMailWatermark()).toBeUndefined()
+  it('round-trips the state and stamps the run', async () => {
+    await writeCapabilityState(kbRoot, 'mail', { lastReadAt: '2026-09-10T08:30:00.000Z' })
+    expect(readCapabilityState(kbRoot, 'mail')).toEqual({ lastReadAt: '2026-09-10T08:30:00.000Z' })
+    const persisted = JSON.parse(await readFile(capabilityStatePath(kbRoot), 'utf8')) as {
+      capabilities: { mail: { state: unknown; lastRunAt: string } }
     }
-  })
-
-  it('round-trips through writeMailWatermark', async () => {
-    await writeKbRootOverride(join(home, '知识库'))
-    await writeMailWatermark('2026-09-10T08:30:00.000Z')
-
-    expect(readMailWatermark()).toBe('2026-09-10T08:30:00.000Z')
-    const persisted = JSON.parse(await readFile(kbRootStatePath(), 'utf8')) as {
-      root: string
-      capabilities: {
-        mail: {
-          state: { lastReadAt: string }
-          lastRunAt: string
-        }
-      }
-    }
-    expect(persisted.root).toBe(join(home, '知识库'))
     expect(persisted.capabilities.mail.state).toEqual({ lastReadAt: '2026-09-10T08:30:00.000Z' })
     expect(typeof persisted.capabilities.mail.lastRunAt).toBe('string')
   })
 
-  it('reads a legacy connectors watermark and rewrites it into the capability slot', async () => {
-    // Every install between ADR-0019 and ADR-0021 persisted the cursor here.
-    await mkdir(join(home, '.dsh'), { recursive: true })
-    await writeFile(kbRootStatePath(), JSON.stringify({
-      root: join(home, '知识库'),
-      connectors: { mail: { lastReadAt: '2026-09-10T08:30:00.000Z' } },
-    }), 'utf8')
-
-    expect(readMailWatermark()).toBe('2026-09-10T08:30:00.000Z')
-    await writeMailWatermark('2026-09-11T09:00:00.000Z')
-    const persisted = JSON.parse(await readFile(kbRootStatePath(), 'utf8')) as Record<string, unknown>
-    expect(persisted.connectors).toBeUndefined()
-    const capabilities = persisted.capabilities as {
-      mail: {
-        state: { lastReadAt: string }
-        lastRunAt: string
-      }
-    }
-    expect(capabilities.mail.state).toEqual({ lastReadAt: '2026-09-11T09:00:00.000Z' })
-    expect(typeof capabilities.mail.lastRunAt).toBe('string')
+  it('keeps every other capability as it was', async () => {
+    await writeCapabilityState(kbRoot, 'mail', { a: 1 })
+    await writeCapabilityState(kbRoot, 'extractor', { b: 2 })
+    expect(readCapabilityState(kbRoot, 'mail')).toEqual({ a: 1 })
+    expect(readCapabilityState(kbRoot, 'extractor')).toEqual({ b: 2 })
   })
 
-  it('moves forward on the next run', async () => {
-    await writeKbRootOverride(join(home, '知识库'))
-    await writeMailWatermark('2026-09-10T08:30:00.000Z')
-    await writeMailWatermark('2026-09-11T09:00:00.000Z')
-
-    expect(readMailWatermark()).toBe('2026-09-11T09:00:00.000Z')
+  it('answers the whole record for the capability list', async () => {
+    await writeCapabilityState(kbRoot, 'mail', { lastReadAt: '2026-09-10T08:30:00.000Z' })
+    const record = readCapabilityRecord(kbRoot, 'mail')
+    expect(record?.state).toEqual({ lastReadAt: '2026-09-10T08:30:00.000Z' })
+    expect(typeof record?.lastRunAt).toBe('string')
   })
 })
 
 describe('writeMailWatermark', () => {
-  it('refuses to persist a watermark with no KB root to bind it to', async () => {
-    await expect(writeMailWatermark('2026-09-10T08:30:00.000Z')).rejects.toThrow(/KB root/)
-    expect(existsSync(kbRootStatePath())).toBe(false)
-  })
-
-  it('keeps the earliest firstReadAt ever seen and answers the merged range', async () => {
-    await writeKbRootOverride(join(home, '知识库'))
-    expect(await writeMailWatermark('2026-01-31T00:00:00.000Z', '2025-12-31T00:00:00.000Z'))
+  it('round-trips and answers the merged range', async () => {
+    expect(await writeMailWatermark(kbRoot, '2026-01-31T00:00:00.000Z', '2025-12-31T00:00:00.000Z'))
       .toEqual({ lastReadAt: '2026-01-31T00:00:00.000Z', firstReadAt: '2025-12-31T00:00:00.000Z' })
 
     // A later batch that starts earlier extends the range backward…
-    await writeMailWatermark('2026-09-11T09:00:00.000Z', '2026-08-01T00:00:00.000Z')
+    await writeMailWatermark(kbRoot, '2026-09-11T09:00:00.000Z', '2026-08-01T00:00:00.000Z')
     // …and one that does not name a start leaves the minimum alone.
-    await writeMailWatermark('2026-09-12T10:00:00.000Z')
+    await writeMailWatermark(kbRoot, '2026-09-12T10:00:00.000Z')
 
-    const persisted = JSON.parse(await readFile(kbRootStatePath(), 'utf8')) as {
-      capabilities: { mail: { state: { firstReadAt?: string; lastReadAt?: string } } }
-    }
-    expect(persisted.capabilities.mail.state).toEqual({
+    expect(readCapabilityState(kbRoot, 'mail')).toEqual({
       lastReadAt: '2026-09-12T10:00:00.000Z',
       firstReadAt: '2025-12-31T00:00:00.000Z',
     })
+  })
+
+  it('keeps every other capability as it was', async () => {
+    await writeCapabilityState(kbRoot, 'extractor', { b: 2 })
+    await writeMailWatermark(kbRoot, '2026-09-10T08:30:00.000Z')
+    expect(readCapabilityState(kbRoot, 'extractor')).toEqual({ b: 2 })
+  })
+})
+
+describe('importLegacyRootState', () => {
+  const legacyPath = () => join(home, '.dsh', 'yantao-kb.json')
+
+  it('does nothing when the legacy file is absent', () => {
+    expect(importLegacyRootState()).toBeUndefined()
+    expect(existsSync(capabilityStatePath(kbRoot))).toBe(false)
+  })
+
+  it('moves the capability states into the KB and renames the legacy file .bak', async () => {
+    await mkdir(join(home, '.dsh'), { recursive: true })
+    await writeFile(legacyPath(), JSON.stringify({
+      root: kbRoot,
+      capabilities: { mail: { state: { lastReadAt: '2026-09-10T08:30:00.000Z' }, lastRunAt: '2026-09-10T08:30:01.000Z' } },
+    }), 'utf8')
+
+    expect(importLegacyRootState()).toBe(kbRoot)
+    expect(readCapabilityRecord(kbRoot, 'mail')).toEqual({
+      state: { lastReadAt: '2026-09-10T08:30:00.000Z' },
+      lastRunAt: '2026-09-10T08:30:01.000Z',
+    })
+    expect(existsSync(legacyPath())).toBe(false)
+    expect(existsSync(`${legacyPath()}.bak`)).toBe(true)
+  })
+
+  it('drops the legacy connectors.mail watermark (ADR-0024 决定 2)', async () => {
+    await mkdir(join(home, '.dsh'), { recursive: true })
+    await writeFile(legacyPath(), JSON.stringify({
+      root: kbRoot,
+      connectors: { mail: { lastReadAt: '2026-09-10T08:30:00.000Z' } },
+    }), 'utf8')
+
+    expect(importLegacyRootState()).toBe(kbRoot)
+    expect(readCapabilityRecord(kbRoot, 'mail')).toBeUndefined()
+  })
+
+  it('leaves an existing state file untouched and still retires the legacy file', async () => {
+    await mkdir(join(kbRoot, '.yantao'), { recursive: true })
+    await writeFile(capabilityStatePath(kbRoot), JSON.stringify({ capabilities: {} }), 'utf8')
+    await mkdir(join(home, '.dsh'), { recursive: true })
+    await writeFile(legacyPath(), JSON.stringify({
+      root: kbRoot,
+      capabilities: { mail: { state: { stale: true } } },
+    }), 'utf8')
+
+    expect(importLegacyRootState()).toBe(kbRoot)
+    expect(readCapabilityState(kbRoot, 'mail')).toBeUndefined()
+    expect(existsSync(`${legacyPath()}.bak`)).toBe(true)
+  })
+
+  it('leaves a malformed or rootless legacy file alone', async () => {
+    await mkdir(join(home, '.dsh'), { recursive: true })
+    for (const broken of ['{ not json', 'null', '42', '{"root":42}', '{"root":""}', '{"capabilities":{}}']) {
+      await writeFile(legacyPath(), broken, 'utf8')
+      expect(importLegacyRootState()).toBeUndefined()
+      expect(existsSync(legacyPath())).toBe(true)
+    }
   })
 })

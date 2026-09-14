@@ -1,8 +1,8 @@
 /**
  * The yantao KB cordis plugin: registers the kb_ tools that are the
  * agent's ONLY write path into the knowledge base. The plugin owns no
- * service and no state beyond the live kbRoot (the persisted override when
- * the workbench has chosen one, otherwise the config default); every operation re-reads
+ * service and no state beyond the live kbRoot (the settings-plane pointer
+ * when one is recorded, otherwise the config default); every operation re-reads
  * the files it touches, so a human editing the same KB between calls always
  * wins. Pair with the yantao profile patch, which removes the generic write
  * tools (shell, editor) — this family is deliberately all that remains.
@@ -15,21 +15,27 @@ import { join, relative } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import type {} from '@deepseek-ai/dsh-settings'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, writeState } from './core.ts'
 import { kbMentions, renderKbMentions } from './mentions.ts'
-import { readKbRootOverride, writeKbRootOverride } from './root-store.ts'
+import { importLegacyRootState } from './root-store.ts'
 import { registerPromptSections } from './sections.ts'
 import { ENTITY_TYPES, PERSON_RELATIONS } from './types.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'yantao-kb'
 
-/** Services required by the KB tool family and the prompt-section layer. */
-export const inject = ['tools', 'systemPrompt']
+/**
+ * Services required by the KB tool family and the prompt-section layer.
+ * `settings` carries the KB pointer (ADR-0024 决定 3): `kbRoot` is an ordinary
+ * settings field, so the workbench's `setRoot` writes `~/.dsh/settings.yaml`
+ * instead of a private file.
+ */
+export const inject = ['tools', 'systemPrompt', 'settings']
 
 /** Plugin config; `kbRoot` is the only knob. */
 export interface Config {
@@ -41,6 +47,9 @@ export const Config: z<Config> = z.object({
   kbRoot: z.string().default(join(homedir(), 'yantao-kb')),
 })
 
+/** The settings-plane schema for the KB pointer (ADR-0024 决定 3). */
+const KbRootSettings: z<{ kbRoot: string }> = z.object({ kbRoot: z.string() })
+
 /** The shape after schemastery applied the defaults. */
 type ResolvedConfig = Required<Config>
 
@@ -48,23 +57,25 @@ type ResolvedConfig = Required<Config>
  * The live KB root, published while the yantao-kb plugin is mounted so
  * host-side consumers (the yantao-kb-controller Remote) share this one
  * configuration point instead of duplicating it. The root starts as the
- * persisted override when the workbench has chosen one, and otherwise as the
- * config default; `setRoot` retargets the whole host at a new root.
+ * settings-plane pointer when one is recorded (an imported legacy pointer
+ * included), and otherwise as the config default; `setRoot` retargets the
+ * whole host at a new root by writing the settings namespace, and an external
+ * edit of that namespace retargets the live root through the watcher.
  */
 export interface YantaoKbService {
   /** Resolved knowledge-base root directory. */
   readonly root: string
-  /** True when the root comes from a persisted override rather than the config default. */
+  /** True when the root comes from the settings plane (or an imported pointer) rather than the config default. */
   readonly configured: boolean
   /**
-   * Retarget the live KB at `next` and persist it as the override.
+   * Retarget the live KB at `next` and persist it as the settings-plane pointer.
    * @param next - the new knowledge-base root directory (absolute).
    */
   setRoot(next: string): void
 }
 
 /**
- * The live root: the persisted override when there is one, the config
+ * The live root: the settings-plane pointer when there is one, the config
  * default otherwise, and always the one value every host-side consumer
  * reads. Persisting a new root is fire-and-forget — the in-process root is
  * already correct, and a failed write only costs the next boot.
@@ -73,7 +84,7 @@ class LiveKbRoot implements YantaoKbService {
   constructor(
     private current: string,
     private persisted: boolean,
-    private readonly onPersistFailure: (message: string) => void,
+    private readonly persist: (next: string) => void,
   ) {}
 
   get root(): string {
@@ -87,9 +98,13 @@ class LiveKbRoot implements YantaoKbService {
   setRoot(next: string): void {
     this.current = next
     this.persisted = true
-    void writeKbRootOverride(next).catch((error: unknown) => {
-      this.onPersistFailure((error as Error).message)
-    })
+    this.persist(next)
+  }
+
+  /** Adopt a root that was committed outside this object (settings write or import). */
+  retarget(next: string): void {
+    this.current = next
+    this.persisted = true
   }
 }
 
@@ -149,18 +164,44 @@ async function readCitedFiles(root: string, paths: readonly string[]): Promise<C
 export function apply(ctx: Context, config: Config): void {
   const resolved = config as ResolvedConfig
 
-  const override = readKbRootOverride()
+  // The KB pointer lives in the settings plane (ADR-0024 决定 3): an ordinary
+  // namespace whose base is this plugin's config, so resolution keeps the
+  // shape "explicit config > persisted value > default" with settings.yaml as
+  // the persisted layer.
+  const scope = ctx.settings.register('yantao-kb', KbRootSettings, { base: { kbRoot: resolved.kbRoot } })
+  const userSection = ctx.settings.describe()
+    .find(descriptor => descriptor.ns === 'yantao-kb')?.user as { kbRoot?: unknown } | undefined
+  const userRoot = typeof userSection?.kbRoot === 'string' && userSection.kbRoot !== '' ? userSection.kbRoot : undefined
+
+  // One-time import of the retired `~/.dsh/yantao-kb.json` (ADR-0024 决定 2):
+  // capability states move into the KB, the legacy pointer seeds the settings
+  // plane exactly when the human has not recorded one there yet.
+  const importedRoot = importLegacyRootState()
+
+  const persistRoot = (next: string): void => {
+    void scope.update({ kbRoot: next }).catch((error: unknown) => {
+      ctx.logger.warn(`yantao-kb: 无法持久化知识库根目录：${(error as Error).message}`)
+    })
+  }
   const liveRoot = new LiveKbRoot(
-    override ?? resolved.kbRoot,
-    override !== undefined,
-    (message) => {
-      ctx.logger.warn(`yantao-kb: 无法持久化知识库根目录：${message}`)
-    },
+    userRoot ?? importedRoot ?? resolved.kbRoot,
+    userRoot !== undefined || importedRoot !== undefined,
+    persistRoot,
   )
+  if (importedRoot !== undefined && userRoot === undefined) liveRoot.setRoot(importedRoot)
 
   ctx.effect(
     () => ctx.provide('yantaoKb', liveRoot satisfies YantaoKbService),
     'yantao-kb: provide KB root service',
+  )
+
+  // An externally committed pointer (the settings UI, another workbench tab,
+  // a hand edit of settings.yaml) retargets the live root.
+  ctx.effect(
+    () => scope.watch((next) => {
+      liveRoot.retarget(next.kbRoot)
+    }),
+    'yantao-kb: follow settings kbRoot',
   )
 
   // The prompt-section layer (ADR-0022): yantao's domain disciplines as
@@ -400,8 +441,8 @@ export { appendLog, createEntity, initKb, listEntities, readEntity, registerReso
 export type { InitKbResult, ListedEntity } from './core.ts'
 export { entityDisplayPath, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
 export {
-  kbRootStatePath, readCapabilityRecord, readCapabilityState, readKbRootOverride,
-  readMailWatermark, writeCapabilityState, writeKbRootOverride, writeMailWatermark,
+  capabilityStatePath, importLegacyRootState, readCapabilityRecord, readCapabilityState,
+  writeCapabilityState, writeMailWatermark,
 } from './root-store.ts'
 export type { CapabilityRecord } from './root-store.ts'
 export { appendToLogSection, logBullet, replaceStateSection } from './splice.ts'

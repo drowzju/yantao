@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type { SkillDefinition, SkillRegistry } from '@deepseek-ai/dsh-skill'
 import {
-  readCapabilityState, writeKbRootOverride, type YantaoKbService,
+  readCapabilityState, type YantaoKbService,
 } from '@deepseek-ai/dsh-yantao-kb'
 import YantaoKbController from '../src/index.ts'
 
@@ -14,7 +14,7 @@ import YantaoKbController from '../src/index.ts'
 // `let` is initialized — hence the hoisted holder.
 const { state } = vi.hoisted(() => ({
   state: {
-    home: '', runCapability: vi.fn(), skillGet: vi.fn(), skillList: vi.fn(),
+    home: '', kbConfigured: true, runCapability: vi.fn(), skillGet: vi.fn(), skillList: vi.fn(),
     registerProvider: vi.fn(), registerTool: vi.fn(),
   },
 }))
@@ -22,8 +22,8 @@ const runCapability = state.runCapability
 const skillGet = state.skillGet
 const skillList = state.skillList
 
-// The capability state lives in dsh's home, which is the developer's real
-// `~`; point `homedir()` at a throwaway directory so the suite never touches it.
+// The capability state lives inside the KB root, so the suite's tmpdir is the
+// whole KB; nothing reaches the developer's real `~` any more (ADR-0024).
 let home: string
 
 vi.mock('node:os', async importOriginal => ({
@@ -65,12 +65,13 @@ beforeEach(async () => {
   state.registerProvider.mockReset().mockReturnValue(() => {})
   state.registerTool.mockReset().mockReturnValue(() => {})
   ctx = new Context()
+  state.kbConfigured = true
   ctx.provide('yantaoKb', {
     get root(): string {
       return home
     },
     get configured(): boolean {
-      return false
+      return state.kbConfigured
     },
     setRoot(): void {},
   } satisfies YantaoKbService)
@@ -85,9 +86,6 @@ beforeEach(async () => {
   // stand-in captures the registration without the real tool registry.
   ctx.provide('tools', { register: state.registerTool } as unknown as never)
   fiber = await ctx.plugin(YantaoKbController)
-  // Capability state is persisted next to the KB root, so a run needs one to
-  // have been chosen.
-  await writeKbRootOverride(join(home, '知识库'))
 })
 
 afterEach(async () => {
@@ -112,7 +110,7 @@ function definition(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
 
 describe('yantaoKb.capabilityRun', () => {
   it('refuses to run before a KB root has been chosen', async () => {
-    await rm(join(home, '.dsh'), { recursive: true, force: true })
+    state.kbConfigured = false
     const failure = await ctx.yantaoKbController.capabilityRun({ name: 'mail' }).catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/capability', details: { kind: 'no-root' } })
     expect(skillGet).not.toHaveBeenCalled()
@@ -161,7 +159,7 @@ describe('yantaoKb.capabilityRun', () => {
     expect(result.result).toEqual({ messages: [] })
     expect(result.artifacts).toEqual(['.yantao/capabilities/mail/summary.json'])
     expect(await readFile(join(home, '.yantao', 'capabilities', 'mail', 'summary.json'), 'utf8')).toBe('{"mails":0}')
-    expect(readCapabilityState('mail')).toEqual({ lastReadAt: '2026-09-12T00:00:00.000Z' })
+    expect(readCapabilityState(home, 'mail')).toEqual({ lastReadAt: '2026-09-12T00:00:00.000Z' })
   })
 
   it('hands the previous state to the next run', async () => {

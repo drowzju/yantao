@@ -4,17 +4,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
-import { writeKbRootOverride, type YantaoKbService } from '@deepseek-ai/dsh-yantao-kb'
+import { type YantaoKbService } from '@deepseek-ai/dsh-yantao-kb'
 import YantaoKbController from '../src/index.ts'
 
-// The watermark lives in dsh's home, which is the developer's real `~`; point
-// `homedir()` at a throwaway directory so the suite never touches it.
-const { state } = vi.hoisted(() => ({ state: { home: '' } }))
-
-vi.mock('node:os', async importOriginal => ({
-  ...await importOriginal<typeof import('node:os')>(),
-  homedir: () => state.home,
-}))
+// All mocks are read by `vi.mock` factories, which run before any top-level
+// `let` is initialized — hence the hoisted holder.
+const { state } = vi.hoisted(() => ({ state: { home: '', kbConfigured: true } }))
 
 let home: string
 let ctx: Context
@@ -23,13 +18,14 @@ let fiber: { dispose(): Promise<void> }
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'yantao-kb-mail-'))
   state.home = home
+  state.kbConfigured = true
   ctx = new Context()
   ctx.provide('yantaoKb', {
     get root(): string {
       return home
     },
     get configured(): boolean {
-      return false
+      return state.kbConfigured
     },
     setRoot(): void {},
   } satisfies YantaoKbService)
@@ -41,9 +37,6 @@ beforeEach(async () => {
   // is enough.
   ctx.provide('tools', { register: () => {} } as never)
   fiber = await ctx.plugin(YantaoKbController)
-  // The mail cursor is persisted next to the KB root, so marking read needs
-  // one to have been chosen.
-  await writeKbRootOverride(join(home, '知识库'))
 })
 
 afterEach(async () => {
@@ -75,8 +68,7 @@ describe('yantaoKb.mailMarkRead', () => {
   })
 
   it('refuses to run before a KB root has been chosen', async () => {
-    const { rm } = await import('node:fs/promises')
-    await rm(join(home, '.dsh'), { recursive: true, force: true })
+    state.kbConfigured = false
     const failure = await ctx.yantaoKbController.mailMarkRead({}).catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/mail', details: { kind: 'no-root' } })
   })

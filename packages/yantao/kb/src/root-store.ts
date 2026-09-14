@@ -1,16 +1,18 @@
 /**
- * The persisted KB root: one JSON file under dsh's home (`~/.dsh`, the same
- * home the profile store already uses) holding `{ "root": string, "capabilities": … }`.
- * It is what lets the workbench remember where the human put the knowledge
- * base, so the plugin's `kbRoot` config is only the first-run fallback. The
- * same file also carries each capability's machine state (ADR-0021: the
- * generalized form of ADR-0019's mail watermark), because a cursor belongs to
- * the knowledge base it was read for, and not to the KB itself — that is
- * markdown for humans, not a place for machine state.
+ * The capability state store: one JSON file per KB at
+ * `<kbRoot>/.yantao/state.json` holding
+ * `{ "capabilities": { "<name>": { "state": …, "lastRunAt": … } } }`.
+ * It carries each capability's machine state (ADR-0021: the generalized form
+ * of ADR-0019's mail watermark), because a cursor belongs to the knowledge
+ * base it was read for, and not to the KB itself — that is markdown for
+ * humans, not a place for machine state. ADR-0024 puts the file *inside* the
+ * KB (backup = copy the directory); the KB pointer itself moved to the
+ * settings plane, and the retired `~/.dsh/yantao-kb.json` is read once by
+ * {@link importLegacyRootState} and never written again.
  * @module @deepseek-ai/dsh-yantao-kb/root-store
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -23,141 +25,124 @@ interface CapabilityState {
   lastRunAt?: string
 }
 
-/** The whole persisted state: the KB root plus the capabilities bound to it. */
-interface KbRootState {
-  /** The knowledge-base root directory. */
-  root: string
-  /** Per-capability machine state; never mirrored into the KB itself. */
+/** The whole persisted state: the capabilities bound to one KB root. */
+interface CapabilityStateFile {
+  /** Per-capability machine state; never mirrored into the KB's markdown. */
   capabilities?: Record<string, CapabilityState>
-  /**
-   * Legacy pre-ADR-0021 connector cursors, kept readable so an existing mail
-   * watermark survives the upgrade; a write moves it into `capabilities`.
-   */
-  connectors?: {
-    /** The Outlook mail connector (ADR-0019). */
-    mail?: {
-      /** ISO 8601 timestamp of the most recent mail the connector has read. */
-      lastReadAt?: string
-    }
-  }
 }
 
-/** The state file's path: `~/.dsh/yantao-kb.json`.
- * @returns the absolute path of the persisted KB root state file.
+/** The state file's path: `<kbRoot>/.yantao/state.json`.
+ * @param kbRoot - the knowledge-base root directory.
+ * @returns the absolute path of the capability state file inside that KB.
  */
-export function kbRootStatePath(): string {
-  return join(homedir(), '.dsh', 'yantao-kb.json')
+export function capabilityStatePath(kbRoot: string): string {
+  return join(kbRoot, '.yantao', 'state.json')
 }
 
-/** Parse the state file's content; anything without a usable `root` yields `undefined`.
- * @param raw - the file's raw content.
- * @returns the parsed state, or `undefined` when the content is not a `{ root: string }`.
- */
-function parseKbRootState(raw: string): KbRootState | undefined {
+/** Parse the state file's content; anything without a usable shape yields `undefined`. */
+function parseCapabilityStateFile(raw: string): CapabilityStateFile | undefined {
   try {
     const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null) return undefined
-    const root = (parsed as { root?: unknown }).root
-    if (typeof root !== 'string' || root === '') return undefined
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
     // The state is carried through as parsed, so keys a newer yantao added
     // survive a read-modify-write by this version.
-    return parsed as KbRootState
+    return parsed
   } catch {
     return undefined
   }
 }
 
-/** Read the whole persisted state, synchronously.
- * @returns the parsed state, or `undefined` when there is none.
- */
-function readKbRootState(): KbRootState | undefined {
-  const path = kbRootStatePath()
+/** Read the whole state file for one KB, synchronously. */
+function readCapabilityStateFile(kbRoot: string): CapabilityStateFile | undefined {
+  const path = capabilityStatePath(kbRoot)
   try {
     if (!existsSync(path)) return undefined
-    return parseKbRootState(readFileSync(path, 'utf8'))
+    return parseCapabilityStateFile(readFileSync(path, 'utf8'))
   } catch {
     return undefined
   }
 }
 
 /**
- * Read the persisted KB root override. Synchronous because the plugin must
- * publish a root at apply time, before it can await anything; a missing or
- * unreadable state file means "not configured yet", never an error.
- * @returns the persisted root, or `undefined` when there is none.
+ * Write the whole state file for one KB, creating `<kbRoot>/.yantao` when it
+ * is absent. A failing write surfaces as a rejected promise and leaves any
+ * previous state untouched.
  */
-export function readKbRootOverride(): string | undefined {
-  return readKbRootState()?.root
-}
-
-/**
- * Write the whole state, creating `~/.dsh` when it is absent. A failing write
- * surfaces as a rejected promise and leaves any previous state untouched.
- * @param state - the state to persist.
- */
-async function writeKbRootState(state: KbRootState): Promise<void> {
-  const path = kbRootStatePath()
+async function writeCapabilityStateFile(kbRoot: string, state: CapabilityStateFile): Promise<void> {
+  const path = capabilityStatePath(kbRoot)
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
 }
 
 /**
- * Persist `root` as the KB root override, keeping whatever else the state
- * file already holds — the connectors' cursors are bound to this root, but
- * they are not invalidated by the human re-picking the same directory.
- * @param root - the knowledge-base root directory to remember.
+ * Read one capability's persisted state (ADR-0021). Synchronous, like every
+ * other read here — the runner asks for it while assembling a run.
+ * @param kbRoot - the knowledge-base root directory.
+ * @param name - the capability's kebab-case name.
+ * @returns the state as the capability last left it, or `undefined` when it has never run.
  */
-export async function writeKbRootOverride(root: string): Promise<void> {
-  const existing = readKbRootState()
-  await writeKbRootState(existing === undefined ? { root } : { ...existing, root })
+export function readCapabilityState(kbRoot: string, name: string): unknown {
+  return readCapabilityStateFile(kbRoot)?.capabilities?.[name]?.state
 }
 
 /**
- * Read the mail connector's watermark: the timestamp it last read up to.
- * Synchronous, like {@link readKbRootOverride} — the connector asks for it
- * while assembling a fetch, on the same path as the root it belongs to.
- * Reads the ADR-0021 `capabilities.mail` slot first and the legacy
- * `connectors.mail` one second, so a watermark written before the
- * generalization still answers.
- * @returns the ISO 8601 timestamp, or `undefined` when mail has never been read.
+ * Persist one capability's state (ADR-0021), stamping the run that produced
+ * it and leaving every other capability as it is.
+ * @param kbRoot - the knowledge-base root directory.
+ * @param name - the capability's kebab-case name.
+ * @param state - the state to remember; it replaces the previous value whole.
  */
-export function readMailWatermark(): string | undefined {
-  const state = readKbRootState()
-  const generalized = state?.capabilities?.mail?.state
-  const legacy = state?.connectors?.mail?.lastReadAt
-  const lastReadAt = legacyLastReadAt(generalized) ?? legacy
-  return typeof lastReadAt === 'string' && lastReadAt !== '' ? lastReadAt : undefined
+export async function writeCapabilityState(kbRoot: string, name: string, state: unknown): Promise<void> {
+  const existing = readCapabilityStateFile(kbRoot)
+  await writeCapabilityStateFile(kbRoot, {
+    ...existing,
+    capabilities: {
+      ...existing?.capabilities,
+      [name]: { ...existing?.capabilities?.[name], state, lastRunAt: new Date().toISOString() },
+    },
+  })
 }
 
-/** The `lastReadAt` inside a mail capability state, when it carries one. */
-function legacyLastReadAt(state: unknown): string | undefined {
-  if (typeof state !== 'object' || state === null) return undefined
-  const value = (state as { lastReadAt?: unknown }).lastReadAt
-  return typeof value === 'string' ? value : undefined
+/** One capability's persisted record, as the capability tab's list shows it. */
+export interface CapabilityRecord {
+  /** The capability's own state; its shape is the capability's business. */
+  readonly state?: unknown
+  /** ISO 8601 timestamp of the most recent completed run, absent when it never ran. */
+  readonly lastRunAt?: string
 }
 
 /**
- * Persist the mail connector's watermark, leaving the KB root and any other
- * capability state as they are. The watermark moves into the ADR-0021
- * `capabilities.mail` slot and the legacy `connectors` key is dropped — it
- * only ever held the mail cursor, so nothing else can be lost.
+ * Read one capability's whole persisted record — state plus run stamp — for
+ * the capability list (ADR-0021 决定 8: the 清单 shows 上次运行/断点摘要).
+ * @param kbRoot - the knowledge-base root directory.
+ * @param name - the capability's kebab-case name.
+ * @returns the record, or `undefined` when the capability has never run.
+ */
+export function readCapabilityRecord(kbRoot: string, name: string): CapabilityRecord | undefined {
+  const slot = readCapabilityStateFile(kbRoot)?.capabilities?.[name]
+  if (slot === undefined) return undefined
+  return {
+    ...slot.state !== undefined ? { state: slot.state } : {},
+    ...slot.lastRunAt !== undefined ? { lastRunAt: slot.lastRunAt } : {},
+  }
+}
+
+/**
+ * Persist the mail connector's watermark, leaving every other capability as
+ * it is. The watermark lives in the ADR-0021 `capabilities.mail` slot.
+ * @param kbRoot - the knowledge-base root directory.
  * @param lastReadAt - the ISO 8601 timestamp to remember.
  * @param firstReadAt - the oldest mail of the batch just dealt with; stored as
  *   the minimum ever seen, so paging 往前 extends the processed range backward.
  * @returns the processed range as it now stands — `firstReadAt` present only
  *   when some run has named a start.
- * @throws when no KB root is persisted yet: a watermark with no knowledge base
- *   to bind it to could never be read back, so it is refused rather than written.
  */
-export async function writeMailWatermark(lastReadAt: string, firstReadAt?: string): Promise<{
+export async function writeMailWatermark(kbRoot: string, lastReadAt: string, firstReadAt?: string): Promise<{
   lastReadAt: string
   firstReadAt?: string
 }> {
-  const existing = readKbRootState()
-  if (existing === undefined) {
-    throw new Error('yantao-kb: cannot persist a mail watermark before a KB root is configured')
-  }
-  const previous = mailStateOf(existing)
+  const existing = readCapabilityStateFile(kbRoot)
+  const previous = existing?.capabilities?.mail
   const previousState = typeof previous?.state === 'object' && previous.state !== null ? previous.state : {}
   const previousFirstReadAt = typeof (previousState as { firstReadAt?: unknown }).firstReadAt === 'string'
     ? (previousState as { firstReadAt: string }).firstReadAt
@@ -165,11 +150,10 @@ export async function writeMailWatermark(lastReadAt: string, firstReadAt?: strin
   const mergedFirstReadAt = firstReadAt === undefined
     ? previousFirstReadAt
     : previousFirstReadAt !== undefined && previousFirstReadAt < firstReadAt ? previousFirstReadAt : firstReadAt
-  const { connectors: _legacy, ...rest } = existing
-  await writeKbRootState({
-    ...rest,
+  await writeCapabilityStateFile(kbRoot, {
+    ...existing,
     capabilities: {
-      ...existing.capabilities,
+      ...existing?.capabilities,
       mail: {
         ...previous,
         state: {
@@ -187,62 +171,57 @@ export async function writeMailWatermark(lastReadAt: string, firstReadAt?: strin
   }
 }
 
-/** The mail capability's persisted slot under either the new or the legacy key. */
-function mailStateOf(state: KbRootState): CapabilityState | undefined {
-  return state.capabilities?.mail ?? (state.connectors?.mail !== undefined ? { state: { ...state.connectors.mail } } : undefined)
+/** The retired pre-ADR-0024 state file: `~/.dsh/yantao-kb.json`. */
+function legacyKbRootStatePath(): string {
+  return join(homedir(), '.dsh', 'yantao-kb.json')
 }
 
 /**
- * Read one capability's persisted state (ADR-0021). Synchronous, like every
- * other read here — the runner asks for it while assembling a run.
- * @param name - the capability's kebab-case name.
- * @returns the state as the capability last left it, or `undefined` when it has never run.
+ * One-time import of the retired `~/.dsh/yantao-kb.json` (ADR-0024 决定 2):
+ * when the legacy file is readable and names a root whose
+ * `<root>/.yantao/state.json` does not exist yet, the capability states move
+ * into the KB and the legacy file is renamed `.bak` — explicitly recoverable,
+ * never silently deleted. The legacy `root` itself is *returned* (the caller
+ * seeds the settings-plane pointer with it) and the legacy `connectors.mail`
+ * watermark is dropped — the cost is at most one repeated mail fetch.
+ *
+ * Synchronous because the plugin runs it at apply time, before it can await
+ * anything. Every failure leaves the legacy file untouched so the next boot
+ * retries; a `.bak` already in place means the import ran before.
+ * @returns the legacy KB root when an import happened (or the states are
+ *   already in place under it), otherwise `undefined`.
  */
-export function readCapabilityState(name: string): unknown {
-  return readKbRootState()?.capabilities?.[name]?.state
-}
-
-/**
- * Persist one capability's state (ADR-0021), stamping the run that produced
- * it and leaving the KB root and every other capability as they are.
- * @param name - the capability's kebab-case name.
- * @param state - the state to remember; it replaces the previous value whole.
- * @throws when no KB root is persisted yet: state with no knowledge base to
- *   bind it to could never be read back, so it is refused rather than written.
- */
-export async function writeCapabilityState(name: string, state: unknown): Promise<void> {
-  const existing = readKbRootState()
-  if (existing === undefined) {
-    throw new Error(`yantao-kb: cannot persist capability ${name} state before a KB root is configured`)
+export function importLegacyRootState(): string | undefined {
+  const legacyPath = legacyKbRootStatePath()
+  if (!existsSync(legacyPath)) return undefined
+  let root: unknown
+  let capabilities: CapabilityStateFile['capabilities']
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(legacyPath, 'utf8'))
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
+    root = (parsed as { root?: unknown }).root
+    capabilities = (parsed as CapabilityStateFile).capabilities
+  } catch {
+    return undefined
   }
-  await writeKbRootState({
-    ...existing,
-    capabilities: {
-      ...existing.capabilities,
-      [name]: { ...existing.capabilities?.[name], state, lastRunAt: new Date().toISOString() },
-    },
-  })
-}
-
-/** One capability's persisted record, as the capability tab's list shows it. */
-export interface CapabilityRecord {
-  /** The capability's own state; its shape is the capability's business. */
-  readonly state?: unknown
-  /** ISO 8601 timestamp of the most recent completed run, absent when it never ran. */
-  readonly lastRunAt?: string
-}
-
-/**
- * Read one capability's whole persisted record — state plus run stamp — for
- * the capability list (ADR-0021 决定 8: the 清单 shows 上次运行/断点摘要).
- * @param name - the capability's kebab-case name.
- * @returns the record, or `undefined` when the capability has never run.
- */
-export function readCapabilityRecord(name: string): CapabilityRecord | undefined {
-  const slot = readKbRootState()?.capabilities?.[name]
-  if (slot === undefined) return undefined
-  return {
-    ...slot.state !== undefined ? { state: slot.state } : {},
-    ...slot.lastRunAt !== undefined ? { lastRunAt: slot.lastRunAt } : {},
+  if (typeof root !== 'string' || root === '') return undefined
+  const newPath = capabilityStatePath(root)
+  if (!existsSync(newPath)) {
+    try {
+      mkdirSync(dirname(newPath), { recursive: true })
+      writeFileSync(
+        newPath,
+        `${JSON.stringify(capabilities === undefined ? {} : { capabilities }, null, 2)}\n`,
+        'utf8',
+      )
+    } catch {
+      return undefined
+    }
   }
+  try {
+    renameSync(legacyPath, `${legacyPath}.bak`)
+  } catch {
+    // The state is already imported; a stale legacy file costs nothing.
+  }
+  return root
 }

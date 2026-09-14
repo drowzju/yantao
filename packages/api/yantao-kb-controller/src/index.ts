@@ -4,7 +4,8 @@
  * `workspaceTree` the workspace side (projects, areas, people);
  * `read`/`write` address single files by KB-relative path, always confined
  * one configuration point, no duplicated config. `root`/`setRoot` answer and
- * choose that root — the service persists the choice under `~/.dsh` — and `createEntity`
+ * choose that root — the service persists the choice in the settings plane
+ * (ADR-0024) — and `createEntity`
  * files a new note from the KB's canonical template; `registerResource` is the
  * drag-and-drop intake (ADR-0020): a dropped file is copied into `resources/`.
  * The capability surface (ADR-0021) is `capabilityList`/`capabilityRun`/
@@ -29,7 +30,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
   createEntity, entityDisplayPath, initKb, KbError, linksOf, listEntities, parseFrontmatter,
   parseTodoFile, PERSON_RELATIONS, readCapabilityRecord, readCapabilityState,
-  readKbRootOverride, registerResourceContent, resolveWithinKb, serializeTodoFile, todayStamp,
+  registerResourceContent, resolveWithinKb, serializeTodoFile, todayStamp,
   writeCapabilityState, writeMailWatermark,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
@@ -590,12 +591,12 @@ export class YantaoKbController extends TypertRemoteService {
 
   /**
    * Refuse the mail connector while no KB root has been chosen (ADR-0019): the
-   * cursor is persisted next to the root, so with no root there is nowhere to
-   * keep it — and a mail analysis writes into that KB.
-   * @throws a `yantao-kb/mail` error when `~/.dsh/yantao-kb.json` holds no root.
+   * cursor is persisted inside the KB (ADR-0024), so with no root there is
+   * nowhere to keep it — and a mail analysis writes into that KB.
+   * @throws a `yantao-kb/mail` error while the KB pointer is unrecorded.
    */
   private requireKbRootState(): void {
-    if (readKbRootOverride() === undefined) {
+    if (!this.ctx.yantaoKb.configured) {
       throw new RemoteError(
         'yantao-kb/mail',
         '还没有选择知识库目录，邮件的读取断点无处记录。',
@@ -763,8 +764,8 @@ export class YantaoKbController extends TypertRemoteService {
    * is kept as the minimum ever seen, so the UI can show the processed range
    * (e.g. 2025-12-31 到 2026-01-31) without re-deriving it.
    *
-   * The cursor lives in `~/.dsh`, next to the KB root it was read for, and
-   * never in the KB itself — that is markdown for humans.
+   * The cursor lives in the KB's `.yantao/state.json` (ADR-0024) — machine
+   * state next to the KB it was read for, never in the KB's markdown.
    * @param args - the stamps to store; `lastReadAt` defaults to now.
    * @returns the processed range as it now stands.
    */
@@ -772,7 +773,7 @@ export class YantaoKbController extends TypertRemoteService {
   async mailMarkRead(args: KbMailMarkReadArgs): Promise<KbMailMarkReadResult> {
     this.requireKbRootState()
     const lastReadAt = args.lastReadAt ?? new Date().toISOString()
-    return writeMailWatermark(lastReadAt, args.firstReadAt)
+    return writeMailWatermark(this.kbRoot, lastReadAt, args.firstReadAt)
   }
 
   /**
@@ -787,9 +788,9 @@ export class YantaoKbController extends TypertRemoteService {
    *
    * The controller, not the script, owns every write: artifacts land under
    * `.yantao/capabilities/<name>/` at paths the script cannot choose, and the
-   * returned state is persisted under `capabilities.<name>.state` in
-   * `~/.dsh/yantao-kb.json` — metadata outside the KB, which stays markdown
-   * for humans. The agent has its own channel into the same seam:
+   * returned state is persisted under `capabilities.<name>.state` in the KB's
+   * `.yantao/state.json` (ADR-0024) — machine state inside the KB, which stays
+   * markdown for humans. The agent has its own channel into the same seam:
    * `kb_run_capability` (ADR-0023), gated per capability by the sidecar's
    * `invocation` declaration.
    * @param args - the capability's skill name and the caller's input, handed
@@ -814,7 +815,7 @@ export class YantaoKbController extends TypertRemoteService {
    * @returns what the run answered, when it ran, and which artifact paths were written.
    */
   private async runByName(name: string, input: unknown, invoker: CapabilityInvoker): Promise<KbCapabilityRunResult> {
-    if (readKbRootOverride() === undefined) {
+    if (!this.ctx.yantaoKb.configured) {
       throw new RemoteError(
         'yantao-kb/capability',
         '还没有选择知识库目录，能力的状态无处记录。',
@@ -876,7 +877,7 @@ export class YantaoKbController extends TypertRemoteService {
         entryPath,
         kbRoot,
         input,
-        state: readCapabilityState(name),
+        state: readCapabilityState(kbRoot, name),
       })
     } catch (error: unknown) {
       const failure = error instanceof CapabilityError ? error : undefined
@@ -903,7 +904,7 @@ export class YantaoKbController extends TypertRemoteService {
         { cause: error },
       )
     }
-    if (output.state !== undefined) await writeCapabilityState(name, output.state)
+    if (output.state !== undefined) await writeCapabilityState(kbRoot, name, output.state)
     return {
       name,
       runAt: new Date().toISOString(),
@@ -953,7 +954,7 @@ export class YantaoKbController extends TypertRemoteService {
    * fresh KB answers with 邮件 and 读书 on its very first open.
    *
    * Each row merges the skill's declaration with the persisted record
-   * (`capabilities.<name>` in `~/.dsh/yantao-kb.json`): when it last ran and
+   * (`capabilities.<name>` in the KB's `.yantao/state.json`, ADR-0024): when it last ran and
    * the state that run left behind, so the panel can show a real 断点 without
    * running anything.
    * @returns the capability summaries, in discovery order.
@@ -979,7 +980,7 @@ export class YantaoKbController extends TypertRemoteService {
         // A skill without a (valid) yantao declaration is a skill, not a capability.
         continue
       }
-      const record = readCapabilityRecord(summary.name)
+      const record = readCapabilityRecord(kbRoot, summary.name)
       capabilities.push({
         name: summary.name,
         description: summary.description,

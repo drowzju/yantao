@@ -6,9 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { agentEvents, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SkillDefinition, SkillRegistry } from '@deepseek-ai/dsh-skill'
-import {
-  writeKbRootOverride, type YantaoKbService,
-} from '@deepseek-ai/dsh-yantao-kb'
+import { type YantaoKbService } from '@deepseek-ai/dsh-yantao-kb'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import YantaoKbController from '../src/index.ts'
 
@@ -16,7 +14,7 @@ import YantaoKbController from '../src/index.ts'
 // `let` is initialized — hence the hoisted holder.
 const { state } = vi.hoisted(() => ({
   state: {
-    home: '', runCapability: vi.fn(), skillGet: vi.fn(), skillList: vi.fn(),
+    home: '', kbConfigured: true, runCapability: vi.fn(), skillGet: vi.fn(), skillList: vi.fn(),
     registerProvider: vi.fn(), registerTool: vi.fn(),
   },
 }))
@@ -62,12 +60,13 @@ beforeEach(async () => {
   state.registerProvider.mockReset().mockReturnValue(() => {})
   state.registerTool.mockReset().mockReturnValue(() => {})
   ctx = new Context()
+  state.kbConfigured = true
   ctx.provide('yantaoKb', {
     get root(): string {
       return home
     },
     get configured(): boolean {
-      return false
+      return state.kbConfigured
     },
     setRoot(): void {},
   } satisfies YantaoKbService)
@@ -77,9 +76,6 @@ beforeEach(async () => {
     registerProvider: state.registerProvider,
   } as unknown as SkillRegistry)
   ctx.provide('tools', { register: state.registerTool } as unknown as never)
-  // runByName refuses to answer without a chosen KB root; the home tmpdir
-  // stands in for one, like the RPC spec does.
-  await writeKbRootOverride(join(home, '知识库'))
   fiber = await ctx.plugin(YantaoKbController)
 })
 
