@@ -15,13 +15,11 @@ import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
   CapabilityCreator, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityCreator, ExternalOpener,
   FileDeleter, FileReader, FileWriter, LinksLoader,
-  MailFetcher, MailMarker, RelationSetter, ResourceExtractor, ResourceRegistrar, RevisionLoader, RootLoader, RootSetter,
+  MailFetcher, MailMarker, RelationSetter, ResourceRegistrar, RevisionLoader, RootLoader, RootSetter,
   TodoLoader, TodoWriter,
 } from '../remote.ts'
-import type { BookReader } from '../reading-flow.ts'
 import type { MailAnalyser } from '../mail-analysis.ts'
 import type { Proposal } from '../proposal.ts'
-import { readingProposalOf } from '../proposal.ts'
 import { applyProposal, type ProposalApplyResult } from '../proposal-apply.ts'
 import { proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
@@ -31,8 +29,6 @@ import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileE
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
 import { Onboarding } from '../Onboarding.tsx'
-import { ReadingDialog, ReadingMonitor } from '../ReadingDialog.tsx'
-import { useReadingTask } from '../reading-task.ts'
 import {
   CONVERSATION_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath, restoreTabs,
   type TabMode, type TabState,
@@ -84,18 +80,12 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly analyseMail: MailAnalyser
   /** Copy one dropped file into `resources/` (ADR-0020). */
   readonly registerResource: ResourceRegistrar
-  /** Extract one resource's text into the cache (ADR-0020). */
-  readonly extractResource: ResourceExtractor
   /** List the registered capabilities (ADR-0021). */
   readonly capabilityList: CapabilityLoader
   /** Scaffold one new capability (「新建能力」). */
   readonly capabilityCreate: CapabilityCreator
   /** Run one capability with the caller's input (ADR-0021 决定 7's row menus). */
   readonly capabilityRun: CapabilityRunner
-  /** Create a reading project — a `project` entity with `source:` set (ADR-0020). */
-  readonly createReadingProject: (name: string, source: string) => Promise<string>
-  /** Run the first reading round in a dsh session (ADR-0020). */
-  readonly readBook: BookReader
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
   readonly onKbRootChanged: () => void
 }
@@ -231,8 +221,7 @@ function DragHandle(props: {
 export function Frame({
   renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail,
-  registerResource, extractResource, capabilityList, capabilityCreate, capabilityRun, createReadingProject,
-  readBook, onKbRootChanged,
+  registerResource, capabilityList, capabilityCreate, capabilityRun, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -309,18 +298,6 @@ export function Frame({
   const [restored, setRestored] = useState(false)
   const [treeKey, setTreeKey] = useState(0)
   const [needsRoot, setNeedsRoot] = useState(false)
-  // ADR-0020: the resource the reading-project dialog is open for, if any.
-  const [readingTarget, setReadingTarget] = useState<string | null>(null)
-
-  const openReading = useCallback((resourcePath: string): void => {
-    setReadingTarget(resourcePath)
-  }, [])
-
-  // The 领域 the KB holds, for the reading prompt to match against.
-  const knownAreas = useCallback(async (): Promise<readonly string[]> => {
-    const sections = await workspace()
-    return sections.find(section => section.id === 'areas')?.files.map(file => file.name) ?? []
-  }, [workspace])
 
   // The KB root, kept only so "在 Obsidian 中打开" can name an absolute path.
   const [kbRoot, setKbRoot] = useState('')
@@ -392,13 +369,6 @@ export function Frame({
     setTabs(state => openTab(state, path, mode))
   }, [])
 
-  // ADR-0020: the reading task runs in one background slot — the dialog only
-  // collects the two choices, the bar below reports the stage, and the
-  // proposal window reopens when the first round lands.
-  const openProject = useCallback((projectPath: string): void => {
-    setTreeKey(key => key + 1)
-    openFile(projectPath, 'edit')
-  }, [openFile])
   // ADR-0021 决定 4: the confirmed proposal lands through the shared applier's
   // direct RPCs — the frame owns the KB seams, the task owns the state machine.
   const applyConfirmed = useCallback(
@@ -406,14 +376,6 @@ export function Frame({
       applyProposal({ ...options, target: { createEntity, read, write, todos, writeTodos } }),
     [createEntity, read, write, todos, writeTodos],
   )
-  const reading = useReadingTask({
-    createReadingProject,
-    extract: extractResource,
-    knownAreas,
-    readBook,
-    apply: applyConfirmed,
-    onDone: openProject,
-  })
 
   // ADR-0021 决定 7: a row menu's capability run. A run that answers with a
   // proposal (`{ actions: [...] }`) opens the shared card; anything else is
@@ -549,7 +511,6 @@ export function Frame({
           mailMarkRead={mailMarkRead}
           analyseMail={analyseMail}
           registerResource={registerResource}
-          onCreateReading={openReading}
           capabilityList={capabilityList}
           capabilityCreate={capabilityCreate}
           onRunCapability={runRowCapability}
@@ -568,7 +529,6 @@ export function Frame({
             <ReadOnlyFile
               path={tab.path}
               read={read}
-              onCreateReading={readOnlyPath(tab.path) ? () => { openReading(tab.path) } : undefined}
             />
           )
           : (
@@ -636,36 +596,6 @@ export function Frame({
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>
       {needsRoot && (
         <Onboarding setRoot={setRoot} pickDirectory={pickDirectory} onConfigured={onConfigured} />
-      )}
-      {readingTarget !== null && (
-        <ReadingDialog
-          resourcePath={readingTarget}
-          disabled={reading.task !== null}
-          onStart={(title, read) => {
-            const target = readingTarget
-            setReadingTarget(null)
-            // The session lands in the KB root's directory, so it shows up in
-            // the session list the KB-scoped views already read.
-            reading.start(target, title, read, kbRoot === '' ? undefined : kbRoot)
-          }}
-          onCancel={() => { setReadingTarget(null) }}
-        />
-      )}
-      {reading.task !== null && (
-        <ReadingMonitor
-          task={reading.task}
-          onCancel={reading.cancel}
-          onDismiss={reading.dismiss}
-          onOpen={openProject}
-        />
-      )}
-      {reading.task?.status === 'proposal' && reading.task.run !== null && reading.task.projectPath !== null && (
-        <ProposalCard
-          proposal={readingProposalOf(reading.task.run, reading.task.projectPath)}
-          busy={reading.task.stage === 'writing'}
-          onConfirm={reading.confirm}
-          onDismiss={reading.skip}
-        />
       )}
       {capabilityProposal !== null && (
         <ProposalCard

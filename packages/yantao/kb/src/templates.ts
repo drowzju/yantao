@@ -19,12 +19,6 @@ export interface EntityTemplateOptions {
   email?: string
   /** The meeting's own date (YYYY-MM-DD) — only meaningful for meeting; defaults to the creation date. */
   meetingDate?: string
-  /**
-   * The original material a reading project reads (its KB-relative resource path, e.g.
-   * `resources/三体.epub`) — only meaningful for project, and the reading-project discriminator
-   * (ADR-0020): a project carrying `source:` is a reading project.
-   */
-  source?: string
 }
 
 /**
@@ -52,7 +46,6 @@ export function entityFileContent(
   }
   const fields = [`type: ${type}`]
   if (type === 'project') fields.push('areas: []')
-  if (type === 'project' && options.source !== undefined) fields.push(`source: ${options.source}`)
   if (type === 'person') fields.push(`relation: ${options.relation ?? 'subordinate'}`)
   if (type === 'person' && options.email !== undefined && options.email !== '') fields.push(`email: ${options.email}`)
   fields.push('tags: []', `created: ${date}`)
@@ -77,10 +70,10 @@ export const KB_README = `# yantao 知识库
 
 这个目录是 yantao 的个人知识库（PARA+P）。
 
-- \`resources/\` — 原始材料，原样存放、永不改写；想加工一份材料，就为它建一个项目（如读书项目）。
+- \`resources/\` — 原始材料，原样存放、永不改写。
 - \`entities/projects/\`、\`entities/areas/\`、\`entities/people/\`、\`entities/meetings/\` — 实体笔记，每个实体一个 \`.md\` 文件。
 - \`entities/todos.md\` — 待办单例，Obsidian 复选框清单，没有区段结构；每行形如 \`- [ ] [due::YYYY-MM-DD] 标题\`，条目正文缩进两格写在下方。
-- \`.yantao/\` — 工作台的机器簿记（如读书的文本抽取缓存），不进界面树，请勿手工整理。
+- \`.yantao/\` — 工作台的机器簿记，不进界面树，请勿手工整理。
 - \`sessions/\` — 会话归档。
 
 实体文件的「状态」区由人和 agent 共同维护（agent 通过 \`kb_write_state\` 写入）；「流水」区只追加、不改写。读写知识库请使用 \`kb_\` 系列工具。

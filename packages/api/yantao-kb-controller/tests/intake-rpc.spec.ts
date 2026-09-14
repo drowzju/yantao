@@ -4,14 +4,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
-import { entityFileContent, todayStamp, type YantaoKbService } from '@deepseek-ai/dsh-yantao-kb'
+import { type YantaoKbService } from '@deepseek-ai/dsh-yantao-kb'
 import YantaoKbController from '../src/index.ts'
 
 let kbRoot: string
 let ctx: Context
 let fiber: { dispose(): Promise<void> }
-
-const TODAY = todayStamp()
 
 beforeEach(async () => {
   kbRoot = await mkdtemp(join(tmpdir(), 'yantao-kb-intake-'))
@@ -72,24 +70,5 @@ describe('yantaoKb.registerResource', () => {
     })
     expect((failure as Error).message).toMatch(/已登记过/)
     expect(await readFile(join(kbRoot, 'resources/三体.epub'), 'utf8')).toBe('original')
-  })
-})
-
-describe('yantaoKb.createEntity with source', () => {
-  it('writes the source resource into a reading project\'s frontmatter', async () => {
-    const result = await ctx.yantaoKbController.createEntity({
-      type: 'project',
-      name: '读书-三体',
-      source: 'resources/三体.epub',
-    })
-    expect(result.path).toBe('entities/projects/读书-三体.md')
-    expect(await readFile(join(kbRoot, result.path), 'utf8')).toBe(
-      entityFileContent('project', '读书-三体', TODAY, { source: 'resources/三体.epub' }),
-    )
-  })
-
-  it('omits the field when the caller names no source', async () => {
-    const result = await ctx.yantaoKbController.createEntity({ type: 'project', name: '普通项目' })
-    expect(await readFile(join(kbRoot, result.path), 'utf8')).not.toContain('source:')
   })
 })

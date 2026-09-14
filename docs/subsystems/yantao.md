@@ -137,9 +137,9 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * A resource original is often binary (pdf/epub/…). Decoding it as UTF-8
  * yields a mojibake string the size of the file, which the RPC channel then
  * serializes and the workbench renders — the freeze behind left-clicking a
- * pdf row. A NUL byte is the cheapest reliable marker: every format the
- * extractor (ADR-0020) calls binary carries one, while no note does. A
- * binary file is refused instead; its text route is the extract.
+ * pdf row. A NUL byte is the cheapest reliable marker: every format ADR-0020
+ * classifies as binary carries one, while no note does. A binary file is
+ * refused instead.
  * @param path - KB-relative path with forward slashes.
  * @returns the path and the file's complete UTF-8 content.
  */
@@ -175,8 +175,7 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 /**
  * Create one entity note from the canonical template.
  * @param args - the entity kind, its display name, the meeting's own date,
- *   the person's relation to the KB's owner, and — for a reading project —
- *   the resource it reads (ADR-0020), written into the frontmatter as `source:`.
+ *   and the person's relation to the KB's owner and e-mail address.
  * @returns the KB-relative path of the created file.
  */
 @Remote('createEntity') async createEntity(args: KbCreateEntityArgs): Promise<KbCreateEntityResult>

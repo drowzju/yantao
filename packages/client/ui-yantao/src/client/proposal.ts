@@ -1,7 +1,7 @@
 /**
  * The unified proposal schema (ADR-0021 决定 4): one shape for everything an
- * agent proposes and a human confirms — the mail analysis's four blocks and
- * the reading flow's domain proposal both land here as flat action lists.
+ * agent proposes and a human confirms — the mail analysis's four blocks land
+ * here as a flat action list.
  *
  * A proposal proposes; nothing in this module writes to the KB. Applying is
  * {@link ./proposal-apply.ts} `applyProposal`'s business, and only after the
@@ -11,7 +11,6 @@
 import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { MailAnalysis } from './mail-analysis.ts'
 import type { MailEntities } from './mail-apply.ts'
-import type { ReadingRun } from './reading-flow.ts'
 
 /** The entity types `createEntity` accepts, as the controller types them. */
 export type ProposalEntityType = 'project' | 'area' | 'person' | 'meeting'
@@ -155,17 +154,6 @@ export function resourceNote(name: string, summary: string, mail?: KbMailMessage
 }
 
 /**
- * An entity's display name, from its KB-relative path — the file name without
- * the `.md` suffix, which is how the rails label it.
- * @param path - the entity's KB-relative path.
- * @returns the display name.
- */
-function entityNameOf(path: string): string {
-  const base = path.split('/').pop() ?? path
-  return base.replace(/\.md$/, '')
-}
-
-/**
  * Turn a mail analysis into a proposal (ADR-0019 → ADR-0021 决定 4): the four
  * blocks become a flat action list in a fixed order — people, todos, project
  * notes, resources — so the card groups them and the applier runs them in one
@@ -244,41 +232,4 @@ export function analysisToProposal(
     ...(highlights.length > 0 ? { highlights } : {}),
     ...(digest.length > 0 ? { digest } : {}),
   }
-}
-
-/**
- * Turn a reading run's domain proposal into a proposal (ADR-0020 → ADR-0021
- * 决定 4): each existing domain becomes one `[[领域:…]]` link into the
- * project's 状态, and a proposed new domain becomes a create followed by its
- * link — the applier executes in order, so the link lands after the creation.
- * @param run - the first round's result.
- * @param projectPath - the reading project's KB-relative path.
- * @returns the proposal.
- */
-export function readingProposalOf(run: ReadingRun, projectPath: string): Proposal {
-  const name = entityNameOf(projectPath)
-  const actions: ProposalAction[] = run.proposal.domains.map(domain => ({
-    kind: 'create-link',
-    entityPath: projectPath,
-    entityName: name,
-    link: `[[领域:${domain}]]`,
-    reason: `模型判断这本书适合挂到「${domain}」之下`,
-  }))
-  const { newDomain } = run.proposal
-  if (newDomain !== undefined) {
-    actions.push({
-      kind: 'create-entity',
-      entityType: 'area',
-      name: newDomain,
-      reason: '知识库还没有这个领域，模型建议新建',
-    })
-    actions.push({
-      kind: 'create-link',
-      entityPath: projectPath,
-      entityName: name,
-      link: `[[领域:${newDomain}]]`,
-      reason: `新建领域后把书挂到「${newDomain}」之下`,
-    })
-  }
-  return { title: run.title, note: '会话已保留，可以回去看它为什么这么判断。', actions }
 }

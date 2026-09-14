@@ -153,12 +153,6 @@ export interface KbCreateEntityArgs {
    * writes the sender address here so later batches match senders by address.
    */
   readonly email?: string
-  /**
-   * The resource the entity is *about*, as a KB-relative path (ADR-0020);
-   * only a reading project carries it, written into its frontmatter as
-   * `source:` — the field that makes `读书-《书名》` a reading project.
-   */
-  readonly source?: string
 }
 
 /** Result of `yantaoKb.createEntity`. */
@@ -325,24 +319,6 @@ export interface KbRegisterResourceArgs {
 export interface KbRegisterResourceResult {
   /** The KB-relative path of the copied resource, `resources/…`. */
   readonly resource: string
-}
-
-/** Input of the 读书 capability (ADR-0020): handed to `capabilityRun('ebook', …)` as `input`. */
-export interface KbExtractArgs {
-  /** KB-relative path of the resource to extract, `resources/…`. */
-  readonly path: string
-}
-
-/** Result of the 读书 capability (ADR-0020): the `result` of `capabilityRun('ebook', …)`. */
-export interface KbExtractResult {
-  /** KB-relative path of the cached extract text, `.yantao/extracts/….txt`. */
-  readonly extractPath: string
-  /** The format the extractor ran with. */
-  readonly format: string
-  /** The extract's character count. */
-  readonly chars: number
-  /** True when an existing cache answered and no extraction ran. */
-  readonly cached: boolean
 }
 
 /**

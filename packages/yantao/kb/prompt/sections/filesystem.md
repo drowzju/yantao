@@ -2,10 +2,10 @@
 
 知识库根目录（下称 KB 根）的布局固定：
 
-- `resources/` — Resource：不可变的原始输入材料。登记是纯复制，进入后**永不改写**；抽取文本缓存在 `.yantao/extracts/`，属于机器簿记，不进 `resources/`。
+- `resources/` — Resource：不可变的原始输入材料。登记是纯复制，进入后**永不改写**；不读它当上下文，也不把它的路径当成果落库。
 - `entities/projects|areas|people|meetings/` — Entity：PARA+P 四类实体，一个实体一个 Markdown 文件。
 - `entities/todos.md` — 待办单例：整个知识库只有这一个待办文件，checkbox 列表，没有区段结构。
-- `.yantao/` — 机器簿记（抽取缓存、能力产物缓存）。**不是知识**，不要读它当上下文，更不要把它的路径当成果落库。
+- `.yantao/` — 机器簿记（能力产物缓存）。**不是知识**，不要读它当上下文，更不要把它的路径当成果落库。
 
 每个实体文件的同构区段：
 
@@ -14,7 +14,6 @@
 
 特殊实体：
 
-- **读书项目**：普通 project，frontmatter 的 `source:` 字段指向 `resources/` 下的原件；经 `kb_read_resource` 分页读抽取文本，大纲写『状态』、过程写『流水』。
 - **会议**：`entities/meetings/<YYYY-MM-DD> <会议名>.md`，frontmatter 带 `date`。
 - **「我自己」**：relation 为 self 的人物实体，首次初始化自动创建。
 

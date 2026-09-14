@@ -32,8 +32,6 @@ import type {
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
-import type { BookReader } from './reading-flow.ts'
-import { runReadingFlow } from './reading-flow.ts'
 import { Frame } from './frame/Frame.tsx'
 import { ThemePresenter } from './frame/theme-presenter.ts'
 import { WorkbenchLayout, createPanelSeat } from './frame/layout.ts'
@@ -41,7 +39,7 @@ import { YantaoMark } from './brand/YantaoMark.tsx'
 import { alignWorkspace } from './kb-workspace.ts'
 import { kbReferenceSource } from './kb-reference.ts'
 import {
-  createCapability, createEntity, deleteFile, extractResource, fetchMail, loadCapabilities, loadIntake, loadLinks,
+  createCapability, createEntity, deleteFile, fetchMail, loadCapabilities, loadIntake, loadLinks,
   loadRevision, loadRoot, loadTodos,
   loadWorkspace, markMailRead, openExternal, readFile, registerResource, runCapability, setKbRoot,
   setRelation, writeFile, writeTodos,
@@ -159,15 +157,12 @@ export function apply(ctx: Context): void {
           ...onProgress !== undefined ? { onProgress } : {},
         })
       },
-      // ADR-0020: the resource intake and the reading flow.
+      // ADR-0020: the resource intake.
       registerResource: (name: string, contentBase64: string) => registerResource(ctx, name, contentBase64),
-      extractResource: (path: string) => extractResource(ctx, path),
       // ADR-0021: the capability surface the 能力 tab reads.
       capabilityList: () => loadCapabilities(ctx),
       capabilityRun: (args: KbCapabilityRunArgs) => runCapability(ctx, args),
       capabilityCreate: (name: string) => createCapability(ctx, name),
-      createReadingProject: (name: string, source: string) => createEntity(ctx, { type: 'project', name, source }),
-      readBook: (options: Parameters<BookReader>[0]) => runReadingFlow({ ctx, ...options }),
       onKbRootChanged: align,
     }),
   }, Frame), 'ui-yantao: root frame')

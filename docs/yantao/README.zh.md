@@ -60,7 +60,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 ```
 
 - **dsh 是后端。** 我们的 UI 通过 Typert RPC 与转发事件流消费它,而浏览器外壳归我们:工作台插件注册运行时内置的 `root` 槽位、自绘三栏外框(ADR-0011),`ui-layout` 已退出名单。中间一列是 tab 化的:常驻的「对话」tab 通过 `conversation` 座位承载宿主的会话面(ADR-0009),每个打开的 KB 文件各占一个可关闭 tab,自动保存并带冲突检查(ADR-0012)。
-- **信任边界在工具层。** agent 有九个 `kb_*` 工具、没有通用写能力;它现在可以通过 `kb_write_state` 写实体的「状态」区——这正是 ADR-0010 对 ADR-0004 的修订:边界是工具集,不是区段;它运行能力也只能通过 `kb_run_capability`,由 sidecar 的 `invocation` 字段逐能力把关(ADR-0023)。**UI 是人类通道**,可以编辑任何内容。
+- **信任边界在工具层。** agent 有八个 `kb_*` 工具、没有通用写能力;它现在可以通过 `kb_write_state` 写实体的「状态」区——这正是 ADR-0010 对 ADR-0004 的修订:边界是工具集,不是区段;它运行能力也只能通过 `kb_run_capability`,由 sidecar 的 `invocation` 字段逐能力把关(ADR-0023)。**UI 是人类通道**,可以编辑任何内容。
 - **知识存在文件里**,不是数据库:KB 根下的 `resources/`、`entities/{projects,areas,people,meetings}/`、`entities/todos.md` 单例,以及暂不使用的 `sessions/`(ADR-0005,目录结构调整见 ADR-0010)。每个实体文件里的「状态」/「流水」两区就是人与 agent 的边界。
 - **知识库根目录由人选。** 首次进入会要求选一个目录并持久化到 `~/.dsh/yantao-kb.json`(`yantaoKb.root()` / `setRoot()`);两条侧栏通过 `yantaoKb.createEntity()` 就地新建实体(ADR-0012)。
 
@@ -95,7 +95,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0017 | 编辑器策略:先借 Obsidian 做重编辑(`openExternal`)+ `revision()` 监听,而不是现在就自研编辑器 |
 | 0018 | 待办载体:`[due::]`/`[done::]` 结构化行 + 左栏 TODO/DONE 双面板;解析只在宿主侧,agent 不写待办 |
 | 0019 | 第一个连接器:Outlook 邮件(COM 子进程读邮件,dsh session 分析,人工确认后才写库) |
-| 0020 | 读书项目与资源入库:拖放入库、`source:` 字段判别的读书项目、惰性 py 脚本抽取、废除影子笔记配对 |
+| 0020 | 读书项目与资源入库:拖放入库、`source:` 字段判别的读书项目、惰性 py 脚本抽取、废除影子笔记配对(读书项目与 `ebook` 能力已于 2026-09-14 退役——见该 ADR 落地注记) |
 | 0021 | 能力系统:连接重构为能力(skill 目录 + 宿主入口 + appliesTo 声明),统一提议流,mail/extract 全量迁移;取舍台账独立成节 |
 | 0022 | 系统提示词分层:yantao 的系统指令以命名 section 叠加在 dsh 注册表上,源文件为仓库 Markdown;persona 保持薄身份声明 |
 | 0023 | 能力的模型侧调用:`kb_run_capability` 按 sidecar `invocation` 字段逐能力门控,动态目录注入,缺 entry 的指令型能力,播种覆盖前备份;重开 ADR-0021 台账第 1、2 条 |

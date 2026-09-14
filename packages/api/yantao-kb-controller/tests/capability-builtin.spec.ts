@@ -28,7 +28,7 @@ async function masterVersion(name: string): Promise<number> {
 
 describe('ensureBuiltinCapabilities', () => {
   it('seeds the shipped capabilities into a fresh KB', () => {
-    expect(ensureBuiltinCapabilities(kbRoot)).toEqual(expect.arrayContaining(['mail', 'ebook']))
+    expect(ensureBuiltinCapabilities(kbRoot)).toEqual(expect.arrayContaining(['mail']))
   })
 
   it('answers empty and leaves the human\'s copy alone once it is up to date', () => {
@@ -78,8 +78,26 @@ describe('ensureBuiltinCapabilities', () => {
 
   it('copies the whole directory, scripts included', async () => {
     ensureBuiltinCapabilities(kbRoot)
-    expect(await readFile(join(kbRoot, '.dsh', 'skills', 'ebook', 'scripts', 'extract.py'), 'utf8'))
-      .toMatch(/def extract_document/)
+    expect(await readFile(join(kbRoot, '.dsh', 'skills', 'mail', 'scripts', 'entry.py'), 'utf8'))
+      .toMatch(/json\.load/)
+  })
+
+  it('retires a seeded copy of a capability that no longer ships, losslessly', async () => {
+    // A leftover from an older ship: ebook was seeded once, then retired.
+    const target = join(kbRoot, '.dsh', 'skills', 'ebook')
+    await mkdir(join(target, 'scripts'), { recursive: true })
+    await writeFile(join(target, 'SKILL.md'), '---\nname: ebook\ndescription: 人改过的版本\n---\n', 'utf8')
+    // Retirement is not seeding: the fresh KB still gets its shipped mail copy.
+    expect(ensureBuiltinCapabilities(kbRoot)).toEqual(['mail'])
+    await expect(readdir(target)).rejects.toMatchObject({ code: 'ENOENT' })
+    const backups = await readdir(join(kbRoot, '.yantao', 'capability-backups', 'ebook'))
+    expect(backups).toHaveLength(1)
+    expect(await readFile(join(kbRoot, '.yantao', 'capability-backups', 'ebook', backups[0]!, 'SKILL.md'), 'utf8'))
+      .toMatch(/人改过的版本/)
+  })
+
+  it('retirement is a no-op when no seeded copy exists', () => {
+    expect(ensureBuiltinCapabilities(kbRoot)).toEqual(expect.arrayContaining(['mail']))
   })
 
   it('tolerates a KB root it cannot write to, answering what it managed', async () => {

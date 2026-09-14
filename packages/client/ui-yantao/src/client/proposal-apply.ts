@@ -9,7 +9,7 @@
  * and todo lines join the singleton's item list under optimistic concurrency
  * in one batched call (ADR-0018).
  *
- * The reading flow's confirm lands here too (ADR-0020 amended): what used to
+ * The mail analysis's confirm lands here too (ADR-0019 amended): what used to
  * be a second agent round prompting `kb_create_entity`/`kb_write_state` is
  * now these direct writes — the UI is the human channel (hard rule 2), and
  * the session stays kept for re-reading either way.
@@ -123,7 +123,7 @@ export async function applyProposal(options: {
 
   for (const action of rest) {
     if (action.kind === 'create-entity') {
-      // The mail path names a person's address; the reading path never does.
+      // Only the mail path names a person's address.
       await target.createEntity(
         action.entityType,
         action.name,

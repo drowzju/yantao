@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { appendLog, createEntity, extractPaths, initKb, listEntities, readEntity, readResourceChunk, registerResource, registerResourceContent, writeState } from '../src/core.ts'
+import { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, registerResourceContent, writeState } from '../src/core.ts'
 import { appendToLogSection, logBullet, replaceStateSection } from '../src/splice.ts'
 import { sanitizeFileName, todayStamp } from '../src/paths.ts'
 import { entityFileContent, todoFileContent } from '../src/templates.ts'
@@ -94,24 +94,6 @@ describe('entity template', () => {
     )
     expect(content).not.toContain('## 状态')
     expect(content).not.toContain('## 流水')
-  })
-  it('matches the canonical reading-project frontmatter byte-for-byte', () => {
-    expect(entityFileContent('project', '读书-三体', '2026-09-05', { source: 'resources/三体.epub' })).toBe(
-      '---\n'
-      + 'type: project\n'
-      + 'areas: []\n'
-      + 'source: resources/三体.epub\n'
-      + 'tags: []\n'
-      + 'created: 2026-09-05\n'
-      + '---\n'
-      + '\n'
-      + '## 状态\n'
-      + '\n'
-      + '\n'
-      + '## 流水\n'
-      + '\n'
-      + '- 2026-09-05 创建 读书-三体\n',
-    )
   })
 })
 
@@ -516,31 +498,5 @@ describe('registerResourceContent', () => {
     await expect(registerResourceContent(kbRoot, 'a/b.txt', new Uint8Array([4])))
       .rejects.toThrow(/已登记过/)
     expect(existsSync(join(kbRoot, 'resources/a_b.txt'))).toBe(true)
-  })
-})
-
-describe('extractPaths', () => {
-  it('maps a resource to its .yantao/extracts cache paths', () => {
-    expect(extractPaths(kbRoot, 'resources/三体.epub')).toEqual({
-      text: '.yantao/extracts/三体.epub.txt',
-      meta: '.yantao/extracts/三体.epub.json',
-    })
-  })
-})
-
-describe('readResourceChunk', () => {
-  it('pages through the extract with offset and hasMore', async () => {
-    await registerResourceContent(kbRoot, '书.txt', new Uint8Array([0]))
-    await mkdir(join(kbRoot, '.yantao/extracts'), { recursive: true })
-    await writeFile(join(kbRoot, '.yantao/extracts/书.txt.txt'), '一二三四五', 'utf8')
-    const first = await readResourceChunk(kbRoot, 'resources/书.txt', 0, 3)
-    expect(first).toMatchObject({ resource: 'resources/书.txt', total: 5, offset: 0, chunk: '一二三', hasMore: true })
-    const rest = await readResourceChunk(kbRoot, 'resources/书.txt', 3, 3)
-    expect(rest).toMatchObject({ offset: 3, chunk: '四五', hasMore: false })
-  })
-
-  it('errors when the extract is missing and refuses paths outside resources/', async () => {
-    await expect(readResourceChunk(kbRoot, 'resources/没有.txt')).rejects.toThrow(/还没有文本抽取缓存/)
-    await expect(readResourceChunk(kbRoot, 'entities/projects/x.md')).rejects.toThrow(/只读 resources/)
   })
 })

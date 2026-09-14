@@ -306,8 +306,6 @@ function RowMenu(props: {
   relations?: readonly RelationOption[] | undefined
   /** Write the row's relation; only a person row offers one. */
   onRelate?: ((path: string, relation: KbPersonRelation) => Promise<void>) | undefined
-  /** Open the reading-project dialog for this resource row (ADR-0020). */
-  onCreateReading?: ((path: string) => void) | undefined
   /** The capabilities whose `appliesTo` accepts this row (ADR-0021 决定 7). */
   capabilities?: readonly KbCapabilitySummary[] | undefined
   /** Run one of those capabilities against this row. */
@@ -315,7 +313,7 @@ function RowMenu(props: {
   onDelete: (path: string) => void
   onClose: () => void
 }): ReactElement {
-  const { target, busy, relations, onRelate, onCreateReading, capabilities, onRunCapability, onDelete, onClose } = props
+  const { target, busy, relations, onRelate, capabilities, onRunCapability, onDelete, onClose } = props
   const [confirming, setConfirming] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -353,17 +351,6 @@ function RowMenu(props: {
             </button>
           ))}
         </div>
-      )}
-      {onCreateReading !== undefined && (
-        <button
-          type="button"
-          style={menuItemStyle}
-          disabled={busy}
-          data-create-reading="true"
-          onClick={() => { onCreateReading(target.path) }}
-        >
-          创建读书项目
-        </button>
       )}
       {capabilities !== undefined && capabilities.length > 0 && onRunCapability !== undefined && (
         <div data-row-capabilities="true">
@@ -568,8 +555,6 @@ export interface RailProps {
 export interface IntakeRailProps extends RailProps {
   /** Copy one dropped file into `resources/`. */
   readonly registerResource: ResourceRegistrar
-  /** Open the reading-project dialog for one resource. */
-  readonly onCreateReading: (resourcePath: string) => void
   /** Scaffold one new capability (「新建能力」). */
   readonly capabilityCreate: CapabilityCreator
 }
@@ -595,7 +580,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const {
     collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
     read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource,
-    onCreateReading, capabilityList, capabilityCreate, onRunCapability,
+    capabilityList, capabilityCreate, onRunCapability,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const capabilities = useCapabilities(capabilityList, refreshKey)
@@ -739,7 +724,6 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           key={rowMenu.menu.path}
           target={rowMenu.menu}
           busy={rowMenu.busy || dropping}
-          onCreateReading={tab === 'resources' ? onCreateReading : undefined}
           capabilities={tab === 'resources'
             ? matchCapabilities(capabilities, { kind: 'resource', path: rowMenu.menu.path })
             : tab === 'meetings'

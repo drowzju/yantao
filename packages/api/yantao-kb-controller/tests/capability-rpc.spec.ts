@@ -243,8 +243,8 @@ describe('yantaoKb.capabilityList', () => {
     skillGet.mockResolvedValue(definition())
     const { capabilities } = await ctx.yantaoKbController.capabilityList()
     // The seeding itself is covered by capability-builtin.spec; here it is
-    // enough that a fresh KB answers with the shipped pair.
-    expect(capabilities.map(capability => capability.name)).toEqual(expect.arrayContaining(['mail', 'ebook']))
+    // enough that a fresh KB answers with the shipped capability.
+    expect(capabilities.map(capability => capability.name)).toEqual(expect.arrayContaining(['mail']))
   })
 
   it('lists instruction capabilities with entry/runtime absent and invocation present', async () => {

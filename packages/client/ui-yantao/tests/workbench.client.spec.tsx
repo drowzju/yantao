@@ -94,7 +94,6 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
     analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } }),
     registerResource: () => Promise.resolve('resources/新资源.pdf'),
-    onCreateReading: () => {},
     capabilityList: () => Promise.resolve({ capabilities: [] }),
     capabilityCreate: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     onRunCapability: () => {},
@@ -351,22 +350,6 @@ describe('IntakeRail', () => {
     expect(conversationDrop).not.toHaveBeenCalled()
   })
 
-  it('offers 创建读书项目 on a resource row\'s right-click menu', async () => {
-    const onCreateReading = vi.fn()
-    render(<IntakeRail {...railProps({ onCreateReading })} />)
-    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
-    fireEvent.click(await screen.findByText('创建读书项目'))
-    expect(onCreateReading).toHaveBeenCalledWith('resources/周报.eml')
-  })
-
-  it('offers no 创建读书项目 on a meeting row', async () => {
-    render(<IntakeRail {...railProps()} />)
-    fireEvent.click(screen.getByText('会议'))
-    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
-    expect(await screen.findByText('删除「周会」')).toBeTruthy()
-    expect(screen.queryByText('创建读书项目')).toBeNull()
-  })
-
   it('offers the matching capability on a resource row\'s menu and runs it', async () => {
     const onRunCapability = vi.fn()
     const { container } = render(
@@ -574,7 +557,7 @@ describe('WorkspaceRail', () => {
 /** Two capabilities as `capabilityList` answers them (ADR-0021). */
 const CAPABILITIES: KbCapabilitySummary[] = [
   { name: 'mail', description: '读 Outlook 邮件', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human', 'agent'] },
-  { name: 'ebook', description: '抽取书籍文本', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'] },
+  { name: 'paper-digest', description: '摘要一篇论文', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'] },
 ]
 
 /** Capabilities for the row-menu matching tests (ADR-0021 决定 7, ADR-0023 决定 2). */
@@ -600,7 +583,7 @@ describe('CapabilityPanel', () => {
     render(<CapabilityPanel {...capabilityProps()} />)
     expect(await screen.findByText('mail')).toBeTruthy()
     expect(screen.getByText('读 Outlook 邮件')).toBeTruthy()
-    expect(screen.getByText('ebook')).toBeTruthy()
+    expect(screen.getByText('paper-digest')).toBeTruthy()
     expect(screen.getByText('+ 新建能力')).toBeTruthy()
   })
 
@@ -622,7 +605,7 @@ describe('CapabilityPanel', () => {
 
   it('returns to the list from a detail', async () => {
     render(<CapabilityPanel {...capabilityProps()} />)
-    fireEvent.click(await screen.findByText('ebook'))
+    fireEvent.click(await screen.findByText('paper-digest'))
     fireEvent.click(await screen.findByText('← 返回清单'))
     expect(await screen.findByText('mail')).toBeTruthy()
   })
@@ -722,11 +705,8 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
       analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } })}
       registerResource={() => Promise.resolve('resources/新资源.pdf')}
-      extractResource={() => Promise.resolve({ extractPath: '.yantao/extracts/x.txt', format: 'pdf', chars: 0, cached: false })}
       capabilityList={() => Promise.resolve({ capabilities: [] })}
       capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
-      createReadingProject={() => Promise.resolve('entities/projects/读书-《新书》.md')}
-      readBook={() => Promise.resolve({ sessionId: '', title: '', proposal: { domains: [] } })}
       capabilityRun={() => Promise.resolve({ name: '', runAt: '', artifacts: [] })}
       writeTodos={kb.writeTodos}
       onKbRootChanged={onKbRootChanged}
@@ -835,13 +815,6 @@ describe('Frame', () => {
     expect(screen.queryByText('源码')).toBeNull()
   })
 
-  it('opens the reading dialog from a read-only original\'s banner', async () => {
-    const { container } = render(renderFrame())
-    fireEvent.click(await screen.findByText('周报.eml'))
-    fireEvent.click(await screen.findByText('创建读书项目'))
-    expect(container.querySelector('[data-reading-dialog]')).not.toBeNull()
-  })
-
   it('highlights the active file in its rail and follows the tab switch', async () => {
     const { container } = render(renderFrame())
     const selectedTitle = (): string | null =>
@@ -915,11 +888,8 @@ describe('Frame', () => {
         mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
         analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } })}
         registerResource={() => Promise.resolve('resources/新资源.pdf')}
-        extractResource={() => Promise.resolve({ extractPath: '.yantao/extracts/x.txt', format: 'pdf', chars: 0, cached: false })}
         capabilityList={() => Promise.resolve({ capabilities: [] })}
         capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
-        createReadingProject={() => Promise.resolve('entities/projects/读书-《新书》.md')}
-        readBook={() => Promise.resolve({ sessionId: '', title: '', proposal: { domains: [] } })}
         capabilityRun={() => Promise.resolve({ name: '', runAt: '', artifacts: [] })}
         onKbRootChanged={onKbRootChanged}
       />,

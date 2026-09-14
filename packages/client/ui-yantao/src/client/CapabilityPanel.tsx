@@ -1,6 +1,6 @@
 /**
  * The 能力 tab (ADR-0021 决定 8): 清单 + 详情 two states. The list names every
- * registered capability — the two built-ins (mail, ebook) plus anything the
+ * registered capability — the built-in mail one plus anything the
  * human copied into `.dsh/skills/` or scaffolded through 「新建能力」. The
  * mail capability's detail embeds {@link MailPanel}; every other capability's
  * detail is its manifest, read-only.

@@ -19,7 +19,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { appendLog, createEntity, initKb, listEntities, readEntity, readResourceChunk, registerResource, writeState } from './core.ts'
+import { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, writeState } from './core.ts'
 import { kbMentions, renderKbMentions } from './mentions.ts'
 import { readKbRootOverride, writeKbRootOverride } from './root-store.ts'
 import { registerPromptSections } from './sections.ts'
@@ -391,46 +391,13 @@ export function apply(ctx: Context, config: Config): void {
     },
     execute: args => registerResource(liveRoot.root, args.path),
   }))
-
-  ctx.tools.register(defineTool({
-    name: 'kb_read_resource',
-    description:
-      '分页读取一份资源的抽取文本（ADR-0020）：一本书几十万字，用 offset/length 一块块读完，'
-      + '每次返回 chunk 与 hasMore，读完为止。资源必须先经工作台的「创建读书项目」完成文本抽取'
-      + '（缓存在 .yantao/extracts/）；未抽取的资源会报错。path 形如 "resources/三体.epub"。',
-    parameters: {
-      path: { type: 'string', required: true, description: '资源的 KB 相对路径（resources/ 下）' },
-      offset: { type: 'number', description: '起始字符偏移（默认 0）' },
-      length: { type: 'number', description: '本次返回的字符数（默认 20000）' },
-    },
-    output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          resource: { type: 'string', required: true },
-          total: { type: 'number', required: true },
-          offset: { type: 'number', required: true },
-          chunk: { type: 'string', required: true },
-          hasMore: { type: 'boolean', required: true },
-        },
-      },
-      render: (_args, value) => [{
-        type: 'text',
-        text: `【${value.resource}】第 ${value.offset + 1}–${value.offset + value.chunk.length} 字 / 共 ${value.total} 字`
-          + `${value.hasMore ? '（未完，续读请增大 offset）' : '（全文完）'}\n\n${value.chunk}`,
-      }],
-    },
-    execute: args => readResourceChunk(liveRoot.root, args.path, args.offset, args.length),
-  }))
 }
 
 // Host-side consumers (the yantao-kb-controller Remote) reuse the filesystem
 // operations and path confinement through these public re-exports; the
 // plugin above remains the model-facing shell over the same operations.
-export { appendLog, createEntity, extractPaths, initKb, listEntities, readEntity, readResourceChunk, registerResource, registerResourceContent, writeState } from './core.ts'
-export type { InitKbResult, ListedEntity, ResourceChunk } from './core.ts'
-export { RESOURCE_CHUNK_LENGTH } from './core.ts'
+export { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, registerResourceContent, writeState } from './core.ts'
+export type { InitKbResult, ListedEntity } from './core.ts'
 export { entityDisplayPath, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
 export {
   kbRootStatePath, readCapabilityRecord, readCapabilityState, readKbRootOverride,

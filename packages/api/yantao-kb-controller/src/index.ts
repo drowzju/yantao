@@ -6,7 +6,7 @@
  * one configuration point, no duplicated config. `root`/`setRoot` answer and
  * choose that root — the service persists the choice under `~/.dsh` — and `createEntity`
  * files a new note from the KB's canonical template; `registerResource` is the
- * reading-project intake (ADR-0020): a dropped file is copied into `resources/`.
+ * drag-and-drop intake (ADR-0020): a dropped file is copied into `resources/`.
  * The capability surface (ADR-0021) is `capabilityList`/`capabilityRun`/
  * `capabilityCreate`: a capability is a dsh skill
  * directory declaring a host entry, and this controller seeds the shipped
@@ -342,9 +342,9 @@ export class YantaoKbController extends TypertRemoteService {
    * A resource original is often binary (pdf/epub/…). Decoding it as UTF-8
    * yields a mojibake string the size of the file, which the RPC channel then
    * serializes and the workbench renders — the freeze behind left-clicking a
-   * pdf row. A NUL byte is the cheapest reliable marker: every format the
-   * extractor (ADR-0020) calls binary carries one, while no note does. A
-   * binary file is refused instead; its text route is the extract.
+   * pdf row. A NUL byte is the cheapest reliable marker: every format ADR-0020
+   * classifies as binary carries one, while no note does. A binary file is
+   * refused instead.
    * @param path - KB-relative path with forward slashes.
    * @returns the path and the file's complete UTF-8 content.
    */
@@ -426,9 +426,7 @@ export class YantaoKbController extends TypertRemoteService {
   /**
    * Create one entity note from the canonical template.
    * @param args - the entity kind, its display name, the meeting's own date,
-   *   the person's relation to the KB's owner and e-mail address, and — for a
-   *   reading project — the resource it reads (ADR-0020), written into the
-   *   frontmatter as `source:`.
+   *   and the person's relation to the KB's owner and e-mail address.
    * @returns the KB-relative path of the created file.
    */
   @Remote('createEntity')
@@ -439,7 +437,6 @@ export class YantaoKbController extends TypertRemoteService {
         meetingDate: args.date ?? todayStamp(),
         ...args.relation !== undefined ? { relation: args.relation } : {},
         ...args.email !== undefined ? { email: args.email } : {},
-        ...args.source !== undefined ? { source: args.source } : {},
       })
     } catch (error) {
       const message = error instanceof KbError

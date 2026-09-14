@@ -22,7 +22,7 @@ import type {
 import type {
   KbCapabilityCreateArgs, KbCapabilityCreateResult, KbCapabilityListResult,
   KbCapabilityRunArgs, KbCapabilityRunResult, KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
-  KbDeleteFileResult, KbExtractResult, KbFileContent, KbLinksResult,
+  KbDeleteFileResult, KbFileContent, KbLinksResult,
   KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
   KbOpenExternalResult, KbPersonRelation, KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
   KbRootResult, KbSetRelationArgs, KbSetRelationResult,
@@ -122,9 +122,6 @@ export type MailMarker = (args: KbMailMarkReadArgs) => Promise<KbMailMarkReadRes
 
 /** Copy one dropped file into `resources/` and resolve its path (ADR-0020). */
 export type ResourceRegistrar = (name: string, contentBase64: string) => Promise<string>
-
-/** Extract one resource's text through the `ebook` capability (ADR-0020, ADR-0021). */
-export type ResourceExtractor = (path: string) => Promise<KbExtractResult>
 
 /** List the registered capabilities (ADR-0021). */
 export type CapabilityLoader = () => Promise<KbCapabilityListResult>
@@ -417,21 +414,6 @@ export async function registerResource(ctx: Context, name: string, contentBase64
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.registerResource({ name, contentBase64 })).resource
-}
-
-/**
- * Extract one resource's text through the `ebook` capability (ADR-0020,
- * ADR-0021). Idempotent on the host: an existing cache answers with
- * `cached: true` and no extraction runs.
- * @param ctx - client root context.
- * @param path - the resource's KB-relative path.
- * @returns where the text landed, its format and size, or a rejected promise
- *   carrying the reason (a scan without a text layer, a missing Python
- *   library — the host's `details.hint` names the remedy).
- */
-export async function extractResource(ctx: Context, path: string): Promise<KbExtractResult> {
-  const run = await runCapability(ctx, { name: 'ebook', input: { path } })
-  return run.result as unknown as KbExtractResult
 }
 
 /**

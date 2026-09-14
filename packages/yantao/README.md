@@ -24,7 +24,7 @@ The yantao group holds the personal knowledge-workbench domain mounted by the `y
 
 | Package | Role | ctx key |
 |---|---|---|
-| [`kb`](kb/README.md) | PARA+P knowledge-base domain plugin: the eight `kb_` trust-boundary tools over the file-backed KB | registers on `ctx.tools` |
+| [`kb`](kb/README.md) | PARA+P knowledge-base domain plugin: the seven `kb_` trust-boundary tools over the file-backed KB | registers on `ctx.tools` |
 
 -----
 

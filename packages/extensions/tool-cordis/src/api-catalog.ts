@@ -2974,7 +2974,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'read\') async read(path: string): Promise<KbFileContent>',
-        description: 'Read one KB file\'s complete content.\n\nA resource original is often binary (pdf/epub/…). Decoding it as UTF-8 yields a mojibake string the size of the file, which the RPC channel then serializes and the workbench renders — the freeze behind left-clicking a pdf row. A NUL byte is the cheapest reliable marker: every format the extractor (ADR-0020) calls binary carries one, while no note does. A binary file is refused instead; its text route is the extract.',
+        description: 'Read one KB file\'s complete content.\n\nA resource original is often binary (pdf/epub/…). Decoding it as UTF-8 yields a mojibake string the size of the file, which the RPC channel then serializes and the workbench renders — the freeze behind left-clicking a pdf row. A NUL byte is the cheapest reliable marker: every format ADR-0020 classifies as binary carries one, while no note does. A binary file is refused instead.',
         parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }],
         returns: 'the path and the file\'s complete UTF-8 content.',
       },
@@ -2999,7 +2999,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: '@Remote(\'createEntity\') async createEntity(args: KbCreateEntityArgs): Promise<KbCreateEntityResult>',
         description: 'Create one entity note from the canonical template.',
-        parameters: [{ name: 'args', description: 'the entity kind, its display name, the meeting\'s own date, the person\'s relation to the KB\'s owner, and — for a reading project — the resource it reads (ADR-0020), written into the frontmatter as `source:`.' }],
+        parameters: [{ name: 'args', description: 'the entity kind, its display name, the meeting\'s own date, and the person\'s relation to the KB\'s owner and e-mail address.' }],
         returns: 'the KB-relative path of the created file.',
       },
       {
@@ -4546,7 +4546,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbCreateEntityArgs',
-    declaration: 'export interface KbCreateEntityArgs {\n    readonly type: KbCreatableEntityType;\n    readonly name: string;\n    readonly date?: string;\n    readonly relation?: PersonRelation;\n    readonly source?: string;\n}',
+    declaration: 'export interface KbCreateEntityArgs {\n    readonly type: KbCreatableEntityType;\n    readonly name: string;\n    readonly date?: string;\n    readonly relation?: PersonRelation;\n    readonly email?: string;\n}',
   },
   {
     name: 'KbCreateEntityResult',
@@ -4618,7 +4618,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbTreeFile',
-    declaration: 'export interface KbTreeFile {\n    readonly name: string;\n    readonly path: string;\n    readonly archived?: boolean;\n    readonly notePath?: string;\n    readonly relation?: string;\n}',
+    declaration: 'export interface KbTreeFile {\n    readonly name: string;\n    readonly path: string;\n    readonly archived?: boolean;\n    readonly notePath?: string;\n    readonly relation?: string;\n    readonly email?: string;\n}',
   },
   {
     name: 'KbTreeSection',

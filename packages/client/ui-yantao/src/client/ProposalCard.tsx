@@ -2,7 +2,7 @@
  * The one confirmation window every agent judgement ends with (ADR-0021
  * 决定 4): a proposal's actions, grouped by kind, each row ticked separately,
  * with 全部接受 and 全部忽略 for the whole verdict. The mail analysis's four
- * blocks and the reading flow's domain proposal both render here.
+ * blocks render here.
  *
  * Nothing is written from here. The card only reports which rows the human
  * chose; the caller does the writing once, after confirmation — through
