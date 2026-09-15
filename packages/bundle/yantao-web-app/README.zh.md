@@ -40,7 +40,7 @@ MODEL_GATEWAY_API_KEY=<key> dsh --profile yantao-web
 | 行组 | 内容 | 效果 |
 |---|---|---|
 | Web 宿主与传输 | 与 stock web 层相同的行（webserver、web-runtime、各控制器、workspace、feedback、references、stats），外加 `yantao-kb-controller` | 浏览器表面与 `yantaoKb` 命名空间以与 stock 相同的方式就绪 |
-| 浏览器 roster | stock roster 减去编码 agent 装饰（ui-sidebar、ui-cordis、ui-workflow-run、ui-deliverables、ui-subagent、ui-skill、ui-jobs、ui-goal、ui-plan、ui-user-questions、ui-trajectory、ui-schedule），加上 `ui-yantao-kb` | 工作台布局：树 \| 聊天 \| 编辑器 |
+| 浏览器 roster | stock roster 减去编码 agent 装饰（ui-sidebar、ui-cordis、ui-workflow-run、ui-deliverables、ui-subagent、ui-skill、ui-jobs、ui-goal、ui-plan、ui-user-questions、ui-trajectory、ui-schedule），加上 `ui-yantao` | 工作台布局：树 \| 聊天 \| 编辑器 |
 | base agent 层行 | 与 stock web 表层完全一致地禁用（shell、fs、jobs、goal、plan、subagent、workflow、ralph、todo、web、compaction、instructions、skill） | 工具重新按 preset 分配 |
 | `agent-presets` | `default: yantao` | 新会话挂载 yantao preset：中文 persona、无工具行——agent 只看到宿主层的 `kb_` 工具 |
 
@@ -93,7 +93,7 @@ web 表面上的工具是按 preset 分配的。base agent 层行与 stock 一�
 - [dsh-yantao](../yantao/README.zh.md)——下方的提供方与领域层（GLM 路由、persona、kb 插件、工具禁用）。
 - [dsh-yantao-kb](../../yantao/kb/README.zh.md)——KB 领域插件。
 - [dsh-api-yantao-kb-controller](../../api/yantao-kb-controller/README.zh.md)——本 bundle 挂载的 `yantaoKb` Remote 控制器。
-- [dsh-client-ui-yantao-kb](../../client/ui-yantao-kb/README.zh.md)——工作台 roster 的中心件。
+- [dsh-client-ui-yantao](../../client/ui-yantao/README.zh.md)——工作台 roster 的中心件。
 
 -----
 

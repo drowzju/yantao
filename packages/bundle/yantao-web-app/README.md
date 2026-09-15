@@ -40,7 +40,7 @@ The command prints `dsh web: <url>` and opens the default browser (pass `--no-op
 | Row group | Content | Effect |
 |---|---|---|
 | Web host + transport | Same rows as the stock web layer (webserver, web-runtime, controllers, workspace, feedback, references, stats) plus `yantao-kb-controller` | The browser surface and the `yantaoKb` namespace come up identically to stock |
-| Browser roster | Stock roster minus coding-agent chrome (ui-sidebar, ui-cordis, ui-workflow-run, ui-deliverables, ui-subagent, ui-skill, ui-jobs, ui-goal, ui-plan, ui-user-questions, ui-trajectory, ui-schedule), plus `ui-yantao-kb` | The workbench layout: tree | chat | editor |
+| Browser roster | Stock roster minus coding-agent chrome (ui-sidebar, ui-cordis, ui-workflow-run, ui-deliverables, ui-subagent, ui-skill, ui-jobs, ui-goal, ui-plan, ui-user-questions, ui-trajectory, ui-schedule), plus `ui-yantao` | The workbench layout: tree | chat | editor |
 | Base agent-plane rows | Disabled exactly as on the stock web surface (shell, fs, jobs, goal, plan, subagent, workflow, ralph, todo, web, compaction, instructions, skill) | Tools are per-preset again |
 | `agent-presets` | `default: yantao` | New sessions mount the yantao preset: Chinese persona, no tool rows — the agent sees only the host-plane `kb_` tools |
 
@@ -93,7 +93,7 @@ Read these pages when you want to go deeper into the layers this bundle rides on
 - [dsh-yantao](../yantao/README.md) — the provider and domain layer underneath (GLM route, persona, kb plugin, tool disables).
 - [dsh-yantao-kb](../../yantao/kb/README.md) — the KB domain plugin.
 - [dsh-api-yantao-kb-controller](../../api/yantao-kb-controller/README.md) — the `yantaoKb` Remote controller this bundle mounts.
-- [dsh-client-ui-yantao-kb](../../client/ui-yantao-kb/README.md) — the workbench roster's centerpiece.
+- [dsh-client-ui-yantao](../../client/ui-yantao/README.md) — the workbench roster's centerpiece.
 
 -----
 

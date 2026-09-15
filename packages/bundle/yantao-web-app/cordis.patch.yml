@@ -221,13 +221,6 @@
     - id: ui-tool
       name: '@deepseek-ai/dsh-client-ui-tool'
 
-    # Stepped aside (ADR-0010): ui-yantao-kb's 'sidebar' tree and 'details'
-    # editor duplicated the three-pane rails ui-yantao now owns. It is the
-    # first row the shared shell loses; editing returns with the panes' own
-    # detail view.
-    # - id: ui-yantao-kb
-    #   name: '@deepseek-ai/dsh-client-ui-yantao-kb'
-
     - id: ui-workspace
       name: '@deepseek-ai/dsh-client-ui-workspace'
 

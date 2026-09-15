@@ -176,8 +176,6 @@
       "@deepseek-ai/dsh-client-ui-yantao": ["./packages/client/ui-yantao/src"],
       "@deepseek-ai/dsh-yantao-web-app/startup": ["./packages/bundle/yantao-web-app/src/startup.ts"],
       "@deepseek-ai/dsh-client-ui-yantao/client": ["./packages/client/ui-yantao/src/client/index.ts"],
-      "@deepseek-ai/dsh-client-ui-yantao-kb": ["./packages/client/ui-yantao-kb/src"],
-      "@deepseek-ai/dsh-client-ui-yantao-kb/client": ["./packages/client/ui-yantao-kb/src/client/index.ts"],
       "@deepseek-ai/dsh-client-ui-brand-official": ["./packages/client/ui-brand-official/src"],
       "@deepseek-ai/dsh-client-ui-approval": ["./packages/client/ui-approval/src"],
       "@deepseek-ai/dsh-client-ui-approval/client": ["./packages/client/ui-approval/src/client/index.ts"],

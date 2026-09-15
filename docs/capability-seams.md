@@ -225,7 +225,7 @@ flowchart LR
   pkg_yantao_kb_controller["yantao-kb-controller"]
   pkg_api_yantao_kb_controller["api-yantao-kb-controller"]
   svc_yantaoKbController["ctx.yantaoKbController<br/>yantao workbench KB Remote controller"]
-  pkg_ui_yantao_kb["ui-yantao-kb"]
+  pkg_client_ui_yantao["client-ui-yantao"]
   pkg_agent --> svc_agents
   pkg_agent_default_model --> svc_agentDefaultModel
   pkg_agent_loop --> svc_agentLoop
@@ -473,7 +473,7 @@ flowchart LR
   svc_workspaceRegistry --> pkg_api_session_controller
   svc_workspaceRegistry --> pkg_api_workspace_controller
   svc_yantaoKb --> pkg_yantao_kb_controller
-  svc_yantaoKbController --> pkg_ui_yantao_kb
+  svc_yantaoKbController --> pkg_client_ui_yantao
   svc_fs -. event gate .-> pkg_fs_observation_policy
 ```
 
@@ -550,6 +550,6 @@ flowchart LR
 | `ctx.dynamicCordisRunner` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | Owns the in-memory definition registry, the vm sandbox for host halves, and the request-run round trip; browser pages reach the same service over the wire through its remote namespace. |
 | `ctx.cordisInspect` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | Registers host inspect providers, mirrors the client provider manifest, and routes client queries through the dynamic Cordis transport. |
 | `ctx.yantaoKb` | `core` | [`yantao-kb`](../packages/yantao/kb) | - | `yantao-kb-controller` | - | The kb plugin publishes the resolved kbRoot so host-side consumers share the one configuration point instead of duplicating it. |
-| `ctx.yantaoKbController` | `core` | [`api-yantao-kb-controller`](../packages/api/yantao-kb-controller) | - | `ui-yantao-kb` | - | Owns the kbRoot-confined tree/read/write channel the workbench UI rides, over the generated yantaoKb Remote namespace. |
+| `ctx.yantaoKbController` | `core` | [`api-yantao-kb-controller`](../packages/api/yantao-kb-controller) | - | [`client-ui-yantao`](../packages/client/ui-yantao) | - | Owns the kbRoot-confined tree/read/write channel the workbench UI rides, over the generated yantaoKb Remote namespace. |
 
 Maintenance mode: hybrid: services are discovered from Cordis declarations; interface/implementation/consumer roles are classified in `scripts/gen-doc-graphs.ts` with a completeness guard.

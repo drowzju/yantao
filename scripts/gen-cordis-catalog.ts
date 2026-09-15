@@ -177,7 +177,6 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   slots: 'client-side interface-typed browser service — packages/client/ui-renderer/README.md owns the API',
   theme: 'client-side interface-typed browser service — packages/client/ui-theme/README.md owns the API',
   workspaces: 'client-side interface-typed browser service — packages/api/workspace-controller/README.md owns the API',
-  yantaoKbWorkbench: 'client-side workbench selection and tree service — packages/client/ui-yantao-kb/README.md owns the API',
 }
 
 /**

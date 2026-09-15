@@ -181,7 +181,6 @@ flowchart TD
     pkg_client_ui_workflow_run["client-ui-workflow-run"]
     pkg_client_ui_workspace["client-ui-workspace"]
     pkg_client_ui_yantao["client-ui-yantao"]
-    pkg_client_ui_yantao_kb["client-ui-yantao-kb"]
     pkg_client_web["client-web"]
   end
   subgraph group_code_runtime["packages/code-runtime"]
@@ -892,6 +891,8 @@ flowchart TD
   pkg_tool_workflow --> pkg_system_prompt
   pkg_tool_workflow --> pkg_tools
   pkg_tool_workflow --> pkg_workflow
+  pkg_yantao_kb --> pkg_settings
+  pkg_yantao_kb --> pkg_system_prompt
   pkg_yantao_kb --> pkg_tools
   pkg_plugin_package_inventory_deepseek --> pkg_agent
   pkg_plugin_package_inventory_deepseek --> pkg_agent_presets
@@ -919,6 +920,11 @@ flowchart TD
   pkg_api_settings_controller --> pkg_session
   pkg_api_settings_controller --> pkg_settings
   pkg_api_settings_controller --> pkg_typert_protocol
+  pkg_api_yantao_kb_controller --> pkg_agent
+  pkg_api_yantao_kb_controller --> pkg_llm
+  pkg_api_yantao_kb_controller --> pkg_skill
+  pkg_api_yantao_kb_controller --> pkg_skill_filesystem
+  pkg_api_yantao_kb_controller --> pkg_tools
   pkg_api_yantao_kb_controller --> pkg_typert_protocol
   pkg_api_yantao_kb_controller --> pkg_yantao_kb
   pkg_web_app --> pkg_shell_env
@@ -1235,7 +1241,6 @@ flowchart TD
 | [`client-ui-workflow-run`](../packages/client/ui-workflow-run) | `client` | — |
 | [`client-ui-workspace`](../packages/client/ui-workspace) | `client` | — |
 | [`client-ui-yantao`](../packages/client/ui-yantao) | `client` | — |
-| [`client-ui-yantao-kb`](../packages/client/ui-yantao-kb) | `client` | — |
 | [`client-web`](../packages/client/web) | `client` | — |
 | [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | — |
 | [`experimental-agent-team-profile`](../packages/experimental/agent-team-profile) | `experimental` | — |
@@ -1390,12 +1395,12 @@ flowchart TD
 | [`agent-loop-testkit`](../packages/test-support/agent-loop-testkit) | `test-support` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`llm-replay`](../packages/test-support/llm-replay) | `test-support` | [`compaction`](../packages/compaction/compaction), [`deepseek-llm-api-extensions`](../packages/llm/deepseek-llm-api-extensions), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`tool-workflow`](../packages/workflow/tool-workflow) | `workflow` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
-| [`yantao-kb`](../packages/yantao/kb) | `yantao` | [`tools`](../packages/core/tools) |
+| [`yantao-kb`](../packages/yantao/kb) | `yantao` | [`settings`](../packages/settings/settings), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`plugin-package-inventory-deepseek`](../packages/llm/plugin-package-inventory-deepseek) | `llm` | [`agent`](../packages/core/agent), [`agent-presets`](../packages/preset/agent-presets), [`deepseek-llm-api-extensions`](../packages/llm/deepseek-llm-api-extensions), [`session`](../packages/core/session) |
 | [`session-query`](../packages/session-query/session-query) | `session-query` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`session-projection-cache`](../packages/session/session-projection-cache), [`session-title`](../packages/session/session-title), [`tool-todo`](../packages/todo/tool-todo) |
 | [`acp`](../packages/acp/acp) | `acp` | [`agent`](../packages/core/agent), [`attachment`](../packages/attachment/attachment), [`llm`](../packages/llm/llm), [`mcp-client`](../packages/mcp/mcp-client), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`token-meter`](../packages/llm/token-meter), [`user-approval`](../packages/interaction/user-approval) |
 | [`api-settings-controller`](../packages/api/settings-controller) | `api` | [`agent-presets`](../packages/preset/agent-presets), [`credentials`](../packages/credentials/credentials), [`native-command`](../packages/util/native-command), [`session`](../packages/core/session), [`settings`](../packages/settings/settings), [`typert-protocol`](../packages/typert/protocol) |
-| [`api-yantao-kb-controller`](../packages/api/yantao-kb-controller) | `api` | [`typert-protocol`](../packages/typert/protocol), [`yantao-kb`](../packages/yantao/kb) |
+| [`api-yantao-kb-controller`](../packages/api/yantao-kb-controller) | `api` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`skill`](../packages/skill/skill), [`skill-filesystem`](../packages/skill/skill-filesystem), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol), [`yantao-kb`](../packages/yantao/kb) |
 | [`web-app`](../packages/bundle/web-app) | `bundle` | [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt) |
 | [`yantao-web-app`](../packages/bundle/yantao-web-app) | `bundle` | [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt) |
 | [`compaction-tool-result-pruner`](../packages/compaction/compaction-tool-result-pruner) | `compaction` | [`compaction`](../packages/compaction/compaction), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |

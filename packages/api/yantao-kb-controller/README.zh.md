@@ -115,7 +115,7 @@ kind: "package-reference"
 
 - [dsh-yantao-kb](../../yantao/kb/README.zh.md)——本控制器共享其根目录与操作的 KB 领域插件。
 - [dsh-yantao-web-app](../../bundle/yantao-web-app/README.zh.md)——挂载本控制器的 bundle。
-- [dsh-client-ui-yantao-kb](../../client/ui-yantao-kb/README.zh.md)——消费本命名空间的工作台 UI。
+- [dsh-client-ui-yantao](../../client/ui-yantao/README.zh.md)——消费本命名空间的工作台 UI。
 - [Remote API 手册](../../../docs/cookbook/adding-a-remote-api.zh.md)——本包遵循的五步契约。
 - [dsh-api-remotes](../remotes/README.zh.md)——挂载本贡献的 Client 组装。
 

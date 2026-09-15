@@ -115,7 +115,7 @@ Read these pages when you want to go deeper into the plugin that owns the KB or 
 
 - [dsh-yantao-kb](../../yantao/kb/README.md) — the KB domain plugin whose root and operations this controller shares.
 - [dsh-yantao-web-app](../../bundle/yantao-web-app/README.md) — the bundle that mounts this controller.
-- [dsh-client-ui-yantao-kb](../../client/ui-yantao-kb/README.md) — the workbench UI consuming this namespace.
+- [dsh-client-ui-yantao](../../client/ui-yantao/README.md) — the workbench UI consuming this namespace.
 - [Remote API cookbook](../../../docs/cookbook/adding-a-remote-api.md) — the five-step contract this package follows.
 - [dsh-api-remotes](../remotes/README.md) — the Client assembly mounting this contribution.
 

@@ -685,7 +685,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'api-yantao-kb-controller',
     title: 'yantao workbench KB Remote controller',
     mode: 'core',
-    consumers: ['ui-yantao-kb'],
+    consumers: ['client-ui-yantao'],
     note: 'Owns the kbRoot-confined tree/read/write channel the workbench UI rides, over the generated yantaoKb Remote namespace.',
   },
 ]

@@ -79,18 +79,18 @@
 
 | **能力中央路由(ADR-0025 落地注记三 2026-09-15)** —— 提取/拍平注册机制整体退役,改为单一中央路由文件 `<kbRoot>/.dsh/skills/yantao.json`(`{version:1, capabilities:{<名>:{path, invocation, appliesTo?}}}`;path 相对技能根、正斜杠、禁 `..`;只声明指令型能力——`entry`/`runtime` 拒收):注册 = 纯配置写入——KB 内技能写一条路由,投放的插件仓库为每个内含技能各写一条(`path: <repo>/skills/<child>`),目录不移动、不改名、不合并,自带无效 sidecar 的目录拒绝注册(先删除或修复);两条声明通道、优先级固定——有效 sidecar 压过同名路由,路由只在 `manifestOf` 失败或注册表看不见技能时生效(`capabilityList` 跳过路由已认领的未注册行;仓库的子技能全部被路由后才整体离开分组);采纳改为拷贝后删除副本自带 sidecar 并写中央路由;路由能力像声明能力一样走 `capabilityRun` 与 `/xxx` 手势(agent 门读路由的 `invocation`,目录注入追加路由的 agent-open 行),中央路由文件损坏在运行路径报 `bad-manifest` 硬错误、在清单/目录注入路径降级为无路由 | `packages/api/yantao-kb-controller/src/index.ts` + `src/capability/routing.ts`(新增)、`packages/client/ui-yantao/src/client/CapabilityPanel.tsx`。验证:controller 155 + ui-yantao 212 测试全绿,`build:lib:host`、client bundle、frontend build 通过 |
 
+| **`ui-yantao-kb` 退役(TODO 阶段 2 第 1 条 2026-09-15)** —— 包删除:自 ADR-0010/0011 起它已移出 roster(`KbEditor` 早已移植进 `ui-yantao` 的 `FileEditor`),删除同时移除它的 bundle 依赖、被注释的 roster 行、tsconfig 工程/路径映射、`yantaoKbWorkbench` 服务目录条目,doc-graph 的消费边改为 `client-ui-yantao`;模块/配置/能力缝目录重新生成后不再含它 | `packages/client/ui-yantao-kb/` 删除、`packages/bundle/yantao-web-app/{package.json,cordis.patch.yml}`、`scripts/{gen-cordis-catalog,gen-doc-graphs,verify-package-readme-model-experience}.ts`、`packages/client/README` 对、`packages/bundle/yantao-web-app/README` 对、`packages/api/yantao-kb-controller/README` 对。验证:各生成器 + pairing 全绿,ui-yantao 测试全绿,`build:lib:client`、client bundle、frontend build 通过 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
 
-1. **了结 `ui-yantao-kb` 的去向** —— 它已移出 roster:要么把 `KbEditor` 的 markdown 编辑能力移植进栏内(见下),然后删除该包;
-    要么保留为可组合包。不要留下一个已挂载却不再使用的包。
-2. **逐行让共享 shell 退场** —— 每次只禁用一个 `ui-*` 行,重启,确认页面正常,再继续。`slots` 是运行时基础设施,不是 UI,
+1. **逐行让共享 shell 退场** —— 每次只禁用一个 `ui-*` 行,重启,确认页面正常,再继续。`slots` 是运行时基础设施,不是 UI,
     必须留到无人需要为止。`ui-layout` 已退场(ADR-0011);剩下的大头是 `ui-conversation` 与 `ui-chat`。只有 shell 退场后,中间一列才归我们并承载 agent 交互。
-3. **给工作台自己的词典** —— `Workbench.tsx` 里的文案是硬编码中文;等面板文案多起来就注册一个 locale 命名空间。
-4. **阅读视图 v4 —— Mermaid 与本地图片** —— 两者都要付代价:客户端包是单文件 CJS,mermaid 会被内联成 ~3.5MB(或要改宿主模块表);
+2. **给工作台自己的词典** —— `Workbench.tsx` 里的文案是硬编码中文;等面板文案多起来就注册一个 locale 命名空间。
+3. **阅读视图 v4 —— Mermaid 与本地图片** —— 两者都要付代价:客户端包是单文件 CJS,mermaid 会被内联成 ~3.5MB(或要改宿主模块表);
    本地图片需要新 RPC + 宿主路由,因为 `read()` 是 utf8,二进制会被解坏。等知识库里真出现一个再开工。
-5. **启动耗时分段测量** — 冷启动约 22–26 秒,但未拆过段。已知不等于结论的两点：慢的是 dsh 的
+4. **启动耗时分段测量** — 冷启动约 22–26 秒,但未拆过段。已知不等于结论的两点：慢的是 dsh 的
    profile boot（与同进程/子进程无关：CLI 22.6s、同进程 22.2s、子进程 26.1s）。
    下一步：在宿主启动时打时间戳，分清 **tsx 现转译** 与 **cordis 逐行挂载插件** 各占多少；
    转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。

@@ -3320,7 +3320,7 @@ Source: [`packages/workflow/workflow-worker-thread/src/index.ts:32`](../packages
 
 ## `@deepseek-ai/dsh-yantao-kb`
 
-Requires: `tools`
+Requires: `tools` · `systemPrompt` · `settings`
 
 ```ts config-catalog
 /** Plugin config; `kbRoot` is the only knob. */
@@ -3330,7 +3330,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/yantao/kb/src/index.ts:28`](../packages/yantao/kb/src/index.ts)
+Source: [`packages/yantao/kb/src/index.ts:41`](../packages/yantao/kb/src/index.ts)
 
 <a id="deepseek-aidsh-yantao-web-app"></a>
 
@@ -3367,7 +3367,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
 - `@deepseek-ai/dsh-api-remotes` — requires `typertGateway` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-api-workspace-controller` — requires `typert` · `workspaceRegistry` ([`packages/api/workspace-controller/src/index.ts`](../packages/api/workspace-controller/src/index.ts))
-- `@deepseek-ai/dsh-api-yantao-kb-controller` — requires `yantaoKb` ([`packages/api/yantao-kb-controller/src/index.ts`](../packages/api/yantao-kb-controller/src/index.ts))
+- `@deepseek-ai/dsh-api-yantao-kb-controller` — requires `yantaoKb` · `skills` · `tools` ([`packages/api/yantao-kb-controller/src/index.ts`](../packages/api/yantao-kb-controller/src/index.ts))
 - `@deepseek-ai/dsh-authorization` — requires `credentials` ([`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts))
 - `@deepseek-ai/dsh-client-file-upload` — requires `agents` · `attachments` · `commands` · `connection` ([`packages/client/file-upload/src/index.ts`](../packages/client/file-upload/src/index.ts))
 - `@deepseek-ai/dsh-client-locale` ([`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts))
@@ -3410,7 +3410,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-workflow-run` ([`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workspace` ([`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-yantao` ([`packages/client/ui-yantao/src/index.ts`](../packages/client/ui-yantao/src/index.ts))
-- `@deepseek-ai/dsh-client-ui-yantao-kb` ([`packages/client/ui-yantao-kb/src/index.ts`](../packages/client/ui-yantao-kb/src/index.ts))
 - `@deepseek-ai/dsh-command-compact` — requires `commands` · `compaction` ([`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts))
 - `@deepseek-ai/dsh-command-feedback` — requires `commands` ([`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts))
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))

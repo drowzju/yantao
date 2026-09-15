@@ -80,22 +80,22 @@ note), **deferred** (deliberately parked — see the note).
 
 | **Central capability routing (ADR-0025 落地注记三 2026-09-15)** — the extraction/flatten registration machinery is retired in favour of a single central routing file `<kbRoot>/.dsh/skills/yantao.json` (`{version:1, capabilities:{<name>:{path, invocation, appliesTo?}}}`; path relative to the skills root, forward slashes, no `..`; instruction capabilities only — `entry`/`runtime` refused): registration is a pure config write — an in-KB skill gets one route entry, a dropped plugin repository gets one per nested child (`<repo>/skills/<child>`), directories are never moved, renamed, or merged, a directory carrying an invalid sidecar refuses until it is fixed; two declaration channels with fixed precedence — a valid sidecar beats a same-named route, routes answer when `manifestOf` fails or the registry cannot see the skill (`capabilityList` skips 未注册 rows a route claims; a repository leaves the group only when all nested children are routed); adoption now strips the copied sidecar and writes a central route instead; routed capabilities run through `capabilityRun` and the `/xxx` gesture like declared ones (the agent gate reads the route's `invocation`, the catalog appends routed agent-open rows), a broken central file is a hard `bad-manifest` on the run path and a silent no-routes degradation on list/catalog paths | `packages/api/yantao-kb-controller/src/index.ts` + `src/capability/routing.ts` (new), `packages/client/ui-yantao/src/client/CapabilityPanel.tsx`. 验证：controller 155 + ui-yantao 212 测试全绿，`build:lib:host`、client bundle、frontend build 通过 |
 
+| **`ui-yantao-kb` retires (TODO Phase 2 item 1 2026-09-15)** — the package is deleted: it had been out of the roster since ADR-0010/0011 (its `KbEditor` long since ported into `ui-yantao`'s `FileEditor`), and the deletion removes its bundle dependency, the commented roster row, the tsconfig project/path mappings, the `yantaoKbWorkbench` service-catalog entry, and the doc-graph consumer edge (now `client-ui-yantao`); the module/config/capability-seams catalogs regenerate without it | `packages/client/ui-yantao-kb/` deleted, `packages/bundle/yantao-web-app/{package.json,cordis.patch.yml}`, `scripts/{gen-cordis-catalog,gen-doc-graphs,verify-package-readme-model-experience}.ts`, `packages/client/README` pair, `packages/bundle/yantao-web-app/README` pair, `packages/api/yantao-kb-controller/README` pair. 验证：generators + pairing 全绿，ui-yantao 测试全绿，`build:lib:client`、client bundle、frontend build 通过 |
+
 ## next
 
 ### Phase 2 — three-pane UI (ADR-0010)
 
-1. **Finish `ui-yantao-kb`'s fate** — it is out of the roster now, so either port `KbEditor`'s markdown editing into the panes
-   (below) and delete the package, or keep it as a composable package. Do not leave a mounted-but-unused package behind.
-2. **Step the shared shell aside, one row at a time** — disable a single `ui-*` row, reboot, confirm the page still loads, repeat.
+1. **Step the shared shell aside, one row at a time** — disable a single `ui-*` row, reboot, confirm the page still loads, repeat.
    `slots` is runtime infrastructure, not UI: it must stay until nothing needs it. `ui-layout` already stepped aside (ADR-0011);
    the remaining big ones are `ui-conversation` and `ui-chat`. Only when the shell is gone can the middle column become ours
    and host agent interaction.
-3. **Give the workbench its own dictionary** — labels are hardcoded Chinese in `Workbench.tsx`; register a locale namespace
+2. **Give the workbench its own dictionary** — labels are hardcoded Chinese in `Workbench.tsx`; register a locale namespace
    when the panes grow past a handful of strings.
-4. **Reading view v4 — Mermaid and local images** — both are paywalled: client bundles are single-file CJS, so mermaid inlines at
+3. **Reading view v4 — Mermaid and local images** — both are paywalled: client bundles are single-file CJS, so mermaid inlines at
    ~3.5MB (or needs a host module-table change), and local images need a new RPC plus a host route because `read()` is utf8 and
    would corrupt binaries. Only worth it once a KB file actually contains one.
-5. **启动耗时分段测量** — 冷启动约 22–26 秒，但未拆过段。已知不等于结论的两点：慢的是 dsh 的
+4. **启动耗时分段测量** — 冷启动约 22–26 秒，但未拆过段。已知不等于结论的两点：慢的是 dsh 的
    profile boot（与同进程/子进程无关：CLI 22.6s、同进程 22.2s、子进程 26.1s）。
    下一步：在宿主启动时打时间戳，分清 **tsx 现转译** 与 **cordis 逐行挂载插件** 各占多少；
    转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。
