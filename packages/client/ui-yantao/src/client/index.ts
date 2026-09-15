@@ -50,6 +50,7 @@ import {
   loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, runCapability, setKbRoot,
   setRelation, writeFile, writeTodos,
 } from './remote.ts'
+import type { CapabilityRegisterReach } from './remote.ts'
 import type { MailMessage } from './remote.ts'
 
 export const name = 'ui-yantao'
@@ -173,7 +174,7 @@ export function apply(ctx: Context): void {
       // ADR-0025 决定 1: adopt an out-of-KB skill into `.dsh/skills/`.
       capabilityAdopt: (name: string) => adoptCapability(ctx, name),
       // ADR-0025 决定 1: register an in-KB skill by writing its sidecar in place.
-      capabilityRegister: (name: string, entry?: string) => registerCapability(ctx, name, entry),
+      capabilityRegister: (name: string, reach?: CapabilityRegisterReach) => registerCapability(ctx, name, reach),
       // ADR-0025 决定 4: an instruction capability's prompt goes to the
       // conversation the human is watching, on a KB-rooted session.
       promptSession: async (text: string) => {

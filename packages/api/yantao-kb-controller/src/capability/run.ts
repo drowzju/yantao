@@ -34,8 +34,12 @@ import type { SkillDefinition } from '@deepseek-ai/dsh-skill'
 
 /** What a resource may be applied to, as declared by the capability. */
 export interface CapabilityAppliesTo {
-  /** Resource suffixes (with dot, lowercase), e.g. `['.epub', '.pdf']`. */
-  readonly resource?: readonly string[]
+  /**
+   * Resource suffixes (with dot, lowercase), e.g. `['.epub', '.pdf']` — or
+   * `true` for *every* resource (ADR-0025 决定 4's registration shortcut:
+   * a third-party skill speaks for itself, the menu need not filter).
+   */
+  readonly resource?: readonly string[] | boolean
   /** Entity types the capability accepts, e.g. `['project']`. */
   readonly entity?: readonly string[]
   /** External sources the capability reads, e.g. `['mailbox']`. */
@@ -242,11 +246,17 @@ function appliesToOf(name: string, value: unknown): CapabilityAppliesTo {
     throw fail('bad-manifest', `能力「${name}」的 appliesTo.selection 必须是布尔值。`)
   }
   return {
-    ...resource !== undefined ? { resource: suffixList(name, 'resource', resource) } : {},
+    ...resource !== undefined ? { resource: resourceOf(name, resource) } : {},
     ...entity !== undefined ? { entity: stringList(name, 'entity', entity) } : {},
     ...external !== undefined ? { external: stringList(name, 'external', external) } : {},
     ...selection !== undefined ? { selection } : {},
   }
+}
+
+/** Validate one `appliesTo.resource`: `true` (every resource) or a suffix list. */
+function resourceOf(name: string, value: unknown): readonly string[] | boolean {
+  if (value === true) return true
+  return suffixList(name, 'resource', value)
 }
 
 /** Validate a plain string list. */

@@ -3082,9 +3082,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'capabilityRegister\') async capabilityRegister(args: KbCapabilityRegisterArgs): Promise<KbCapabilityRegisterResult>',
-        description: 'Register one in-KB skill as a capability (ADR-0025 决定 1): write its `yantao.json` sidecar in place — no copy, the skill directory stays where it is. With an `entry` the sidecar declares a script capability (`runtime: \'python\'`); without one, an instruction capability (ADR-0023 决定 6). The invocation is always `[\'human\']`: opening a capability to the agent is a separate, deliberate edit of the sidecar, never a side effect of registration.\n\nGuards: the name must be a single safe path segment, the skill must be a directory bundle inside the KB\'s own `.dsh/skills/`, its frontmatter must not mark it `user-invocable: false`, it must not already be a capability (a valid declaration is never silently overwritten — repairing an invalid one is exactly what this call is for), and an `entry` must stay inside the skill\'s directory.',
-        parameters: [{ name: 'args', description: 'the in-KB skill\'s name and, for a script capability, its entry.' }],
-        returns: 'the sidecar\'s KB-relative path.',
+        description: 'Register one in-KB skill as a capability (ADR-0025 决定 1): write its `yantao.json` sidecar in place — no copy, the skill directory stays where it is. Registration always writes an *instruction capability* (no `entry`, ADR-0023 决定 6): a third-party skill\'s essence is its SKILL.md instructions, and nothing in the drop speaks the run protocol, so the type is never a question the human answers. The three boolean args are the reach of the capability: `agentInvoke` widens `invocation` to `[\'human\', \'agent\']`, `resourceMenu` writes `appliesTo.resource: true` (every resource\'s right-click menu), `selectionMenu` writes `appliesTo.selection: true` (the middle-pane right-click menu).\n\nA dropped **plugin repository** (no top-level `SKILL.md`, but nested `skills/<name>/SKILL.md` bundles) registers by extraction: every nested skill directory moves to `.dsh/skills/<name>/` — a move, not a copy: the nested bundle is self-contained and its only useful home is the top level the scanner reads — and each extraction gets the sidecar. A nested skill named after the repository itself (the common drop shape `<repo>/skills/<repo>/`) cannot move out under its own name, so it flattens instead: its contents move up one level and the repository directory *becomes* the skill. Any other name collision refuses the whole call; the emptied repository shell stays behind, inert (no top-level SKILL.md, never scanned).\n\nGuards: the name must be a single safe path segment, the skill must be a directory bundle inside the KB\'s own `.dsh/skills/`, its frontmatter must not mark it `user-invocable: false`, and it must not already be a capability (a valid declaration is never silently overwritten — repairing an invalid one is exactly what this call is for).',
+        parameters: [{ name: 'args', description: 'the in-KB skill\'s name and the capability\'s reach.' }],
+        returns: 'the KB-relative path of one sidecar the call wrote.',
       },
     ],
   },
@@ -4534,7 +4534,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbCapabilityAppliesTo',
-    declaration: 'export interface KbCapabilityAppliesTo {\n    readonly resource?: readonly string[];\n    readonly entity?: readonly string[];\n    readonly external?: readonly string[];\n    readonly selection?: boolean;\n}',
+    declaration: 'export interface KbCapabilityAppliesTo {\n    readonly resource?: readonly string[] | boolean;\n    readonly entity?: readonly string[];\n    readonly external?: readonly string[];\n    readonly selection?: boolean;\n}',
   },
   {
     name: 'KbCapabilityCreateArgs',
@@ -4550,7 +4550,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbCapabilityRegisterArgs',
-    declaration: 'export interface KbCapabilityRegisterArgs {\n    readonly name: string;\n    readonly entry?: string;\n}',
+    declaration: 'export interface KbCapabilityRegisterArgs {\n    readonly name: string;\n    readonly agentInvoke?: boolean;\n    readonly resourceMenu?: boolean;\n    readonly selectionMenu?: boolean;\n}',
   },
   {
     name: 'KbCapabilityRegisterResult',
@@ -4658,7 +4658,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbUnregisteredSkill',
-    declaration: 'export interface KbUnregisteredSkill {\n    readonly name: string;\n    readonly description: string;\n    readonly source: string;\n    readonly directory?: string;\n    readonly userInvocable: boolean;\n    readonly flat: boolean;\n    readonly inKb?: boolean;\n    readonly reason?: string;\n    readonly sidecar?: JsonValue;\n}',
+    declaration: 'export interface KbUnregisteredSkill {\n    readonly name: string;\n    readonly description: string;\n    readonly source: string;\n    readonly directory?: string;\n    readonly userInvocable: boolean;\n    readonly flat: boolean;\n    readonly inKb?: boolean;\n    readonly reason?: string;\n    readonly plugin?: boolean;\n    readonly pluginSkills?: readonly string[];\n    readonly sidecar?: JsonValue;\n}',
   },
   {
     name: 'KbWriteResult',

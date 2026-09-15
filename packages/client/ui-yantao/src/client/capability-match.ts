@@ -35,8 +35,13 @@ export function matchCapabilities(
     const applies = summary.appliesTo
     if (applies === undefined) return false
     if (target.kind === 'resource') {
+      // `resource: true` accepts every resource — the registration checkbox's
+      // "all resources" shortcut; a list filters by file suffix.
+      if (applies.resource === true) return true
+      const suffixes = applies.resource
+      if (suffixes === undefined || typeof suffixes === 'boolean') return false
       const lower = target.path.toLowerCase()
-      return applies.resource?.some(suffix => lower.endsWith(suffix.toLowerCase())) ?? false
+      return suffixes.some(suffix => lower.endsWith(suffix.toLowerCase()))
     }
     return applies.entity?.includes(target.entityType) ?? false
   })

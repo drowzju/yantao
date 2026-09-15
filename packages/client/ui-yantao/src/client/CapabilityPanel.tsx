@@ -83,29 +83,31 @@ const warnStyle = { color: '#8a6d3b', fontSize: 12 } as const
 
 const confirmButtonRowStyle = { display: 'flex', gap: 8 } as const
 
-const inputStyle = {
-  padding: '3px 6px',
-  fontFamily: 'monospace',
-  fontSize: 12,
-  width: '100%',
-  boxSizing: 'border-box',
-} as const
+/** The reach checkboxes the register dialog offers; the type is never asked — registration always writes an instruction capability. */
+interface RegisterReach {
+  agentInvoke: boolean
+  resourceMenu: boolean
+  selectionMenu: boolean
+}
 
-/** The kind of capability the guided registration offers. */
-type RegisterKind = 'instructions' | 'script'
-
-/** Entry the register dialog prefills for a script capability. */
-const DEFAULT_REGISTER_ENTRY = 'scripts/entry.py'
+/** The register dialog's defaults: human-only, no menu reach. */
+const DEFAULT_REGISTER_REACH: RegisterReach = { agentInvoke: false, resourceMenu: false, selectionMenu: false }
 
 /**
  * The sidecar the guided registration will write, previewed as JSON.
- * @param kind - instruction or script capability.
- * @param entry - the entry path, meaningful only for a script capability.
+ * @param reach - the capability's reach as the checkboxes hold it.
  * @returns the JSON text the confirm step shows.
  */
-function registerPreview(kind: RegisterKind, entry: string): string {
-  if (kind === 'instructions') return JSON.stringify({ version: 1, invocation: ['human'] })
-  return JSON.stringify({ version: 1, invocation: ['human'], entry, runtime: 'python' })
+function registerPreview(reach: RegisterReach): string {
+  const appliesTo = {
+    ...(reach.resourceMenu ? { resource: true as const } : {}),
+    ...(reach.selectionMenu ? { selection: true as const } : {}),
+  }
+  return JSON.stringify({
+    version: 1,
+    invocation: reach.agentInvoke ? ['human', 'agent'] : ['human'],
+    ...(Object.keys(appliesTo).length > 0 ? { appliesTo } : {}),
+  })
 }
 
 /**
@@ -166,8 +168,7 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
   const [unregistered, setUnregistered] = useState<readonly KbUnregisteredSkill[]>([])
   const [confirming, setConfirming] = useState<KbUnregisteredSkill | null>(null)
   const [registering, setRegistering] = useState<KbUnregisteredSkill | null>(null)
-  const [registerKind, setRegisterKind] = useState<RegisterKind>('instructions')
-  const [registerEntry, setRegisterEntry] = useState(DEFAULT_REGISTER_ENTRY)
+  const [registerReach, setRegisterReach] = useState<RegisterReach>(DEFAULT_REGISTER_REACH)
   const [selected, setSelected] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   // The loader is a fresh closure on every render (inject face), so the
@@ -211,12 +212,12 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
     }
   }
 
-  /** 「注册为能力」: write the sidecar in place, then open the capability. */
-  const registerSkill = async (name: string): Promise<void> => {
+  /** 「注册为能力」: write the sidecar in place (extracting a plugin's nested skills first), then open the capability. */
+  const registerSkill = async (skill: KbUnregisteredSkill): Promise<void> => {
     try {
-      await latest.current.register(name, registerKind === 'script' ? registerEntry : undefined)
+      await latest.current.register(skill.name, registerReach)
       setRegistering(null)
-      setSelected(name)
+      setSelected(skill.plugin === true ? skill.pluginSkills?.[0] ?? null : skill.name)
       await refresh()
     } catch (failure: unknown) {
       setError(remoteMessage(failure))
@@ -226,8 +227,7 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
   /** Open the guided registration for one in-KB skill, defaults reset. */
   const openRegister = (skill: KbUnregisteredSkill): void => {
     setRegistering(skill)
-    setRegisterKind('instructions')
-    setRegisterEntry(DEFAULT_REGISTER_ENTRY)
+    setRegisterReach(DEFAULT_REGISTER_REACH)
   }
 
   const current = capabilities?.find(capability => capability.name === selected) ?? undefined
@@ -299,40 +299,45 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
           {registering !== null && (
             <div style={confirmStyle} data-capability-register="true">
               <div style={nameStyle}>注册「{registering.name}」为能力</div>
-              <div style={mutedStyle}>
-                在 <span style={codeStyle}>.dsh/skills/{registering.name}/yantao.json</span> 写入能力声明，技能目录原地保留。
-              </div>
-              <div style={confirmButtonRowStyle}>
-                <button
-                  type="button"
-                  style={registerKind === 'instructions' ? { ...buttonStyle, background: '#eef3ff' } : buttonStyle}
-                  onClick={() => { setRegisterKind('instructions') }}
-                >
-                  指令型
-                </button>
-                <button
-                  type="button"
-                  style={registerKind === 'script' ? { ...buttonStyle, background: '#eef3ff' } : buttonStyle}
-                  onClick={() => { setRegisterKind('script') }}
-                >
-                  脚本型
-                </button>
-              </div>
-              {registerKind === 'script' && (
-                <label style={mutedStyle}>
-                  入口脚本（相对技能目录）：
-                  <input
-                    style={inputStyle}
-                    value={registerEntry}
-                    onChange={(event) => { setRegisterEntry(event.target.value) }}
-                  />
-                </label>
+              {registering.plugin === true ? (
+                <div style={mutedStyle}>
+                  这是插件仓库：注册将把内含技能（{registering.pluginSkills?.join('、')}）提取为
+                  .dsh/skills/ 下的独立能力目录，并写入各自的能力声明。
+                </div>
+              ) : (
+                <div style={mutedStyle}>
+                  在 <span style={codeStyle}>.dsh/skills/{registering.name}/yantao.json</span> 写入能力声明，技能目录原地保留。
+                </div>
               )}
+              <label style={mutedStyle}>
+                <input
+                  type="checkbox"
+                  checked={registerReach.agentInvoke}
+                  onChange={(event) => { setRegisterReach(reach => ({ ...reach, agentInvoke: event.target.checked })) }}
+                />{' '}
+                允许 agent 调用（kb_run_capability）
+              </label>
+              <label style={mutedStyle}>
+                <input
+                  type="checkbox"
+                  checked={registerReach.resourceMenu}
+                  onChange={(event) => { setRegisterReach(reach => ({ ...reach, resourceMenu: event.target.checked })) }}
+                />{' '}
+                出现在所有资源的右键菜单
+              </label>
+              <label style={mutedStyle}>
+                <input
+                  type="checkbox"
+                  checked={registerReach.selectionMenu}
+                  onChange={(event) => { setRegisterReach(reach => ({ ...reach, selectionMenu: event.target.checked })) }}
+                />{' '}
+                出现在中间区右键菜单（选中文字＝提示词，无选中＝当前文件为对象）
+              </label>
               <div style={mutedStyle}>
-                将写入：<span style={codeStyle}>{registerPreview(registerKind, registerEntry)}</span>
+                将写入：<span style={codeStyle}>{registerPreview(registerReach)}</span>
               </div>
               <div style={confirmButtonRowStyle}>
-                <button type="button" style={buttonStyle} onClick={() => { void registerSkill(registering.name) }}>注册</button>
+                <button type="button" style={buttonStyle} onClick={() => { void registerSkill(registering) }}>注册</button>
                 <button type="button" style={buttonStyle} onClick={() => { setRegistering(null) }}>取消</button>
               </div>
             </div>
@@ -362,7 +367,9 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
             <div style={mutedStyle}>
               接受：
               {[
-                current.appliesTo.resource !== undefined ? `资源 ${current.appliesTo.resource.join(' ')}` : undefined,
+                current.appliesTo.resource !== undefined
+                  ? `资源 ${current.appliesTo.resource === true ? '全部' : (Array.isArray(current.appliesTo.resource) ? current.appliesTo.resource.join(' ') : '')}`
+                  : undefined,
                 current.appliesTo.entity !== undefined ? `实体 ${current.appliesTo.entity.join(' ')}` : undefined,
                 current.appliesTo.external !== undefined ? `外部 ${current.appliesTo.external.join(' ')}` : undefined,
               ].filter(Boolean).join('；')}

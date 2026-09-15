@@ -374,20 +374,34 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 /**
  * Register one in-KB skill as a capability (ADR-0025 决定 1): write its
  * `yantao.json` sidecar in place — no copy, the skill directory stays where
- * it is. With an `entry` the sidecar declares a script capability
- * (`runtime: 'python'`); without one, an instruction capability
- * (ADR-0023 决定 6). The invocation is always `['human']`: opening a
- * capability to the agent is a separate, deliberate edit of the sidecar,
- * never a side effect of registration.
+ * it is. Registration always writes an *instruction capability* (no
+ * `entry`, ADR-0023 决定 6): a third-party skill's essence is its SKILL.md
+ * instructions, and nothing in the drop speaks the run protocol, so the
+ * type is never a question the human answers. The three boolean args are
+ * the reach of the capability: `agentInvoke` widens `invocation` to
+ * `['human', 'agent']`, `resourceMenu` writes `appliesTo.resource: true`
+ * (every resource's right-click menu), `selectionMenu` writes
+ * `appliesTo.selection: true` (the middle-pane right-click menu).
+ *
+ * A dropped **plugin repository** (no top-level `SKILL.md`, but nested
+ * `skills/<name>/SKILL.md` bundles) registers by extraction: every nested
+ * skill directory moves to `.dsh/skills/<name>/` — a move, not a copy: the
+ * nested bundle is self-contained and its only useful home is the top
+ * level the scanner reads — and each extraction gets the sidecar. A nested
+ * skill named after the repository itself (the common drop shape
+ * `<repo>/skills/<repo>/`) cannot move out under its own name, so it
+ * flattens instead: its contents move up one level and the repository
+ * directory *becomes* the skill. Any other name collision refuses the
+ * whole call; the emptied repository shell stays behind, inert (no
+ * top-level SKILL.md, never scanned).
  *
  * Guards: the name must be a single safe path segment, the skill must be a
  * directory bundle inside the KB's own `.dsh/skills/`, its frontmatter must
- * not mark it `user-invocable: false`, it must not already be a capability
- * (a valid declaration is never silently overwritten — repairing an invalid
- * one is exactly what this call is for), and an `entry` must stay inside
- * the skill's directory.
- * @param args - the in-KB skill's name and, for a script capability, its entry.
- * @returns the sidecar's KB-relative path.
+ * not mark it `user-invocable: false`, and it must not already be a
+ * capability (a valid declaration is never silently overwritten —
+ * repairing an invalid one is exactly what this call is for).
+ * @param args - the in-KB skill's name and the capability's reach.
+ * @returns the KB-relative path of one sidecar the call wrote.
  */
 @Remote('capabilityRegister') async capabilityRegister(args: KbCapabilityRegisterArgs): Promise<KbCapabilityRegisterResult>
 ```

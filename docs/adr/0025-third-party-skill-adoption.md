@@ -29,9 +29,19 @@ ADR-0023 决定 4 的既定状态）；资源右键和选区右键没有指令�
    sidecar 仍是能力的唯一凭证（ADR-0021 决定 6 不放松）：采纳动作本身就是审计点。
    **落地注记（2026-09-15）**：KB **内**的技能（`.dsh/skills/` 下无 sidecar 或 sidecar
    无效的开源目录）也进未注册分组——带 `inKb: true` 与校验失败原因，注册走第二十一个
-   RPC `capabilityRegister`：**原地**写 sidecar（不拷贝，技能目录本来就在归宿里），
-   引导式对话框选指令型/脚本型后写入；已是能力的技能拒绝覆盖（修复无效 sidecar 才是
-   注册的用途），`invocation` 恒为 `["human"]`，对 agent 开放仍是 sidecar 的手工编辑。
+   RPC `capabilityRegister`：**原地**写 sidecar（不拷贝，技能目录本来就在归宿里）。
+   **落地注记二（2026-09-15，注册交互重设计）**：指令型/脚本型的选择不留给用户——注册
+   恒写指令型 sidecar（无 `entry`；三方技能不认 stdin/stdout 运行协议，脚本型只来自
+   手写 sidecar），RPC 的 `entry` 参数移除。对话框改为三个勾选（reach）：允许 agent
+   调用（→ `invocation: ["human","agent"]`，默认仅 human）、出现在所有资源的右键菜单
+   （→ `appliesTo.resource: true`）、出现在中间区右键菜单（→ `appliesTo.selection: true`）；
+   `/xxx` 由指令型 + human-invocable 免费保证（决定 3/6），无需勾选。**插件仓库分支**：
+   顶层无 SKILL.md 但 `skills/<child>/SKILL.md` 存在的投放目录（Claude 插件市场形态，
+   带 `.claude-plugin/plugin.json`）进未注册分组时带 `plugin: true` 与 `pluginSkills`
+   清单；注册 = **提取**——把每个内含技能目录**移动**到 `.dsh/skills/<child>/` 并各自写
+   sidecar（全有或全无的撞名检查），掏空的仓库壳原地保留；内含技能与仓库同名的常见形态
+   （`<repo>/skills/<repo>/`）无法移出，改为**拍平**——内层内容上移一层，仓库目录本身
+   成为技能。已是能力的技能拒绝覆盖（修复无效 sidecar 才是注册的用途）。
 
 2. **frontmatter 映射**。上游字段各管各的命名空间：`user-invocable: false` → 不可采纳、
    不可 `/xxx`，未注册分组里灰显并给原因；`disable-model-invocation` → **忽略**——
@@ -51,6 +61,9 @@ ADR-0023 决定 4 的既定状态）；资源右键和选区右键没有指令�
    `@` 引用 chip 的序列化同格式）发**当前会话**，无会话则新建——三方技能的本质是"换个
    提示词做事"，用户预期在正看着的会话里看到过程和结果。脚本型能力行为不变
    （`capabilityRun` → 提案卡），那是为结构化产出设计的流程。
+   **落地注记（2026-09-15）**：`appliesTo.resource` 增加**布尔变体**——`true` = 接受
+   **所有**资源（注册勾选「出现在所有资源的右键菜单」的落点），列表仍按后缀过滤；
+   run 侧校验同步：`true` 直通，非布尔非列表拒绝。
 
 5. **选区右键**。sidecar 新增 `appliesTo.selection: true` opt-in——只有声明的指令型能力
    出现在选区菜单（默认全量出现会让菜单随能力数无限膨胀，且多数技能对裸文本无意义）。
@@ -59,6 +72,10 @@ ADR-0023 决定 4 的既定状态）；资源右键和选区右键没有指令�
    `FileEditor` 的 textarea（`selectionStart/End`）与阅读视图 `MarkdownView`
    （`window.getSelection()`），复用 `RowMenu` 的固定定位菜单模式。菜单另含固定项
    「发送到会话」：选中文字原样发当前会话——不依赖任何能力，是"选中文字作为提示词"的本义。
+   **落地注记（2026-09-15，无选中变体）**：中间区（markdown 阅读视图 / kb 编辑器
+   textarea）右键**无选中文字**时弹能力菜单（`CapabilityMenu`）：列出勾选了
+   `appliesTo.selection` 的指令型能力，点击 = 对**当前打开的文件**调用——SKILL.md 正文
+   + `@path`（与决定 4 的资源右键同一序列化）。有选中时既有的选区菜单照旧赢。
 
 6. **`/` 自动补全**。注册 `('/','capability')` input-trigger 源（照 `kbReferenceSource`
    的 `('@','kb')` 模式），列出可 `/xxx` 的能力。**不定义** `matchEnter`/`matchSpace`
@@ -68,6 +85,8 @@ ADR-0023 决定 4 的既定状态）；资源右键和选区右键没有指令�
 7. **agent 开启方式**。采纳后想对 agent 开放（进动态目录 + 可被 `kb_run_capability`
    调用）= 手工把 `"agent"` 加进 sidecar 的 `invocation` 数组。低频操作，sidecar 本就是
    用户可编辑的声明文件；面板开关等真有需求再加。
+   **落地注记（2026-09-15）**：注册对话框的「允许 agent 调用」勾选把这一步前移到了
+   注册时刻（→ `invocation: ["human","agent"]`）；已注册能力的开关仍是手工编辑 sidecar。
 
 ## 取舍台账——为控制牺牲的便利性
 

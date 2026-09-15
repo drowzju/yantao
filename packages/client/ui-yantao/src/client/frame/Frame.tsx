@@ -24,7 +24,7 @@ import type { Proposal } from '../proposal.ts'
 import { applyProposal, type ProposalApplyResult } from '../proposal-apply.ts'
 import { proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
-import { SelectionMenu } from '../SelectionMenu.tsx'
+import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage } from '../remote.ts'
 import type { KbCapabilitySummary, KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
@@ -486,6 +486,42 @@ export function Frame({
     )
   }, [promptSession])
 
+  // The no-selection sibling (ADR-0025 决定 5): right-clicking the middle
+  // pane's md surfaces with nothing selected offers the same opted-in
+  // capabilities, the open file riding along as the object — runRowCapability
+  // serializes it as SKILL.md body + `@path`, the resource right-click's
+  // exact form. A selection keeps the mouseup menu in charge; a bare
+  // right-click opens this one, and only when some capability opted in.
+  const [fileMenu, setFileMenu] = useState<{ path: string; x: number; y: number } | null>(null)
+  const activePathRef = useRef<string | null>(null)
+  activePathRef.current = activeFile(tabs)?.path ?? null
+  const selectionCapsRef = useRef(selectionCaps)
+  selectionCapsRef.current = selectionCaps
+  useEffect(() => {
+    const onContextMenu = (event: MouseEvent): void => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const inBody = target.closest('[data-markdown-body="true"]') !== null
+      const inEditor = target instanceof HTMLTextAreaElement && target.dataset.kbEditor === 'true'
+      if (!inBody && !inEditor) return
+      let hasSelection: boolean
+      if (inEditor) {
+        hasSelection = target.selectionStart !== target.selectionEnd
+      } else {
+        hasSelection = (window.getSelection()?.toString() ?? '').trim() !== ''
+      }
+      if (hasSelection) return
+      const path = activePathRef.current
+      if (path === null || selectionCapsRef.current.length === 0) return
+      event.preventDefault()
+      setFileMenu({ path, x: event.clientX, y: event.clientY })
+    }
+    document.addEventListener('contextmenu', onContextMenu)
+    return () => {
+      document.removeEventListener('contextmenu', onContextMenu)
+    }
+  }, [])
+
   // A selection capability: fetch the SKILL.md body (the instruction answer)
   // and prepend it to the selection — fixed concatenation, no template system.
   const runSelectionCapability = useCallback((name: string, selection: string): void => {
@@ -735,6 +771,18 @@ export function Frame({
           onSend={sendSelection}
           onRun={runSelectionCapability}
           onClose={() => { setSelectionMenu(null) }}
+        />
+      )}
+      {fileMenu !== null && (
+        <CapabilityMenu
+          x={fileMenu.x}
+          y={fileMenu.y}
+          capabilities={selectionCaps}
+          onRun={(name) => {
+            setFileMenu(null)
+            runRowCapability(name, fileMenu.path)
+          }}
+          onClose={() => { setFileMenu(null) }}
         />
       )}
       {/* A handle exists whenever its rail is expanded — including at the

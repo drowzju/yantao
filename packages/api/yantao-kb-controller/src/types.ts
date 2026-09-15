@@ -367,8 +367,11 @@ export interface KbCapabilityRunResult {
  * `run.ts`'s subprocess machinery.
  */
 export interface KbCapabilityAppliesTo {
-  /** Resource suffixes (with dot, lowercase), e.g. `['.epub', '.pdf']`. */
-  readonly resource?: readonly string[]
+  /**
+   * Resource suffixes (with dot, lowercase), e.g. `['.epub', '.pdf']` — or
+   * `true` for *every* resource (the registration checkbox writes this).
+   */
+  readonly resource?: readonly string[] | boolean
   /** Entity types the capability accepts, e.g. `['project']`. */
   readonly entity?: readonly string[]
   /** External sources the capability reads, e.g. `['mailbox']`. */
@@ -442,6 +445,14 @@ export interface KbUnregisteredSkill {
   readonly inKb?: boolean
   /** Why the skill is not a capability — missing or invalid declaration; only in-KB rows carry it. */
   readonly reason?: string
+  /**
+   * The directory is a dropped plugin repository (no top-level `SKILL.md`,
+   * but `skills/<name>/SKILL.md` inside): registration extracts the nested
+   * skill directories into their own top-level directories.
+   */
+  readonly plugin?: boolean
+  /** The nested skill directory names a plugin repository carries; only plugin rows carry it. */
+  readonly pluginSkills?: readonly string[]
   /** The skill's own `yantao.json` sidecar, when it carries one — the adopt confirm box previews it. */
   readonly sidecar?: JsonValue
 }
@@ -463,15 +474,23 @@ export interface KbCapabilityRegisterArgs {
   /** The in-KB skill's name, as `capabilityList`'s 未注册 group reported it. */
   readonly name: string
   /**
-   * Entry script path relative to the skill's directory; absent registers an
-   * instruction capability (no script, ADR-0023 决定 6).
+   * Open the capability to the agent — `invocation: ['human', 'agent']` —
+   * instead of the default human-only `['human']` (ADR-0023 决定 2).
    */
-  readonly entry?: string
+  readonly agentInvoke?: boolean
+  /** Offer the capability from every resource's right-click menu (`appliesTo.resource: true`). */
+  readonly resourceMenu?: boolean
+  /** Opt the capability into the middle-pane right-click menu (`appliesTo.selection: true`). */
+  readonly selectionMenu?: boolean
 }
 
 /** Result of `yantaoKb.capabilityRegister` (ADR-0025 决定 1's in-KB registration). */
 export interface KbCapabilityRegisterResult {
-  /** KB-relative path of the sidecar the call wrote, `.dsh/skills/<name>/yantao.json`. */
+  /**
+   * KB-relative path of a sidecar the call wrote, `.dsh/skills/<name>/yantao.json`.
+   * A plugin repository registration may extract several nested skills; the
+   * path then names the first extraction's sidecar.
+   */
   readonly path: string
 }
 

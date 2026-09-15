@@ -707,7 +707,7 @@ describe('CapabilityPanel', () => {
     expect(await screen.findByText(/外带声明不会静默生效/)).toBeTruthy()
   })
 
-  it('registers an in-KB skill through the guided dialog, instruction type by default', async () => {
+  it('registers an in-KB skill through the guided dialog, human-only by default', async () => {
     const capabilities: KbCapabilitySummary[] = []
     const register = vi.fn(() => {
       capabilities.push({ name: 'notes-helper', description: '整理笔记', source: 'custom', invocation: ['human'] })
@@ -721,21 +721,39 @@ describe('CapabilityPanel', () => {
     expect(await screen.findByText(/注册「notes-helper」为能力/)).toBeTruthy()
     expect(screen.getByText('{"version":1,"invocation":["human"]}')).toBeTruthy()
     await act(async () => { fireEvent.click(screen.getByText('注册')) })
-    expect(register).toHaveBeenCalledWith('notes-helper', undefined)
+    expect(register).toHaveBeenCalledWith('notes-helper', { agentInvoke: false, resourceMenu: false, selectionMenu: false })
     expect(await screen.findByText('← 返回清单')).toBeTruthy()
   })
 
-  it('registers a script capability with the entry the dialog collected', async () => {
+  it('carries the dialog checkboxes into the register reach', async () => {
     const register = vi.fn(() => Promise.resolve({ path: '.dsh/skills/scripted/yantao.json' }))
     const rows = [unregistered({ name: 'scripted', inKb: true, reason: '能力「scripted」没有能力声明。' })]
     render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }), register })} />)
     fireEvent.click(await screen.findByText('scripted'))
     await screen.findByText(/注册「scripted」为能力/)
-    fireEvent.click(screen.getByText('脚本型'))
-    await act(async () => { fireEvent.change(screen.getByDisplayValue('scripts/entry.py'), { target: { value: 'run.py' } }) })
-    expect(screen.getByText('{"version":1,"invocation":["human"],"entry":"run.py","runtime":"python"}')).toBeTruthy()
+    fireEvent.click(screen.getByRole('checkbox', { name: /允许 agent 调用/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /所有资源的右键菜单/ }))
+    expect(screen.getByText('{"version":1,"invocation":["human","agent"],"appliesTo":{"resource":true}}')).toBeTruthy()
     await act(async () => { fireEvent.click(screen.getByText('注册')) })
-    expect(register).toHaveBeenCalledWith('scripted', 'run.py')
+    expect(register).toHaveBeenCalledWith('scripted', { agentInvoke: true, resourceMenu: true, selectionMenu: false })
+  })
+
+  it('announces plugin extraction in the register dialog and registers under the repository name', async () => {
+    const register = vi.fn(() => Promise.resolve({ path: '.dsh/skills/diagram-design/yantao.json' }))
+    const rows = [unregistered({
+      name: 'diagram-design-repo',
+      description: '插件仓库，内含技能：diagram-design',
+      inKb: true,
+      plugin: true,
+      pluginSkills: ['diagram-design'],
+      reason: '插件仓库：顶层没有 SKILL.md，注册将把内含技能提取为独立技能目录',
+    })]
+    render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }), register })} />)
+    fireEvent.click(await screen.findByText('diagram-design-repo'))
+    expect(await screen.findByText(/注册「diagram-design-repo」为能力/)).toBeTruthy()
+    expect(screen.getByText(/这是插件仓库：注册将把内含技能（diagram-design）提取为/)).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByText('注册')) })
+    expect(register).toHaveBeenCalledWith('diagram-design-repo', { agentInvoke: false, resourceMenu: false, selectionMenu: false })
   })
 
   it('never opens the register dialog for a greyed in-KB row', async () => {

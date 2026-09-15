@@ -44,8 +44,7 @@ const noteStyle = { padding: '2px 8px', color: '#9a9488', fontSize: 12 } as cons
  *   the two actions.
  * @returns the menu element.
  */
-export function SelectionMenu(props: {
-  /** The selected text, as the user marked it. */
+export function SelectionMenu(props: {  /** The selected text, as the user marked it. */
   readonly text: string
   /** The mouseup point, in client coordinates. */
   readonly x: number
@@ -94,6 +93,59 @@ export function SelectionMenu(props: {
           data-selection-capability={capability.name}
           title={capability.description}
           onClick={() => { props.onRun(capability.name, props.text); props.onClose() }}
+        >
+          {capability.name}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The middle-pane right-click's no-selection sibling (ADR-0025 决定 5): the
+ * same opted-in capabilities, but the open file is the object — no selection
+ * to quote, so no 「发送到会话」 item. The frame runs a capability as
+ * SKILL.md body + `@path`, the resource right-click's serialization.
+ * @param props - the position, the opted-in capabilities, and the two actions.
+ * @returns the menu element.
+ */
+export function CapabilityMenu(props: {
+  /** The contextmenu point, in client coordinates. */
+  readonly x: number
+  readonly y: number
+  /** The instruction capabilities that declared `appliesTo.selection`. */
+  readonly capabilities: readonly KbCapabilitySummary[]
+  /** Run one capability against the open file. */
+  readonly onRun: (name: string) => void
+  readonly onClose: () => void
+}): ReactElement {
+  const ref = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') props.onClose()
+    }
+    const onPointerDown = (event: MouseEvent): void => {
+      if (ref.current !== null && !ref.current.contains(event.target as Node)) props.onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('mousedown', onPointerDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('mousedown', onPointerDown)
+    }
+  }, [props])
+
+  return (
+    <div ref={ref} style={{ ...menuStyle, left: props.x, top: props.y }} data-capability-menu="true">
+      <div style={noteStyle}>对当前文件调用能力</div>
+      {props.capabilities.map(capability => (
+        <button
+          key={capability.name}
+          type="button"
+          style={itemStyle}
+          data-file-capability={capability.name}
+          title={capability.description}
+          onClick={() => { props.onRun(capability.name); props.onClose() }}
         >
           {capability.name}
         </button>

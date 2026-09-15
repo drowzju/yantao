@@ -363,6 +363,17 @@ describe('capability manifests', () => {
     }))).toThrow(/appliesTo\.selection 必须是布尔值/)
   })
 
+  it('accepts resource: true as every-resource and refuses a non-boolean non-list', async () => {
+    const { manifestOf } = await import('../src/capability/run.ts')
+    const manifest = manifestOf(definition({
+      metadata: { yantao: { appliesTo: { resource: true } } },
+    }))
+    expect(manifest.appliesTo).toEqual({ resource: true })
+    expect(() => manifestOf(definition({
+      metadata: { yantao: { appliesTo: { resource: 'all' } } },
+    }))).toThrow(/appliesTo\.resource/)
+  })
+
   it('reads the declaration from the yantao.json sidecar, frontmatter untouched', async () => {
     const { manifestOf } = await import('../src/capability/run.ts')
     await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
@@ -665,12 +676,13 @@ describe('yantaoKb.capabilityRegister (ADR-0025)', () => {
     expect((await readdir(directory)).sort()).toEqual(['SKILL.md', 'yantao.json'])
   })
 
-  it('writes entry and runtime for a script capability', async () => {
-    const directory = await seedInside('scripted')
-    await mkdir(join(directory, 'scripts'), { recursive: true })
-    await ctx.yantaoKbController.capabilityRegister({ name: 'scripted', entry: 'scripts/entry.py' })
+  it('carries the chosen reach into invocation and appliesTo', async () => {
+    const directory = await seedInside('wide')
+    await ctx.yantaoKbController.capabilityRegister({
+      name: 'wide', agentInvoke: true, resourceMenu: true, selectionMenu: true,
+    })
     expect(JSON.parse(await readFile(join(directory, 'yantao.json'), 'utf8')))
-      .toEqual({ version: 1, invocation: ['human'], entry: 'scripts/entry.py', runtime: 'python' })
+      .toEqual({ version: 1, invocation: ['human', 'agent'], appliesTo: { resource: true, selection: true } })
   })
 
   it('repairs an invalid sidecar by overwriting it', async () => {
@@ -686,16 +698,6 @@ describe('yantaoKb.capabilityRegister (ADR-0025)', () => {
     const failure = await ctx.yantaoKbController.capabilityRegister({ name: 'mail' }).catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
     expect((failure as Error).message).toMatch(/已经是能力/)
-  })
-
-  it('refuses an entry that escapes the skill directory and writes nothing', async () => {
-    const directory = await seedInside('escaper')
-    const failure = await ctx.yantaoKbController
-      .capabilityRegister({ name: 'escaper', entry: '../outside.py' })
-      .catch((error: unknown) => error)
-    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
-    expect((failure as Error).message).toMatch(/之外/)
-    await expect(readFile(join(directory, 'yantao.json'), 'utf8')).rejects.toThrow()
   })
 
   it('refuses an out-of-KB skill, a flat one, and a user-invocable: false one', async () => {
@@ -724,5 +726,81 @@ describe('yantaoKb.capabilityRegister (ADR-0025)', () => {
     state.kbConfigured = false
     const failure = await ctx.yantaoKbController.capabilityRegister({ name: 'mail' }).catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+  })
+})
+
+describe('plugin repository registration (ADR-0025 决定 1 的提取分支)', () => {
+  /** Seed a Claude-style plugin repository: no top-level SKILL.md, nested `skills/<name>/SKILL.md`. */
+  async function seedPlugin(repo: string, nested: readonly string[]): Promise<string> {
+    const repository = join(home, '.dsh', 'skills', repo)
+    for (const name of nested) {
+      const directory = join(repository, 'skills', name)
+      await mkdir(directory, { recursive: true })
+      await writeFile(join(directory, 'SKILL.md'), `---\nname: ${name}\ndescription: 插件内技能\n---\n\n照做。\n`, 'utf8')
+    }
+    await mkdir(join(repository, '.claude-plugin'), { recursive: true })
+    await writeFile(join(repository, '.claude-plugin', 'plugin.json'), '{}', 'utf8')
+    // The registry never sees the repository — its scan is one level deep.
+    skillList.mockResolvedValue([])
+    skillGet.mockResolvedValue(undefined)
+    return repository
+  }
+
+  it('lists a dropped plugin repository in the 未注册 group with its nested skills', async () => {
+    await seedPlugin('diagram-design', ['diagram-design'])
+    const { unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(unregistered).toHaveLength(1)
+    expect(unregistered[0]).toMatchObject({
+      name: 'diagram-design', inKb: true, plugin: true, pluginSkills: ['diagram-design'],
+    })
+    expect(unregistered[0]?.reason).toMatch(/插件仓库/)
+  })
+
+  it('flattens a nested skill named after the repository into the repository itself', async () => {
+    const repository = await seedPlugin('diagram-design', ['diagram-design'])
+    const result = await ctx.yantaoKbController.capabilityRegister({ name: 'diagram-design' })
+    expect(result.path).toBe('.dsh/skills/diagram-design/yantao.json')
+    // The repository *becomes* the skill: SKILL.md sits at its root.
+    expect(await readFile(join(repository, 'SKILL.md'), 'utf8')).toContain('照做')
+    expect(JSON.parse(await readFile(join(repository, 'yantao.json'), 'utf8')))
+      .toEqual({ version: 1, invocation: ['human'] })
+    // The nested bundle was moved up, not copied.
+    await expect(readFile(join(repository, 'skills', 'diagram-design', 'SKILL.md'), 'utf8')).rejects.toThrow()
+  })
+
+  it('extracts sibling skills while flattening the self-named one', async () => {
+    const repository = await seedPlugin('pack', ['pack', 'beta'])
+    const result = await ctx.yantaoKbController.capabilityRegister({ name: 'pack' })
+    expect(result.path).toBe('.dsh/skills/pack/yantao.json')
+    expect(await readFile(join(repository, 'SKILL.md'), 'utf8')).toContain('照做')
+    expect(await readFile(join(home, '.dsh', 'skills', 'beta', 'SKILL.md'), 'utf8')).toContain('照做')
+  })
+
+  it('writes the chosen reach into every extracted sidecar', async () => {
+    await seedPlugin('pack', ['alpha', 'beta'])
+    const result = await ctx.yantaoKbController.capabilityRegister({ name: 'pack', agentInvoke: true, selectionMenu: true })
+    expect(result.path).toBe('.dsh/skills/alpha/yantao.json')
+    for (const child of ['alpha', 'beta']) {
+      expect(JSON.parse(await readFile(join(home, '.dsh', 'skills', child, 'yantao.json'), 'utf8')))
+        .toEqual({ version: 1, invocation: ['human', 'agent'], appliesTo: { selection: true } })
+    }
+  })
+
+  it('refuses when an extracted name collides with an existing skill directory', async () => {
+    await seedPlugin('pack', ['mail'])
+    await mkdir(join(home, '.dsh', 'skills', 'mail'), { recursive: true })
+    const failure = await ctx.yantaoKbController.capabilityRegister({ name: 'pack' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((failure as Error).message).toMatch(/同名/)
+  })
+
+  it('ignores a dropped directory without the plugin shape', async () => {
+    const repository = join(home, '.dsh', 'skills', 'misc')
+    await mkdir(join(repository, 'docs'), { recursive: true })
+    await writeFile(join(repository, 'README.md'), '# 杂物\n', 'utf8')
+    const { unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(unregistered).toHaveLength(0)
+    const failure = await ctx.yantaoKbController.capabilityRegister({ name: 'misc' }).catch((error: unknown) => error)
+    expect((failure as Error).message).toMatch(/找不到可注册的技能/)
   })
 })

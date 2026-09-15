@@ -75,6 +75,8 @@
 
 | **KB 内技能注册(ADR-0025 决定 1 落地 2026-09-15)** —— KB 内声明缺失或无效的技能不再无声消失:`capabilityList` 把它们带 `inKb: true` 与校验失败原因 `reason` 呈现在 `unregistered` 分组,第二十一个 RPC `capabilityRegister` 原地写入技能的 `yantao.json` sidecar(不拷贝——带 `entry` 即脚本型能力,不带即指令型能力,`invocation` 恒为 `['human']`;拒绝已经是能力的技能、`user-invocable: false`、扁平单文件技能,以及逃逸技能目录的 `entry`);「能力」面板的未注册分组新增引导式注册对话框(指令型/脚本型选择,入口输入缺省 `scripts/entry.py`,JSON 预览,确认后刷新) | `packages/api/yantao-kb-controller/src/{index,types}.ts`、`packages/client/ui-yantao/src/client/{CapabilityPanel,Workbench,remote,index}.ts*` + `frame/Frame.tsx`、`scripts/gen-cordis-catalog.ts`。验证:controller 48 + ui-yantao 65 测试全绿,`tsc -b`、scoped oxlint、`verify-cordis-catalog`、`build:lib`、client bundle、frontend build 通过 |
 
+| **注册重设计 + 插件仓库(ADR-0025 落地注记二 2026-09-15)** —— 注册对话框不再让用户选指令型/脚本型(注册恒写指令型 sidecar;RPC 的 `entry` 参数移除),改为收集三个 reach 勾选——允许 agent 调用(`invocation: ['human','agent']`)、所有资源的右键菜单(`appliesTo.resource: true`,新的布尔「所有资源」变体,run 侧同步校验)、中间区右键菜单(`appliesTo.selection: true`);`/xxx` 无需勾选(指令型 + human-invocable 天然具备);投放的插件仓库(Claude 插件市场形态:顶层无 SKILL.md、内嵌 `skills/<child>/SKILL.md`)带 `plugin: true` + `pluginSkills` 进未注册分组,注册走**提取**——每个内含技能移动到 `.dsh/skills/<child>/` 并各写 sidecar(与仓库同名的内含技能拍平进仓库目录本身;撞名检查全有或全无);中间区新增无选中右键菜单(`CapabilityMenu` 挂在 markdown 正文 / kb 编辑器上):列出勾选了 selection 的能力,点击即对**当前打开的文件**调用(SKILL.md 正文 + `@path`,与资源菜单同一序列化),有选中时既有选区菜单照旧赢 | `packages/api/yantao-kb-controller/src/{index,types}.ts` + `src/capability/run.ts`、`packages/client/ui-yantao/src/client/{CapabilityPanel,capability-match,remote,index}.ts*`、`SelectionMenu.tsx`(`CapabilityMenu`)、`frame/Frame.tsx`。验证:controller 138 + ui-yantao 212 测试全绿,`build:lib:host`、client bundle、frontend build 通过 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)

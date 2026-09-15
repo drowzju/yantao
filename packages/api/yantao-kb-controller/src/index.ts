@@ -19,7 +19,7 @@
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
  */
 
-import { mkdir, readdir, readFile, stat, unlink, writeFile, cp } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, stat, unlink, writeFile, cp } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -1137,6 +1137,46 @@ export class YantaoKbController extends TypertRemoteService {
         ...record?.state !== undefined ? { state: record.state as JsonValue } : {},
       })
     }
+    // Plugin repositories (ADR-0025 决定 1's extraction path): directories
+    // under `.dsh/skills/` that the registry never claimed — no top-level
+    // `SKILL.md` for `discoverRoot`'s one-level scan — but that carry nested
+    // `skills/<name>/SKILL.md` bundles. A Claude-style plugin repository
+    // dropped whole into the skills directory looks exactly like this;
+    // registration extracts the nested skills instead of writing a sidecar
+    // no scanner would ever see.
+    const claimed = new Set(
+      summaries
+        .map(summary => summary.resourceBase)
+        .filter((base): base is Extract<typeof base, { kind: 'directory' }> => base?.kind === 'directory')
+        .map(base => resolve(base.path)),
+    )
+    const skillsRoot = join(kbRoot, '.dsh', 'skills')
+    const dropped = await readdir(skillsRoot, { withFileTypes: true }).catch(() => [])
+    for (const entry of dropped) {
+      if (!entry.isDirectory() || claimed.has(resolve(skillsRoot, entry.name))) continue
+      const repository = join(skillsRoot, entry.name)
+      const nested = await readdir(join(repository, 'skills'), { withFileTypes: true }).catch(() => [])
+      const nestedSkills: string[] = []
+      for (const child of nested) {
+        if (!child.isDirectory()) continue
+        if (await stat(join(repository, 'skills', child.name, 'SKILL.md')).then(() => true, () => false)) {
+          nestedSkills.push(child.name)
+        }
+      }
+      if (nestedSkills.length === 0) continue
+      unregistered.push({
+        name: entry.name,
+        description: `插件仓库，内含技能：${nestedSkills.sort().join('、')}`,
+        source: 'kb',
+        directory: repository,
+        userInvocable: true,
+        flat: false,
+        inKb: true,
+        plugin: true,
+        pluginSkills: nestedSkills,
+        reason: '插件仓库：顶层没有 SKILL.md，注册将把内含技能提取为独立技能目录',
+      })
+    }
     unregistered.sort((left, right) => left.name.localeCompare(right.name))
     return { capabilities, unregistered }
   }
@@ -1342,20 +1382,34 @@ export class YantaoKbController extends TypertRemoteService {
   /**
    * Register one in-KB skill as a capability (ADR-0025 决定 1): write its
    * `yantao.json` sidecar in place — no copy, the skill directory stays where
-   * it is. With an `entry` the sidecar declares a script capability
-   * (`runtime: 'python'`); without one, an instruction capability
-   * (ADR-0023 决定 6). The invocation is always `['human']`: opening a
-   * capability to the agent is a separate, deliberate edit of the sidecar,
-   * never a side effect of registration.
+   * it is. Registration always writes an *instruction capability* (no
+   * `entry`, ADR-0023 决定 6): a third-party skill's essence is its SKILL.md
+   * instructions, and nothing in the drop speaks the run protocol, so the
+   * type is never a question the human answers. The three boolean args are
+   * the reach of the capability: `agentInvoke` widens `invocation` to
+   * `['human', 'agent']`, `resourceMenu` writes `appliesTo.resource: true`
+   * (every resource's right-click menu), `selectionMenu` writes
+   * `appliesTo.selection: true` (the middle-pane right-click menu).
+   *
+   * A dropped **plugin repository** (no top-level `SKILL.md`, but nested
+   * `skills/<name>/SKILL.md` bundles) registers by extraction: every nested
+   * skill directory moves to `.dsh/skills/<name>/` — a move, not a copy: the
+   * nested bundle is self-contained and its only useful home is the top
+   * level the scanner reads — and each extraction gets the sidecar. A nested
+   * skill named after the repository itself (the common drop shape
+   * `<repo>/skills/<repo>/`) cannot move out under its own name, so it
+   * flattens instead: its contents move up one level and the repository
+   * directory *becomes* the skill. Any other name collision refuses the
+   * whole call; the emptied repository shell stays behind, inert (no
+   * top-level SKILL.md, never scanned).
    *
    * Guards: the name must be a single safe path segment, the skill must be a
    * directory bundle inside the KB's own `.dsh/skills/`, its frontmatter must
-   * not mark it `user-invocable: false`, it must not already be a capability
-   * (a valid declaration is never silently overwritten — repairing an invalid
-   * one is exactly what this call is for), and an `entry` must stay inside
-   * the skill's directory.
-   * @param args - the in-KB skill's name and, for a script capability, its entry.
-   * @returns the sidecar's KB-relative path.
+   * not mark it `user-invocable: false`, and it must not already be a
+   * capability (a valid declaration is never silently overwritten —
+   * repairing an invalid one is exactly what this call is for).
+   * @param args - the in-KB skill's name and the capability's reach.
+   * @returns the KB-relative path of one sidecar the call wrote.
    */
   @Remote('capabilityRegister')
   async capabilityRegister(args: KbCapabilityRegisterArgs): Promise<KbCapabilityRegisterResult> {
@@ -1374,8 +1428,12 @@ export class YantaoKbController extends TypertRemoteService {
         { path: name },
       )
     }
+    const skillsRoot = join(this.kbRoot, '.dsh', 'skills')
     const definition = await this.ctx.skills.get(name, { cwd: this.kbRoot })
     const directory = definition?.resourceBase?.kind === 'directory' ? definition.resourceBase.path : undefined
+    if (definition === undefined && await this.pluginShape(join(skillsRoot, name))) {
+      return this.registerPlugin(join(skillsRoot, name), args)
+    }
     if (definition === undefined || !this.isKbSkill(definition) || directory === undefined
       || definition.path === undefined || basename(definition.path) !== 'SKILL.md') {
       throw new RemoteError(
@@ -1405,23 +1463,95 @@ export class YantaoKbController extends TypertRemoteService {
         { path: name },
       )
     }
-    const entry = args.entry?.trim()
-    if (entry !== undefined && entry !== '') {
-      const entryPath = resolve(directory, entry)
-      if (!entryPath.startsWith(resolve(directory) + sep)) {
+    await this.writeSidecar(directory, args)
+    await this.settleSkills([name])
+    return { path: `.dsh/skills/${name}/yantao.json` }
+  }
+
+  /**
+   * Whether a `.dsh/skills/` directory has the plugin shape: no top-level
+   * `SKILL.md` (the scanner's entry point — its absence is why the registry
+   * never claimed the directory) but at least one nested
+   * `skills/<name>/SKILL.md` bundle.
+   */
+  private async pluginShape(repository: string): Promise<boolean> {
+    if (await stat(join(repository, 'SKILL.md')).then(() => true, () => false)) return false
+    const nested = await readdir(join(repository, 'skills'), { withFileTypes: true }).catch(() => [])
+    for (const child of nested) {
+      if (!child.isDirectory()) continue
+      if (await stat(join(repository, 'skills', child.name, 'SKILL.md')).then(() => true, () => false)) return true
+    }
+    return false
+  }
+
+  /**
+   * Register a plugin repository by extraction: move every nested
+   * `skills/<name>/` bundle to `.dsh/skills/<name>/` and give each the
+   * registration sidecar. All-or-nothing: one collision refuses the call
+   * before anything moves.
+   */
+  private async registerPlugin(repository: string, args: KbCapabilityRegisterArgs): Promise<KbCapabilityRegisterResult> {
+    const skillsRoot = join(this.kbRoot, '.dsh', 'skills')
+    const nested = await readdir(join(repository, 'skills'), { withFileTypes: true })
+    const children = nested.filter(child => child.isDirectory()).map(child => child.name)
+    // A child named after the repository itself (the common drop shape:
+    // `<repo>/skills/<repo>/SKILL.md`) cannot move out under its own name —
+    // the repository directory is still there. It flattens instead: the nested
+    // skill's contents move up one level and the repository *becomes* the skill.
+    const selfName = basename(repository)
+    const flattens = children.includes(selfName)
+    for (const child of children) {
+      if (child === selfName) continue
+      const target = join(skillsRoot, child)
+      if (await stat(target).then(() => true, () => false)) {
         throw new RemoteError(
           'yantao-kb/rejected',
-          `entry 指向了技能目录之外：${entry}`,
-          { path: name },
+          `插件内含技能「${child}」与既有目录同名，注册被拒绝：.dsh/skills/${child}`,
+          { path: args.name },
         )
       }
     }
-    // The declaration is assembled from validated pieces, so what lands on
-    // disk is a manifest the run path accepts by construction.
+    const firstChild = flattens ? selfName : children[0]
+    const firstPath = `.dsh/skills/${firstChild ?? selfName}/yantao.json`
+    try {
+      for (const child of children) {
+        if (child === selfName) {
+          for (const entry of await readdir(join(repository, 'skills', child), { withFileTypes: true })) {
+            await rename(join(repository, 'skills', child, entry.name), join(repository, entry.name))
+          }
+          await this.writeSidecar(repository, args)
+        } else {
+          await rename(join(repository, 'skills', child), join(skillsRoot, child))
+          await this.writeSidecar(join(skillsRoot, child), args)
+        }
+      }
+    } catch (error) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `无法提取插件内含技能：${(error as Error).message}`,
+        { path: args.name },
+        { cause: error },
+      )
+    }
+    await this.settleSkills(children)
+    return { path: firstPath }
+  }
+
+  /**
+   * Write one registration sidecar: always an instruction capability (no
+   * `entry` — the declaration is assembled from validated pieces, so what
+   * lands on disk is a manifest the run path accepts by construction), with
+   * the invocation and `appliesTo` reach the caller chose.
+   */
+  private async writeSidecar(directory: string, args: KbCapabilityRegisterArgs): Promise<void> {
+    const appliesTo = {
+      ...(args.resourceMenu === true ? { resource: true as const } : {}),
+      ...(args.selectionMenu === true ? { selection: true as const } : {}),
+    }
     const sidecar = {
       version: 1,
-      invocation: ['human'],
-      ...(entry !== undefined && entry !== '' ? { entry, runtime: 'python' } : {}),
+      invocation: args.agentInvoke === true ? ['human', 'agent'] : ['human'],
+      ...(Object.keys(appliesTo).length > 0 ? { appliesTo } : {}),
     }
     try {
       await writeFile(join(directory, 'yantao.json'), `${JSON.stringify(sidecar, null, 2)}\n`, 'utf8')
@@ -1429,12 +1559,10 @@ export class YantaoKbController extends TypertRemoteService {
       throw new RemoteError(
         'yantao-kb/rejected',
         `无法写入能力声明：${(error as Error).message}`,
-        { path: name },
+        { path: args.name },
         { cause: error },
       )
     }
-    await this.settleSkills([name])
-    return { path: `.dsh/skills/${name}/yantao.json` }
   }
 }
 

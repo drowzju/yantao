@@ -143,10 +143,16 @@ export type CapabilityAdopter = (name: string) => Promise<KbCapabilityAdoptResul
 
 /**
  * Register one in-KB skill by writing its `yantao.json` sidecar in place
- * (ADR-0025 决定 1); `entry` present = script capability, absent =
- * instruction capability.
+ * (ADR-0025 决定 1) — always an instruction capability; the three booleans
+ * are the capability's reach (agent invocation, resource menu, selection
+ * menu). A plugin repository registers by extraction.
  */
-export type CapabilityRegistrar = (name: string, entry?: string) => Promise<KbCapabilityRegisterResult>
+export type CapabilityRegisterReach = {
+  readonly agentInvoke?: boolean
+  readonly resourceMenu?: boolean
+  readonly selectionMenu?: boolean
+}
+export type CapabilityRegistrar = (name: string, reach?: CapabilityRegisterReach) => Promise<KbCapabilityRegisterResult>
 
 /** One mail as the connector reports it (ADR-0019). */
 export type MailMessage = KbMailMessage
@@ -484,18 +490,28 @@ export async function adoptCapability(ctx: Context, name: string): Promise<KbCap
 
 /**
  * Register one in-KB skill as a capability (ADR-0025 决定 1): the host writes
- * the skill's `yantao.json` sidecar in place — no copy. With an `entry` the
- * sidecar declares a script capability; without one, an instruction
- * capability, human-invocable only.
+ * the skill's `yantao.json` sidecar in place — no copy — always as an
+ * instruction capability, with the reach the caller chose. A plugin
+ * repository (no top-level SKILL.md, nested `skills/<name>/SKILL.md`)
+ * registers by extracting its nested skills.
  * @param ctx - client root context.
  * @param name - the in-KB skill's name, as the 未注册 group reported it.
- * @param entry - entry script path relative to the skill's directory; omit for an instruction capability.
- * @returns the sidecar's KB-relative path, or a rejected promise carrying the reason.
+ * @param reach - the capability's reach: agent invocation, resource menu, selection menu.
+ * @returns a sidecar's KB-relative path, or a rejected promise carrying the reason.
  */
-export async function registerCapability(ctx: Context, name: string, entry?: string): Promise<KbCapabilityRegisterResult> {
+export async function registerCapability(
+  ctx: Context,
+  name: string,
+  reach: CapabilityRegisterReach = {},
+): Promise<KbCapabilityRegisterResult> {
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
-  return unwrapRemote(await kb.capabilityRegister({ name, ...entry !== undefined ? { entry } : {} }))
+  return unwrapRemote(await kb.capabilityRegister({
+    name,
+    ...reach.agentInvoke === true ? { agentInvoke: true } : {},
+    ...reach.resourceMenu === true ? { resourceMenu: true } : {},
+    ...reach.selectionMenu === true ? { selectionMenu: true } : {},
+  }))
 }
 
 /**
