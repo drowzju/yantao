@@ -1,47 +1,45 @@
 ---
-description: "The yantao group map: the personal knowledge-workbench domain for the yantao profile, for users and maintainers navigating the group."
+description: "yantao 组地图：yantao profile 的个人知识工作台领域，面向浏览本组的使用者与维护者。"
 kind: "package-group"
 ---
 
 # packages/yantao
 
-English | [中文](README.zh.md)
+## 概述
 
-## Summary
+yantao 组承载 `yantao` profile 挂载的个人知识工作台领域：一个基于文件的 PARA+P 知识库，其实体笔记把人类专属的「状态」区与只许追加的「流水」区分开，以及一组让『流水』成为 agent 唯一写入口的工具。profile 组合本身——GLM 网关路由、默认模型、persona 与被禁用的通用写入工具——在 [`bundle/yantao`](../bundle/yantao/README.md) 包里；本组拥有领域插件及其文件格式。
 
-The yantao group holds the personal knowledge-workbench domain mounted by the `yantao` profile: a file-backed PARA+P knowledge base whose entity notes split a human-only State section from an append-only Log section, and the tool family that makes the Log the agent's only write path. The profile composition itself — GLM gateway route, default model, persona, and the disabled generic write tools — lives in the [`bundle/yantao`](../bundle/yantao/README.md) package; this group owns the domain plugin and its file formats.
+## 目录
 
-## Table of Contents
-
-- [Packages](#packages)
-- [Related documentation](#related-documentation)
-- [Dev Note](#dev-note)
+- [包](#packages)
+- [相关文档](#related-documentation)
+- [开发备注](#dev-note)
 
 -----
 
 <a id="packages"></a>
-## Packages
+## 包
 
-| Package | Role | ctx key |
+| 包 | 职责 | ctx key |
 |---|---|---|
-| [`kb`](kb/README.md) | PARA+P knowledge-base domain plugin: the seven `kb_` trust-boundary tools over the file-backed KB | registers on `ctx.tools` |
+| [`kb`](kb/README.md) | PARA+P 知识库领域插件：建立在文件型知识库之上的七个 `kb_` 信任边界工具 | 注册到 `ctx.tools` |
 
 -----
 
 <a id="related-documentation"></a>
-## Related documentation
+## 相关文档
 
-- [dsh-yantao bundle](../bundle/yantao/README.md) — the profile layer that mounts this group's plugin and removes the generic write tools.
-- [Tool authoring reference](../../docs/cookbook/adding-a-tool.md) — the `defineTool` contract the group's tools follow.
+- [dsh-yantao bundle](../bundle/yantao/README.md)——挂载本组插件并移除通用写入工具的 profile 层。
+- [工具编写参考](../../docs/cookbook/adding-a-tool.zh.md)——本组工具遵循的 `defineTool` 契约。
 
 -----
 
 <a id="dev-note"></a>
-## Dev Note
+## 开发备注
 
 <details>
-<summary>Working context for maintainers — click to expand</summary>
+<summary>维护者的工作上下文——点击展开</summary>
 
-None.
+无。
 
 </details>

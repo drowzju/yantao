@@ -1,160 +1,158 @@
 ---
-description: "The yantaoKb Typert Remote controller: the workbench UI's direct KB channel (tree/read/write confined to kbRoot), for users and maintainers of the yantao-web surface."
+description: "yantaoKb Typert Remote 控制器：工作台 UI 直连知识库的通道（限制在 kbRoot 内的 tree/read/write），面向 yantao-web 表层的使用者与维护者。"
 kind: "package-reference"
 ---
 
 # @deepseek-ai/dsh-api-yantao-kb-controller
 
-English | [中文](README.zh.md)
+## 概述
 
-## Summary
+`dsh-api-yantao-kb-controller` 是 yantao 工作台 UI 背后的 Typert Remote 控制器：`yantaoKb` 命名空间下的十九个一元方法——`intakeTree`、`workspaceTree`、`read`、`write`、`deleteFile`、`setRelation`、`root`、`setRoot`、`createEntity`、`links`、`revision`、`openExternal`、`todos`、`writeTodos`、`mailMarkRead`、`registerResource`、`capabilityList`、`capabilityRun`、`capabilityCreate`——让浏览器直接列出、编辑与扩充知识库。所有路径都是知识库相对路径，并被限制在 `yantao-kb` 插件以 `yantaoKb` 服务发布的 kbRoot 之内，因此控制器共享插件的唯一配置点，绝不重复配置；`setRoot` 则重新指向这个唯一的根目录。UI 是人类通道，所以 `write` 是整文件写入；ADR-0004 信任边界只约束 agent 的 `kb_` 工具，从不约束本表面。
 
-`dsh-api-yantao-kb-controller` is the Typert Remote controller behind the yantao workbench UI: nineteen unary methods over the `yantaoKb` namespace — `intakeTree`, `workspaceTree`, `read`, `write`, `deleteFile`, `setRelation`, `root`, `setRoot`, `createEntity`, `links`, `revision`, `openExternal`, `todos`, `writeTodos`, `mailMarkRead`, `registerResource`, `capabilityList`, `capabilityRun`, and `capabilityCreate` — that let the browser list, edit, and extend the knowledge base directly. Every path is KB-relative and confined to the kbRoot the `yantao-kb` plugin publishes as the `yantaoKb` service, so the controller shares the plugin's one configuration point and never duplicates it; `setRoot` re-points that one root. The UI is the human channel, so `write` is a full-file write; the ADR-0004 trust boundary binds only the agent's `kb_` tools, never this surface.
+## 目录
 
-## Table of Contents
-
-- [Use this package](#use-this-package)
-- [Understand the implementation](#understand-the-implementation)
-- [Further Exploration](#further-exploration)
-- [Model Experience](#model-experience)
-- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
-- [Dev Note](#dev-note)
+- [使用本包](#use-this-package)
+- [理解实现](#understand-the-implementation)
+- [进一步探索](#further-exploration)
+- [模型体验](#model-experience)
+- [已知限制与延期工作](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
 
 -----
 
 <a id="use-this-package"></a>
-## Use this package
+## 使用本包
 
-The `yantao-web` profile mounts this controller automatically; the workbench UI consumes it through the [`dsh-api-remotes`](../remotes/README.md) assembly.
+`yantao-web` profile 会自动挂载本控制器；工作台 UI 通过 [`dsh-api-remotes`](../remotes/README.zh.md) 组装消费它。
 
-### The namespace
+### 命名空间
 
-| Method | Signature | Result |
+| 方法 | 签名 | 结果 |
 |---|---|---|
-| `yantaoKb.intakeTree` | `()` | The intake sections (`resources`, `meetings`, `todos`); resources are listed as plain files — originals keep their file name's suffix, so `周报.eml` and `周报.eml.md` never read as the same thing |
-| `yantaoKb.workspaceTree` | `()` | The workspace sections (`projects`, `areas`, `people`); entity rows add `archived`, and on people `relation` and `email` |
-| `yantaoKb.read` | `(path)` | `{ path, content }` — the file's complete UTF-8 content |
-| `yantaoKb.write` | `(path, content)` | `{ path }` — full-file write, creating missing parent directories |
-| `yantaoKb.deleteFile` | `(path)` | `{ path }` — removes one KB file; the path is confined like every other one, and an absent file is `not-found` |
-| `yantaoKb.setRelation` | `({ path, relation })` | `{ path, relation }` — rewrites one person entity's `relation` inside its frontmatter, leaving the rest of the document byte-identical |
-| `yantaoKb.root` | `()` | `{ root, configured }` — the live KB root, and whether the human has chosen one |
-| `yantaoKb.setRoot` | `(path)` | `{ root, configured, created, existing }` — initializes `path` as a KB, makes it the live root, and remembers it |
-| `yantaoKb.createEntity` | `({ type, name, date?, relation?, email?, source? })` | `{ path }` — one entity note from the KB's canonical template; `source` only means anything for a reading project (ADR-0020) |
-| `yantaoKb.links` | `(path)` | `{ outgoing, incoming }` — the file's `[[wiki link]]` graph, resolved host-side and never into `resources/` (ADR-0015) |
-| `yantaoKb.revision` | `()` | `{ root, revision }` — a counter that bumps whenever a file under the KB root changes; it follows `setRoot` (ADR-0017) |
-| `yantaoKb.openExternal` | `(target)` | `{ target }` — hands a KB path or a whitelisted URL scheme to the OS shell, refusing shell metacharacters (ADR-0017) |
-| `yantaoKb.todos` | `()` | `{ path, text, items }` — the `entities/todos.md` singleton parsed into structured items, plus its exact text (ADR-0018) |
-| `yantaoKb.writeTodos` | `({ items, expectedText })` | `{ path, text }` — replaces the singleton's items, keeping its preamble (ADR-0018) |
-| `yantaoKb.mailMarkRead` | `({ lastReadAt?, firstReadAt? })` | `{ lastReadAt, firstReadAt? }` — moves the mail capability's cursor forward and keeps the earliest `firstReadAt` as the processed range's start; `lastReadAt` defaults to now (ADR-0019) |
-| `yantaoKb.registerResource` | `({ name, contentBase64 })` | `{ resource }` — copies one dropped file into `resources/` byte-for-byte, sanitizing the name and refusing a duplicate; no note is generated beside it (ADR-0020) |
-| `yantaoKb.capabilityRun` | `({ name, input? })` | `{ name, runAt, result?, content?, artifacts }` — runs one capability's host entry (a dsh skill directory declaring itself through a `yantao.json` sidecar, legacy `metadata.yantao` frontmatter accepted) as a Python subprocess, writes its artifacts under `.yantao/capabilities/<name>/`, and persists its state under `capabilities.<name>.state` in `<kbRoot>/.yantao/state.json` (ADR-0024); an instruction capability (no `entry`) answers with its SKILL.md body as `content` instead of spawning (ADR-0021, ADR-0023) |
-| `yantaoKb.capabilityList` | `()` | `{ capabilities, unregistered }` — every skill at the KB root that declares a capability manifest, each row merged with its persisted record (`lastRunAt`, `state`); skills claimed by the central routing file also appear as capability rows (description read from their SKILL.md, ADR-0025 落地注记三), plus the `unregistered` group: out-of-KB skill directories adoptable into the KB, in-KB skills whose declaration is missing or invalid (greyed rows carrying `inKb` and the reason), and dropped plugin repositories (top level without a SKILL.md but with nested `skills/<child>/SKILL.md` — rows carrying `plugin: true` and the `pluginSkills` list; registration writes one route per nested child into the central routing file) (ADR-0025 决定 1); the shipped capabilities are seeded into `<kbRoot>/.dsh/skills/` first (ADR-0021) |
-| `yantaoKb.capabilityCreate` | `({ name })` | `{ path }` — scaffolds `.dsh/skills/<name>/` with a clean SKILL.md, a declaring `yantao.json` sidecar, and a protocol-speaking `scripts/entry.py`; a working capability on the first run (ADR-0021 决定 8) |
-| `yantaoKb.capabilityAdopt` | `({ name })` | `{ path }` — copies one out-of-KB skill directory into `.dsh/skills/<name>/`, deletes the copied `yantao.json` (outside declarations never take effect silently), and writes an `invocation: ['human']` route into the central routing file `.dsh/skills/yantao.json` (ADR-0025 落地注记三); refuses an existing target, a `user-invocable: false` skill, and anything that is not a flat directory bundle with a SKILL.md (a source sidecar declaring an `entry` or the agent is surfaced by the panel's confirm dialog, not blocked here) |
-| `yantaoKb.capabilityRegister` | `({ name, agentInvoke?, resourceMenu?, selectionMenu? })` | `{ path }` — registers a skill as a capability by writing a route entry (`{path, invocation, appliesTo?}`) into the central routing file `<kbRoot>/.dsh/skills/yantao.json` — **no directory is moved, renamed, or copied**; an in-KB skill gets `path: <name>`, a dropped plugin repository (no top-level SKILL.md, nested `skills/<child>/SKILL.md`) gets one entry per nested child (`path: <repo>/skills/<child>`) with the repository left in place; the three booleans are the reach the dialog collected — `agentInvoke` writes `invocation: ['human','agent']`, `resourceMenu`/`selectionMenu` write `appliesTo.resource: true` (every resource) / `appliesTo.selection: true`; refuses a skill that is already a capability (a same-named sidecar still wins), a `user-invocable: false` skill, a flat single-file skill, and a directory carrying an invalid sidecar (fix or delete it first); re-registering overwrites the route entry (idempotent) (ADR-0025 决定 1, 落地注记三) |
+| `yantaoKb.intakeTree` | `()` | 收集侧的小节（`resources`、`meetings`、`todos`）；资源按普通文件列出——原件保留文件名的后缀，因此 `周报.eml` 与 `周报.eml.md` 不会被看成同一个东西 |
+| `yantaoKb.workspaceTree` | `()` | 工作侧的小节（`projects`、`areas`、`people`）；实体行额外携带 `archived`，人物行还有 `relation` 与 `email` |
+| `yantaoKb.read` | `(path)` | `{ path, content }`——文件完整 UTF-8 内容 |
+| `yantaoKb.write` | `(path, content)` | `{ path }`——整文件写入，自动创建缺失的父目录 |
+| `yantaoKb.deleteFile` | `(path)` | `{ path }`——删除知识库内的一个文件；路径同样受根目录约束，文件不存在是 `not-found` |
+| `yantaoKb.setRelation` | `({ path, relation })` | `{ path, relation }`——改写人物实体 frontmatter 里的 `relation`，文件其余部分逐字节保持原样 |
+| `yantaoKb.root` | `()` | `{ root, configured }`——当前生效的知识库根目录，以及人类是否已经选过 |
+| `yantaoKb.setRoot` | `(path)` | `{ root, configured, created, existing }`——把 `path` 初始化为知识库、设为当前根目录并记住它 |
+| `yantaoKb.createEntity` | `({ type, name, date?, relation?, email?, source? })` | `{ path }`——按 canonical 模板创建一个实体笔记；`source` 只对读书项目有意义（ADR-0020） |
+| `yantaoKb.links` | `(path)` | `{ outgoing, incoming }`——该文件的 `[[双链]]` 图，在宿主侧解析，且绝不指向 `resources/`（ADR-0015） |
+| `yantaoKb.revision` | `()` | `{ root, revision }`——知识库根目录下任何文件变动就自增的计数器，随 `setRoot` 重建（ADR-0017） |
+| `yantaoKb.openExternal` | `(target)` | `{ target }`——把知识库内路径或白名单协议的 URL 交给系统打开，拒绝 shell 元字符（ADR-0017） |
+| `yantaoKb.todos` | `()` | `{ path, text, items }`——`entities/todos.md` 单例解析出的结构化条目，外加文件原文（ADR-0018） |
+| `yantaoKb.writeTodos` | `({ items, expectedText })` | `{ path, text }`——替换单例的条目，保留 preamble（ADR-0018） |
+| `yantaoKb.mailMarkRead` | `({ lastReadAt?, firstReadAt? })` | `{ lastReadAt, firstReadAt? }`——把邮件能力的断点往前推，并把最早的 `firstReadAt` 记为已处理范围的起点；`lastReadAt` 缺省为当前时刻（ADR-0019） |
+| `yantaoKb.registerResource` | `({ name, contentBase64 })` | `{ resource }`——把一个拖入的文件逐字节复制进 `resources/`，清理文件名并拒绝重复；旁边不生成任何笔记（ADR-0020） |
+| `yantaoKb.capabilityRun` | `({ name, input? })` | `{ name, runAt, result?, content?, artifacts }`——把一个能力的宿主入口（通过目录根的 `yantao.json` sidecar 声明自己的 dsh skill 目录，兼容旧的 `metadata.yantao` frontmatter）作为 Python 子进程运行，产物写入 `.yantao/capabilities/<name>/`，状态记到 `<kbRoot>/.yantao/state.json` 的 `capabilities.<name>.state`（ADR-0024）；指令型能力（无 `entry`）不 spawn，改以 SKILL.md 正文作为 `content` 作答（ADR-0021、ADR-0023） |
+| `yantaoKb.capabilityList` | `()` | `{ capabilities, unregistered }`——知识库根目录下每个声明了能力清单的技能，每行合并它的持久化记录（`lastRunAt`、`state`），被中央路由文件认领的技能也以能力行出现（描述读自其 SKILL.md，ADR-0025 落地注记三），外加 `unregistered` 分组：KB 外可采纳进知识库的技能目录、KB 内声明缺失或无效的技能（灰显行携带 `inKb` 与原因），以及投放进来的插件仓库（顶层无 SKILL.md 但有内嵌 `skills/<child>/SKILL.md`——行携带 `plugin: true` 与 `pluginSkills` 清单；注册时在中央路由文件为每个内含技能各写一条路由）（ADR-0025 决定 1）；内置能力会先被播种进 `<kbRoot>/.dsh/skills/`（ADR-0021） |
+| `yantaoKb.capabilityCreate` | `({ name })` | `{ path }`——在 `.dsh/skills/<name>/` 脚手架出干净的 SKILL.md、声明用的 `yantao.json` sidecar 和说执行协议的 `scripts/entry.py`；第一次运行就能工作的能力（ADR-0021 决定 8） |
+| `yantaoKb.capabilityAdopt` | `({ name })` | `{ path }`——把一个 KB 外的技能目录拷贝进 `.dsh/skills/<name>/`，删除副本自带的 `yantao.json`（外带声明不静默生效），并在中央路由文件 `.dsh/skills/yantao.json` 写一条 `invocation: ['human']` 的路由（ADR-0025 落地注记三）；拒绝已存在的目标、`user-invocable: false` 的技能，以及一切不是「带 SKILL.md 的扁平目录束」的东西（源目录自带 sidecar 声明 `entry` 或 agent 的情况由面板的确认框显式过目，这里不拦） |
+| `yantaoKb.capabilityRegister` | `({ name, agentInvoke?, resourceMenu?, selectionMenu? })` | `{ path }`——把一个技能注册成能力：在中央路由文件 `<kbRoot>/.dsh/skills/yantao.json` 写入一条路由（`{path, invocation, appliesTo?}`），**不移动、不改名、不拷贝任何目录**；KB 内技能写 `path: <名>`，投放的插件仓库（顶层无 SKILL.md、内嵌 `skills/<child>/SKILL.md`）为每个内含技能各写 `path: <repo>/skills/<child>`——仓库原地保留；三个布尔是对话框收集的 reach——`agentInvoke` 把 `invocation` 写成 `['human','agent']`，`resourceMenu`/`selectionMenu` 分别写 `appliesTo.resource: true`（所有资源）/ `appliesTo.selection: true`；拒绝已经是能力的技能（同名 sidecar 仍优先）、`user-invocable: false` 的技能、扁平单文件技能，以及自带无效 sidecar 的目录（先删除或修复它）；重复注册覆盖旧路由条目（幂等）（ADR-0025 决定 1、落地注记三） |
 
-`setRelation` only answers for a person file: anything else is `yantao-kb/rejected` without being rewritten, and so is a relation outside the domain's five. It is a line splice inside the frontmatter, never a YAML round trip — a re-emitted mapping would drop the comments and ordering the human wrote.
+`setRelation` 只对人物文件作答：其它文件一律 `yantao-kb/rejected` 且不被改写，五种关系之外的取值同样拒绝。它是对 frontmatter 的一行拼接，绝不重排 YAML——重新生成映射会丢掉人类写的注释与顺序。
 
-`setRoot` takes an absolute path (a relative or empty one is refused) and hands it to the `yantaoKb` service, which persists the choice in the settings plane — the `yantao-kb` namespace of `~/.dsh/settings.yaml` (ADR-0024 决定 3). `createEntity` accepts `project`, `area`, `person`, and `meeting`; a meeting's file name is prefixed with its own date, and a person carries the `relation` it was given — `self` / `subordinate` / `superior` / `peer` / `external`, the KB domain's own five — defaulting to the domain's own choice when the caller names none, plus an optional `email` the workspace tree reads back so the mail analysis can match a sender to a person.
+`setRoot` 只接受绝对路径（相对或空路径会被拒绝），并把它交给 `yantaoKb` 服务——服务负责把选择持久化到 settings plane，即 `~/.dsh/settings.yaml` 的 `yantao-kb` 命名空间（ADR-0024 决定 3）。`createEntity` 接受 `project`、`area`、`person`、`meeting`；会议文件名会冠以它自己的日期。人物实体会写入调用方给出的 `relation`——`self` / `subordinate` / `superior` / `peer` / `external`，即 kb 领域自己的五种关系；调用方不指定时，沿用领域自己的缺省值。还可以给出可选的 `email`，工作树会把它读回来，供邮件分析把发件人匹配到人员。
 
-`todos`/`writeTodos` (ADR-0018) are the structured way to edit the `entities/todos.md` singleton — the pair exists because the Client cannot import the kb package's parser (bundle purity). `todos` reports an absent file as `text: ''` and no items rather than an error, and `writeTodos` compares the file against `expectedText`: a mismatch is `yantao-kb/rejected`, so an edit made outside the workbench is refreshed, never clobbered. The file's preamble — a heading above the checklist — survives the write; only the items are replaced.
+`todos` / `writeTodos`（ADR-0018）是编辑 `entities/todos.md` 单例的结构化方式——这一对方法存在的原因是 Client **不能** import kb 包的解析器（bundle purity）。`todos` 把缺失的文件报成 `text: ''` 与空条目，而不是报错；`writeTodos` 拿 `expectedText` 与磁盘上的当前文本比对，不一致就是 `yantao-kb/rejected`——于是工作台之外的修改会被刷新，绝不会被覆盖。文件的 preamble（清单上方人类写的标题）原样保留，只替换条目。
 
-`mailMarkRead` (ADR-0019) is what remains of the first connector's RPC surface: the cursor write. Reading mails moved into the `mail` capability (ADR-0021) — its result carries the same bounds, `stale`, and `hasMore` bookkeeping `mailFetch` used to answer — but advancing the cursor is an approval-time act, so it stays a plain RPC over `writeMailWatermark`. The batch's oldest mail rides along as `firstReadAt` and is kept as the minimum ever seen, so the panel can show the processed range (e.g. 2025-12-31 到 2026-01-31) straight from the capability's persisted state. It refuses before a KB root has been chosen, because the cursor is persisted next to it.
+`mailMarkRead`（ADR-0019）是第一个连接器的 RPC 表面剩下的那一半：断点写入。读邮件这件事搬进了 `mail` 能力（ADR-0021）——它的结果携带与从前 `mailFetch` 相同的边界、`stale` 与 `hasMore` 簿记——但推进断点是批准时的动作，所以它仍是一个普通 RPC，落在 `writeMailWatermark` 上。这一批里最旧的一封作为 `firstReadAt` 一并带来，并按历史最小值保留，面板因此能直接从能力的持久化状态里显示出已处理范围（如 2025-12-31 到 2026-01-31）。它要求先选过知识库目录，因为断点就记在它旁边。
 
-`registerResource` (ADR-0020) is the drag-and-drop intake: the browser sends the file's complete content base64-encoded, and the host copies it into `resources/` unchanged — the same sanitize-and-refuse-duplicate semantics the agent's `kb_register_resource` has, minus the absolute-path input. (The `ebook` extraction capability that ADR-0021 seeded here was retired on 2026-09-14 together with the reading-project flow — ADR-0020's landing note — and a leftover seeded copy is backed up to `.yantao/capability-backups/` and removed at seed time.)
+`registerResource`（ADR-0020）是拖拽摄入：浏览器把文件的完整内容 base64 编码后发来，宿主把它原样复制进 `resources/`——与 agent 的 `kb_register_resource` 相同的清理并拒绝重复语义，只是不接受绝对路径输入。（ADR-0021 在此播种的 `ebook` 抽取能力已于 2026-09-14 随读书项目流程一并退役——见 ADR-0020 落地注记；残留的已播种副本会在播种时先备份到 `.yantao/capability-backups/` 再移除。）
 
-`capabilityRun` (ADR-0021) is the mail/extract subprocess pattern generalized into the capability system: a capability is a dsh skill directory whose declaration lives in a `yantao.json` sidecar at the directory root (`entry`/`runtime`/`appliesTo`/`invocation` — out-of-band, so an unmodified open-source skill directory can be dropped in; the legacy `metadata.yantao` frontmatter section still answers when no sidecar is present), discovery is `ctx.skills`' business, and this controller owns only the execution seam — one Python subprocess with a JSON stdin/stdout contract, artifacts written by the controller (never by the script, which cannot choose its own write paths), and the returned state persisted as the next run's starting point. Since ADR-0023 the same seam serves both channels: the human calls it here, the agent through the `kb_run_capability` tool — but only for capabilities whose sidecar declared `"invocation": ["agent"]` (the default is human-only), and a capability without an `entry` is an instruction capability whose SKILL.md body is the whole answer. `tool-skill` stays disabled so the model never sees a raw skill catalog; the agent learns what it may run from the per-turn injected catalog instead. Since ADR-0025 落地注记三 the same seam also serves skills claimed by the central routing file `<kbRoot>/.dsh/skills/yantao.json`: when the sidecar is missing or invalid (or the registry cannot see the skill at all), the route entry's `invocation`/`appliesTo` govern — a valid sidecar always beats a same-named route; an instruction capability reached through a route answers with its SKILL.md body the same way, and a broken central routing file surfaces as `bad-manifest` on the run path.
+`capabilityRun`（ADR-0021）是把邮件/提取的子进程模式泛化进能力系统的那条执行缝：能力是一个 dsh skill 目录，声明放在目录根的 `yantao.json` sidecar 里（`entry`/`runtime`/`appliesTo`/`invocation`——外带声明，开源 skill 目录可以原样拷进来直接当能力用；没有 sidecar 时兼容读取旧的 `metadata.yantao` frontmatter）；发现是 `ctx.skills` 的事，控制器只拥有执行——一次 Python 子进程、stdin/stdout 走 JSON 的契约，产物由控制器写入（脚本自己选不了写路径），返回的状态作为下一次运行的起点持久化。从 ADR-0023 起同一条缝服务两个通道：人通过本 RPC 调用，agent 通过 `kb_run_capability` 工具——但只有 sidecar 声明了 `"invocation": ["agent"]` 的能力才对 agent 开放（缺省仅人类），而没有 `entry` 的能力是指令型能力，其 SKILL.md 正文就是全部答案。`tool-skill` 保持禁用，模型永远看不到裸技能目录；agent 能运行什么，由每轮注入的能力目录告知。从 ADR-0025 落地注记三起，中央路由文件 `<kbRoot>/.dsh/skills/yantao.json` 认领的技能也走这条缝：sidecar 缺失或无效（或注册表根本看不见该技能）时，按路由条目声明的 `invocation`/`appliesTo` 作答——有效 sidecar 永远压过同名路由；指令型路由能力同样以 SKILL.md 正文作答，中央路由文件损坏则在运行路径报 `bad-manifest`。
 
-`capabilityList` / `capabilityCreate` (ADR-0021 决定 8) are the 能力 tab's management half. `capabilityList` seeds the shipped capabilities into the KB first (copy-on-missing, version-driven, so script fixes reach the KB), then lists every skill that declares a capability manifest — plain skills are skipped, not errors — merged with each one's persisted record. Installing a capability has no RPC: the human copies the directory into `<kbRoot>/.dsh/skills/` (or any other skill root) and discovery picks it up. `capabilityCreate` scaffolds a new capability inside the KB with a working protocol-speaking entry script. `capabilityRegister` (ADR-0025 决定 1, 落地注记三) closes the loop for skills already inside the KB: a dropped-in open-source skill directory with no `yantao.json` is not silently invisible any more — it surfaces in the 未注册 group with the reason, and registration writes a route entry into the central routing file `.dsh/skills/yantao.json` (with the reach the dialog's three checkboxes collected), leaving the skill directory untouched — no moves, no renames. A dropped plugin repository (the Claude marketplace shape) is no longer extracted: each nested `skills/<child>/` bundle gets its own `path: <repo>/skills/<child>` route, and the repository directory is not touched at all.
+`capabilityList` / `capabilityCreate`（ADR-0021 决定 8）是「能力」页签的管理半边。`capabilityList` 先把内置能力播种进知识库（缺失才复制、按版本覆盖，让脚本的修复真正到达 KB），再列出每个声明了能力清单的技能——普通技能被跳过而不是报错——并与各自的持久化记录合并。安装一个能力没有 RPC：人把能力目录拷进 `<kbRoot>/.dsh/skills/`（或任何其他 skill 根目录），发现机制自然会拾取。`capabilityCreate` 在知识库内脚手架一个新能力，入口脚本开箱即可运行。`capabilityRegister`（ADR-0025 决定 1、落地注记三）为已经在 KB 内的技能补上闭环：拷进来的开源 skill 目录若没有 `yantao.json`，不再是无声的不可见——它会带着原因出现在未注册分组里，注册改为在中央路由文件 `.dsh/skills/yantao.json` 写入一条路由条目（reach 来自对话框的三个勾选），技能目录原地保留——不移动、不改名。投放的插件仓库（Claude 插件市场形态）不再被提取：每个内嵌的 `skills/<child>/` 技能各得一条 `path: <repo>/skills/<child>` 的路由，仓库目录一个字节不动。
 
-Failures are `RemoteError`s: `yantao-kb/not-found` when the path names no file, `yantao-kb/rejected` for an escape attempt, a non-file target, an I/O refusal, or a KB domain refusal (an existing entity, the `todo` singleton) — each carrying the offending `path` in `details` — and `yantao-kb/mail` when the watermark write fails for want of a root, carrying the failure's `kind` and `hint`. `yantao-kb/capability` is the capability counterpart (`not-found` / `not-invocable` / `bad-manifest` / `python-missing` / `timeout` / `bad-output` / `capability-failed`), and the capability's own failure `kind` and remedy ride in `details` too; `not-invocable` (ADR-0023) is the agent calling a capability whose sidecar did not declare `"agent"`.
+失败是 `RemoteError`：路径没有对应文件时为 `yantao-kb/not-found`；路径逃逸、目标不是文件、I/O 拒绝或知识库领域拒绝（实体已存在、`todo` 单例）时为 `yantao-kb/rejected`——两者的 `details` 都携带出问题的 `path`；断点写入失败时为 `yantao-kb/mail`，`details` 带失败种类 `kind` 与 `hint`。`yantao-kb/capability` 是能力对应物（`not-found` / `not-invocable` / `bad-manifest` / `python-missing` / `timeout` / `bad-output` / `capability-failed`），能力自己的失败 `kind` 与补救 `hint` 也一并放在 `details` 里；`not-invocable`（ADR-0023）指 agent 调用了 sidecar 未声明 `"agent"` 的能力。
 
-### Client consumption
+### Client 消费
 
-The calling plugin declares both `remote` and `remote.yantaoKb` in its `inject`, then writes `ctx.remote.yantaoKb.intakeTree()` / `ctx.remote.yantaoKb.workspaceTree()` directly; the result is a `RemoteResult<T>` branched with `if (!result.ok)` in place. See the [Remote API cookbook](../../../docs/cookbook/adding-a-remote-api.md).
+调用方插件在 `inject` 中同时声明 `remote` 与 `remote.yantaoKb`，然后直接写 `ctx.remote.yantaoKb.intakeTree()` / `ctx.remote.yantaoKb.workspaceTree()`；结果是 `RemoteResult<T>`，就地用 `if (!result.ok)` 分支。见 [Remote API 手册](../../../docs/cookbook/adding-a-remote-api.zh.md)。
 
 -----
 
 <a id="understand-the-implementation"></a>
-## Understand the implementation
+## 理解实现
 
 <details>
-<summary>Implementation internals — click to expand</summary>
+<summary>实现内部——点击展开</summary>
 
-The controller is a `TypertRemoteService` with `static inject = ['yantaoKb', 'skills', 'tools']`: it activates only after the `yantao-kb` plugin has published the resolved KB root (and the skill registry is mounted, so `capabilityRun` can resolve capability directories), reads that root per call, and registers the `kb_run_capability` tool plus the pre-step catalog listener through the injected tool layer (ADR-0023). Path confinement reuses the kb package's `resolveWithinKb` (escape attempts classify as `yantao-kb/rejected` at the boundary), and the entity sections of the two trees reuse `listEntities`, so the wire view and the agent's tools read the same files the same way. `resources/` and `sessions/` sections are fresh directory reads per call — the UI always sees what a human editor just wrote. `write` performs no frontmatter validation: the human owns the file's structure, and the agent's tools re-validate on their next read.
+控制器是一个 `TypertRemoteService`，`static inject = ['yantaoKb', 'skills', 'tools']`：只有当 `yantao-kb` 插件发布了解析后的 KB 根目录（且技能注册表已挂载，`capabilityRun` 才能解析能力目录）它才激活，在每次调用时读取该根目录，并通过注入的工具层注册 `kb_run_capability` 工具与 pre-step 目录监听（ADR-0023）。路径限制复用 kb 包的 `resolveWithinKb`（逃逸尝试在边界被归类为 `yantao-kb/rejected`），两棵树的实体节复用 `listEntities`，因此 wire 视图与 agent 的工具以同样方式读同样的文件。`resources/` 与 `sessions/` 节是每次调用都重新读取的目录——UI 永远看到人类刚写入的内容。`write` 不做 frontmatter 校验：人类拥有文件结构，agent 的工具会在下次读取时重新校验。
 
-### Source map
+### 源码地图
 
-| File | Role |
+| 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | The controller: service declaration, path confinement, and the RPC methods |
-| [`src/capability/builtin.ts`](src/capability/builtin.ts) | The shipped capability directories' seeder (ADR-0021): copy-on-missing, version-driven, into `<kbRoot>/.dsh/skills/`; a drifted copy is backed up before a version bump overwrites it (ADR-0023 决定 7) |
-| [`src/capability/builtin/`](src/capability/builtin/) | The `mail` capability master: SKILL.md + `yantao.json` declaration + `scripts/` (the Python subprocess the old `mail/` module shelled out to) |
-| [`src/capability/run.ts`](src/capability/run.ts) | The capability runner (ADR-0021): `yantao.json` sidecar manifest validation (legacy frontmatter fallback), entry confinement inside the skill directory, the spawn wrapper with `CapabilityError{kind,message,hint}`, artifact-name validation |
-| [`src/capability/routing.ts`](src/capability/routing.ts) | The central routing file (ADR-0025 落地注记三): reading/validating/appending `.dsh/skills/yantao.json` (version 1, instruction-capability routes only, paths relative to the skills root with no escape), and reading a routed skill's SKILL.md |
-| [`src/types.ts`](src/types.ts) | Wire payload vocabulary (tree sections, file rows, read/write results) |
-| — | No runtime invariant companion is published; the controller is a stateless adapter whose confinement and shaping contracts are covered by the package's unit tests. |
-| [`tests/controller.spec.ts`](tests/controller.spec.ts) | Tree shaping, read/write round trips, root/setRoot/createEntity, not-found classification, and escape rejection over real temp directories |
-| [`tests/intake-rpc.spec.ts`](tests/intake-rpc.spec.ts) | The intake RPCs over real temp directories: base64 round trips, duplicate refusal |
-| [`tests/capability-rpc.spec.ts`](tests/capability-rpc.spec.ts) | The capability RPCs over a fake registry and a mocked runner: no-root/not-found/bad-manifest refusals, entry confinement, artifact write-out, state round trip, list/merge, central-routing registration (including per-child plugin repository routes), adoption, instruction capabilities, and the sidecar-vs-route channel precedence |
-| [`tests/capability-tool.spec.ts`](tests/capability-tool.spec.ts) | The `kb_run_capability` tool and the pre-step catalog (ADR-0023): registration, the agent gate (including routed capabilities), the instruction answer, and the catalog injection (including routed appends) over a fake registry |
-| [`tests/capability-builtin.spec.ts`](tests/capability-builtin.spec.ts) | The seeder over real temp directories: fresh seeding, up-to-date no-op, version-driven overwrite, newer-human-copy preservation, drift backup, and lossless retirement of a capability that no longer ships |
+| [`src/index.ts`](src/index.ts) | 控制器：服务声明、路径限制与 RPC 方法 |
+| [`src/capability/builtin.ts`](src/capability/builtin.ts) | 内置能力目录的播种器（ADR-0021）：缺失才复制、按版本覆盖，落进 `<kbRoot>/.dsh/skills/`；版本升级覆盖前先备份漂移的副本（ADR-0023 决定 7） |
+| [`src/capability/builtin/`](src/capability/builtin/) | `mail` 能力的母本：SKILL.md + `yantao.json` 声明 + `scripts/`（即旧 `mail/` 模块调用的那个 Python 子进程） |
+| [`src/capability/run.ts`](src/capability/run.ts) | 能力运行器（ADR-0021）：`yantao.json` sidecar 声明校验（兼容旧 frontmatter 回退）、入口限制在能力目录内、带 `CapabilityError{kind,message,hint}` 的 spawn 包装、产物文件名校验 |
+| [`src/capability/routing.ts`](src/capability/routing.ts) | 中央路由文件（ADR-0025 落地注记三）：`.dsh/skills/yantao.json` 的读取/校验/追加写入（version 1，路由只认指令型能力，path 相对技能根且禁逃逸）、路由技能的 SKILL.md 读取 |
+| [`src/types.ts`](src/types.ts) | wire 载荷词汇（树节、文件行、读写结果） |
+| — | 不发布运行时不变量伴生包；控制器是无状态适配器，其限制与树形契约由包内单元测试覆盖。 |
+| [`tests/controller.spec.ts`](tests/controller.spec.ts) | 基于真实临时目录的树形、读写往返、root/setRoot/createEntity、not-found 归类与逃逸拒绝覆盖 |
+| [`tests/intake-rpc.spec.ts`](tests/intake-rpc.spec.ts) | 摄入 RPC 基于真实临时目录的覆盖：base64 往返、重复拒绝 |
+| [`tests/capability-rpc.spec.ts`](tests/capability-rpc.spec.ts) | 能力 RPC 基于假注册表与被 mock 的运行器：no-root/not-found/bad-manifest 拒绝、入口限制、产物写盘、状态往返、列表合并、中央路由注册（含插件仓库逐子技能路由）、采纳、指令型能力、sidecar 与路由双通道的优先级 |
+| [`tests/capability-tool.spec.ts`](tests/capability-tool.spec.ts) | `kb_run_capability` 工具与 pre-step 目录（ADR-0023）：注册、agent 门（含路由能力）、指令型作答、目录注入（含路由追加），基于假注册表 |
+| [`tests/capability-builtin.spec.ts`](tests/capability-builtin.spec.ts) | 播种器基于真实临时目录的覆盖：全新播种、已最新则不动、按版本覆盖、保留人类更新的新版本、漂移备份、不再随船的能力的无损退役 |
 
-### Invariant ownership
+### 不变量归属
 
-No invariant companion is published because the controller holds no mutable in-process relation: it re-reads the filesystem per call, and its confinement and tree-shaping contracts are exercised directly by the unit tests.
+不发布不变量伴生包，因为控制器不持有进程内的可变关系：每次调用都重新读取文件系统，其限制与树形契约由单元测试直接检验。
 
 </details>
 
 -----
 
 <a id="further-exploration"></a>
-## Further Exploration
+## 进一步探索
 
-Read these pages when you want to go deeper into the plugin that owns the KB or the surface that mounts this controller.
+当你想深入了解拥有知识库的插件或挂载本控制器的表层时，阅读这些页面。
 
-- [dsh-yantao-kb](../../yantao/kb/README.md) — the KB domain plugin whose root and operations this controller shares.
-- [dsh-yantao-web-app](../../bundle/yantao-web-app/README.md) — the bundle that mounts this controller.
-- [dsh-client-ui-yantao](../../client/ui-yantao/README.md) — the workbench UI consuming this namespace.
-- [Remote API cookbook](../../../docs/cookbook/adding-a-remote-api.md) — the five-step contract this package follows.
-- [dsh-api-remotes](../remotes/README.md) — the Client assembly mounting this contribution.
+- [dsh-yantao-kb](../../yantao/kb/README.md)——本控制器共享其根目录与操作的 KB 领域插件。
+- [dsh-yantao-web-app](../../bundle/yantao-web-app/README.md)——挂载本控制器的 bundle。
+- [dsh-client-ui-yantao](../../client/ui-yantao/README.md)——消费本命名空间的工作台 UI。
+- [Remote API 手册](../../../docs/cookbook/adding-a-remote-api.zh.md)——本包遵循的五步契约。
+- [dsh-api-remotes](../remotes/README.zh.md)——挂载本贡献的 Client 组装。
 
 -----
 
 <a id="model-experience"></a>
-## Model Experience
+## 模型体验
 
-### Tools and prompt-side effects
+### 工具与提示侧效果
 
-#### What the model sees
+#### 模型看到什么
 
-The `kb_run_capability` tool: the model names a capability from the per-turn catalog and may pass a free-form JSON `input`; a script capability answers with `{ name, runAt, result?, artifacts }`, an instruction capability with its SKILL.md body as `content` for the model to follow. A capability whose sidecar did not declare `"invocation": ["agent"]` fails `not-invocable` with a Chinese remedy hint. On every user-prompted step, an `agent/pre-step` listener appends one catalog message listing the agent-open capabilities, re-derived from the skill registry that turn.
+`kb_run_capability` 工具：模型从每轮注入的目录里点名一个能力，可附自由 JSON `input`；脚本能力以 `{ name, runAt, result?, artifacts }` 作答，指令型能力返回其 SKILL.md 正文作为 `content` 供模型照办。sidecar 未声明 `"invocation": ["agent"]` 的能力一律 `not-invocable`，附中文补救提示。每个用户提示的步骤，`agent/pre-step` 监听器追加一条目录消息，按当轮技能注册表重新推导列出对 agent 开放的能力。
 
-#### Token effect
+#### Token 影响
 
-Fixed schema cost for the one tool, plus one compact result per call; an instruction capability's answer is its SKILL.md body, bounded only by that document. The catalog message adds one short row per agent-invocable capability on each user-prompted turn.
+一个工具的固定模式开销，外加每次调用一条紧凑结果；指令型能力的答案就是它的 SKILL.md 正文，上界只在该文档本身。目录消息在每个用户提示的回合为每个 agent 可调用能力增加一行短条目。
 
-#### KV Cache effect
+#### KV Cache 影响
 
-The catalog message rides at the end of the user-prompted step's messages, so it enters that turn's request suffix and stays in the prefix of later requests in the same turn chain; its text changes whenever the agent-invocable set changes, invalidating the cached prefix from that point. With no agent-invocable capability nothing is injected and the prefix is untouched.
+目录消息挂在用户提示步骤的消息末尾，因此进入该轮请求的后缀，并在同一轮链的后续请求中留在前缀里；只要 agent 可调用集合变化，其文本随之变化，缓存前缀从该点失效。没有任何 agent 可调用能力时不注入任何内容，前缀不受影响。
 
-## Known Limitations and Deferred Work
+## 已知限制与延期工作
 
 <a id="known-limitations-and-deferred-work"></a>
 
-These limits define what the controller deliberately does not do. They are current package constraints, not a task backlog.
+这些限制定义了本控制器刻意不做的事。它们是本包当前的约束，不是任务清单。
 
-- **Change detection is a poll, not a push** — `revision()` publishes a counter the UI polls (ADR-0017); the rails themselves still refresh on gesture and after their own writes, so a human's external edit surfaces on the next poll, not live.
-- **No frontmatter validation on write** — the human channel owns file structure; a malformed entity file is reported by the agent's tools on their next read, not by this surface.
-- **Whole-file writes only** — there is no section-scoped edit; the human edits the complete text (the agent's append-only channel is the kb_ tools', not this one's).
-- **Binary resources are served as UTF-8 text** — `read` of a non-text original returns replacement-character content; the editor marks originals read-only rather than decoding them.
+- **变更检测是轮询,不是推送**——`revision()` 公开一个计数器供 UI 轮询(ADR-0017);两条侧栏本身仍在操作手势与自身写入后刷新,因此人类的外部修改在下一次轮询时可见,而非实时。
+- **写入不做 frontmatter 校验**——人类通道拥有文件结构；实体文件不合法时由 agent 的工具在下次读取报告，而非本表面。
+- **只有整文件写入**——没有小节级编辑；人类编辑完整文本（agent 的只追加通道在 kb_ 工具侧，不在本表面）。
+- **二进制资源按 UTF-8 文本提供**——对非文本原件调用 `read` 会得到替换字符内容；编辑器把原件标记为只读而不是解码它们。
 
 <a id="dev-note"></a>
-### Dev Note
+### 开发备注
 
 <details>
-<summary>Working context for maintainers — click to expand</summary>
+<summary>维护者的工作上下文——点击展开</summary>
 
-None.
+无。
 
 </details>

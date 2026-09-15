@@ -1,134 +1,132 @@
 ---
-description: "The yantao profile bundle: a patch layer over dsh-base and dsh-headless that routes the one-shot surface through the intranet model gateway, for users running dsh against that gateway."
+description: "yantao profile bundle：叠加在 dsh-base 与 dsh-headless 之上的 patch 层，把一次性表层路由到内网模型网关，供需要对网关运行 dsh 的用户使用。"
 kind: "package-bundle"
 ---
 
 # @deepseek-ai/dsh-yantao
 
-English | [中文](README.zh.md)
+## 概述
 
-## Summary
+`dsh-yantao` 是 `yantao` profile 的提供方与领域层：`dsh --profile yantao "你的任务"` 启动一次性 headless 表层，通过内网模型网关（GLM5.1）而非默认的 DeepSeek 路由作答，并把一个 PARA+P 个人知识库作为 agent 的唯一写入目标。这个 bundle 是一份静态 patch 文档——它把网关注册为 pi-ai 提供方路由，把该路由选为默认模型，挂载来自 `dsh-yantao-kb` 的六个 `kb_` 工具，设定中文工作台 persona，并禁用通用写入工具（shell、编辑器），使 kb_ 工具族成为 agent 的唯一写入口；共享核心与一次性 runner 则原样来自更早的 `dsh-base` 与 `dsh-headless` 层。API key 永不内联：该路由只点名 `MODEL_GATEWAY_API_KEY` 凭据引用，每次请求时从启动环境或受管凭据存储解析。
 
-`dsh-yantao` is the provider and domain layer of the `yantao` profile: `dsh --profile yantao "your task"` boots the one-shot headless surface, answers through the intranet model gateway (GLM5.1) instead of the default DeepSeek route, and gives the agent a PARA+P personal knowledge base as its only write target. The bundle is a static patch document — it registers the gateway as a pi-ai provider route, selects that route as the default model, mounts the six `kb_` tools from `dsh-yantao-kb`, sets the Chinese workbench persona, and disables the generic write tools (shell, editor) so the kb_ family is the agent's only write path — while the shared core and the one-shot runner come unchanged from the earlier `dsh-base` and `dsh-headless` layers. The API key is never inlined: the route names the `MODEL_GATEWAY_API_KEY` credential reference, resolved per request from the launching environment or the managed credential store.
+## 目录
 
-## Table of Contents
-
-- [Use this package](#use-this-package)
-- [Understand the implementation](#understand-the-implementation)
-- [Further Exploration](#further-exploration)
-- [Model Experience](#model-experience)
-- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
-- [Dev Note](#dev-note)
+- [使用本包](#use-this-package)
+- [理解实现](#understand-the-implementation)
+- [进一步探索](#further-exploration)
+- [模型体验](#model-experience)
+- [已知限制与延期工作](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
 
 -----
 
 <a id="use-this-package"></a>
-## Use this package
+## 使用本包
 
-Run one task through the gateway, get the final answer, and exit. The first `dsh --profile yantao` invocation creates the profile directory from the shipped template (the `dsh-base`, `dsh-headless`, and `dsh-yantao` bundles in order); after that, only the key matters.
+通过网关运行一个任务，获得最终答案，然后退出。第一次执行 `dsh --profile yantao` 会按内置模板创建 profile 目录（依次组合 `dsh-base`、`dsh-headless`、`dsh-yantao` 三个 bundle）；此后只需要 key。
 
-### Running a one-shot task
+### 运行一次性任务
 
 ```sh
 MODEL_GATEWAY_API_KEY=<key> dsh --profile yantao "run the tests"
 ```
 
-The run behaves exactly like the headless surface — provider reasoning streams to stderr, the final answer prints on stdout, and the exit code reports the outcome — except every model request goes to the gateway route this bundle registers. A missing key fails the request with a missing-credential error; supply it in the launching environment or store it through the credentials surface.
+运行行为与 headless 表层完全一致——提供方推理流式写入 stderr，最终答案打印到 stdout，退出码报告结果——只是每个模型请求都发往本 bundle 注册的网关路由。缺少 key 时请求会以 missing-credential 错误失败；请在启动环境中提供，或通过凭据界面存入。
 
-### What the bundle changes
+### 本 bundle 改动了什么
 
-The patch overrides base rows by id and mounts one plugin, each replacement stated in full:
+patch 按 id 覆盖 base 配置项并挂载一个插件，每处替换都完整重述：
 
-| Row | Override | Effect |
+| 配置项 | 覆盖内容 | 效果 |
 |---|---|---|
-| `llm-pi-ai` | `providers.model-gateway` | Registers the intranet model gateway route: the OpenAI-completions protocol against the gateway endpoint, `GLM5.1` plus the `GLM` and `glm52` aliases, and the `deepseek` thinking wire format |
-| `agent-default-model` | `provider: model-gateway`, `model: GLM5.1` | Agents created without an explicit selection — the headless runner's among them — use the gateway route |
-| `system-prompt` | Chinese persona | States the workbench identity and the trust boundary as hard rules: the State section is human-only, KB access goes through kb_ tools, `kb_append_log` only appends to the Log section |
-| `yantao-kb` (inserted) | `@deepseek-ai/dsh-yantao-kb` | Mounts the eight kb_ tools — the agent's only write path into the knowledge base |
-| `tool-bash`, `tool-pwsh`, `tool-str-replace-editor` | `disabled: true` | Removes every generic write capability (shell commands, the editor); read/search stay |
+| `llm-pi-ai` | `providers.model-gateway` | 注册内网模型网关路由：对网关端点使用 OpenAI completions 协议，`GLM5.1` 及其别名 `GLM`、`glm52`，以及 `deepseek` 推理有线格式 |
+| `agent-default-model` | `provider: model-gateway`、`model: GLM5.1` | 未显式选择模型而创建的 Agent——包括 headless runner 的那个——使用网关路由 |
+| `system-prompt` | 中文 persona | 以硬规则陈述工作台身份与信任边界：『状态』区是人类专属，读写知识库只能使用 kb_ 工具，`kb_append_log` 只能向『流水』区追加 |
+| `yantao-kb`（插入） | `@deepseek-ai/dsh-yantao-kb` | 挂载八个 kb_ 工具——agent 写入知识库的唯一途径 |
+| `tool-bash`、`tool-pwsh`、`tool-str-replace-editor` | `disabled: true` | 移除所有通用写能力（shell 命令、编辑器）；读与搜索保留 |
 
-### Changing the defaults
+### 修改默认值
 
-Edit the profile's own `cordis.patch.yml` or add a later bundle. Each patch entry replaces the target's whole configuration, so restate every setting you want to keep — an override that names only one field silently drops the rest of the route.
+编辑该 profile 自己的 `cordis.patch.yml`，或再叠加一个 bundle。每条 patch 会整体替换目标的配置，因此想保留的每项设置都要重述——只点名单个字段的覆盖会悄悄丢掉路由的其余部分。
 
 -----
 
 <a id="understand-the-implementation"></a>
-## Understand the implementation
+## 理解实现
 
 <details>
-<summary>Implementation internals — click to expand</summary>
+<summary>实现内部——点击展开</summary>
 
-The bundle is a static patch document: two id-targeted config patches over the `dsh-base` rows, applied after the base and headless layers. It mounts no service, emits no events, and holds no mutable state; the configured rows' packages own their behavior and invariants.
+这个 bundle 是一份静态 patch 文档：在 base 与 headless 层之后，对 `dsh-base` 配置项施加两条按 id 定位的 config patch。它不挂载服务、不发出事件、不持有可变状态；被配置项所属的包各自拥有其行为与不变量。
 
-### The provider route
+### 提供方路由
 
-The base `llm-pi-ai` row mounts the pi-ai adapter dormant — no routes until configuration supplies provider profiles. This layer supplies one. The `model-gateway` route names no installed pi-ai catalog provider, so the profile is the whole provider declaration: the `openai-completions` wire protocol, the gateway endpoint, a one-entry model catalog (`GLM5.1`, sized at a 131,072-token context window and 32,768-token output capability), and the `deepseek` thinking-format compatibility switch. The `MODEL_GATEWAY_API_KEY` reference resolves per request through `ctx.credentials`, where the inherited process environment ranks above the managed credential document, so `MODEL_GATEWAY_API_KEY=… dsh --profile yantao …` authenticates without any stored state.
+base 的 `llm-pi-ai` 配置项以休眠方式挂载 pi-ai 适配器——在配置提供 provider profile 之前没有任何路由。本层提供了一个。`model-gateway` 路由不指名任何已安装的 pi-ai 目录提供方，因此该 profile 就是完整的提供方声明：`openai-completions` 有线协议、网关端点、单条目模型目录（`GLM5.1`，上下文窗口 131,072 token、输出能力 32,768 token），以及 `deepseek` 推理格式兼容开关。`MODEL_GATEWAY_API_KEY` 引用在每次请求时经 `ctx.credentials` 解析，其中继承的进程环境优先于受管凭据文档，所以 `MODEL_GATEWAY_API_KEY=… dsh --profile yantao …` 无需任何已存状态即可完成认证。
 
-### The default selection
+### 默认选择
 
-The `agent-default-model` row carries the transport-independent default for Agents created by entry points; the headless runner reads that selection when it creates its one-shot Agent. This layer's composition entry points the selection at `model-gateway`/`GLM5.1`. The gateway URL, the model id and the display names are literals here on purpose: they are the out-of-the-box instance, and switching model means overriding this row in your own profile patch (`~/.dsh/profiles/yantao/cordis.patch.yml`) or adding a provider in the Models settings page — not editing this bundle. Only the key comes from the environment, as the `apiKeyEnv` credential reference (see `.env.example`). A saved selection in the user-settings document still wins over the composition entry, as it does for every profile.
+`agent-default-model` 配置项承载入口点创建 Agent 时与传输无关的默认选择；headless runner 创建其一次性 Agent 时读取该选择。本层的组合条目把选择指向 `model-gateway`/`GLM5.1`。网关地址、模型 id 与显示名在这里是字面量，这是刻意的：它们是开箱即用的实例值，换模型应当在你自己的 profile patch(`~/.dsh/profiles/yantao/cordis.patch.yml`)里覆盖本行，或在「设置 → 模型」中添加提供方，而不是改动本 bundle。只有密钥走环境——`apiKeyEnv` 是凭据引用而非密钥本身（见 `.env.example`)。与所有 profile 一样，用户设置文档中已保存的选择仍然优先于组合条目。
 
-### The trust boundary
+### 信任边界
 
-One inserted row mounts the [`dsh-yantao-kb`](../../yantao/kb/README.md) tool family, and three id-patches disable the rows that would give the agent a generic write path: the two shell tools (which run arbitrary commands) and the string-replace editor. The shell sandbox backends stay mounted — they register no model-facing tool, `dsh-permission-presets` injects `ctx.shell` and would never activate without a provider, and they double as the file-effect boundary confining `tool-fs` writes. What remains is deliberate: `tool-fs` keeps `read` (its `write`/`edit` are confined by the workspace sandbox and fail closed against the out-of-workspace KB root in headless), `tool-fs-search` keeps grep/glob, and the kb_ family owns every write into the KB. The Chinese persona states the same boundary to the model as hard rules.
+一个插入的配置项挂载 [`dsh-yantao-kb`](../../yantao/kb/README.md) 工具族，另有三条按 id 的 patch 禁用会为 agent 提供通用写入路径的配置项：两个 shell 工具（可执行任意命令）与字符串替换编辑器。shell 沙箱后端保持挂载——它们不注册模型侧工具，`dsh-permission-presets` 注入了 `ctx.shell`、没有提供方就永远无法激活，而且它们同时是约束 `tool-fs` 写入的文件效果边界。留下的是刻意为之的：`tool-fs` 保留 `read`（其 `write`/`edit` 受工作区沙箱约束，对在工作区之外的知识库根目录会失败关闭），`tool-fs-search` 保留 grep/glob，知识库的一切写入都归 kb_ 工具族。中文 persona 把同一条边界以硬规则陈述给模型。
 
-### Source map
+### 源码地图
 
-| File | Role |
+| 文件 | 职责 |
 |---|---|
-| [`cordis.patch.yml`](cordis.patch.yml) | The bundle substance: the two row overrides, with rationale as inline comments |
-| [`src/index.ts`](src/index.ts) | Package entry; carries no runtime API |
-| — | No runtime invariant companion is published; the package is a static patch-list carrier (a YAML document of config overrides on rows owned by other packages); it mounts no service, emits no events, and owns no mutable relation to check. Each configured row's own package carries that row's invariants. |
+| [`cordis.patch.yml`](cordis.patch.yml) | bundle 本体：两条配置项覆盖，理由以内联注释说明 |
+| [`src/index.ts`](src/index.ts) | 包入口；不承载运行时 API |
+| — | 不发布运行时不变量伴生包；本包是静态 patch 列表载体（一份对其他包所拥有的配置项做 config 覆盖的 YAML 文档），不挂载服务、不发出事件、不拥有可检查的可变关系。每个被配置项的不变量由其所属包承担。 |
 
-### Invariant ownership
+### 不变量归属
 
-No invariant companion is published because the package is a static patch-list carrier: each configured row's package owns that row's invariants, and the bundle owns no mutable relation to check.
+不发布不变量伴生包，因为本包是静态 patch 列表载体：每个被配置项的不变量由其所属包承担，bundle 自身不拥有可检查的可变关系。
 
 </details>
 
 -----
 
 <a id="further-exploration"></a>
-## Further Exploration
+## 进一步探索
 
-Read these pages when you want to go deeper into the layers this bundle rides on or the packages that own the configured rows.
+当你想深入了解本 bundle 所叠加的层，或拥有被配置项的包时，阅读这些页面。
 
-- [Bundle package map](../README.md) — the surfaces built on the same core.
-- [dsh-yantao-kb](../../yantao/kb/README.md) — the PARA+P knowledge-base tool family this bundle mounts.
-- [dsh-base](../base/README.md) — the shared core the yantao profile builds on.
-- [dsh-headless](../headless/README.md) — the one-shot surface the profile reuses unchanged.
-- [dsh-llm-pi-ai](../../llm/llm-pi-ai/README.md) — the adapter that owns the provider-route configuration shape.
-- [dsh-agent-default-model](../../core/agent-default-model/README.md) — the service that owns the default model selection.
-- [app-boot profile section](../../boot/app-boot/README.md) — how profiles are resolved, layered, and customized.
+- [bundle 包地图](../README.zh.md)——构建在同一核心之上的各个表层。
+- [dsh-yantao-kb](../../yantao/kb/README.md)——本 bundle 挂载的 PARA+P 知识库工具族。
+- [dsh-base](../base/README.zh.md)——yantao profile 所基于的共享核心。
+- [dsh-headless](../headless/README.zh.md)——该 profile 原样复用的一次性表层。
+- [dsh-llm-pi-ai](../../llm/llm-pi-ai/README.zh.md)——拥有提供方路由配置形状的适配器。
+- [dsh-agent-default-model](../../core/agent-default-model/README.zh.md)——拥有默认模型选择的服务。
+- [app-boot 的 profile 章节](../../boot/app-boot/README.zh.md)——profile 如何解析、分层与定制。
 
 -----
 
 <a id="model-experience"></a>
-## Model Experience
+## 模型体验
 
-Indirectly, through the rows it configures and the plugin it mounts, whose owning packages own every model-facing behavior.
+间接地，通过它所配置的配置项与挂载的插件，其所属包拥有所有面向模型的行为。
 
-#### KV Cache effect
+#### KV Cache 影响
 
-The bundle itself adds no request prefix; it only selects which provider route and model the composed tree talks to.
+本 bundle 自身不向请求前缀添加任何内容；它只是选择组合树与哪个提供方路由、哪个模型通信。
 
-## Known Limitations and Deferred Work
+## 已知限制与延期工作
 
 <a id="known-limitations-and-deferred-work"></a>
 
-These limits tell you when the yantao layer needs extra care or where an override must go. They are current package constraints, not a general comparison or a task backlog.
+这些限制告诉你 yantao 层何时需要额外留意，或覆盖应当写到哪里。它们是本包当前的约束，不是泛泛的比较或任务清单。
 
-- **The key must exist outside the bundle** — `MODEL_GATEWAY_API_KEY` unset in both the launching environment and the managed credential store fails every gateway request with a missing-credential error; the bundle never stores a key itself.
-- **Overrides replace whole settings blocks** — a later patch layer that touches `llm-pi-ai` or `agent-default-model` replaces that row's entire configuration, so it must restate the route or the selection in full.
-- **One route, one model** — the bundle declares the gateway route and that model under the spellings the gateway accepts (`GLM5.1`, `GLM`, `glm52`); additional providers or models belong to the user-settings document or another bundle layer, not here.
+- **key 必须存在于 bundle 之外**——`MODEL_GATEWAY_API_KEY` 在启动环境与受管凭据存储中都未设置时，每个网关请求都会以 missing-credential 错误失败；bundle 自身从不存储 key。
+- **覆盖会整体替换设置块**——之后的 patch 层一旦触及 `llm-pi-ai` 或 `agent-default-model`，就会替换该配置项的全部配置，因此必须完整重述路由或选择。
+- **一条路由、一个模型**——本 bundle 只声明网关路由与该模型在网关上可接受的几种拼写（`GLM5.1`、`GLM`、`glm52`)；更多提供方或模型属于用户设置文档或其他 bundle 层，不属于这里。
 
 <a id="dev-note"></a>
-### Dev Note
+### 开发备注
 
 <details>
-<summary>Working context for maintainers — click to expand</summary>
+<summary>维护者的工作上下文——点击展开</summary>
 
-None.
+无。
 
 </details>

@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write packages/api/yantao-kb-controller/README.md
-README.md: f6665329095b525077e9f168eabe98096d59599f
-README.zh.md: 533e14381d3f8f824435de8eada6560ced8417b9

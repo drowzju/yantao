@@ -1,136 +1,134 @@
 ---
-description: "The yantao workbench browser-surface bundle: the yantao-web profile layer that serves the stock web frontend dist with a KB workbench roster, for users composing or customizing the yantao-web profile."
+description: "yantao 工作台浏览器表层 bundle：yantao-web profile 层，以知识库工作台 roster 提供 stock web 前端 dist，面向组合或定制 yantao-web profile 的用户。"
 kind: "package-bundle"
 ---
 
 # @deepseek-ai/dsh-yantao-web-app
 
-English | [中文](README.zh.md)
+## 概述
 
-## Summary
+`dsh-yantao-web-app` 是 `yantao-web` profile 的浏览器表层：`dsh --profile yantao-web` 以与 stock 表层完全相同的已构建 web 前端 dist 提供服务——不开新 Vite 应用、不做 fork——并在其上叠加工作台组合。这个 bundle 是一份静态 patch 文档加一个解析 dist 的小型运行时胶合插件：它挂载 web 传输与控制器行、一套把编码 agent 装饰换成 KB 工作台的 roster（侧栏的知识库树、详情列的知识库 Markdown 编辑器、中央原样保留的 stock 聊天）、`yantaoKb` Remote 控制器，以及作为默认的 `yantao` agent preset——只有 persona、没有工具行，因此聊天 agent 恰好只看到遵守边界的 `kb_` 工具。GLM 路由、默认模型、中文 persona 与 kb 插件都来自更早的 `dsh-base` 与 `dsh-yantao` 层。
 
-`dsh-yantao-web-app` is the browser-surface layer of the `yantao-web` profile: `dsh --profile yantao-web` serves the SAME built web frontend dist as the stock surface — no new Vite app, no fork — with a workbench composition over it. The bundle is a static patch document plus the small runtime glue plugin that resolves the dist: it mounts the web transport and controller rows, a roster that swaps the coding-agent chrome for the KB workbench (KB tree in the sidebar, KB markdown editor in the details column, stock chat untouched in the center), the `yantaoKb` Remote controller, and the `yantao` agent preset as the default — a persona and no tool rows, so the chat agent sees exactly the boundary-respecting `kb_` tools. The GLM route, default model, Chinese persona, and kb plugin all come from the earlier `dsh-base` and `dsh-yantao` layers.
+## 目录
 
-## Table of Contents
-
-- [Use this package](#use-this-package)
-- [Understand the implementation](#understand-the-implementation)
-- [Further Exploration](#further-exploration)
-- [Model Experience](#model-experience)
-- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
-- [Dev Note](#dev-note)
+- [使用本包](#use-this-package)
+- [理解实现](#understand-the-implementation)
+- [进一步探索](#further-exploration)
+- [模型体验](#model-experience)
+- [已知限制与延期工作](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
 
 -----
 
 <a id="use-this-package"></a>
-## Use this package
+## 使用本包
 
-Serve the workbench, get the printed URL, and open it. The first `dsh --profile yantao-web` invocation creates the profile directory from the shipped template (the `dsh-base`, `dsh-yantao`, and `dsh-yantao-web-app` bundles in order).
+启动工作台，使用打印出的 URL 并打开。第一次执行 `dsh --profile yantao-web` 会按内置模板创建 profile 目录（依次组合 `dsh-base`、`dsh-yantao`、`dsh-yantao-web-app` 三个 bundle）。
 
-### Running the workbench
+### 运行工作台
 
 ```sh
 MODEL_GATEWAY_API_KEY=<key> dsh --profile yantao-web
 ```
 
-The command prints `dsh web: <url>` and opens the default browser (pass `--no-open` to suppress; `--port` and `--host` work as on the stock surface). The page is the stock web shell; the workbench is the roster behind it: KB tree on the left, chat in the center, KB markdown editor on the right.
+命令会打印 `dsh web: <url>` 并打开默认浏览器（用 `--no-open` 抑制；`--port` 与 `--host` 与 stock 表层相同）。页面是 stock web shell；工作台是它背后的 roster：左侧知识库树，中间聊天，右侧知识库 Markdown 编辑器。
 
-### What the bundle changes, layer by layer
+### 本 bundle 逐层改动了什么
 
-| Row group | Content | Effect |
+| 行组 | 内容 | 效果 |
 |---|---|---|
-| Web host + transport | Same rows as the stock web layer (webserver, web-runtime, controllers, workspace, feedback, references, stats) plus `yantao-kb-controller` | The browser surface and the `yantaoKb` namespace come up identically to stock |
-| Browser roster | Stock roster minus coding-agent chrome (ui-sidebar, ui-cordis, ui-workflow-run, ui-deliverables, ui-subagent, ui-skill, ui-jobs, ui-goal, ui-plan, ui-user-questions, ui-trajectory, ui-schedule), plus `ui-yantao` | The workbench layout: tree | chat | editor |
-| Base agent-plane rows | Disabled exactly as on the stock web surface (shell, fs, jobs, goal, plan, subagent, workflow, ralph, todo, web, compaction, instructions, skill) | Tools are per-preset again |
-| `agent-presets` | `default: yantao` | New sessions mount the yantao preset: Chinese persona, no tool rows — the agent sees only the host-plane `kb_` tools |
+| Web 宿主与传输 | 与 stock web 层相同的行（webserver、web-runtime、各控制器、workspace、feedback、references、stats），外加 `yantao-kb-controller` | 浏览器表面与 `yantaoKb` 命名空间以与 stock 相同的方式就绪 |
+| 浏览器 roster | stock roster 减去编码 agent 装饰（ui-sidebar、ui-cordis、ui-workflow-run、ui-deliverables、ui-subagent、ui-skill、ui-jobs、ui-goal、ui-plan、ui-user-questions、ui-trajectory、ui-schedule），加上 `ui-yantao` | 工作台布局：树 \| 聊天 \| 编辑器 |
+| base agent 层行 | 与 stock web 表层完全一致地禁用（shell、fs、jobs、goal、plan、subagent、workflow、ralph、todo、web、compaction、instructions、skill） | 工具重新按 preset 分配 |
+| `agent-presets` | `default: yantao` | 新会话挂载 yantao preset：中文 persona、无工具行——agent 只看到宿主层的 `kb_` 工具 |
 
-### Changing the defaults
+### 修改默认值
 
-Edit the profile's own `cordis.patch.yml` or add a later bundle. The profile template sets `patchReload: 'live'`, so the user patch reloads without a restart. Each patch entry replaces the target's whole configuration, so restate every setting you want to keep.
+编辑该 profile 自己的 `cordis.patch.yml`，或再叠加一个 bundle。profile 模板设置 `patchReload: 'live'`，因此用户 patch 无需重启即可重载。每条 patch 会整体替换目标的配置，因此想保留的每项设置都要重述。
 
 -----
 
 <a id="understand-the-implementation"></a>
-## Understand the implementation
+## 理解实现
 
 <details>
-<summary>Implementation internals — click to expand</summary>
+<summary>实现内部——点击展开</summary>
 
-The bundle is mostly a static patch document; its only code is the runtime glue cloned from `dsh-web-app` (dist resolution, the frontend-static mount, the web-surface prompt section, the `DSH_WEB_URL` bash variable, the URL line, and the default-browser handoff) and the `web-startup` command-line provider (same flags, same `webStartup` service key — the stock web-app is never mounted in this composition, so nothing collides).
+这个 bundle 主要是一份静态 patch 文档；它唯一的代码是从 `dsh-web-app` 克隆的运行时胶合（dist 解析、frontend-static 挂载、web-surface 提示小节、`DSH_WEB_URL` bash 变量、URL 行与默认浏览器交接）以及 `web-startup` 命令行提供方（同样的标志、同样的 `webStartup` 服务键——本组合从不挂载 stock web-app，因此不会冲突）。
 
-### The roster diff, with reasons
+### roster 差异及理由
 
-Omitted from the stock roster (each is a web-app-side insert, so absence suffices): ui-sidebar (replaced by the KB tree), ui-cordis (opt-in tool not mounted), ui-workflow-run / ui-deliverables (workflow/produced-file chrome with no producers here), ui-subagent / ui-skill / ui-jobs / ui-goal / ui-plan / ui-user-questions / ui-trajectory (coding-agent chrome, inert on this surface), ui-schedule (opt-in elsewhere). Kept: the transport and framework rows, ui-conversation/ui-chat/ui-approval, the settings family, ui-workspace (its service powers session creation from the tree's 会话 section), the composer trigger pipeline, ui-message-feedback, ui-model-selection, ui-permission, ui-agent-preset, and ui-settings-plugins (where the kbRoot card renders).
+从 stock roster 中省略（每一项都是 web-app 侧的插入行，缺席即足够）：ui-sidebar（被知识库树替换）、ui-cordis（本表面未挂载其可选工具）、ui-workflow-run / ui-deliverables（这里没有生产者的 workflow/产物文件装饰）、ui-subagent / ui-skill / ui-jobs / ui-goal / ui-plan / ui-user-questions / ui-trajectory（编码 agent 装饰，在本表面是惰性）、ui-schedule（在别处按需启用）。保留：传输与框架行、ui-conversation/ui-chat/ui-approval、settings 家族、ui-workspace（其服务支撑树中「会话」节的会话创建）、composer 触发管线、ui-message-feedback、ui-model-selection、ui-permission、ui-agent-preset，以及 ui-settings-plugins（kbRoot 卡片在此渲染）。
 
-### The trust boundary on this surface
+### 本表面上的信任边界
 
-Tools on the web surface are per-preset. The base agent-plane rows are disabled as on stock, and the default preset ships only the Chinese persona, so a session's merged catalog is exactly the global (host-plane) layer: the nine `kb_` tools — eight from `dsh-yantao-kb` plus `kb_run_capability` from the yantao-kb-controller (ADR-0023). The shipped presets stay selectable in General settings — switching presets is the human's informed act; the boundary is the default posture.
+web 表面上的工具是按 preset 分配的。base agent 层行与 stock 一样被禁用，而默认 preset 只带中文 persona，因此会话的合并目录恰好是全局（宿主）层：九个 `kb_` 工具——八个来自 `dsh-yantao-kb`，加上 yantao-kb-controller 的 `kb_run_capability`（ADR-0023）。shipped preset 在通用设置中仍然可选——切换 preset 是人类知情后的行为；边界是默认姿态。
 
-### Source map
+### 源码地图
 
-| File | Role |
+| 文件 | 职责 |
 |---|---|
-| [`cordis.patch.yml`](cordis.patch.yml) | The bundle substance: web host rows, transport, roster, disables, and the preset default |
-| [`src/index.ts`](src/index.ts) | The runtime glue plugin (the `web-runtime` row), cloned from `dsh-web-app` |
-| [`src/startup.ts`](src/startup.ts) | The `web-startup` command-line provider (flags and `--help`) |
-| — | No runtime invariant companion is published; the patch-list and glue carry no mutable relation beyond what the mounted packages own. |
+| [`cordis.patch.yml`](cordis.patch.yml) | bundle 本体：web 宿主体、传输、roster、禁用与 preset 默认值 |
+| [`src/index.ts`](src/index.ts) | 运行时胶合插件（`web-runtime` 行），克隆自 `dsh-web-app` |
+| [`src/startup.ts`](src/startup.ts) | `web-startup` 命令行提供方（标志与 `--help`） |
+| — | 不发布运行时不变量伴生包；patch 列表与胶合不持有挂载包所拥有之外的可变关系。 |
 
-### Invariant ownership
+### 不变量归属
 
-No invariant companion is published because the bundle is a patch-list carrier plus stateless glue: each mounted row's package owns that row's invariants, and the bundle owns no mutable relation to check.
+不发布不变量伴生包，因为本 bundle 是 patch 列表载体加无状态胶合：每个被挂载行的不变量由其所属包承担，bundle 自身不拥有可检查的可变关系。
 
 </details>
 
 -----
 
 <a id="further-exploration"></a>
-## Further Exploration
+## 进一步探索
 
-Read these pages when you want to go deeper into the layers this bundle rides on or the packages that own the mounted rows.
+当你想深入了解本 bundle 所叠加的层，或拥有被挂载行的包时，阅读这些页面。
 
-- [Bundle package map](../README.md) — the surfaces built on the same core.
-- [dsh-web-app](../web-app/README.md) — the stock browser surface this bundle's glue and roster derive from.
-- [dsh-yantao](../yantao/README.md) — the provider and domain layer underneath (GLM route, persona, kb plugin, tool disables).
-- [dsh-yantao-kb](../../yantao/kb/README.md) — the KB domain plugin.
-- [dsh-api-yantao-kb-controller](../../api/yantao-kb-controller/README.md) — the `yantaoKb` Remote controller this bundle mounts.
-- [dsh-client-ui-yantao](../../client/ui-yantao/README.md) — the workbench roster's centerpiece.
+- [bundle 包地图](../README.zh.md)——构建在同一核心之上的各个表层。
+- [dsh-web-app](../web-app/README.zh.md)——本 bundle 的胶合与 roster 所源自的 stock 浏览器表层。
+- [dsh-yantao](../yantao/README.md)——下方的提供方与领域层（GLM 路由、persona、kb 插件、工具禁用）。
+- [dsh-yantao-kb](../../yantao/kb/README.md)——KB 领域插件。
+- [dsh-api-yantao-kb-controller](../../api/yantao-kb-controller/README.md)——本 bundle 挂载的 `yantaoKb` Remote 控制器。
+- [dsh-client-ui-yantao](../../client/ui-yantao/README.md)——工作台 roster 的中心件。
 
 -----
 
 <a id="model-experience"></a>
-## Model Experience
+## 模型体验
 
-### Harness-source and Web-surface context
+### Harness 源码与 Web 表层上下文
 
-#### What the model sees
+#### 模型看到什么
 
-When `surfaceContext` is true, the `harness:source` section identifies the on-disk Harness implementation without claiming it is the working directory, and the `app:web-surface` global section orients the model to the GUI: the canonical local URL, the "this page" referent, the update contract (the reload receiver is always on; no-refresh reloads additionally need the `pnpm run dev:web` watcher), and the instruction not to start replacement servers. `DSH_WEB_URL` additionally appears in the managed bash environment with its description, resolved per invocation from the live server. When it is false, neither section nor the variable is registered.
+当 `surfaceContext` 为 true 时，`harness:source` 小节标识磁盘上的 Harness 实现（不声称它就是工作目录），`app:web-surface` 全局小节让模型面向 GUI：规范的本地 URL、"this page" 的所指、更新契约（重载接收器始终开启；免刷新重载还需要 `pnpm run dev:web` 监视器），以及不要启动替代服务器的指示。`DSH_WEB_URL` 还会连同其描述出现在受管 bash 环境中，每次调用时从在线服务器解析。当它为 false 时，两个小节与变量都不会注册。
 
-#### Token effect
+#### Token 影响
 
-One source line and one prompt paragraph per session plus two managed-environment variable lines; constant per process.
+每个会话一行源码说明与一段提示，外加两行受管环境变量；每个进程恒定。
 
-#### KV Cache effect
+#### KV Cache 影响
 
-The prompt section sits near the system prompt's head and is stable for the life of the process (the port is a boot fact), so it does not invalidate the cache across turns.
+提示小节位于系统提示的头部附近，并且在进程的生命周期内稳定（端口是启动事实），因此不会在轮次间使缓存失效。
 
-## Known Limitations and Deferred Work
+## 已知限制与延期工作
 
 <a id="known-limitations-and-deferred-work"></a>
 
-These limits tell you when this surface needs extra care. They are current package constraints, not a general comparison or a task backlog.
+这些限制告诉你本表面何时需要额外留意。它们是本包当前的约束，不是泛泛的比较或任务清单。
 
-- **The boundary is the default preset, not a lock** — the shipped coding presets remain selectable in General settings; a human who switches presets grants that session the wider tools deliberately.
-- **Overrides replace whole settings blocks** — a later patch layer that touches `agent-presets` or any transport row replaces its entire configuration, so it must restate the values it keeps.
-- **The details column belongs to the editor** — ui-chat's turn-details panel is shadowed on this surface; it remains available on the stock web profile.
-- **No fork guarantees** — the bundle reuses the stock dist and glue verbatim; a stock web-ui change that reshapes the `sidebar`/`details` slot contract flows here and must be reconciled deliberately.
+- **边界是默认 preset，不是锁**——shipped 的编码 preset 在通用设置中仍然可选；人类切换 preset 是刻意为会话授予更宽工具集的行为。
+- **覆盖会整体替换设置块**——之后的 patch 层一旦触及 `agent-presets` 或任何传输行，就会替换其全部配置，因此必须重述要保留的值。
+- **详情列属于编辑器**——ui-chat 的轮次详情面板在本表面被遮蔽；它在 stock web profile 上仍然可用。
+- **没有 fork 保证**——本 bundle 原样复用 stock dist 与胶合；stock web UI 若改变 `sidebar`/`details` 槽位契约，会流入这里并需要刻意调和。
 
 <a id="dev-note"></a>
-### Dev Note
+### 开发备注
 
 <details>
-<summary>Working context for maintainers — click to expand</summary>
+<summary>维护者的工作上下文——点击展开</summary>
 
-None.
+无。
 
 </details>
