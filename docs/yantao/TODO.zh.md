@@ -85,17 +85,14 @@
 
 | **工作台自己的词典(TODO 阶段 2 第 1 条 2026-09-15)** —— 16 个文件里全部 162 处 `verify-client-ui-i18n` 违例收进新的 locale 命名空间 `yantao.workbench`:`locales.ts` 存 zh 真值(约 110 个键)与编译期对齐的 en 副本,在 `index.ts` 的 `apply` 里经 `ctx.locale.register` 注册(`locale` 插件进客户端 roster,ui-yantao 的 `dsh.client.inject` 与 devDependencies 加依赖);工作台是根槽的普通子组件而非 slot 条目,所以绑定的 `t` 以 prop 形式从根槽 inject face 经 `FrameProps` 穿进每条栏、每个面板、编辑器与菜单;copy 形态的标签映射改为字典键映射、渲染时翻译(`SECTION_KEYS`/`RELATION_KEYS`/`STATUS_KEYS`/`GROUP_KEYS`);仅进模型提示词与领域数据的中文靠命名留在词典外(`TO_ME_PROMPT`、`sessionName`、`stateSection`) | `packages/client/ui-yantao/src/client/locales.ts`(新增)+ `{index,Workbench,kb-reference,NewEntityRow,TodoBoard,MailPanel,CapabilityPanel,ProposalCard,proposal,proposal-apply,mail-analysis,SelectionMenu,Onboarding}.ts*` + `frame/{Frame,CenterPane}.tsx` + `editor/{FileEditor,MarkdownView,ReadOnlyFile}.tsx`、`package.json`、tests/ 10 个 spec + `helpers.ts`。验证:`verify-client-ui-i18n` 0 违例,`tsc -b`、scoped oxlint、ui-yantao 203 测试全绿,client bundle、frontend build、无头 Edge 冒烟(无新错误签名)通过 |
 
+| **启动耗时分段测量(TODO 阶段 2 第 2 条 2026-09-15)** —— 冷启动 22–26s 的分段结论:**大头是模块解析的文件系统开销,不是 tsx 转译,也不是 cordis 挂载逻辑**。方法:`node --cpu-prof`(就绪行出现后 ~2s 自退落盘)+ `module.register` 自定义 resolve/load 钩子记每个模块的 URL/格式/耗时(草稿在 `.dsh-build/boot-perf/`,不入库;三次启动:钩子记日志跑 40s——每事件同步写日志有开销,cpu-prof 跑 29s,干净基线 22–26s)。数据:1,585 个模块经 ESM 钩子加载,其中 465 个是工作区 `src/*.ts`(tsx 现转译,仅 14 个走预编译 `lib/*.js`——tsx 的 tsconfig paths 改写压过 exports);10,694 次 resolve。CPU 自采样(主线程 + loader 线程各 ~31s):两线程 `(idle)` 各 ~11s(异步 fs 的磁盘等待不进采样——本机磁盘慢,解析是 I/O bound);`internalModuleStat` 两线程合计 ≈ 11.8s,加 `lstat`/`existsSync`/`readPackageJSON`/`getPackageScopeConfig`/`readFileUtf8` 解析自采样 ≈ 15s+;tsx 自定义钩子让每次 resolve/load 走一次同步 MessagePort 往返(主线程 `makeSyncRequest` ≈ 4.1s + `makeAsyncRequest` ≈ 1.1s);**esbuild/tsx 转译合计仅 ≈ 0.45s**;cordis core 自采样 ≈ 0.36s。意外发现:dsh 自己的 client-modules 扫描器(`packages/client/modules/src/index.ts` 的 `buildCombo`+`newlineCount`)≈ 1.2s | 结论与下一步:预编译宿主为 JS 在"转译"意义上无收益,但去掉 tsx 钩子可省掉同步往返与 tsx 解析链(估 4–6s)——**推荐下一步做一次"预编译 + 无 tsx 启动"对照实验**;结构性杠杆仍是减少启动时解析的模块数(懒加载/瘦身 profile,见 deferred 那条「~35s boot」) |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
 
 1. **阅读视图 v4 —— Mermaid 与本地图片** —— 两者都要付代价:客户端包是单文件 CJS,mermaid 会被内联成 ~3.5MB(或要改宿主模块表);
    本地图片需要新 RPC + 宿主路由,因为 `read()` 是 utf8,二进制会被解坏。等知识库里真出现一个再开工。
-2. **启动耗时分段测量** — 冷启动约 22–26 秒,但未拆过段。已知不等于结论的两点：慢的是 dsh 的
-   profile boot（与同进程/子进程无关：CLI 22.6s、同进程 22.2s、子进程 26.1s）。
-   下一步：在宿主启动时打时间戳，分清 **tsx 现转译** 与 **cordis 逐行挂载插件** 各占多少；
-   转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。
-   **先量再动。**
 
 ## blocked(附原因)
 
@@ -112,7 +109,7 @@ _无。(曾在此的三项 —— 客户端 face 重建、`tsgolint`、`toThrowE
 | *(已移入 next)* Connector 实现 → 能力系统(ADR-0021) | 连接概念已被能力取代;邮件已实现,剩余工作排在 next 的「能力系统」小节 |
 | *(已移入 done)* —— 注意:单包 `tsc -b` 会**重新生成**这些残留 | 用仓库自带的 `pnpm run clean` 再清,或先 `git clean -n -- packages` 预览、再 `git clean -f -- packages` |
 | 把中间一列也收归我们(ADR-0011 里的 L3) | 会话面在上游约 23k 行(ui-conversation + ui-chat + ui-tool);中间还是对话流水时没有产品理由重写。若中列变成 KB 文档视图再议。2026-09-15 验证:把 `ui-conversation` + `ui-chat` 移出 roster 后照常启动——等中列归我们时这一步本身没有成本。 |
-| 精简 profile(减少 base 行)以缩短约 35 秒启动 | 先测量;等 UI 完全归我们再做 |
+| 精简 profile(减少 base 行)以缩短约 35 秒启动 | 已于 2026-09-15 测量(见 done 表):解析占大头,挂的插件越少 = 启动时解析的模块越少——方向正确,但等 UI 完全归我们再做 |
 
 ## 这份清单的规矩
 

@@ -86,6 +86,8 @@ note), **deferred** (deliberately parked — see the note).
 
 | **The workbench gets its own dictionary (TODO Phase 2 item 1 2026-09-15)** — all 162 `verify-client-ui-i18n` violations across 16 files move into the new locale namespace `yantao.workbench`: `locales.ts` holds the zh truth (~110 keys) with a compile-time-checked en twin, registered in `index.ts`'s `apply` through `ctx.locale.register` (the `locale` plugin joins the client roster; ui-yantao's `dsh.client.inject` and devDependencies gain the dependency). The workbench is a plain root-slot child, not a slot entry, so the bound `t` is threaded as a prop from the root-slot inject face through `FrameProps` into every rail, panel, editor, and menu; copy-shaped label maps become `*_KEYS` maps of dictionary keys translated at render (`SECTION_KEYS`/`RELATION_KEYS`/`STATUS_KEYS`/`GROUP_KEYS`); prompt-only and domain-data Chinese stays out of the dictionary by naming (`TO_ME_PROMPT`, `sessionName`, `stateSection`) | `packages/client/ui-yantao/src/client/locales.ts` (new) + `{index,Workbench,kb-reference,NewEntityRow,TodoBoard,MailPanel,CapabilityPanel,ProposalCard,proposal,proposal-apply,mail-analysis,SelectionMenu,Onboarding}.ts*` + `frame/{Frame,CenterPane}.tsx` + `editor/{FileEditor,MarkdownView,ReadOnlyFile}.tsx`、`package.json`、tests/ 10 specs + `helpers.ts`. 验证：`verify-client-ui-i18n` 0 违例，`tsc -b`、scoped oxlint、ui-yantao 203 测试全绿，client bundle、frontend build、headless Edge smoke（无新错误签名）通过 |
 
+| **Startup-time segment measurement (TODO Phase 2 item 2 2026-09-15)** — the verdict on the 22–26s cold boot: **the bulk is the filesystem cost of module resolution — neither tsx transpilation nor cordis mounting logic**. Method: `node --cpu-prof` (the process self-exits ~2s after the ready line so the profile flushes) plus a `module.register` resolve/load hook logging every module's URL/format/duration (scratch in `.dsh-build/boot-perf/`, not committed; three boots: hook-logged 40s — per-event sync log writes add overhead — cpu-prof 29s, clean baseline 22–26s). Data: 1,585 modules load through the ESM hooks, 465 of them workspace `src/*.ts` (tsx-transpiled on the fly; only 14 come from prebuilt `lib/*.js` — tsx's tsconfig-paths rewriting beats the exports map); 10,694 resolves. CPU self-samples (main + loader thread, ~31s each): `(idle)` ~11s on both (async-fs disk waits don't show as samples — this machine's disk is slow, resolution is I/O-bound); `internalModuleStat` ≈ 11.8s combined, plus `lstat`/`existsSync`/`readPackageJSON`/`getPackageScopeConfig`/`readFileUtf8` puts resolution self-time at ≈ 15s+; tsx's custom hooks force a synchronous MessagePort round-trip per resolve/load (main-thread `makeSyncRequest` ≈ 4.1s + `makeAsyncRequest` ≈ 1.1s); **esbuild/tsx transpilation totals only ≈ 0.45s**; cordis core self-samples ≈ 0.36s. Surprise: dsh's own client-modules scanner (`buildCombo` + `newlineCount` in `packages/client/modules/src/index.ts`) ≈ 1.2s | Verdict and next step: precompiling the host to JS buys nothing on the transpile axis, but dropping the tsx hooks removes the sync round-trip and tsx's resolver chain (est. 4–6s) — **the recommended next step is one control experiment: prebuilt workspace + boot without `--import tsx/esm`**; the structural lever remains shrinking the module count resolved at boot (lazy loading / slimmer profile, see the deferred 「~35s boot」 row) |
+
 ## next
 
 ### Phase 2 — three-pane UI (ADR-0010)
@@ -93,11 +95,6 @@ note), **deferred** (deliberately parked — see the note).
 1. **Reading view v4 — Mermaid and local images** — both are paywalled: client bundles are single-file CJS, so mermaid inlines at
    ~3.5MB (or needs a host module-table change), and local images need a new RPC plus a host route because `read()` is utf8 and
    would corrupt binaries. Only worth it once a KB file actually contains one.
-2. **启动耗时分段测量** — 冷启动约 22–26 秒，但未拆过段。已知不等于结论的两点：慢的是 dsh 的
-   profile boot（与同进程/子进程无关：CLI 22.6s、同进程 22.2s、子进程 26.1s）。
-   下一步：在宿主启动时打时间戳，分清 **tsx 现转译** 与 **cordis 逐行挂载插件** 各占多少；
-   转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。
-   **先量再动。**
 
 ## blocked (with reason)
 
@@ -114,7 +111,7 @@ _None. (The three items that sat here — the client-face rebuild, `tsgolint`, a
 | *(moved to next)* Connector implementation → capability system (ADR-0021) | the connector concept is superseded by capabilities; mail is done, the remaining work sits in the「能力系统」section under next |
 | *(moved to done)* — note: a per-package `tsc -b` **recreates** this residue | re-clean with the repo's own `pnpm run clean`, or `git clean -f -- packages` after checking `git clean -n -- packages` |
 | Owning the middle column too (the L3 step in ADR-0011) | the conversation surface is ~23k lines upstream (ui-conversation + ui-chat + ui-tool); no product reason to rewrite it while the middle is still a chat transcript. Revisit if the middle becomes a KB document view. Verified 2026-09-15: removing `ui-conversation` + `ui-chat` from the roster boots clean — the step itself is free once the middle is ours. |
-| Slimming the profile (fewer base rows) to cut the ~35s boot | measure first; only after the UI is ours |
+| Slimming the profile (fewer base rows) to cut the ~35s boot | measured 2026-09-15 (see the done row): resolution is the bulk, so fewer mounted plugins = fewer modules resolved — the right lever, but only after the UI is ours |
 
 ## rules for this list
 
