@@ -1,30 +1,28 @@
-# Development
+# 开发指南
 
-English | [中文](development.zh.md)
+如何构建、运行、测试与扩展工作台,以及已经让我们付出过时间代价的那些坑。
 
-How to build, run, test, and extend the workbench — plus the traps that already cost us time.
+## 环境
 
-## Environment
-
-| Need | Value |
+| 需求 | 值 |
 |---|---|
-| Node / pnpm | Node 24, pnpm 11 (repo requirement) |
-| npm registry | internal mirror, already in `.npmrc` (`registry`, `disturl`) |
-| native rebuilds (e.g. `fs-ext`) | lifecycle scripts need the header mirror explicitly:<br>`npm_config_disturl=https://mirrors.dahuatech.com/nodejs-release/ pnpm install` |
-| model key | `.env` (copy `.env.example`) or the credentials store; `apiKeyEnv` names a reference — never inline a key |
-| ports | use **8080**. On this machine 8081/8082 are refused (`EACCES`, Windows excluded ranges). |
+| Node / pnpm | Node 24、pnpm 11(仓库要求) |
+| npm registry | 内网镜像,已写入 `.npmrc`(`registry`、`disturl`) |
+| 原生重建(如 `fs-ext`) | 生命周期脚本需要显式指定头文件镜像:<br>`npm_config_disturl=https://mirrors.dahuatech.com/nodejs-release/ pnpm install` |
+| 模型密钥 | `.env`(复制 `.env.example`)或凭据存储;`apiKeyEnv` 只是引用名,绝不内联密钥 |
+| 端口 | 用 **8080**。本机 8081/8082 会被拒绝(`EACCES`,Windows 保留区段)。 |
 
-## Build — build only what you touched
+## 构建 —— 只构建你动过的部分
 
-| You changed | Run |
+| 改动位置 | 执行 |
 |---|---|
-| frontend `apps/yantao/src/**` | `pnpm --filter @deepseek-ai/dsh-yantao-frontend run build` |
-| client plugin `packages/client/ui-yantao/src/**` | `pnpm --filter @deepseek-ai/dsh-client-ui-yantao run bundle` |
-| kb plugin / controller / any host package | `npm run build:lib:host` (slow, a few minutes) |
-| anything under `packages/client/**` | `npm run build:lib:client` |
-| HMR while iterating on the client plugin | `pnpm run dev:web` alongside a running server |
+| 前端 `apps/yantao/src/**` | `pnpm --filter @deepseek-ai/dsh-yantao-frontend run build` |
+| 客户端插件 `packages/client/ui-yantao/src/**` | `pnpm --filter @deepseek-ai/dsh-client-ui-yantao run bundle` |
+| kb 插件 / 控制器 / 任意 host 包 | `npm run build:lib:host`(较慢,数分钟) |
+| `packages/client/**` 下任意内容 | `npm run build:lib:client` |
+| 迭代客户端插件时热更新 | 服务运行的同时开 `pnpm run dev:web` |
 
-## Run and stop
+## 启动与停止
 
 ```bash
 .\scripts\yantao-web-start.ps1   # background server, waits for and prints the URL
@@ -32,54 +30,50 @@ How to build, run, test, and extend the workbench — plus the traps that alread
 pnpm dsh --profile yantao-web --port 8080        # foreground; Ctrl+C stops it
 ```
 
-Smoke tests:
+冒烟测试:
 
 ```bash
 pnpm dsh --profile yantao "用一句话回答：1+1等于几？"     # headless: model gateway + kb tools
 # workbench: open the printed URL; the probe line shows `tree() ok: …`
 ```
 
-Tests: `pnpm vitest run packages/yantao/kb packages/api/yantao-kb-controller packages/client/ui-yantao`
+测试:`pnpm vitest run packages/yantao/kb packages/api/yantao-kb-controller packages/client/ui-yantao`
 
-## Gates
+## 门禁
 
-- Pre-commit (lefthook): lint, whitespace, vendor manifest, third-party notices, translation pairing.
-- Targeted checks worth running before a PR: `pnpm run constraints`, `pnpm run verify-tsconfig-paths`,
-  `pnpm run verify-package-readme-*`, `pnpm run verify-translation-pairing`.
-- After adding a package or a Remote: re-run generators (`pnpm run gen-tsconfig-paths`, doc/catalog generators), or the verify
-  scripts will ask for regeneration.
+- 预提交(lefthook):lint、空白、vendor 清单、第三方声明、双语配对。
+- 提 PR 前值得单独跑:`pnpm run constraints`、`pnpm run verify-tsconfig-paths`、`pnpm run verify-package-readme-*`、
+  `pnpm run verify-translation-pairing`。
+- 新增包或 Remote 后:重跑生成器(`pnpm run gen-tsconfig-paths`、文档/目录生成器),否则 verify 脚本会要求重新生成。
 
-## Pitfalls (each one cost a debugging round)
+## 坑(每一条都真实耗过一轮调试)
 
-1. **`process.env` must be stubbed in the frontend build.** `apps/yantao/vite.config.ts` must spread
-   `clientBuildEnvironmentDefines(process.env)` exactly like upstream `apps/web` — it defines `process.env` as `{}`. Without it the
-   bundle throws at boot and the page is **blank**.
-2. **`slots` is infrastructure, not UI.** `dsh-client-ui-slots` provides a service that theme, locale, the Cordis client runner,
-   session-log export, and the directory picker all wait on. Disabling it makes boot fail with "entries did not activate".
-3. **Declare what you read.** Cordis throws `cannot get property X without inject`. A Remote namespace counts on its own:
-   `inject = ['remote', 'remote.yantaoKb']`.
-4. **`!!js process.env.X ?? 'default'` does not fall back reliably.** When the variable is unset the expression does not resolve to
-   the literal; the request goes to the wrong endpoint (symptom: `404`). Keep deployment values as literals and override them in the
-   user layer, not with expression defaults.
-5. **Client plugin entry is `src/client/index.ts`** (not `.tsx`), and the package needs a no-op host entry `src/index.ts`.
-6. **Every README is a triple**: `README.md` + `README.zh.md` + `README.i18n.yaml`, with mutual switcher links; re-record with
-   `pnpm run verify-translation-pairing --write <file>`.
-7. **Model id spellings.** The gateway accepts `GLM5.1`, `GLM` and `glm52`; all three are declared, so picking any of them works.
-   Adding a model means adding its spelling too.
-8. **Do not kill stray servers with `taskkill //IM node.exe`** — it takes down your agent runtime too. Use the stop script.
-9. **Build residue**: `tsc -b` leaves `.js`/`.d.ts`/`.map` inside `packages/client/*/src` (untracked, unwanted). Ask before
-   cleaning; `git clean -n packages/client/<pkg>/src` shows what would go.
-10. **The built CLI (`apps/cli/lib/bin.js`) fails on this checkout** (`@deepseek-ai/dsh-storage-json` unresolvable from the profile
-    dir). Use the source entry: `pnpm dsh …`.
-11. **A new Remote method needs the client face rebuilt.** The browser's Remote proxy method table is bundled into
-    `packages/api/remotes/lib/client.js`, and `pnpm run typecheck` only rebuilds the host face (`build:lib:host`). After adding or
-    renaming a `@Remote` method, run `pnpm run build:lib:client` (plus the plugin's own `bundle`) — otherwise the page reports
-    `kb.<method> is not a function` even though the server is perfectly current.
+1. **前端构建必须桩掉 `process.env`。** `apps/yantao/vite.config.ts` 必须像上游 `apps/web` 一样展开
+   `clientBuildEnvironmentDefines(process.env)`——它会把 `process.env` 定义为 `{}`。缺了它,产物在启动期抛错,页面**全白**。
+2. **`slots` 是基础设施,不是 UI。** `dsh-client-ui-slots` 提供的服务被 theme、locale、Cordis 客户端 runner、session-log
+   export、目录选择器共同依赖;禁用它会让启动失败并报 "entries did not activate"。
+3. **读了什么就要声明什么。** Cordis 会抛 `cannot get property X without inject`。Remote 命名空间同样各自计数:
+   `inject = ['remote', 'remote.yantaoKb']`。
+4. **`!!js process.env.X ?? '默认值'` 的兜底不可靠。** 变量未设置时表达式不会取到字面量,请求会打到错误端点(症状:`404`)。
+   部署值写成字面量,需要覆盖时走用户层。
+5. **客户端插件入口是 `src/client/index.ts`**(不是 `.tsx`),且包需要一个空的 host 入口 `src/index.ts`。
+6. **yantao 自有文档是中文单语(ADR-0027)**:直接用中文写 `README.md` 与 docs,不要 `.zh.md` twin、不要 `.i18n.yaml`、
+   不需要重录配对;双语配对门仍全量管辖上游文档,改了上游文件才需要 `--write` 重录。
+7. **模型 id 拼写。** 网关接受 `GLM5.1`、`GLM`、`glm52` 三种,我们都已声明,选哪个都能工作;新增模型要连拼写一起加。
+8. **别用 `taskkill //IM node.exe` 清进程** —— 会连你的 agent 运行时一起杀掉。用停止脚本。
+9. **构建残留**:`tsc -b` 会在 `packages/client/*/src` 内留下 `.js`/`.d.ts`/`.map`(未跟踪,不需要)。清理前先问;
+   `git clean -n packages/client/<pkg>/src` 可预览。
+10. **构建版 CLI(`apps/cli/lib/bin.js`)在本机跑不通**(profile 目录解析不到 `@deepseek-ai/dsh-storage-json`)。用源码入口
+    `pnpm dsh …`。
+11. **新增/改名 Remote 方法后必须重建 client 产物。** 浏览器侧的 Remote 代理方法表被打包进
+    `packages/api/remotes/lib/client.js`,而 `pnpm run typecheck` 只重建 host 侧(`build:lib:host`)。所以改动 `@Remote`
+    方法后要跑 `pnpm run build:lib:client`(外加插件自己的 `bundle`),否则页面报 `kb.<方法> is not a function`
+    —— 服务端其实已经是新的了。
 
-## Extending
+## 扩展方式
 
-- **New agent capability** → add a `kb_*` tool in `packages/yantao/kb/src/index.ts` (that file is the whole tool surface) and a unit
-  test that proves it cannot cross the `状态` boundary.
-- **New UI data need** → add a method to the `yantaoKb` Remote (`packages/api/yantao-kb-controller/`), mount it if needed, rebuild
-  the client face (`pnpm run build:lib:client`), then call it from the client plugin.
-- **New UI** → `apps/yantao/src/` (React). Keep `ctx.remote` as the only door to the backend.
+- **新增 agent 能力** → 在 `packages/yantao/kb/src/index.ts` 里加一个 `kb_*` 工具(该文件就是全部工具面),并补一个证明它
+  不会越过「状态」边界的单测。
+- **UI 需要新数据** → 给 `yantaoKb` Remote 加方法(`packages/api/yantao-kb-controller/`),必要时挂载,重建 client 侧
+  (`pnpm run build:lib:client`),再由客户端插件调用。
+- **新界面** → `apps/yantao/src/`(React)。`ctx.remote` 是通往后端的唯一门。

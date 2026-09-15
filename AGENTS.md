@@ -15,7 +15,7 @@ carrying the **yantao** personal knowledge workbench on a local branch `main`. U
 
 1. **Add, don't redesign.** New behaviour goes into our packages (`packages/yantao/**`, `packages/client/ui-yantao/**`,
    `packages/api/yantao-kb-controller/**`, `packages/bundle/yantao*/**`, `apps/yantao/**`). Upstream files receive only the
-   registrations listed as the merge surface in [docs/yantao/README.md](docs/yantao/README.md#merge-surface-upstream-files-we-modify).
+   registrations listed as the merge surface in [docs/yantao/README.md](docs/yantao/README.md#%E5%90%88%E5%B9%B6%E9%9D%A2%E6%88%91%E4%BB%AC%E6%94%B9%E5%8A%A8%E7%9A%84%E4%B8%8A%E6%B8%B8%E6%96%87%E4%BB%B6).
    That list is deliberately short — do not grow it without an ADR.
 2. **The trust boundary is the tool layer.** The agent gets the eight `kb_*` tools and no generic write capability; it may edit an
    entity's `状态` (ADR-0010 overturned ADR-0004's human-only rule) but only through `kb_write_state`, and it runs a capability
@@ -46,11 +46,10 @@ pnpm vitest run packages/yantao/kb packages/api/yantao-kb-controller packages/cl
 
 ## Before you commit
 
-The pre-commit hooks (lefthook) run lint, whitespace, vendor-manifest, third-party notices, and translation pairing. Two extra
-things bite often:
+The pre-commit hooks (lefthook) run lint, whitespace, vendor-manifest, third-party notices, and translation pairing. This is a
+single-user fork (ADR-0027): our own docs are **Chinese-only** — write `README.md` / docs directly in Chinese, no `.zh.md`
+twins, no `.i18n.yaml` records, no re-recording; the pairing gate still governs upstream docs in full. One thing still bites:
 
-- **New package?** Add the bilingual README triple (`README.md`, `README.zh.md`, `README.i18n.yaml`), keep the mutual language
-  switcher links, and re-record: `pnpm run verify-translation-pairing --write <pkg>/README.md`.
 - **New package or Remote?** Re-run the generators (`pnpm run gen-tsconfig-paths`, doc/catalog generators) so the tsconfig
   references, package maps, and catalogs include it.
 

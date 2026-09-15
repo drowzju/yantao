@@ -1,51 +1,47 @@
-# yantao workbench
+# yantao 工作台
 
-English | [中文](README.zh.md)
+yantao 是一个**个人知识工作台**:以纯 Markdown 存放 PARA+P 知识库,并让 agent 写入知识库的唯一通道是一小组可审计的工具。
 
-yantao is a **personal knowledge workbench** built inside this repository: a PARA+P knowledge base of plain Markdown files, plus an agent whose only write path into that base is a small, auditable tool family.
+它构建在 **DeepSeek Harness(`dsh`)** 之上——本仓库**就是** `deepseek-harness`(上游:github.com/deepseek-ai/deepseek-harness),我们在从上游 `master@d347e70390`(发布版 `0.1.3-alpha.1`,ADR-0002)切出的本地分支 `main` 上工作,并**刻意钉住**上游。我们把 dsh 当作**引擎与后端**;yantao 的一切都是增量添加的。日常开发(构建、运行、停止、测试、门禁、坑)见 [development.md](development.md)。
 
-It runs on top of **DeepSeek Harness (`dsh`)** — an open-source agent harness by DeepSeek AI. Read the next section before touching anything: the single most important thing to understand here is **which parts are upstream's and which are ours**.
-
-For day-to-day work (build, run, stop, tests, gates, pitfalls) see [development.md](development.md).
-
-## 1. How this project relates to DeepSeek Harness
+## 1. 本工程与 DeepSeek Harness 的关系(先读这段)
 
 | | |
 |---|---|
-| What this repo is | `deepseek-harness` itself (upstream: `github.com/deepseek-ai/deepseek-harness`), not a fork by copy |
-| Where we work | local branch `main`, cut from upstream `master` at `d347e70390` (release `0.1.3-alpha.1`) |
-| Upstream tracking | `origin/master` still points at upstream; we **pin** and upgrade deliberately (ADR-0002) — upstream ships breaking changes weekly |
-| Remotes | `origin` = upstream dsh (fetch only, never push). `yantao` = **your own remote**, where local `main` is pushed. `master` tracks `origin`; `main` tracks `yantao`. |
-| Our rule | Everything yantao needs is **additive** (new packages, new profile templates), or a **documented one-line registration** in an upstream file. We never redesign upstream internals. |
-| Agent runtime | dsh's own: agent loop, tools, session event log, Typert RPC. We add plugins and profiles; we do not fork the engine. |
+| 本仓库是什么 | `deepseek-harness` 本身(上游:`github.com/deepseek-ai/deepseek-harness`),不是复制式分叉 |
+| 我们在哪工作 | 本地分支 `main`,自上游 `master` 的 `d347e70390` 切出(发布版 `0.1.3-alpha.1`) |
+| 上游跟踪 | `origin/master` 仍指向上游;我们**钉版本**、按节奏刻意升级(ADR-0002)——上游每周都有破坏性变更 |
+| 远端 | `origin` = 上游 dsh(只 fetch,永不 push)。`yantao` = **你自己的远端**,本地 `main` 推到这里。`master` 跟踪 `origin`,`main` 跟踪 `yantao`。 |
+| 我们的原则 | yantao 需要的一切都**增量添加**(新包、新 profile 模板),或在上游文件里做**有据可查的一行登记**。绝不重构上游内部。 |
+| agent 运行时 | 用 dsh 自己的:agent loop、工具、session 事件日志、Typert RPC。我们只加插件与 profile,不分叉引擎。 |
 
-### Merge surface: upstream files we modify
+### 合并面:我们改动的上游文件
 
-This is the complete list of upstream-owned files the project touches today. Keep it short — this list *is* our upgrade cost.
+以下是目前工程触及的全部上游文件。请保持这个清单短小——**它就是我们升级上游的成本**。
 
-| File | Why |
+| 文件 | 为什么动 |
 |---|---|
-| `packages/boot/app-boot/src/profile.ts` | registers profile templates `yantao` and `yantao-web` |
-| `apps/cli/package.json` | workspace dependencies so the profile tree can resolve our packages |
-| `packages/api/remotes/{package.json,src/client/index.ts,tsconfig.*.json}` | mounts the `yantaoKb` Remote namespace on both planes |
-| `packages/extensions/tool-cordis/src/api-catalog.ts` | generated catalog entry for our Remote |
-| `tsconfig.base.json`, `tsconfig.client.json`, `tsconfig.host.json` | generated aliases + project references for our packages |
-| `docs/capability-seams.md`, `docs/config-catalog.md` | regenerated docs |
-| `scripts/gen-cordis-catalog.ts`, `scripts/gen-doc-graphs.ts`, `scripts/type-equiv.manifest.json`, `scripts/verify-subsystem-pages.ts`, `scripts/verify-package-readme-model-experience.ts` | generators and gate sidecars that must know our packages exist |
-| `packages/{api,bundle,client}/README{,.zh}.md` + pairing sidecars | package maps list every member |
-| `pnpm-workspace.yaml` | one `allowBuilds` entry: `electron: true`, without which pnpm refuses to run Electron's postinstall and no binary is downloaded (ADR-0016) |
-| `pnpm-lock.yaml`, `.gitignore` | dependency link; `apps/yantao/dist/` ignore rule |
+| `packages/boot/app-boot/src/profile.ts` | 注册 profile 模板 `yantao` 与 `yantao-web` |
+| `apps/cli/package.json` | workspace 依赖,让 profile 树能解析我们的包 |
+| `packages/api/remotes/{package.json,src/client/index.ts,tsconfig.*.json}` | 在两个平面挂载 `yantaoKb` Remote 命名空间 |
+| `packages/extensions/tool-cordis/src/api-catalog.ts` | 我们 Remote 的生成式目录条目 |
+| `tsconfig.base.json`、`tsconfig.client.json`、`tsconfig.host.json` | 我们包的生成别名与项目引用 |
+| `docs/capability-seams.md`、`docs/config-catalog.md` | 重新生成的文档 |
+| `scripts/gen-cordis-catalog.ts`、`scripts/gen-doc-graphs.ts`、`scripts/type-equiv.manifest.json`、`scripts/verify-subsystem-pages.ts`、`scripts/verify-package-readme-model-experience.ts` | 生成器与门禁旁车,必须知道我们的包存在 |
+| `packages/{api,bundle,client}/README{,.zh}.md` 及配对记录 | 包地图列出每个成员 |
+| `pnpm-workspace.yaml` | 一条 `allowBuilds` 条目:`electron: true`;没有它 pnpm 拒绝执行 Electron 的 postinstall,二进制根本不会下载(ADR-0016) |
+| `pnpm-lock.yaml`、`.gitignore` | 依赖链接;`apps/yantao/dist/` 忽略规则 |
 
-Everything else we own outright: `packages/yantao/**`, `packages/client/ui-yantao/**`, `packages/bundle/yantao/**`, `packages/bundle/yantao-web-app/**`, `packages/api/yantao-kb-controller/**`, `packages/preset/agent-presets/presets/yantao/**`, `apps/yantao/**`, `docs/adr/**`, `docs/yantao/**`, `docs/subsystems/yantao*`, `CONTEXT-MAP.md`, `.env.example`, `.npmrc`.
+其余完全属于我们:`packages/yantao/**`、`packages/client/ui-yantao/**`、`packages/bundle/yantao/**`、`packages/bundle/yantao-web-app/**`、`packages/api/yantao-kb-controller/**`、`packages/preset/agent-presets/presets/yantao/**`、`apps/yantao/**`、`docs/adr/**`、`docs/yantao/**`、`docs/subsystems/yantao*`、`CONTEXT-MAP.md`、`.env.example`、`.npmrc`。
 
-### Upgrading upstream
+### 升级上游
 
-1. Read upstream release notes; expect breaking changes.
-2. Rebase/merge `origin/master` onto `main` and resolve only the merge-surface files above.
-3. Re-run generators (`pnpm run gen-tsconfig-paths`, doc/catalog generators) and the gate suite.
-4. Re-run the smoke tests in [development.md](development.md) — headless answer + workbench `intakeTree()`.
+1. 读上游发布说明;默认有破坏性变更。
+2. 把 `origin/master` 合并/rebase 到 `main`,只解决上面合并面里的文件。
+3. 重跑生成器(`pnpm run gen-tsconfig-paths`、文档/目录生成器)与门禁套件。
+4. 重跑 [development.md](development.md) 里的冒烟测试——headless 作答 + 工作台 `intakeTree()`。
 
-## 2. Architecture
+## 2. 架构
 
 ```
 apps/yantao (React + Vite)  ──served by──►  dsh profile yantao-web
@@ -61,50 +57,52 @@ apps/yantao (React + Vite)  ──served by──►  dsh profile yantao-web
 profile `yantao` = the same stack without the web surface (one-shot headless runs)
 ```
 
-- **dsh is the backend.** Our UI consumes it over Typert RPC and the forwarded event stream, and it owns the browser shell — the workbench plugin registers the runtime's built-in `root` slot and draws its own three-column frame (ADR-0011), with `ui-layout` out of the roster. The middle column is tabbed: a permanent 对话 tab carries the host's conversation surface through the `conversation` seat (ADR-0009), and every open KB file gets its own closeable tab, autosaved with a conflict check (ADR-0012).
-- **The agent's trust boundary is the tool layer.** The agent gets eight `kb_*` tools and no generic write capability; it may now write an entity's `状态` section through `kb_write_state`, which is what ADR-0010 changed in ADR-0004 — the boundary is the tool set, not the section — and it runs a capability only through `kb_run_capability`, gated per-capability by the sidecar `invocation` field (ADR-0023). The **UI is the human channel** and may edit anything.
-- **Knowledge lives in files**, not a database: `resources/`, `entities/{projects,areas,people,meetings}/`, the `entities/todos.md` singleton, and an unused `sessions/` under the KB root (ADR-0005, layout per ADR-0010). ADR-0004's `状态` / `流水` sections are the human/agent boundary inside every entity file.
-- **The KB root is the human's choice.** First run asks for a directory and persists it to `~/.dsh/yantao-kb.json` (`yantaoKb.root()` / `setRoot()`), and the rails create entities inline through `yantaoKb.createEntity()` (ADR-0012).
+- **dsh 是后端。** 我们的 UI 通过 Typert RPC 与转发事件流消费它,而浏览器外壳归我们:工作台插件注册运行时内置的 `root` 槽位、自绘三栏外框(ADR-0011),`ui-layout` 已退出名单。中间一列是 tab 化的:常驻的「对话」tab 通过 `conversation` 座位承载宿主的会话面(ADR-0009),每个打开的 KB 文件各占一个可关闭 tab,自动保存并带冲突检查(ADR-0012)。
+- **信任边界在工具层。** agent 有八个 `kb_*` 工具、没有通用写能力;它现在可以通过 `kb_write_state` 写实体的「状态」区——这正是 ADR-0010 对 ADR-0004 的修订:边界是工具集,不是区段;它运行能力也只能通过 `kb_run_capability`,由 sidecar 的 `invocation` 字段逐能力把关(ADR-0023)。**UI 是人类通道**,可以编辑任何内容。
+- **知识存在文件里**,不是数据库:KB 根下的 `resources/`、`entities/{projects,areas,people,meetings}/`、`entities/todos.md` 单例,以及暂不使用的 `sessions/`(ADR-0005,目录结构调整见 ADR-0010)。每个实体文件里的「状态」/「流水」两区就是人与 agent 的边界。
+- **知识库根目录由人选。** 首次进入会要求选一个目录并持久化到 `~/.dsh/yantao-kb.json`(`yantaoKb.root()` / `setRoot()`);两条侧栏通过 `yantaoKb.createEntity()` 就地新建实体(ADR-0012)。
 
-## 3. Domain language (use these words)
+## 3. 领域用语(请用这些词)
 
-Canonical terms live in [CONTEXT-MAP.md](../../CONTEXT-MAP.md) (context map) and [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) (glossary). The load-bearing ones:
+规范术语在 [CONTEXT-MAP.md](../../CONTEXT-MAP.md)(上下文地图)与[packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md)(词汇表)。承重词:
 
 **知识库 / Resource / 影子笔记 / Entity / 会议(Meeting) / 待办(Todo) / 连接(Connector) / State(状态) / 流水(Log) / 提炼(Refine) / LLM 网关 / Session(事件日志)**
 
-Do not invent synonyms in code, commits, or docs — and never call the LLM route by a vendor name (it is `model-gateway`, not `glm-gateway`; see ADR-0007).
+不要在代码、提交与文档里自造同义词;也不要用厂商名称呼 LLM 路由(它是 `model-gateway`,不是 `glm-gateway`,见 ADR-0007)。
 
-## 4. Decisions (ADR index)
+## 4. 决策(ADR 索引)
 
-| ADR | Decision |
+| ADR | 决策 |
 |---|---|
-| 0001 | Rebuild yantao as dsh plugins; drop the old Flutter app |
-| 0002 | Pin upstream at 0.1.3-alpha.1, upgrade deliberately |
-| 0003 | Workbench UI as its own app (mechanism later refined by 0008/0009) |
-| 0004 | Trust boundary = the tool set; `状态` was human-only and is now agent-writable (ADR-0010), `流水` stays append-only |
-| 0005 | Keep the plain-Markdown KB format |
-| 0006 | Chinese-only strings in yantao packages; relax the i18n pairing gate there |
-| 0007 | LLM comes from the intranet model gateway; ACP/codebuddy is not the runtime path |
-| 0008 | *(superseded by 0009)* compose the UI from dsh client plugins |
-| 0009 | Bespoke frontend; dsh is the backend. **Validated**, with lessons recorded |
-| 0010 | Domain expansion: `meeting` entity, `todo` singleton, reserved `connector`; three panes, two trees, `kb_write_state` |
-| 0011 | The workbench owns its frame: `ui-yantao` registers the runtime `root` slot, `ui-layout` leaves the roster |
-| 0012 | The middle column is tabs: raw-markdown editing with autosave and a conflict check, inline entity creation, first-run KB directory |
-| 0013 | Brand (`PARAP` + our own hero mark), the middle column's working directory follows the KB root, and `@` mentions resolve to KB files |
-| 0014 | A file opens on its rendered reading view; YAML frontmatter folds away; editing stays in the raw source editor |
-| 0015 | `[[wiki links]]` between entities: resolved host-side by a new `links(path)` RPC, with a backlinks panel |
-| 0016 | Desktop shell: Electron spawns the dsh host as a **child process** (in-process was rejected); `file://` is unusable, so it loads loopback HTTP |
-| 0017 | Editor strategy: borrow Obsidian for heavy editing (`openExternal`) plus a `revision()` watcher, instead of building our own editor now |
-| 0018 | Todo carrier: `[due::]` / `[done::]` structured lines plus a TODO/DONE two-pane board in the left rail; parsing lives host-side only, the agent cannot write todos |
-| 0019 | First connector: Outlook mail (COM subprocess for reading, a dsh session for analysis, writes land only after human confirmation) |
-| 0020 | Reading projects & resource intake: drag-and-drop registration, a `source:`-field reading project, lazy py-script text extraction, and the shadow-note pairing abolished (reading projects + the `ebook` capability retired 2026-09-14 — see the ADR's landing note) |
-| 0021 | Capability system: the connector concept rebuilt as capabilities (skill directory + host entry + `appliesTo` declaration), a unified proposal flow, and the full mail/extract migration; the trade-off ledger gets its own section |
-| 0022 | Prompt layering: yantao's system instructions become named sections over dsh's section registry, sourced from repo Markdown; the persona stays a thin identity |
-| 0023 | Agent-side capability invocation: `kb_run_capability` gated per-capability via the sidecar `invocation` field, dynamic catalog injection, entry-less instruction capabilities, and drift-backup on reseed; reopens ADR-0021's ledger items 1–2 |
-| 0024 | KB self-containment: yantao-owned data lives only under the KB root — capability state moves to `<kbRoot>/.yantao/state.json` (one-time import, old file renamed `.bak`), the KB pointer becomes a settings-plane field, and skills resolve only from `<kbRoot>/.dsh/skills/` |
-| 0025 | Third-party skill adoption: an unregistered group + copy-into-KB adopt action, the `/xxx` gesture (dual-message injection in the pre-step), resource right-click prompts the current session for instruction capabilities, opt-in selection right-click, a `/` autocomplete source, and registration as route entries in the central routing file `.dsh/skills/yantao.json` (no moves, no renames) |
+| 0001 | 以 dsh 插件形态重建 yantao,放弃旧 Flutter 应用 |
+| 0002 | 钉住上游 0.1.3-alpha.1,刻意升级 |
+| 0003 | 工作台 UI 作为独立 app(机制后被 0008/0009 细化) |
+| 0004 | 信任边界 = 工具集;「状态」原为人类专属,现已改为 agent 可写(ADR-0010);流水区仍只追加 |
+| 0005 | 沿用纯 Markdown 知识库格式 |
+| 0006 | yantao 包仅中文文案,放宽该范围的双语配对门 |
+| 0007 | LLM 走内网模型网关;ACP/codebuddy 不是运行时路径 |
+| 0008 | *(被 0009 取代)* 用 dsh 客户端插件组合 UI |
+| 0009 | 自研前端、dsh 退居后端。**已验证**,并记录了教训 |
+| 0010 | 领域模型扩张:`meeting` 实体、`todo` 单例、预留 `connector`;三栏布局、两棵树、`kb_write_state` |
+| 0011 | 工作台外框归我们:`ui-yantao` 注册运行时 `root` 槽位,`ui-layout` 退出名单 |
+| 0012 | 中栏 tab 化:原文编辑 + 自动保存 + 冲突检查、就地新建实体、首启自选知识库目录 |
+| 0013 | 品牌(PARAP + 自绘 hero 标)、中栏工作目录跟随知识库根目录、`@` 引用解析为知识库文件 |
+| 0014 | 文件默认打开为渲染后的阅读视图,YAML 信封折叠,编辑仍走原文编辑器 |
+| 0015 | 实体间 `[[双链]]`:由新增的 `links(path)` RPC 在宿主侧解析,并给出反向链接面板 |
+| 0016 | 桌面外壳:Electron 把 dsh 宿主作为**子进程**拉起(同进程方案已被否决);`file://` 过不了 Origin 围栏,所以加载 loopback HTTP |
+| 0017 | 编辑器策略:先借 Obsidian 做重编辑(`openExternal`)+ `revision()` 监听,而不是现在就自研编辑器 |
+| 0018 | 待办载体:`[due::]`/`[done::]` 结构化行 + 左栏 TODO/DONE 双面板;解析只在宿主侧,agent 不写待办 |
+| 0019 | 第一个连接器:Outlook 邮件(COM 子进程读邮件,dsh session 分析,人工确认后才写库) |
+| 0020 | 读书项目与资源入库:拖放入库、`source:` 字段判别的读书项目、惰性 py 脚本抽取、废除影子笔记配对(读书项目与 `ebook` 能力已于 2026-09-14 退役——见该 ADR 落地注记) |
+| 0021 | 能力系统:连接重构为能力(skill 目录 + 宿主入口 + appliesTo 声明),统一提议流,mail/extract 全量迁移;取舍台账独立成节 |
+| 0022 | 系统提示词分层:yantao 的系统指令以命名 section 叠加在 dsh 注册表上,源文件为仓库 Markdown;persona 保持薄身份声明 |
+| 0023 | 能力的模型侧调用:`kb_run_capability` 按 sidecar `invocation` 字段逐能力门控,动态目录注入,缺 entry 的指令型能力,播种覆盖前备份;重开 ADR-0021 台账第 1、2 条 |
+| 0024 | KB 自包含:yantao 自有数据只落 KB 根——能力状态迁至 `<kbRoot>/.yantao/state.json`(一次性导入,旧文件改名 `.bak`),KB 指针进 settings plane,技能只认 `<kbRoot>/.dsh/skills/` |
+| 0025 | 三方技能接入:未注册分组 + 拷贝进 KB 的采纳动作,`/xxx` 手势(pre-step 双消息注入),资源右键对指令型能力发当前会话,选区右键 opt-in,`/` 自动补全源,注册 = 在中央路由文件 `.dsh/skills/yantao.json` 写路由条目(不移动、不改名) |
+| 0026 | 类型化模板与协作边界重划:实体模板文件 `<kbRoot>/.dsh/templates/<type>.md` + 内置回落(project 加目标/下一步、area 加标准/检视、person 不变),`kb_edit_section` 区段寻址编辑(流水仍只追加、frontmatter 封存),`kb_write_resource` 只新建不覆盖,右键/选区手势统一为合成 `/name @path` slash 消息走 pre-step 管线(客户端拼接退役) |
+| 0027 | 单人项目的门禁降级:yantao 自有文档与包 README 中文单语化(删 twins 与配对记录,豁免目录化),model-experience 门摘除 yantao 包,pre-push 全仓 typecheck 移除;staged lint、whitespace、vendor manifest、notices、生成目录检查与测试保留 |
 
-## 5. Quick start
+## 5. 快速上手
 
 ```bash
 cp .env.example .env          # then fill in MODEL_GATEWAY_API_KEY
@@ -118,34 +116,34 @@ pnpm install
 pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 ```
 
-Full build/verify commands, gates, and pitfalls: [development.md](development.md).
+完整的构建/验证命令、门禁与坑:[development.md](development.md)。
 
-## 6. Documentation map
+## 6. 文档地图
 
-**Entry files are ours; upstream's are preserved with a `_dsh` suffix.**
+**入口文件归我们,上游的以 `_dsh` 后缀保留。**
 
-The root [README.md](../../README.md) and [AGENTS.md](../../AGENTS.md) describe **yantao**, not upstream dsh. Upstream's originals are kept verbatim as [docs/upstream/README_dsh.md](../upstream/README_dsh.md) / `README_dsh.zh.md` and [AGENTS_dsh.md](../../AGENTS_dsh.md).
+根目录的 [README.md](../../README.md) 与 [AGENTS.md](../../AGENTS.md) 描述的是 **yantao**,不是上游 dsh。上游原文件原样保留为[docs/upstream/README_dsh.md](../upstream/README_dsh.zh.md) / `README_dsh.zh.md`,以及 [AGENTS_dsh.md](../../AGENTS_dsh.md)。
 
-Why the `_dsh` copies live under `docs/upstream/` rather than at the root: the bilingual pairing gate (`scripts/verify-translation-pairing.ts` and its manifest) treats a *renamed* root `README` as out of scope, so root-level `README_dsh.md` cannot be recorded as a pair and the commit is rejected. Inside `docs/` the same pair is in scope and records cleanly. Keep this in mind before moving documentation: **where a file lives decides whether it can be a pair.**
+为什么 `_dsh` 副本放在 `docs/upstream/` 而不是根目录:双语配对门(`scripts/verify-translation-pairing.ts` 及其清单)把**改名后的根README** 视为范围外,于是根级 `README_dsh.md` 无法作为一对被记录,提交会被拒绝;放在 `docs/` 下则是范围内,可以正常记录。以后移动文档请记住:**文件放在哪,决定了它能不能成为一对。**
 
-**Ours**
+**我们的**
 
-| Document | What it holds |
+| 文档 | 内容 |
 |---|---|
-| [development.md](development.md) | build, run, stop, tests, gates, pitfalls |
-| [TODO.md](TODO.md) | backlog: done / next / deferred (each deferred item keeps its reason) |
-| [../adr/](../adr/) | ADR 0001–0025 — index in section 4 |
-| [../subsystems/yantao.md](../subsystems/yantao.md) | the KB + `yantaoKb` Remote subsystem page (upstream's subsystem format) |
-| [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | context map: yantao 工作台 ↔ dsh 平台 |
-| [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | the glossary (canonical terms) |
+| [development.md](development.md) | 构建、运行、停止、测试、门禁、坑 |
+| [TODO.md](TODO.md) | 待办:done / next / deferred(每个搁置项都带原因) |
+| [../adr/](../adr/) | ADR 0001–0027(索引见第 4 节) |
+| [../subsystems/yantao.md](../subsystems/yantao.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |
+| [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | 上下文地图:yantao 工作台 ↔ dsh 平台 |
+| [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | 词汇表(规范用词) |
 
-**Upstream dsh — still authoritative for everything outside our packages**
+**上游 dsh —— 对我们包以外的一切仍然权威**
 
-| Document | What it holds |
+| 文档 | 内容 |
 |---|---|
-| [README_dsh.md](../upstream/README_dsh.md) | upstream project README (verbatim) |
-| [AGENTS_dsh.md](../../AGENTS_dsh.md) | upstream agent/development instructions (verbatim) |
-| [../architecture.md](../architecture.md) | dsh architecture: profiles, bundles, capability seams |
-| [../cordis-primer.md](../cordis-primer.md) · [../cordis-tutorial/](../cordis-tutorial/) | the Cordis loader, config, and patch language |
-| [../cookbook/](../cookbook/) | how to add a package, a tool, an LLM adapter, a remote API |
-| [../i18n/README.md](../i18n/README.md) | the bilingual documentation contract (three-file pairs) |
+| [README_dsh.zh.md](../upstream/README_dsh.zh.md) | 上游项目 README(原样保留) |
+| [AGENTS_dsh.md](../../AGENTS_dsh.md) | 上游 agent/开发指引(原样保留) |
+| [../architecture.md](../architecture.zh.md) | dsh 架构:profile、bundle、能力接缝 |
+| [../cordis-primer.md](../cordis-primer.zh.md) · [../cordis-tutorial/](../cordis-tutorial/) | Cordis loader、配置与 patch 语言 |
+| [../cookbook/](../cookbook/) | 如何加包、加工具、加 LLM adapter、加 Remote API |
+| [../i18n/README.zh.md](../i18n/README.zh.md) | 双语文档契约(三文件一对) |
