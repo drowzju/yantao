@@ -4,7 +4,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { KbTreeSection } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { kbReferenceSource, type KbReferenceFaces } from '../src/client/kb-reference.ts'
-import { t } from './helpers.ts'
+import { t } from './helpers.client.ts'
 
 const workspace: KbTreeSection[] = [
   { id: 'projects', files: [{ name: 'dsh 学习', path: 'entities/projects/dsh 学习.md' }] },

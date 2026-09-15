@@ -5,7 +5,7 @@ import type { KbMailMessage, KbTodoItem } from '@deepseek-ai/dsh-api-yantao-kb-c
 import type { AnalysisProgress, AnalysisRun, KnownEntities, MailAnalysis } from '../src/client/mail-analysis.ts'
 import type { MailEntities } from '../src/client/mail-apply.ts'
 import { MailPanel, type MailPanelProps } from '../src/client/MailPanel.tsx'
-import { t } from './helpers.ts'
+import { t } from './helpers.client.ts'
 
 afterEach(() => {
   cleanup()

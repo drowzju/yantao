@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { KbTodoItem, KbWriteTodosArgs, KbWriteTodosResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { TodoBoard, type TodoBoardProps } from '../src/client/TodoBoard.tsx'
-import { t } from './helpers.ts'
+import { t } from './helpers.client.ts'
 
 afterEach(() => {
   cleanup()

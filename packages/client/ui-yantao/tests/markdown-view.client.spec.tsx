@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MarkdownView } from '../src/client/editor/MarkdownView.tsx'
-import { t } from './helpers.ts'
+import { t } from './helpers.client.ts'
 
 afterEach(() => {
   cleanup()

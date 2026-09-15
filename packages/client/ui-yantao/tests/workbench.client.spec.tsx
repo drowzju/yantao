@@ -16,7 +16,7 @@ import type {
 } from '../src/client/remote.ts'
 import type { KbCapabilitySummary, KbUnregisteredSkill } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { CapabilityPanel } from '../src/client/CapabilityPanel.tsx'
-import { t } from './helpers.ts'
+import { t } from './helpers.client.ts'
 import { TAB_STORAGE_KEY } from '../src/client/tabs.ts'
 
 afterEach(() => {

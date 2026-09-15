@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { AUTOSAVE_MS, FileEditor } from '../src/client/editor/FileEditor.tsx'
 import { ReadOnlyFile } from '../src/client/editor/ReadOnlyFile.tsx'
 import type { SaveStatus } from '../src/client/editor/FileEditor.tsx'
-import { t } from './helpers.ts'
+import { t } from './helpers.client.ts'
 
 afterEach(() => {
   cleanup()

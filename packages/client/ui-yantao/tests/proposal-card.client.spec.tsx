@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { Proposal } from '../src/client/proposal.ts'
 import { ProposalCard } from '../src/client/ProposalCard.tsx'
-import { t } from './helpers.ts'
+import { t } from './helpers.client.ts'
 
 afterEach(() => {
   cleanup()
