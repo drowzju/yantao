@@ -390,7 +390,10 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * level the scanner reads — and each extraction gets the sidecar. A nested
  * skill named after the repository itself (the common drop shape
  * `<repo>/skills/<repo>/`) cannot move out under its own name, so it
- * flattens instead: its contents move up one level and the repository
+ * flattens instead: its contents merge up one level (the repository's own
+ * top level is not empty — a plugin repo carries `commands/`, `scripts/`,
+ * `docs/` of its own — so same-named directories merge recursively and a
+ * file landing on an existing file refuses the call) and the repository
  * directory *becomes* the skill. Any other name collision refuses the
  * whole call; the emptied repository shell stays behind, inert (no
  * top-level SKILL.md, never scanned).

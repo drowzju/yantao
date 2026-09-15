@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -766,6 +766,38 @@ describe('plugin repository registration (ADR-0025 决定 1 的提取分支)', (
       .toEqual({ version: 1, invocation: ['human'] })
     // The nested bundle was moved up, not copied.
     await expect(readFile(join(repository, 'skills', 'diagram-design', 'SKILL.md'), 'utf8')).rejects.toThrow()
+  })
+
+  it('merges the flatten past the repository\'s own top-level directories', async () => {
+    // The real drop shape: the plugin repo carries a `scripts/` of its own
+    // (maintainer tooling), disjoint from the nested skill's `scripts/`.
+    const repository = await seedPlugin('diagram-design', ['diagram-design'])
+    await mkdir(join(repository, 'scripts'), { recursive: true })
+    await writeFile(join(repository, 'scripts', 'lint.py'), '# 仓库自己的工具\n', 'utf8')
+    await mkdir(join(repository, 'skills', 'diagram-design', 'scripts'), { recursive: true })
+    await writeFile(
+      join(repository, 'skills', 'diagram-design', 'scripts', 'extract.py'),
+      '# 技能的脚本\n',
+      'utf8',
+    )
+    await ctx.yantaoKbController.capabilityRegister({ name: 'diagram-design' })
+    // Both script sets coexist under the one merged directory.
+    expect(await readFile(join(repository, 'scripts', 'lint.py'), 'utf8')).toContain('仓库自己的工具')
+    expect(await readFile(join(repository, 'scripts', 'extract.py'), 'utf8')).toContain('技能的脚本')
+    expect(await readFile(join(repository, 'SKILL.md'), 'utf8')).toContain('照做')
+    // The nested husk is gone.
+    await expect(stat(join(repository, 'skills', 'diagram-design'))).rejects.toThrow()
+  })
+
+  it('refuses the flatten when a skill file would land on an existing repository file', async () => {
+    const repository = await seedPlugin('diagram-design', ['diagram-design'])
+    await writeFile(join(repository, 'README.md'), '# 仓库的 README\n', 'utf8')
+    await writeFile(join(repository, 'skills', 'diagram-design', 'README.md'), '# 技能的 README\n', 'utf8')
+    const failure = await ctx.yantaoKbController.capabilityRegister({ name: 'diagram-design' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((failure as Error).message).toMatch(/同名文件冲突/)
+    // All-or-nothing: the nested bundle is untouched.
+    expect(await readFile(join(repository, 'skills', 'diagram-design', 'SKILL.md'), 'utf8')).toContain('照做')
   })
 
   it('extracts sibling skills while flattening the self-named one', async () => {

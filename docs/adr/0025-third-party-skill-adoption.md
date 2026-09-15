@@ -40,8 +40,9 @@ ADR-0023 决定 4 的既定状态）；资源右键和选区右键没有指令�
    带 `.claude-plugin/plugin.json`）进未注册分组时带 `plugin: true` 与 `pluginSkills`
    清单；注册 = **提取**——把每个内含技能目录**移动**到 `.dsh/skills/<child>/` 并各自写
    sidecar（全有或全无的撞名检查），掏空的仓库壳原地保留；内含技能与仓库同名的常见形态
-   （`<repo>/skills/<repo>/`）无法移出，改为**拍平**——内层内容上移一层，仓库目录本身
-   成为技能。已是能力的技能拒绝覆盖（修复无效 sidecar 才是注册的用途）。
+   （`<repo>/skills/<repo>/`）无法移出，改为**拍平**——内层内容合并上移一层（仓库顶层
+   本就不是空的：插件仓库自带 `commands/`、`scripts/`、`docs/` 等，同名目录递归合并、
+   文件落到已有文件上则整体拒绝），仓库目录本身成为技能。已是能力的技能拒绝覆盖（修复无效 sidecar 才是注册的用途）。
 
 2. **frontmatter 映射**。上游字段各管各的命名空间：`user-invocable: false` → 不可采纳、
    不可 `/xxx`，未注册分组里灰显并给原因；`disable-model-invocation` → **忽略**——

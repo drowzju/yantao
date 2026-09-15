@@ -19,7 +19,7 @@
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
  */
 
-import { mkdir, readdir, readFile, rename, stat, unlink, writeFile, cp } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile, cp } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -1398,7 +1398,10 @@ export class YantaoKbController extends TypertRemoteService {
    * level the scanner reads — and each extraction gets the sidecar. A nested
    * skill named after the repository itself (the common drop shape
    * `<repo>/skills/<repo>/`) cannot move out under its own name, so it
-   * flattens instead: its contents move up one level and the repository
+   * flattens instead: its contents merge up one level (the repository's own
+   * top level is not empty — a plugin repo carries `commands/`, `scripts/`,
+   * `docs/` of its own — so same-named directories merge recursively and a
+   * file landing on an existing file refuses the call) and the repository
    * directory *becomes* the skill. Any other name collision refuses the
    * whole call; the emptied repository shell stays behind, inert (no
    * top-level SKILL.md, never scanned).
@@ -1488,7 +1491,9 @@ export class YantaoKbController extends TypertRemoteService {
    * Register a plugin repository by extraction: move every nested
    * `skills/<name>/` bundle to `.dsh/skills/<name>/` and give each the
    * registration sidecar. All-or-nothing: one collision refuses the call
-   * before anything moves.
+   * before anything moves. The self-named child (see the flatten note in
+   * {@link capabilityRegister}) merges into the repository instead — its
+   * pre-flight conflict check keeps that branch all-or-nothing too.
    */
   private async registerPlugin(repository: string, args: KbCapabilityRegisterArgs): Promise<KbCapabilityRegisterResult> {
     const skillsRoot = join(this.kbRoot, '.dsh', 'skills')
@@ -1516,9 +1521,20 @@ export class YantaoKbController extends TypertRemoteService {
     try {
       for (const child of children) {
         if (child === selfName) {
-          for (const entry of await readdir(join(repository, 'skills', child), { withFileTypes: true })) {
-            await rename(join(repository, 'skills', child, entry.name), join(repository, entry.name))
+          const nestedDir = join(repository, 'skills', child)
+          // The repository's own top level is not empty (a plugin repo carries
+          // commands/, scripts/, docs/… of its own), so a blind move-up hits
+          // whatever is already there. Pre-flight the merge, then merge-move:
+          // directories merge recursively, a file landing on an existing path
+          // refuses the whole call before anything has moved.
+          const conflict = await this.mergeConflict(nestedDir, repository)
+          if (conflict !== undefined) {
+            throw new Error(
+              `插件内含技能与仓库顶层同名文件冲突，无法拍平：${conflict}`,
+            )
           }
+          await this.moveInto(nestedDir, repository)
+          await rm(nestedDir, { recursive: true, force: true })
           await this.writeSidecar(repository, args)
         } else {
           await rename(join(repository, 'skills', child), join(skillsRoot, child))
@@ -1535,6 +1551,39 @@ export class YantaoKbController extends TypertRemoteService {
     }
     await this.settleSkills(children)
     return { path: firstPath }
+  }
+
+  /**
+   * The first file-level conflict a merge of `from` into the existing
+   * directory `to` would hit — a source path (file or directory) landing on
+   * an existing non-directory, or a file on a file. Directory-on-directory
+   * overlaps are not conflicts; they merge. Undefined when the merge is clean.
+   */
+  private async mergeConflict(from: string, to: string): Promise<string | undefined> {
+    if (!(await stat(to).then(() => true, () => false))) return undefined
+    const [fromStat, toStat] = await Promise.all([stat(from), stat(to)])
+    if (!fromStat.isDirectory() || !toStat.isDirectory()) return to
+    for (const entry of await readdir(from, { withFileTypes: true })) {
+      const deeper = await this.mergeConflict(join(from, entry.name), join(to, entry.name))
+      if (deeper !== undefined) return deeper
+    }
+    return undefined
+  }
+
+  /**
+   * Merge-move `from` into the existing directory `to`: whatever `to` lacks
+   * is renamed in wholesale, same-named directory pairs recurse. Only ever
+   * called after {@link mergeConflict} cleared the pair, so no file lands on
+   * an existing file.
+   */
+  private async moveInto(from: string, to: string): Promise<void> {
+    if (!(await stat(to).then(() => true, () => false))) {
+      await rename(from, to)
+      return
+    }
+    for (const entry of await readdir(from, { withFileTypes: true })) {
+      await this.moveInto(join(from, entry.name), join(to, entry.name))
+    }
   }
 
   /**
