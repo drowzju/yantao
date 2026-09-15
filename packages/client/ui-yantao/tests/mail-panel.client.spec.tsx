@@ -5,6 +5,7 @@ import type { KbMailMessage, KbTodoItem } from '@deepseek-ai/dsh-api-yantao-kb-c
 import type { AnalysisProgress, AnalysisRun, KnownEntities, MailAnalysis } from '../src/client/mail-analysis.ts'
 import type { MailEntities } from '../src/client/mail-apply.ts'
 import { MailPanel, type MailPanelProps } from '../src/client/MailPanel.tsx'
+import { t } from './helpers.ts'
 
 afterEach(() => {
   cleanup()
@@ -44,6 +45,7 @@ const VERDICT: MailAnalysis = {
 /** The panel's props, with spies standing in for the RPCs and the writes. */
 function props(overrides: Partial<MailPanelProps> = {}): MailPanelProps {
   return {
+    t,
     fetch: async () => ({ since: '2026-09-01T00:00:00.000Z', stale: false, hasMore: false, messages: MAILS }),
     mark: vi.fn(async () => ({ lastReadAt: '2026-09-09T10:00:00+00:00' })),
     analyse: async () => ({ sessionId: 'session-1', title: '邮件分析 2026-09-10', analysis: VERDICT }),

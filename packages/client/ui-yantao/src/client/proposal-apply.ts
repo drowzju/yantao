@@ -151,9 +151,11 @@ export async function applyProposal(options: {
     if (action.kind === 'append-log') {
       await target.write(action.entityPath, appendLog(content, action.text))
     } else {
-      const heading = '## 状态'
+      // Domain data, not UI copy: `## 状态` is the KB's own section heading
+      // (the glossary's 状态), independent of the workbench locale.
+      const stateSection = '## 状态'
       const line = action.kind === 'create-link' ? action.link : action.text
-      await target.write(action.entityPath, insertIntoSection(content, heading, line))
+      await target.write(action.entityPath, insertIntoSection(content, stateSection, line))
     }
     written.push(writtenLine(action))
   }

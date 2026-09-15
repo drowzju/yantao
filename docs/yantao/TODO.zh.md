@@ -83,14 +83,15 @@
 
 | **共享 shell 外围逐行退场(TODO 阶段 2 第 1 条 2026-09-15)** —— yantao-web roster 一次一行移除九个 `ui-*` 行,每行单独重启并用无头 Edge 冒烟验证(playwright 驱动系统浏览器,`[data-rail-handle]` 标记 + 控制台错误哨兵):`ui-brand-official`、`ui-message-feedback`、`ui-model-selection`、`ui-permission`、`ui-agent-preset`,以及除基座外的整个设置面——`ui-settings-general`、`ui-settings-models`、`ui-settings-plugins`、`ui-settings-plugin-inventory`(工作台框架没有设置入口,这些页面本就不可达)。循环同时摸清了承重图并写进 roster 注释:`ui-settings` 提供 `settingsScope`,`locale` 等它,几乎所有插件等 `locale`;`ui-yantao` 自己等 `theme`/`uiWorkspace`/`inputTriggers`,钉死 `ui-theme`、`ui-workspace`、`ui-input-trigger`;`ui-conversation` + `ui-chat` 验证过可以一起移除(页面照常加载,只是对话 tab 变空),但在 deferred 的 L3 收归中列之前保留 | `packages/bundle/yantao-web-app/cordis.patch.yml`。验证:每行一次重启的无头冒烟全绿(无新错误签名),`gen-cordis-catalog --check`、`gen-client-catalog --check` 通过 |
 
+| **工作台自己的词典(TODO 阶段 2 第 1 条 2026-09-15)** —— 16 个文件里全部 162 处 `verify-client-ui-i18n` 违例收进新的 locale 命名空间 `yantao.workbench`:`locales.ts` 存 zh 真值(约 110 个键)与编译期对齐的 en 副本,在 `index.ts` 的 `apply` 里经 `ctx.locale.register` 注册(`locale` 插件进客户端 roster,ui-yantao 的 `dsh.client.inject` 与 devDependencies 加依赖);工作台是根槽的普通子组件而非 slot 条目,所以绑定的 `t` 以 prop 形式从根槽 inject face 经 `FrameProps` 穿进每条栏、每个面板、编辑器与菜单;copy 形态的标签映射改为字典键映射、渲染时翻译(`SECTION_KEYS`/`RELATION_KEYS`/`STATUS_KEYS`/`GROUP_KEYS`);仅进模型提示词与领域数据的中文靠命名留在词典外(`TO_ME_PROMPT`、`sessionName`、`stateSection`) | `packages/client/ui-yantao/src/client/locales.ts`(新增)+ `{index,Workbench,kb-reference,NewEntityRow,TodoBoard,MailPanel,CapabilityPanel,ProposalCard,proposal,proposal-apply,mail-analysis,SelectionMenu,Onboarding}.ts*` + `frame/{Frame,CenterPane}.tsx` + `editor/{FileEditor,MarkdownView,ReadOnlyFile}.tsx`、`package.json`、tests/ 10 个 spec + `helpers.ts`。验证:`verify-client-ui-i18n` 0 违例,`tsc -b`、scoped oxlint、ui-yantao 203 测试全绿,client bundle、frontend build、无头 Edge 冒烟(无新错误签名)通过 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
 
-1. **给工作台自己的词典** —— `Workbench.tsx` 里的文案是硬编码中文;等面板文案多起来就注册一个 locale 命名空间。
-2. **阅读视图 v4 —— Mermaid 与本地图片** —— 两者都要付代价:客户端包是单文件 CJS,mermaid 会被内联成 ~3.5MB(或要改宿主模块表);
+1. **阅读视图 v4 —— Mermaid 与本地图片** —— 两者都要付代价:客户端包是单文件 CJS,mermaid 会被内联成 ~3.5MB(或要改宿主模块表);
    本地图片需要新 RPC + 宿主路由,因为 `read()` 是 utf8,二进制会被解坏。等知识库里真出现一个再开工。
-3. **启动耗时分段测量** — 冷启动约 22–26 秒,但未拆过段。已知不等于结论的两点：慢的是 dsh 的
+2. **启动耗时分段测量** — 冷启动约 22–26 秒,但未拆过段。已知不等于结论的两点：慢的是 dsh 的
    profile boot（与同进程/子进程无关：CLI 22.6s、同进程 22.2s、子进程 26.1s）。
    下一步：在宿主启动时打时间戳，分清 **tsx 现转译** 与 **cordis 逐行挂载插件** 各占多少；
    转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。

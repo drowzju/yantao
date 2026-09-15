@@ -7,6 +7,7 @@
  */
 import { useEffect, useRef, type ReactElement } from 'react'
 import type { KbCapabilitySummary } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { WorkbenchT } from './locales.ts'
 
 const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
 
@@ -56,7 +57,9 @@ export function SelectionMenu(props: {  /** The selected text, as the user marke
   /** Run one selection capability: its SKILL.md body + the selection. */
   readonly onRun: (name: string, selection: string) => void
   readonly onClose: () => void
+  readonly t: WorkbenchT
 }): ReactElement {
+  const { t } = props
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -75,16 +78,16 @@ export function SelectionMenu(props: {  /** The selected text, as the user marke
 
   return (
     <div ref={ref} style={{ ...menuStyle, left: props.x, top: props.y }} data-selection-menu="true">
-      <div style={noteStyle}>选中文字</div>
+      <div style={noteStyle}>{t('selection.title')}</div>
       <button
         type="button"
         style={itemStyle}
         data-selection-send="true"
         onClick={() => { props.onSend(props.text); props.onClose() }}
       >
-        发送到会话
+        {t('selection.send')}
       </button>
-      {props.capabilities.length > 0 && <div style={noteStyle}>能力</div>}
+      {props.capabilities.length > 0 && <div style={noteStyle}>{t('selection.capability')}</div>}
       {props.capabilities.map(capability => (
         <button
           key={capability.name}
@@ -118,7 +121,9 @@ export function CapabilityMenu(props: {
   /** Run one capability against the open file. */
   readonly onRun: (name: string) => void
   readonly onClose: () => void
+  readonly t: WorkbenchT
 }): ReactElement {
+  const { t } = props
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -137,7 +142,7 @@ export function CapabilityMenu(props: {
 
   return (
     <div ref={ref} style={{ ...menuStyle, left: props.x, top: props.y }} data-capability-menu="true">
-      <div style={noteStyle}>对当前文件调用能力</div>
+      <div style={noteStyle}>{t('selection.runOnFile')}</div>
       {props.capabilities.map(capability => (
         <button
           key={capability.name}

@@ -39,9 +39,12 @@ import { CenterPane, type ViewMode } from './CenterPane.tsx'
 import './frame.module.css'
 import type { PanelToggles } from './layout.ts'
 import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
+import type { WorkbenchT } from '../locales.ts'
 
 /** Full props: the render share for the two seats this frame declares, plus the panel-action seat. */
 export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
+  /** The workbench dictionary's bound translator. */
+  readonly t: WorkbenchT
   /** Mutable seat the frame fills with its own toggles on mount. */
   readonly panels: PanelToggles
   /** Load the intake sections. */
@@ -227,7 +230,7 @@ function DragHandle(props: {
  * @returns the frame element.
  */
 export function Frame({
-  renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
+  t, renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail,
   registerResource, capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
   promptSession, onKbRootChanged,
@@ -653,6 +656,7 @@ export function Frame({
           capabilityAdopt={capabilityAdopt}
           capabilityRegister={capabilityRegister}
           onRunCapability={runRowCapability}
+          t={t}
         />
       </div>
       <CenterPane
@@ -668,6 +672,7 @@ export function Frame({
             <ReadOnlyFile
               path={tab.path}
               read={read}
+              t={t}
             />
           )
           : (
@@ -686,6 +691,7 @@ export function Frame({
                     })
                   }}
                   onUnresolved={() => { setViewMode('source') }}
+                  t={t}
                 />
               </div>
               <div style={paneStyleFor(viewMode === 'source')}>
@@ -703,10 +709,12 @@ export function Frame({
                     if (api === null) editors.current.delete(tab.path)
                     else editors.current.set(tab.path, api)
                   }}
+                  t={t}
                 />
               </div>
             </div>
           )}
+        t={t}
       />
       <div style={{ ...railColStyle, borderLeft: '1px solid #e6e2d8' }}>
         <WorkspaceRail
@@ -730,11 +738,12 @@ export function Frame({
           analyseMail={analyseMail}
           capabilityList={capabilityList}
           onRunCapability={runRowCapability}
+          t={t}
         />
       </div>
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>
       {needsRoot && (
-        <Onboarding setRoot={setRoot} pickDirectory={pickDirectory} onConfigured={onConfigured} />
+        <Onboarding setRoot={setRoot} pickDirectory={pickDirectory} onConfigured={onConfigured} t={t} />
       )}
       {capabilityProposal !== null && (
         <ProposalCard
@@ -750,13 +759,14 @@ export function Frame({
             })
           }}
           onDismiss={() => { setCapabilityProposal(null) }}
+          t={t}
         />
       )}
       {capabilityNotice !== null && (
         <div
           style={noticeStyle}
           data-capability-notice="true"
-          title="点击关闭"
+          title={t('frame.closeNotice')}
           onClick={() => { setCapabilityNotice(null) }}
         >
           {capabilityNotice}
@@ -771,6 +781,7 @@ export function Frame({
           onSend={sendSelection}
           onRun={runSelectionCapability}
           onClose={() => { setSelectionMenu(null) }}
+          t={t}
         />
       )}
       {fileMenu !== null && (
@@ -783,6 +794,7 @@ export function Frame({
             runRowCapability(name, fileMenu.path)
           }}
           onClose={() => { setFileMenu(null) }}
+          t={t}
         />
       )}
       {/* A handle exists whenever its rail is expanded — including at the

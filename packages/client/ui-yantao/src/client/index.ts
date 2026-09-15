@@ -31,6 +31,10 @@ import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 // Type-only: pulls the `ctx.inputTriggers` service merge (ui-input-trigger
 // owns the declaration) — the `@` menu's KB source registers through it.
 import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+// Type-only: pulls the `ctx.locale` service merge (the locale plugin owns the
+// declaration) — the workbench registers its `yantao.workbench` dictionaries
+// through it.
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {
   KbCapabilityRunArgs, KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation, KbWriteTodosArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
@@ -44,6 +48,7 @@ import { YantaoMark } from './brand/YantaoMark.tsx'
 import { alignWorkspace } from './kb-workspace.ts'
 import { kbReferenceSource } from './kb-reference.ts'
 import { capabilityGestureSource } from './capability-gesture.ts'
+import { WORKBENCH_NS, en, zh } from './locales.ts'
 import {
   adoptCapability, createCapability, createEntity, deleteFile, fetchMail, loadCapabilities, loadIntake, loadLinks,
   loadRevision, loadRoot, loadTodos,
@@ -62,7 +67,7 @@ export const name = 'ui-yantao'
 // dsh session from the browser. `sessions` is ADR-0025 决定 4's: the current
 // session is read (and, when none is open, created and selected) through it.
 export const inject = [
-  'slots', 'theme', 'remote', 'remote.yantaoKb', 'remote.session', 'sessions', 'uiWorkspace', 'workspaces',
+  'slots', 'theme', 'locale', 'remote', 'remote.yantaoKb', 'remote.session', 'sessions', 'uiWorkspace', 'workspaces',
   'inputTriggers',
 ]
 
@@ -78,6 +83,11 @@ export const inject = [
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
+  // Workbench copy: register the dictionaries for the plugin's lifetime and
+  // bind the translate face threaded through the component tree as a prop.
+  ctx.effect(() => ctx.locale.register(WORKBENCH_NS, { zh, en }), 'ui-yantao: workbench dictionaries')
+  const t = ctx.locale.bind(WORKBENCH_NS)
+
   // Panel actions: the frame fills this seat on mount, `ctx.layout` reads it.
   const panels = createPanelSeat()
   const layout = new WorkbenchLayout(panels)
@@ -129,6 +139,7 @@ export function apply(ctx: Context): void {
       'shell.overlay': { kind: 'list', scope: 'root' },
     },
     inject: () => ({
+      t,
       panels,
       intake: () => loadIntake(ctx),
       workspace: () => loadWorkspace(ctx),
@@ -193,6 +204,7 @@ export function apply(ctx: Context): void {
   // `@` offers the KB's own entities; without this the menu lists only files
   // and sessions from the (unused) workspace.
   ctx.effect(() => ctx.inputTriggers.registerSource(kbReferenceSource({
+    t,
     intake: () => loadIntake(ctx),
     workspace: () => loadWorkspace(ctx),
   })), 'ui-yantao: @ kb source')

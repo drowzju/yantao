@@ -140,8 +140,8 @@ function stamp(): string {
   return `${now.getFullYear()}-${month}-${date}`
 }
 
-/** What one mail's `toMe` says on screen. */
-const TO_ME_LABELS: Record<NonNullable<KbMailMessage['toMe']> | 'unknown', string> = {
+/** What one mail's `toMe` says — prompt text for the model, not UI copy. */
+const TO_ME_PROMPT: Record<NonNullable<KbMailMessage['toMe']> | 'unknown', string> = {
   to: '主送我',
   cc: '抄送我',
   none: '非直接寄给我',
@@ -160,7 +160,7 @@ const TO_ME_LABELS: Record<NonNullable<KbMailMessage['toMe']> | 'unknown', strin
 function renderMail(mail: KbMailMessage, index: number): string {
   const lines = [
     `[${index}] ${mail.receivedAt} ${mail.senderName} <${mail.senderAddress}>`,
-    `寄给我：${TO_ME_LABELS[mail.toMe ?? 'unknown']}`,
+    `寄给我：${TO_ME_PROMPT[mail.toMe ?? 'unknown']}`,
     `主题：${mail.subject || '（无主题）'}`,
     `正文：${mail.body}${mail.truncated ? '（已截断）' : ''}`,
   ]
@@ -393,8 +393,10 @@ export async function runMailAnalysis(options: {
 
   // Named up front: the point of keeping the session is being able to find
   // it again, and an untitled session is unfindable.
-  const title = `邮件分析 ${stamp()}`
-  const named = await session.rename({ sessionId, title })
+  // Domain data, not UI copy: the session's name lives in the KB's own
+  // language, so it stays Chinese regardless of the workbench locale.
+  const sessionName = `邮件分析 ${stamp()}`
+  const named = await session.rename({ sessionId, title: sessionName })
   if (!named.ok) throw named.error
 
   onProgress?.({ stage: 'prompt' })
@@ -425,5 +427,5 @@ export async function runMailAnalysis(options: {
       verdicts: [...verdicts],
     })
   }
-  return { sessionId, title, analysis: { verdicts, people, todos, projects, resources } }
+  return { sessionId, title: sessionName, analysis: { verdicts, people, todos, projects, resources } }
 }

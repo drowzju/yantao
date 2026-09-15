@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { KbTodoItem, KbWriteTodosArgs, KbWriteTodosResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { TodoBoard, type TodoBoardProps } from '../src/client/TodoBoard.tsx'
+import { t } from './helpers.ts'
 
 afterEach(() => {
   cleanup()
@@ -33,6 +34,7 @@ function day(offset: number): string {
 /** The board's props, with spies standing in for the two RPCs. */
 function props(overrides: Partial<TodoBoardProps> = {}): TodoBoardProps {
   return {
+    t,
     load: () => Promise.resolve({ path: PATH, text: TEXT, items: ITEMS }),
     write: () => Promise.resolve({ path: PATH, text: TEXT }),
     refreshKey: 0,

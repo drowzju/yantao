@@ -19,6 +19,7 @@ import { applyProposal } from './proposal-apply.ts'
 import type { Proposal } from './proposal.ts'
 import { analysisToProposal } from './proposal.ts'
 import { ProposalCard } from './ProposalCard.tsx'
+import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 
 /** The processed-mail range the capability's persisted state carries, as the panel shows it. */
 export interface MailProcessedRange {
@@ -30,6 +31,8 @@ export interface MailProcessedRange {
 
 /** What the panel does with the Remote surface and the KB. */
 export interface MailPanelProps {
+  /** The workbench translate face. */
+  readonly t: WorkbenchT
   /** Read the newest mails after the connector's cursor. */
   readonly fetch: MailFetcher
   /** Move that cursor forward. */
@@ -67,18 +70,18 @@ type Direction = 'older' | 'newer'
 /** How far back one 往前 step reaches. */
 const STEP_DAYS = 30
 
-/** What each stage of an analysis run says on screen. */
-const STAGE_LABELS: Record<AnalysisStage, string> = {
-  session: '正在创建会话…',
-  prompt: '正在向模型提问…',
-  answer: '模型正在逐批分析邮件…',
+/** What each stage of an analysis run says on screen — dictionary keys, translated at render. */
+const STAGE_KEYS: Record<AnalysisStage, WorkbenchLocaleKey> = {
+  session: 'mail.stage.creatingSession',
+  prompt: 'mail.stage.askingModel',
+  answer: 'mail.stage.analysing',
 }
 
-/** What each importance verdict says on a mail row. */
-const IMPORTANCE_LABELS: Record<MailImportance, string> = {
-  focus: '重点',
-  digest: '汇总',
-  normal: '普通',
+/** What each importance verdict says on a mail row — dictionary keys, translated at render. */
+const IMPORTANCE_KEYS: Record<MailImportance, WorkbenchLocaleKey> = {
+  focus: 'mail.importance.key',
+  digest: 'mail.importance.digest',
+  normal: 'mail.importance.normal',
 }
 
 /** How each importance badge is styled: 重点 shouts, 汇总 mumbles, 普通 stays quiet. */
@@ -160,7 +163,7 @@ function boundsFor(direction: Direction, mails: readonly KbMailMessage[]): { sin
  * @param props - see {@link MailPanelProps}.
  * @returns the panel element.
  */
-export function MailPanel({ fetch, mark, analyse, target, entities, processed = {} }: MailPanelProps): ReactElement {
+export function MailPanel({ t, fetch, mark, analyse, target, entities, processed = {} }: MailPanelProps): ReactElement {
   const [mails, setMails] = useState<readonly KbMailMessage[]>([])
   const [stale, setStale] = useState(false)
   const [hasMore, setHasMore] = useState(false)
@@ -300,7 +303,7 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
           disabled={busy}
           onClick={() => { void read('older') }}
         >
-          ← 往前
+          {t('mail.prev')}
         </button>
         <button
           type="button"
@@ -308,18 +311,22 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
           disabled={busy}
           onClick={() => { void read('newer') }}
         >
-          {phase === 'fetching' ? '读取中…' : '往后 →'}
+          {phase === 'fetching' ? t('mail.loading') : t('mail.next')}
         </button>
       </div>
       {mails.length === 0 && phase === 'idle' && (
         <div style={mutedStyle}>
-          能力「邮件」：Outlook（COM 子进程）。「往后」读最新的一批，「往前」往更早读一段；读取后由 agent 分析，确认后才写库。
+          {t('mail.description')}
         </div>
       )}
       {mails.length > 0 && (
         <div style={{ fontSize: 12 }} data-mail-batch="true">
-          {mails.length} 封 · {day(mails[mails.length - 1]?.receivedAt ?? '')} → {day(mails[0]?.receivedAt ?? '')}
-          {hasMore ? '（还有更多）' : ''}
+          {t('mail.countUnit', { count: mails.length })}
+          {' '}
+          {day(mails[mails.length - 1]?.receivedAt ?? '')}
+          {' → '}
+          {day(mails[0]?.receivedAt ?? '')}
+          {hasMore ? t('mail.morePending') : ''}
         </div>
       )}
       {mails.length > 0 && (
@@ -330,11 +337,11 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
               <div key={mail.id} style={mailRowStyle} data-mail-row={index + 1}>
                 {verdict !== undefined && (
                   <span style={{ ...mailBadgeStyle, ...IMPORTANCE_STYLES[verdict.importance] }} data-mail-verdict={verdict.importance}>
-                    {IMPORTANCE_LABELS[verdict.importance]}
+                    {t(IMPORTANCE_KEYS[verdict.importance])}
                   </span>
                 )}
                 <span style={mailTextMutedStyle}>{mail.senderName}</span>
-                <span style={mailSubjectStyle} title={mail.subject}>{mail.subject || '（无主题）'}</span>
+                <span style={mailSubjectStyle} title={mail.subject}>{mail.subject || t('mail.noSubject')}</span>
                 {verdict !== undefined && verdict.why !== '' && verdict.importance === 'focus' && (
                   <span style={hintStyle} title={verdict.why}>{verdict.why}</span>
                 )}
@@ -345,25 +352,27 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
       )}
       {(range.firstReadAt !== undefined || range.lastReadAt !== undefined) && (
         <div style={mutedStyle} data-mail-processed="true">
-          已处理：
+          {t('mail.processed')}
           {range.firstReadAt !== undefined
-            ? `${day(range.firstReadAt)} 到 ${day(range.lastReadAt ?? range.firstReadAt)}`
+            ? `${day(range.firstReadAt)} ${t('mail.rangeTo')} ${day(range.lastReadAt ?? range.firstReadAt)}`
             : day(range.lastReadAt ?? '')}
         </div>
       )}
       {stale && lastReadAt !== undefined && (
-        <div style={hintStyle}>上次读取是一个多月前，中间那段还没读过。</div>
+        <div style={hintStyle}>{t('mail.longGap')}</div>
       )}
       {mails.length > 0 && (
         <button type="button" style={buttonStyle} disabled={busy} onClick={() => { void run() }}>
-          {phase === 'analysing' ? '分析中…' : `分析这 ${mails.length} 封`}
+          {phase === 'analysing' ? t('mail.analysing') : t('mail.analyseBatch', { count: mails.length })}
         </button>
       )}
       {phase === 'analysing' && progress !== null && (
         <div style={hintStyle} data-mail-progress={progress.stage}>
-          {STAGE_LABELS[progress.stage]}
-          {progress.done !== undefined && progress.total !== undefined ? `（已分析 ${progress.done}/${progress.total}）` : ''}
-          （已等待 {elapsed} 秒）
+          {t(STAGE_KEYS[progress.stage])}
+          {progress.done !== undefined && progress.total !== undefined
+            ? ` ${t('mail.analysedProgress', { done: progress.done, total: progress.total })}`
+            : ''}
+          {` ${t('mail.waited', { seconds: elapsed })}`}
         </div>
       )}
       {error !== null && <div style={errorStyle} data-mail-error="true">{error}</div>}
@@ -375,6 +384,7 @@ export function MailPanel({ fetch, mark, analyse, target, entities, processed = 
       )}
       {review !== null && (
         <ProposalCard
+          t={t}
           proposal={review}
           busy={phase === 'applying'}
           onConfirm={(ticked) => { void confirm(ticked) }}

@@ -32,6 +32,7 @@ import type { KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/ty
 import {
   frontmatterSummary, headingOutline, linkPath, renderWikiLinks, splitFrontmatter, taskLines, toggleTask,
 } from '../markdown.ts'
+import type { WorkbenchT } from '../locales.ts'
 
 /** Wrapping and typography, matching the editor's own column. */
 const wrapStyle = {
@@ -110,14 +111,10 @@ const outlineItemStyle = {
 
 const bodyStyle = { position: 'relative', flex: 1, minHeight: 0, padding: '8px 12px' } as const
 
-/** The fence and footnote chrome `MarkdownText` needs; stable across renders. */
-const LABELS: MarkdownLabels = {
-  code: { copyLabel: '复制', copiedLabel: '已复制' },
-  footnotes: '脚注',
-}
-
 /** Props: the file's content, and the one edit this view performs itself. */
 export interface MarkdownViewProps {
+  /** The workbench translate face. */
+  readonly t: WorkbenchT
   /** The file's full content, envelope included. */
   readonly content: string
   /**
@@ -143,8 +140,13 @@ export interface MarkdownViewProps {
  * @param props - see {@link MarkdownViewProps}.
  * @returns the reading view.
  */
+/**
+ * Render one markdown file for reading.
+ * @param props - see {@link MarkdownViewProps}.
+ * @returns the reading view.
+ */
 export function MarkdownView({
-  content, onEdit, onUnresolved, links, onOpen, onOpenExternal,
+  t, content, onEdit, onUnresolved, links, onOpen, onOpenExternal,
 }: MarkdownViewProps): ReactElement {
   const [open, setOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
@@ -229,12 +231,12 @@ export function MarkdownView({
               aria-expanded={open}
               onClick={() => { setOpen(current => !current) }}
             >
-              {open ? '收起属性' : '属性'}
+              {open ? t('md.collapseProps') : t('md.props')}
             </button>
           )}
           {split.hasFrontmatter && (
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {summary === '' ? '（无内容）' : summary}
+              {summary === '' ? t('md.empty') : summary}
             </span>
           )}
           {outline.length > 1 && (
@@ -244,17 +246,17 @@ export function MarkdownView({
               aria-expanded={outlineOpen}
               onClick={() => { setOutlineOpen(current => !current) }}
             >
-              {outlineOpen ? '收起大纲' : '大纲'}
+              {outlineOpen ? t('md.collapseOutline') : t('md.outline')}
             </button>
           )}
           {onOpenExternal !== undefined && (
             <button
               type="button"
               style={{ ...toggleStyle, marginLeft: (links?.incoming.length ?? 0) > 0 ? undefined : 'auto' }}
-              title="用系统关联的编辑器打开（通常是 Obsidian）"
+              title={t('md.openExternallyTitle')}
               onClick={() => { onOpenExternal() }}
             >
-              在 Obsidian 中打开
+              {t('md.openInObsidian')}
             </button>
           )}
           {(links?.incoming.length ?? 0) > 0 && (
@@ -264,7 +266,7 @@ export function MarkdownView({
               aria-expanded={backlinksOpen}
               onClick={() => { setBacklinksOpen(current => !current) }}
             >
-              {backlinksOpen ? '收起反向链接' : `反向链接 ${links?.incoming.length ?? 0}`}
+              {backlinksOpen ? t('md.collapseBacklinks') : `${t('md.backlinks')} ${links?.incoming.length ?? 0}`}
             </button>
           )}
         </div>
@@ -311,7 +313,10 @@ export function MarkdownView({
             ))}
           </div>
         )}
-        <MarkdownText text={body} labels={LABELS} />
+        <MarkdownText
+          text={body}
+          labels={{ code: { copyLabel: t('md.copy'), copiedLabel: t('md.copied') }, footnotes: t('md.footnotes') } satisfies MarkdownLabels}
+        />
       </div>
     </div>
   )

@@ -11,9 +11,12 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import type { KbTodoItem, KbWriteTodosArgs } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { TodoLoader, TodoWriter } from './remote.ts'
 import { remoteMessage } from './remote.ts'
+import type { WorkbenchT } from './locales.ts'
 
 /** Board props. */
 export interface TodoBoardProps {
+  /** The workbench translate face. */
+  readonly t: WorkbenchT
   /** Read the singleton: its path, text, and items. */
   readonly load: TodoLoader
   /** Write the whole item list under optimistic concurrency. */
@@ -155,6 +158,7 @@ function patched(item: KbTodoItem, draft: Draft): KbTodoItem {
  * @returns the row element.
  */
 function TodoRow(props: {
+  readonly t: WorkbenchT
   readonly entry: Entry
   readonly overdue: boolean
   readonly disabled: boolean
@@ -169,7 +173,7 @@ function TodoRow(props: {
         type="checkbox"
         checked={item.done}
         disabled={props.disabled}
-        aria-label={item.title === '' ? '新待办' : item.title}
+        aria-label={item.title === '' ? props.t('todo.newAria') : item.title}
         onChange={props.onToggle}
       />
       <span
@@ -177,15 +181,15 @@ function TodoRow(props: {
         data-todo-title={index}
         onClick={props.onEdit}
       >
-        {item.title === '' ? '（未命名）' : item.title}
+        {item.title === '' ? props.t('todo.unnamed') : item.title}
       </span>
       {item.due !== undefined && (
         <span style={props.overdue ? overdueStyle : dueStyle} data-overdue={props.overdue || undefined}>
           {item.due}
         </span>
       )}
-      <button type="button" style={buttonStyle} title="编辑" disabled={props.disabled} onClick={props.onEdit}>…</button>
-      <button type="button" style={buttonStyle} title="删除" disabled={props.disabled} onClick={props.onRemove}>×</button>
+      <button type="button" style={buttonStyle} title={props.t('todo.edit')} disabled={props.disabled} onClick={props.onEdit}>…</button>
+      <button type="button" style={buttonStyle} title={props.t('todo.delete')} disabled={props.disabled} onClick={props.onRemove}>×</button>
     </div>
   )
 }
@@ -196,40 +200,41 @@ function TodoRow(props: {
  * @returns the editor element.
  */
 function TodoEditor(props: {
+  readonly t: WorkbenchT
   readonly draft: Draft
   readonly onDraft: (draft: Draft) => void
   readonly onSave: () => void
   readonly onCancel: () => void
 }): ReactElement {
-  const { draft } = props
+  const { t, draft } = props
   return (
     <div style={editorStyle} data-todo-editor="true">
       <input
         autoFocus
         value={draft.title}
-        placeholder="标题"
-        aria-label="标题"
+        placeholder={t('todo.title')}
+        aria-label={t('todo.title')}
         style={fieldStyle}
         onChange={(event) => { props.onDraft({ ...draft, title: event.target.value }) }}
       />
       <input
         type="date"
         value={draft.due}
-        aria-label="截止日期"
+        aria-label={t('todo.due')}
         style={fieldStyle}
         onChange={(event) => { props.onDraft({ ...draft, due: event.target.value }) }}
       />
       <textarea
         value={draft.body}
-        placeholder="正文（markdown）"
-        aria-label="正文"
+        placeholder={t('todo.bodyPlaceholder')}
+        aria-label={t('todo.body')}
         rows={3}
         style={fieldStyle}
         onChange={(event) => { props.onDraft({ ...draft, body: event.target.value }) }}
       />
       <div style={{ display: 'flex', gap: 4 }}>
-        <button type="button" style={buttonStyle} onClick={props.onSave}>保存</button>
-        <button type="button" style={buttonStyle} onClick={props.onCancel}>取消</button>
+        <button type="button" style={buttonStyle} onClick={props.onSave}>{t('todo.save')}</button>
+        <button type="button" style={buttonStyle} onClick={props.onCancel}>{t('common.cancel')}</button>
       </div>
     </div>
   )
@@ -240,7 +245,7 @@ function TodoEditor(props: {
  * @param props - see {@link TodoBoardProps}.
  * @returns the board element.
  */
-export function TodoBoard({ load, write, refreshKey, onOpenFile }: TodoBoardProps): ReactElement {
+export function TodoBoard({ t, load, write, refreshKey, onOpenFile }: TodoBoardProps): ReactElement {
   const [board, setBoard] = useState<Board | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -347,6 +352,7 @@ export function TodoBoard({ load, write, refreshKey, onOpenFile }: TodoBoardProp
     <div key={entry.item.done ? `done-${entry.index}` : `todo-${entry.index}`}>
       {editing !== entry.index && (
         <TodoRow
+          t={t}
           entry={entry}
           overdue={!entry.item.done && entry.item.due !== undefined && entry.item.due < now}
           disabled={busy}
@@ -359,7 +365,7 @@ export function TodoBoard({ load, write, refreshKey, onOpenFile }: TodoBoardProp
         />
       )}
       {editing === entry.index && (
-        <TodoEditor draft={draft} onDraft={setDraft} onSave={save} onCancel={cancel} />
+        <TodoEditor t={t} draft={draft} onDraft={setDraft} onSave={save} onCancel={cancel} />
       )}
     </div>
   )
@@ -367,18 +373,18 @@ export function TodoBoard({ load, write, refreshKey, onOpenFile }: TodoBoardProp
   return (
     <div style={wrapStyle}>
       {error !== null && <div style={errorStyle}>{error}</div>}
-      {board === null && error === null && <div style={mutedStyle}>载入中…</div>}
+      {board === null && error === null && <div style={mutedStyle}>{t('todo.loading')}</div>}
       {board !== null && (
         <>
-          <div style={titleStyle} data-todo-block="todo">TODO</div>
+          <div style={titleStyle} data-todo-block="todo">{t('todo.todoColumn')}</div>
           <div data-todo-pane="todo">
-            {todo.length === 0 && <div style={mutedStyle}>（空）</div>}
+            {todo.length === 0 && <div style={mutedStyle}>{t('common.empty')}</div>}
             {todo.map(renderRow)}
           </div>
-          <button type="button" style={addStyle} title="新增待办" disabled={busy} onClick={add}>+</button>
-          <div style={titleStyle} data-todo-block="done">DONE</div>
+          <button type="button" style={addStyle} title={t('todo.addTitle')} disabled={busy} onClick={add}>+</button>
+          <div style={titleStyle} data-todo-block="done">{t('todo.doneColumn')}</div>
           <div data-todo-pane="done">
-            {done.length === 0 && <div style={mutedStyle}>（空）</div>}
+            {done.length === 0 && <div style={mutedStyle}>{t('common.empty')}</div>}
             {done.map(renderRow)}
           </div>
           <button
@@ -386,7 +392,7 @@ export function TodoBoard({ load, write, refreshKey, onOpenFile }: TodoBoardProp
             style={{ ...addStyle, marginTop: 6 }}
             onClick={() => { onOpenFile(board.path) }}
           >
-            打开全文
+            {t('todo.openFull')}
           </button>
         </>
       )}

@@ -7,6 +7,7 @@
 import { useState, type ReactElement } from 'react'
 import type { DirectoryPicker, RootSetter } from './remote.ts'
 import { remoteMessage } from './remote.ts'
+import type { WorkbenchT } from './locales.ts'
 
 /** Onboarding props. */
 export interface OnboardingProps {
@@ -16,6 +17,7 @@ export interface OnboardingProps {
   readonly pickDirectory: DirectoryPicker
   /** Called once a root is in force: the frame hides the overlay and reloads its trees. */
   readonly onConfigured: () => void
+  readonly t: WorkbenchT
 }
 
 const overlayStyle = {
@@ -48,7 +50,7 @@ const errorStyle = { color: '#b4453a' } as const
  * @param props - see {@link OnboardingProps}.
  * @returns the overlay element.
  */
-export function Onboarding({ setRoot, pickDirectory, onConfigured }: OnboardingProps): ReactElement {
+export function Onboarding({ setRoot, pickDirectory, onConfigured, t }: OnboardingProps): ReactElement {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -80,13 +82,13 @@ export function Onboarding({ setRoot, pickDirectory, onConfigured }: OnboardingP
   return (
     <div style={overlayStyle} data-onboarding="true">
       <div style={cardStyle}>
-        <div style={{ fontSize: 14, fontWeight: 600 }}>选择知识库目录</div>
+        <div style={{ fontSize: 14, fontWeight: 600 }}>{t('onboarding.title')}</div>
         <div style={{ color: '#6b6455' }}>
-          yantao 把知识库存成纯 Markdown 文件。选择一个空目录或已有知识库目录，缺少的结构会自动创建。
+          {t('onboarding.description')}
         </div>
         {error !== null && <div style={errorStyle}>{error}</div>}
         <button type="button" style={{ padding: '6px 12px' }} disabled={busy} onClick={choose}>
-          {busy ? '处理中…' : '选择目录'}
+          {busy ? t('onboarding.busy') : t('onboarding.choose')}
         </button>
       </div>
     </div>

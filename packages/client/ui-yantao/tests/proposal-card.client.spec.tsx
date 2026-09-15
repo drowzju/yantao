@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { Proposal } from '../src/client/proposal.ts'
 import { ProposalCard } from '../src/client/ProposalCard.tsx'
+import { t } from './helpers.ts'
 
 afterEach(() => {
   cleanup()
@@ -20,7 +21,7 @@ const PROPOSAL: Proposal = {
 
 describe('ProposalCard', () => {
   it('groups the actions by kind with the shared labels', () => {
-    render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} />)
+    render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
     expect(screen.getByText('新建实体')).toBeTruthy()
     expect(screen.getByText('待办')).toBeTruthy()
     expect(screen.getByText('项目动态')).toBeTruthy()
@@ -31,13 +32,13 @@ describe('ProposalCard', () => {
   })
 
   it('shows each row reason as the small print', () => {
-    render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} />)
+    render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
     expect(screen.getByText('合作方：一起做汇报')).toBeTruthy()
     expect(screen.getByText('两句话')).toBeTruthy()
   })
 
   it('ticks nothing to begin with, and counts what the human ticked', () => {
-    render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} />)
+    render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
     expect(screen.getByText('确认写入（0）')).toBeTruthy()
     fireEvent.click(screen.getByLabelText('张三'))
     expect(screen.getByText('确认写入（1）')).toBeTruthy()
@@ -49,7 +50,7 @@ describe('ProposalCard', () => {
 
   it('confirms with the flat indexes of the ticked rows', () => {
     const onConfirm = vi.fn()
-    render(<ProposalCard proposal={PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} />)
+    render(<ProposalCard proposal={PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} t={t} />)
     fireEvent.click(screen.getByLabelText('张三'))
     fireEvent.click(screen.getByLabelText('resources/汇报模板.md'))
     fireEvent.click(screen.getByText('确认写入（2）'))
@@ -58,7 +59,7 @@ describe('ProposalCard', () => {
 
   it('refuses to confirm while nothing is ticked, and holds still while busy', () => {
     const onConfirm = vi.fn()
-    render(<ProposalCard proposal={PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} busy />)
+    render(<ProposalCard proposal={PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} busy t={t} />)
     const confirm = screen.getByText('确认写入（0）') as HTMLButtonElement
     expect(confirm.disabled).toBe(true)
     fireEvent.click(screen.getByText('全部接受'))
@@ -72,6 +73,7 @@ describe('ProposalCard', () => {
         proposal={{ title: '邮件分析', actions: [] }}
         onConfirm={() => {}}
         onDismiss={() => {}}
+        t={t}
       />,
     )
     expect(screen.getByText('这次没有发现值得进入知识库的内容。')).toBeTruthy()
@@ -88,6 +90,7 @@ describe('ProposalCard', () => {
         }}
         onConfirm={() => {}}
         onDismiss={() => {}}
+        t={t}
       />,
     )
     expect(screen.getByText('重点提醒')).toBeTruthy()
@@ -102,7 +105,7 @@ describe('ProposalCard', () => {
 
   it('dismisses without writing anything', () => {
     const onDismiss = vi.fn()
-    render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={onDismiss} />)
+    render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={onDismiss} t={t} />)
     fireEvent.click(screen.getByText('取消'))
     expect(onDismiss).toHaveBeenCalled()
   })

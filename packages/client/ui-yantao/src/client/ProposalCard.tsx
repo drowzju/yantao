@@ -10,7 +10,8 @@
  */
 import { useState, type ReactElement } from 'react'
 import type { Proposal, ProposalAction } from './proposal.ts'
-import { GROUP_LABELS } from './proposal.ts'
+import { GROUP_KEYS } from './proposal.ts'
+import type { WorkbenchT } from './locales.ts'
 
 const panelStyle = {
   position: 'absolute',
@@ -95,8 +96,9 @@ export function ProposalCard(props: {
   readonly onConfirm: (ticked: readonly number[]) => void
   readonly onDismiss: () => void
   readonly busy?: boolean
+  readonly t: WorkbenchT
 }): ReactElement {
-  const { proposal } = props
+  const { proposal, t } = props
   // Nothing is ticked to begin with: writing into a knowledge base is the one
   // action here that cannot be undone by looking again.
   const [ticked, setTicked] = useState<readonly number[]>([])
@@ -122,7 +124,7 @@ export function ProposalCard(props: {
         {proposal.note !== undefined && <div style={{ ...detailStyle, marginTop: 2 }}>{proposal.note}</div>}
         {proposal.highlights !== undefined && proposal.highlights.length > 0 && (
           <div data-proposal-highlights="true">
-            <div style={focusTitleStyle}>重点提醒</div>
+            <div style={focusTitleStyle}>{t('proposal.highlight')}</div>
             {proposal.highlights.map((entry, index) => (
               <div key={index} style={focusRowStyle}>
                 <span style={{ fontWeight: 600 }}>{entry.sender}：{entry.subject}</span>
@@ -133,7 +135,7 @@ export function ProposalCard(props: {
         )}
         {proposal.digest !== undefined && proposal.digest.length > 0 && (
           <div data-proposal-digest="true">
-            <div style={groupTitleStyle}>日常通知（汇总）</div>
+            <div style={groupTitleStyle}>{t('proposal.digest')}</div>
             {proposal.digest.map((entry, index) => (
               <div key={index} style={detailStyle}>
                 {entry.sender}：{entry.subject} — {entry.why}
@@ -141,7 +143,7 @@ export function ProposalCard(props: {
             ))}
           </div>
         )}
-        {nothing && <div style={{ ...detailStyle, marginTop: 10 }}>这次没有发现值得进入知识库的内容。</div>}
+        {nothing && <div style={{ ...detailStyle, marginTop: 10 }}>{t('proposal.empty')}</div>}
         {GROUP_ORDER.map((kind) => {
           const rows = proposal.actions
             .map((action, index) => ({ action, index }))
@@ -149,7 +151,7 @@ export function ProposalCard(props: {
           if (rows.length === 0) return null
           return (
             <div key={kind}>
-              <div style={groupTitleStyle} data-proposal-group={kind}>{GROUP_LABELS[kind]}</div>
+              <div style={groupTitleStyle} data-proposal-group={kind}>{t(GROUP_KEYS[kind])}</div>
               {rows.map(({ action, index }) => (
                 <div key={index} style={rowStyle} data-proposal-row={index}>
                   <input
@@ -169,14 +171,14 @@ export function ProposalCard(props: {
         })}
         <div style={footerStyle}>
           <button type="button" style={buttonStyle} disabled={props.busy === true || nothing} onClick={all}>
-            全部接受
+            {t('proposal.acceptAll')}
           </button>
           <button type="button" style={buttonStyle} disabled={props.busy === true} onClick={none}>
-            全部忽略
+            {t('proposal.ignoreAll')}
           </button>
           <span style={{ flex: 1 }} />
           <button type="button" style={buttonStyle} disabled={props.busy === true} onClick={props.onDismiss}>
-            取消
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -184,7 +186,7 @@ export function ProposalCard(props: {
             disabled={props.busy === true || count === 0}
             onClick={() => { props.onConfirm(ticked) }}
           >
-            确认写入（{count}）
+            {t('proposal.confirmWrite', { count })}
           </button>
         </div>
       </div>

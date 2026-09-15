@@ -84,16 +84,16 @@ note), **deferred** (deliberately parked — see the note).
 
 | **Shared-shell chrome steps aside (TODO Phase 2 item 1 2026-09-15)** — the yantao-web roster shrinks by nine `ui-*` rows, each removed one at a time and reboot-verified with a headless Edge smoke (playwright over the stock browser, `[data-rail-handle]` marker + console-error tripwire): `ui-brand-official`, `ui-message-feedback`, `ui-model-selection`, `ui-permission`, `ui-agent-preset`, and the settings surface minus its base — `ui-settings-general`, `ui-settings-models`, `ui-settings-plugins`, `ui-settings-plugin-inventory` (the workbench frame has no settings entry point, so the pages were unreachable chrome). The loop also mapped the load-bearing graph, recorded as roster comments: `ui-settings` provides `settingsScope` on which `locale` waits and nearly everything waits on `locale`; `ui-yantao` itself waits on `theme`/`uiWorkspace`/`inputTriggers`, pinning `ui-theme`, `ui-workspace`, `ui-input-trigger`; `ui-conversation` + `ui-chat` were verified removable together (page loads clean, the 对话 tab simply empties) but stay until the deferred L3 step owns the middle | `packages/bundle/yantao-web-app/cordis.patch.yml`. 验证：headless smoke 每行一次重启全绿（无新错误签名），`gen-cordis-catalog --check`、`gen-client-catalog --check` 通过 |
 
+| **The workbench gets its own dictionary (TODO Phase 2 item 1 2026-09-15)** — all 162 `verify-client-ui-i18n` violations across 16 files move into the new locale namespace `yantao.workbench`: `locales.ts` holds the zh truth (~110 keys) with a compile-time-checked en twin, registered in `index.ts`'s `apply` through `ctx.locale.register` (the `locale` plugin joins the client roster; ui-yantao's `dsh.client.inject` and devDependencies gain the dependency). The workbench is a plain root-slot child, not a slot entry, so the bound `t` is threaded as a prop from the root-slot inject face through `FrameProps` into every rail, panel, editor, and menu; copy-shaped label maps become `*_KEYS` maps of dictionary keys translated at render (`SECTION_KEYS`/`RELATION_KEYS`/`STATUS_KEYS`/`GROUP_KEYS`); prompt-only and domain-data Chinese stays out of the dictionary by naming (`TO_ME_PROMPT`, `sessionName`, `stateSection`) | `packages/client/ui-yantao/src/client/locales.ts` (new) + `{index,Workbench,kb-reference,NewEntityRow,TodoBoard,MailPanel,CapabilityPanel,ProposalCard,proposal,proposal-apply,mail-analysis,SelectionMenu,Onboarding}.ts*` + `frame/{Frame,CenterPane}.tsx` + `editor/{FileEditor,MarkdownView,ReadOnlyFile}.tsx`、`package.json`、tests/ 10 specs + `helpers.ts`. 验证：`verify-client-ui-i18n` 0 违例，`tsc -b`、scoped oxlint、ui-yantao 203 测试全绿，client bundle、frontend build、headless Edge smoke（无新错误签名）通过 |
+
 ## next
 
 ### Phase 2 — three-pane UI (ADR-0010)
 
-1. **Give the workbench its own dictionary** — labels are hardcoded Chinese in `Workbench.tsx`; register a locale namespace
-   when the panes grow past a handful of strings.
-2. **Reading view v4 — Mermaid and local images** — both are paywalled: client bundles are single-file CJS, so mermaid inlines at
+1. **Reading view v4 — Mermaid and local images** — both are paywalled: client bundles are single-file CJS, so mermaid inlines at
    ~3.5MB (or needs a host module-table change), and local images need a new RPC plus a host route because `read()` is utf8 and
    would corrupt binaries. Only worth it once a KB file actually contains one.
-3. **启动耗时分段测量** — 冷启动约 22–26 秒，但未拆过段。已知不等于结论的两点：慢的是 dsh 的
+2. **启动耗时分段测量** — 冷启动约 22–26 秒，但未拆过段。已知不等于结论的两点：慢的是 dsh 的
    profile boot（与同进程/子进程无关：CLI 22.6s、同进程 22.2s、子进程 26.1s）。
    下一步：在宿主启动时打时间戳，分清 **tsx 现转译** 与 **cordis 逐行挂载插件** 各占多少；
    转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。

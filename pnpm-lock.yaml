@@ -4134,6 +4134,9 @@ importers:
       '@deepseek-ai/dsh-api-yantao-kb-controller':
         specifier: workspace:^
         version: link:../../api/yantao-kb-controller
+      '@deepseek-ai/dsh-client-locale':
+        specifier: workspace:^
+        version: link:../locale
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: workspace:^
         version: link:../ui-conversation

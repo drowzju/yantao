@@ -15,10 +15,13 @@
  */
 import type { InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { TreeLoader } from './Workbench.tsx'
-import { SECTION_LABELS } from './Workbench.tsx'
+import { SECTION_KEYS } from './Workbench.tsx'
+import type { WorkbenchT } from './locales.ts'
 
-/** The two tree loaders the source lists from. */
+/** The two tree loaders the source lists from, plus the translate face for section group labels. */
 export interface KbReferenceFaces {
+  /** The workbench translate face. */
+  readonly t: WorkbenchT
   /** Load the intake sections (资源 / 待办 / 会议). */
   readonly intake: TreeLoader
   /** Load the workspace sections (领域 / 人物 / 项目). */
@@ -76,7 +79,7 @@ export function kbReferenceSource(faces: KbReferenceFaces): InputTriggerSource {
           name: file.name,
           description: file.path,
           icon: 'file' as const,
-          section: SECTION_LABELS[section] ?? section,
+          section: faces.t(SECTION_KEYS[section]),
           value: JSON.stringify({ path: file.path, name: file.name } satisfies KbReferencePayload),
         }))
     },

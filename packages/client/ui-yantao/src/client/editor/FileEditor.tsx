@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { FileReader, FileWriter } from '../remote.ts'
 import { remoteMessage } from '../remote.ts'
+import type { WorkbenchLocaleKey, WorkbenchT } from '../locales.ts'
 
 /** Autosave delay after the last keystroke. */
 export const AUTOSAVE_MS = 2000
@@ -16,14 +17,14 @@ export const AUTOSAVE_MS = 2000
 /** Save state of one open file, shown as the tab's status dot. */
 export type SaveStatus = 'loading' | 'saved' | 'dirty' | 'saving' | 'failed' | 'conflict'
 
-/** The dot's Chinese label per status. */
-export const STATUS_LABELS: Record<SaveStatus, string> = {
-  loading: '载入中',
-  saved: '已保存',
-  dirty: '未保存',
-  saving: '保存中',
-  failed: '失败',
-  conflict: '冲突',
+/** The dot's label per status — dictionary keys, translated where the dot renders. */
+export const STATUS_KEYS: Record<SaveStatus, WorkbenchLocaleKey> = {
+  loading: 'editor.status.loading',
+  saved: 'editor.status.saved',
+  dirty: 'editor.status.dirty',
+  saving: 'editor.status.saving',
+  failed: 'editor.status.failed',
+  conflict: 'editor.status.conflict',
 }
 
 /** What one save attempt came to. */
@@ -41,6 +42,8 @@ export interface FileEditorApi {
 
 /** Editor props: the file, the file channel, and the status report upward. */
 export interface FileEditorProps {
+  /** The workbench translate face. */
+  readonly t: WorkbenchT
   /** KB-relative path of the edited file. */
   readonly path: string
   /** Read the file's content (also used for the conflict check). */
@@ -115,6 +118,7 @@ const preStyle = {
  * @returns the editor element.
  */
 export function FileEditor({
+  t,
   path,
   read,
   write,
@@ -276,11 +280,11 @@ export function FileEditor({
     <div style={wrapStyle}>
       {status === 'conflict' && serverCopy !== null && (
         <div style={barStyle} data-conflict="true">
-          <span>此文件在别处已被修改，未自动保存。</span>
-          <button type="button" onClick={overwrite}>覆盖</button>
-          <button type="button" onClick={discard}>放弃我的修改</button>
+          <span>{t('editor.conflictNote')}</span>
+          <button type="button" onClick={overwrite}>{t('editor.overwrite')}</button>
+          <button type="button" onClick={discard}>{t('editor.discardMine')}</button>
           <button type="button" onClick={() => { setShowDiff(open => !open) }}>
-            {showDiff ? '隐藏差异' : '查看差异'}
+            {showDiff ? t('editor.hideDiff') : t('editor.showDiff')}
           </button>
         </div>
       )}
@@ -288,11 +292,11 @@ export function FileEditor({
       {status === 'conflict' && serverCopy !== null && showDiff && (
         <div style={diffStyle}>
           <div style={{ ...preStyle, flex: 1 }} data-diff="mine">
-            <div style={{ color: '#6b6455' }}>我的修改</div>
+            <div style={{ color: '#6b6455' }}>{t('editor.mine')}</div>
             {draft ?? ''}
           </div>
           <div style={preStyle} data-diff="server">
-            <div style={{ color: '#6b6455' }}>服务器版本</div>
+            <div style={{ color: '#6b6455' }}>{t('editor.server')}</div>
             {serverCopy}
           </div>
         </div>

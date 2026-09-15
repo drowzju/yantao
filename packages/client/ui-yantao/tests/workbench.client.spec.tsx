@@ -16,6 +16,7 @@ import type {
 } from '../src/client/remote.ts'
 import type { KbCapabilitySummary, KbUnregisteredSkill } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { CapabilityPanel } from '../src/client/CapabilityPanel.tsx'
+import { t } from './helpers.ts'
 import { TAB_STORAGE_KEY } from '../src/client/tabs.ts'
 
 afterEach(() => {
@@ -76,6 +77,7 @@ const loader = (sections: readonly KbTreeSection[]): TreeLoader => () => Promise
 /** The rail props the frame supplies, with spies standing in for the file channel. */
 function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
   return {
+    t,
     collapsed: false,
     load: loader(intake),
     refreshKey: 0,
@@ -574,6 +576,7 @@ const ROW_CAPABILITIES: KbCapabilitySummary[] = [
 /** The capability panel's faces, all spies. */
 function capabilityProps(overrides: Partial<Parameters<typeof CapabilityPanel>[0]> = {}): Parameters<typeof CapabilityPanel>[0] {
   return {
+    t,
     load: () => Promise.resolve({ capabilities: CAPABILITIES, unregistered: [] }),
     create: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     adopt: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
@@ -815,6 +818,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
   const kb = faces(override)
   return (
     <Frame
+      t={t}
       renderSlot={key => <div data-seat={key}>{key === 'conversation' ? 'middle' : null}</div>}
       panels={createPanelSeat()}
       intake={loader(intake)}
@@ -1000,6 +1004,7 @@ describe('Frame', () => {
     const kb = faces({ setRoot, pickDirectory, root: () => Promise.resolve({ root: '', configured: false }) })
     render(
       <Frame
+        t={t}
         renderSlot={key => <div data-seat={key}>middle</div>}
         panels={createPanelSeat()}
         intake={load}

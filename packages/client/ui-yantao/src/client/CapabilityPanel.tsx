@@ -16,9 +16,12 @@ import type { KbCapabilitySummary, KbUnregisteredSkill } from '@deepseek-ai/dsh-
 import type { CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar } from './remote.ts'
 import { remoteMessage } from './remote.ts'
 import { NewEntityRow } from './NewEntityRow.tsx'
+import type { WorkbenchT } from './locales.ts'
 
 /** What the panel needs from the Remote and the frame. */
 export interface CapabilityPanelProps {
+  /** The workbench translate face. */
+  readonly t: WorkbenchT
   /** List the registered capabilities and the 未注册 group. */
   readonly load: CapabilityLoader
   /** Scaffold one new capability (「新建能力」). */
@@ -170,7 +173,7 @@ function CapabilityRow({
  * @param props - see {@link CapabilityPanelProps}.
  * @returns the panel element.
  */
-export function CapabilityPanel({ load, create, adopt, register, mail }: CapabilityPanelProps): ReactElement {
+export function CapabilityPanel({ t, load, create, adopt, register, mail }: CapabilityPanelProps): ReactElement {
   const [capabilities, setCapabilities] = useState<readonly KbCapabilitySummary[] | null>(null)
   const [unregistered, setUnregistered] = useState<readonly KbUnregisteredSkill[]>([])
   const [confirming, setConfirming] = useState<KbUnregisteredSkill | null>(null)
@@ -245,7 +248,7 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
       {current === undefined && (
         <>
           {capabilities !== null && capabilities.length === 0 && (
-            <div style={mutedStyle}>还没有能力。把能力目录拷进 .dsh/skills/，或新建一个。</div>
+            <div style={mutedStyle}>{t('capability.empty')}</div>
           )}
           {capabilities?.map(capability => (
             <CapabilityRow
@@ -257,7 +260,7 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
           ))}
           {unregistered.length > 0 && (
             <>
-              <div style={titleStyle}>未注册技能（ADR-0025）</div>
+              <div style={titleStyle}>{t('capability.unregisteredHeading')}</div>
               {unregistered.map((skill) => {
                 const reason = greyReasonOf(skill)
                 return (
@@ -285,36 +288,38 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
           )}
           {confirming !== null && (
             <div style={confirmStyle} data-capability-confirm="true">
-              <div style={nameStyle}>采纳「{confirming.name}」？</div>
+              <div style={nameStyle}>{t('capability.adoptTitle', { name: confirming.name })}</div>
               <div style={mutedStyle}>
-                将整个目录复制到 <span style={codeStyle}>.dsh/skills/{confirming.name}/</span>，原处保留。
+                {t('capability.adoptCopyTo', { path: `.dsh/skills/${confirming.name}/` })}
               </div>
               <div style={mutedStyle}>
-                并在中央路由 <span style={codeStyle}>.dsh/skills/yantao.json</span> 写入：
-                <span style={codeStyle}>{`{"path":"${confirming.name}","invocation":["human"]}`}</span>
+                {t('capability.adoptRouteTo', { path: '.dsh/skills/yantao.json' })}
+                <span style={codeStyle}>{JSON.stringify({ path: confirming.name, invocation: ['human'] })}</span>
               </div>
               {declaresMore(confirming) && (
                 <div style={warnStyle}>
-                  注意：该技能自带 yantao.json 声明，副本中的该文件会被删除，外带声明不会静默生效。
+                  {t('capability.adoptSidecarNote')}
                 </div>
               )}
               <div style={confirmButtonRowStyle}>
-                <button type="button" style={buttonStyle} onClick={() => { void adoptSkill(confirming.name) }}>采纳</button>
-                <button type="button" style={buttonStyle} onClick={() => { setConfirming(null) }}>取消</button>
+                <button type="button" style={buttonStyle} onClick={() => { void adoptSkill(confirming.name) }}>{t('capability.adoptConfirm')}</button>
+                <button type="button" style={buttonStyle} onClick={() => { setConfirming(null) }}>{t('common.cancel')}</button>
               </div>
             </div>
           )}
           {registering !== null && (
             <div style={confirmStyle} data-capability-register="true">
-              <div style={nameStyle}>注册「{registering.name}」为能力</div>
+              <div style={nameStyle}>{t('capability.registerTitle', { name: registering.name })}</div>
               {registering.plugin === true ? (
                 <div style={mutedStyle}>
-                  这是插件仓库：注册将在 <span style={codeStyle}>.dsh/skills/yantao.json</span> 为内含技能
-                  （{registering.pluginSkills?.join('、')}）各写一条路由，仓库目录原地保留。
+                  {t('capability.registerRepoNote', {
+                    path: '.dsh/skills/yantao.json',
+                    names: registering.pluginSkills?.join('、') ?? '',
+                  })}
                 </div>
               ) : (
                 <div style={mutedStyle}>
-                  在 <span style={codeStyle}>.dsh/skills/yantao.json</span> 写入一条路由，技能目录原地保留（不移动、不改名）。
+                  {t('capability.registerSimpleNote', { path: '.dsh/skills/yantao.json' })}
                 </div>
               )}
               <label style={mutedStyle}>
@@ -323,7 +328,7 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
                   checked={registerReach.agentInvoke}
                   onChange={(event) => { setRegisterReach(reach => ({ ...reach, agentInvoke: event.target.checked })) }}
                 />{' '}
-                允许 agent 调用（kb_run_capability）
+                {t('capability.reachAgent')}
               </label>
               <label style={mutedStyle}>
                 <input
@@ -331,7 +336,7 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
                   checked={registerReach.resourceMenu}
                   onChange={(event) => { setRegisterReach(reach => ({ ...reach, resourceMenu: event.target.checked })) }}
                 />{' '}
-                出现在所有资源的右键菜单
+                {t('capability.reachAllResources')}
               </label>
               <label style={mutedStyle}>
                 <input
@@ -339,41 +344,42 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
                   checked={registerReach.selectionMenu}
                   onChange={(event) => { setRegisterReach(reach => ({ ...reach, selectionMenu: event.target.checked })) }}
                 />{' '}
-                出现在中间区右键菜单（选中文字＝提示词，无选中＝当前文件为对象）
+                {t('capability.reachSelection')}
               </label>
               <div style={mutedStyle}>
-                将写入的路由条目：<span style={codeStyle}>{registerPreview(registering, registerReach)}</span>
+                {t('capability.routePreview')}<span style={codeStyle}>{registerPreview(registering, registerReach)}</span>
               </div>
               <div style={confirmButtonRowStyle}>
-                <button type="button" style={buttonStyle} onClick={() => { void registerSkill(registering) }}>注册</button>
-                <button type="button" style={buttonStyle} onClick={() => { setRegistering(null) }}>取消</button>
+                <button type="button" style={buttonStyle} onClick={() => { void registerSkill(registering) }}>{t('capability.registerConfirm')}</button>
+                <button type="button" style={buttonStyle} onClick={() => { setRegistering(null) }}>{t('common.cancel')}</button>
               </div>
             </div>
           )}
           <NewEntityRow
-            label="+ 新建能力"
-            placeholder="能力名称（如 paper-digest）"
+            t={t}
+            label={t('capability.newButton')}
+            placeholder={t('capability.namePlaceholder')}
             submit={name => scaffold(name)}
           />
         </>
       )}
       {current !== undefined && (
         <>
-          <button type="button" style={buttonStyle} onClick={() => { setSelected(null) }}>← 返回清单</button>
+          <button type="button" style={buttonStyle} onClick={() => { setSelected(null) }}>{t('capability.backToList')}</button>
           <div style={titleStyle}>{current.name}</div>
           <div>{current.description}</div>
           <div style={mutedStyle}>
             {current.entry !== undefined
               ? `${current.runtime} · ${current.entry}`
-              : '指令型能力：没有脚本，agent 调用时返回下面的 SKILL.md 指令正文'}
+              : t('capability.instructionNote')}
             {current.directory !== undefined ? ` · ${current.directory}` : ''}
           </div>
           {current.invocation.includes('agent') && (
-            <div style={mutedStyle}>已对 agent 开放（kb_run_capability）</div>
+            <div style={mutedStyle}>{t('capability.openedToAgent')}</div>
           )}
           {current.appliesTo !== undefined && (
             <div style={mutedStyle}>
-              接受：
+              {t('capability.accepts')}
               {[
                 current.appliesTo.resource !== undefined
                   ? `资源 ${current.appliesTo.resource === true ? '全部' : (Array.isArray(current.appliesTo.resource) ? current.appliesTo.resource.join(' ') : '')}`
@@ -384,7 +390,7 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
             </div>
           )}
           {current.lastRunAt !== undefined && (
-            <div style={mutedStyle}>上次运行：{current.lastRunAt}</div>
+            <div style={mutedStyle}>{t('capability.lastRun')}{current.lastRunAt}</div>
           )}
           {current.name === 'mail' && mail(current.state)}
         </>

@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MarkdownView } from '../src/client/editor/MarkdownView.tsx'
+import { t } from './helpers.ts'
 
 afterEach(() => {
   cleanup()
@@ -29,7 +30,7 @@ const ENTITY = [
 
 describe('MarkdownView', () => {
   it('renders the body as markdown and leaves the envelope out of it', () => {
-    const { container } = render(<MarkdownView content={ENTITY} />)
+    const { container } = render(<MarkdownView content={ENTITY} t={t} />)
     expect(screen.getByText('状态')).toBeTruthy()
     // The envelope is metadata: it must not reach the rendered document.
     expect(container.textContent).not.toContain('---')
@@ -37,13 +38,13 @@ describe('MarkdownView', () => {
   })
 
   it('folds the envelope into a one-line summary', () => {
-    render(<MarkdownView content={ENTITY} />)
+    render(<MarkdownView content={ENTITY} t={t} />)
     expect(screen.getByText('type: project · relation: peer')).toBeTruthy()
     expect(screen.queryByRole('table')).toBeNull()
   })
 
   it('opens the summary into a table of fields', () => {
-    render(<MarkdownView content={ENTITY} />)
+    render(<MarkdownView content={ENTITY} t={t} />)
     fireEvent.click(screen.getByText('属性'))
     const table = screen.getByRole('table')
     expect(within(table).getByText('type')).toBeTruthy()
@@ -53,19 +54,19 @@ describe('MarkdownView', () => {
   })
 
   it('offers no envelope bar for a file without one', () => {
-    render(<MarkdownView content={['## 状态', '', '进行中'].join('\n')} />)
+    render(<MarkdownView content={['## 状态', '', '进行中'].join('\n')} t={t} />)
     expect(screen.queryByText('属性')).toBeNull()
     expect(screen.getByText('状态')).toBeTruthy()
   })
 
   it('renders a task list the way the file writes it', () => {
-    render(<MarkdownView content={['- [ ] 未做', '- [x] 已做'].join('\n')} />)
+    render(<MarkdownView content={['- [ ] 未做', '- [x] 已做'].join('\n')} t={t} />)
     expect(screen.getByText('未做')).toBeTruthy()
     expect(screen.getByText('已做')).toBeTruthy()
   })
 
   it('re-enables the task checkboxes so a click can reach it', () => {
-    const { container } = render(<MarkdownView content={['- [ ] 未做'].join('\n')} />)
+    const { container } = render(<MarkdownView content={['- [ ] 未做'].join('\n')} t={t} />)
     const boxes = container.querySelectorAll<HTMLInputElement>('input[type=checkbox]')
     expect(boxes).toHaveLength(1)
     expect(boxes[0]?.disabled).toBe(false)
@@ -74,7 +75,7 @@ describe('MarkdownView', () => {
   it('flips a checkbox by handing the whole new content to its caller', () => {
     const onEdit = vi.fn()
     const content = ['---', 'type: todo', '---', '', '- [ ] 未做', '- [x] 已做'].join('\n')
-    const { container } = render(<MarkdownView content={content} onEdit={onEdit} />)
+    const { container } = render(<MarkdownView content={content} onEdit={onEdit} t={t} />)
     const boxes = container.querySelectorAll<HTMLInputElement>('input[type=checkbox]')
     fireEvent.click(boxes[1] as HTMLInputElement)
     expect(onEdit).toHaveBeenCalledWith(
@@ -83,13 +84,13 @@ describe('MarkdownView', () => {
   })
 
   it('offers no outline for a document with one heading', () => {
-    render(<MarkdownView content={['## 只有一个'].join('\n')} />)
+    render(<MarkdownView content={['## 只有一个'].join('\n')} t={t} />)
     expect(screen.queryByText('大纲')).toBeNull()
   })
 
   it('opens an outline and jumps to the heading it names', () => {
     const content = ['## 状态', '', 'a', '## 流水', '', 'b', '### 细目'].join('\n')
-    const { container } = render(<MarkdownView content={content} />)
+    const { container } = render(<MarkdownView content={content} t={t} />)
     fireEvent.click(screen.getByText('大纲'))
     const outline = container.querySelector('[data-outline="true"]') as HTMLElement
     expect(within(outline).getByText('状态')).toBeTruthy()
@@ -101,9 +102,9 @@ describe('MarkdownView', () => {
   })
 
   it('follows a draft it is handed, without loading anything itself', () => {
-    const view = render(<MarkdownView content="第一版" />)
+    const view = render(<MarkdownView content="第一版"  t={t} />)
     expect(screen.getByText('第一版')).toBeTruthy()
-    view.rerender(<MarkdownView content="第二版" />)
+    view.rerender(<MarkdownView content="第二版"  t={t} />)
     expect(screen.getByText('第二版')).toBeTruthy()
     expect(screen.queryByText('第一版')).toBeNull()
   })

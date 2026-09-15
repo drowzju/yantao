@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import type { FileReader } from '../remote.ts'
 import { remoteMessage } from '../remote.ts'
+import type { WorkbenchT } from '../locales.ts'
 
 /** Read-only view props. */
 export interface ReadOnlyFileProps {
@@ -13,6 +14,7 @@ export interface ReadOnlyFileProps {
   readonly path: string
   /** Read the file's content. */
   readonly read: FileReader
+  readonly t: WorkbenchT
 }
 
 const wrapStyle = {
@@ -48,7 +50,7 @@ const preStyle = {
  * @param props - see {@link ReadOnlyFileProps}.
  * @returns the read-only element.
  */
-export function ReadOnlyFile({ path, read }: ReadOnlyFileProps): ReactElement {
+export function ReadOnlyFile({ path, read, t }: ReadOnlyFileProps): ReactElement {
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   // The loader is a fresh closure on every render (inject face), so the
@@ -72,7 +74,7 @@ export function ReadOnlyFile({ path, read }: ReadOnlyFileProps): ReactElement {
   return (
     <div style={wrapStyle}>
       <div style={bannerStyle}>
-        <span>只读（资源原样不改写）</span>
+        <span>{t('readonly.note')}</span>
       </div>
       {error !== null && <div style={errorStyle}>{error}</div>}
       <pre style={preStyle} data-readonly="true">{content ?? ''}</pre>

@@ -11,6 +11,7 @@
 import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { MailAnalysis } from './mail-analysis.ts'
 import type { MailEntities } from './mail-apply.ts'
+import type { WorkbenchLocaleKey } from './locales.ts'
 
 /** The entity types `createEntity` accepts, as the controller types them. */
 export type ProposalEntityType = 'project' | 'area' | 'person' | 'meeting'
@@ -93,14 +94,14 @@ export interface Proposal {
   readonly digest?: readonly ProposalHighlight[]
 }
 
-/** What one group of same-kind actions is called on the card. */
-export const GROUP_LABELS: Record<ProposalAction['kind'], string> = {
-  'create-entity': '新建实体',
-  'append-log': '项目动态',
-  'write-state': '写状态',
-  'save-resource': '资源',
-  'create-link': '领域关联',
-  'add-todo': '待办',
+/** What one group of same-kind actions is called on the card — dictionary keys, translated at render. */
+export const GROUP_KEYS: Record<ProposalAction['kind'], WorkbenchLocaleKey> = {
+  'create-entity': 'group.createEntity',
+  'append-log': 'group.projectUpdate',
+  'write-state': 'group.writeState',
+  'save-resource': 'group.resource',
+  'create-link': 'group.domainLink',
+  'add-todo': 'group.todo',
 }
 
 /** Today as a YYYY-MM-DD stamp, in the human's own timezone. */

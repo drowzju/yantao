@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { AUTOSAVE_MS, FileEditor } from '../src/client/editor/FileEditor.tsx'
 import { ReadOnlyFile } from '../src/client/editor/ReadOnlyFile.tsx'
 import type { SaveStatus } from '../src/client/editor/FileEditor.tsx'
+import { t } from './helpers.ts'
 
 afterEach(() => {
   cleanup()
@@ -39,6 +40,7 @@ function harness(readImpl: () => Promise<string> = () => Promise.resolve(CONTENT
       read={read}
       write={write}
       onStatus={(status) => { statuses.push(status) }}
+      t={t}
     />,
   )
   return { read, write, statuses, view }
@@ -156,7 +158,7 @@ describe('FileEditor', () => {
   it('reports a failed save', async () => {
     const read = vi.fn(() => Promise.resolve(CONTENT))
     const write = vi.fn(() => Promise.reject(new Error('磁盘不可写')))
-    render(<FileEditor path="entities/areas/健康.md" read={read} write={write} />)
+    render(<FileEditor path="entities/areas/健康.md" read={read} write={write} t={t} />)
     await settle()
     fireEvent.change(area(), { target: { value: 'x' } })
     await tick(AUTOSAVE_MS)
@@ -168,7 +170,7 @@ describe('FileEditor', () => {
 
 describe('ReadOnlyFile', () => {
   it('shows the file without an editor', async () => {
-    render(<ReadOnlyFile path="resources/周报.eml" read={() => Promise.resolve('原始内容')} />)
+    render(<ReadOnlyFile path="resources/周报.eml" read={() => Promise.resolve('原始内容')} t={t} />)
     await settle()
     expect(screen.getByText('原始内容')).toBeTruthy()
     expect(screen.getByText('只读（资源原样不改写）')).toBeTruthy()
@@ -176,7 +178,7 @@ describe('ReadOnlyFile', () => {
   })
 
   it('reports a read failure', async () => {
-    render(<ReadOnlyFile path="resources/周报.eml" read={() => Promise.reject(new Error('读不到'))} />)
+    render(<ReadOnlyFile path="resources/周报.eml" read={() => Promise.reject(new Error('读不到'))} t={t} />)
     await settle()
     expect(screen.getByText('读不到')).toBeTruthy()
   })

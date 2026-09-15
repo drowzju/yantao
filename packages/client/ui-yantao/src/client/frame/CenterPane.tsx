@@ -12,7 +12,8 @@ import {
   CONVERSATION_TAB,
   type FileTab, type TabState,
 } from '../tabs.ts'
-import { STATUS_LABELS, type SaveStatus } from '../editor/FileEditor.tsx'
+import { STATUS_KEYS, type SaveStatus } from '../editor/FileEditor.tsx'
+import type { WorkbenchT } from '../locales.ts'
 
 /** How the centre pane shows an editable markdown file (ADR-0014). */
 export type ViewMode = 'read' | 'source'
@@ -35,6 +36,7 @@ export interface CenterPaneProps {
   readonly renderConversation: () => ReactNode
   /** Render one file tab's pane. */
   readonly renderFile: (tab: FileTab) => ReactNode
+  readonly t: WorkbenchT
 }
 
 const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
@@ -119,11 +121,11 @@ const DOT_COLORS: Record<SaveStatus, string> = {
 }
 
 /** The status dot beside a file tab's title. */
-function StatusDot({ status }: { status: SaveStatus }): ReactElement {
+function StatusDot({ status, t }: { status: SaveStatus; t: WorkbenchT }): ReactElement {
   return (
     <span
       data-status={status}
-      title={STATUS_LABELS[status]}
+      title={t(STATUS_KEYS[status])}
       style={{
         width: 6,
         height: 6,
@@ -149,6 +151,7 @@ export function CenterPane({
   onClose,
   renderConversation,
   renderFile,
+  t,
 }: CenterPaneProps): ReactElement {
   // The conversation is rendered unconditionally and only hidden: remounting
   // it would drop the host's scroll position and composer draft.
@@ -161,14 +164,14 @@ export function CenterPane({
       <div style={stripStyle}>
         <div style={conversationActive ? activeTabStyle : tabStyle}>
           <button type="button" style={labelButtonStyle} onClick={() => { onActivate(CONVERSATION_TAB) }}>
-            对话
+            {t('center.conversation')}
           </button>
         </div>
         {tabs.files.map((tab) => {
           const status = statuses[tab.path]
           return (
             <div key={tab.path} style={tabs.active === tab.path ? activeTabStyle : tabStyle}>
-              {status !== undefined && <StatusDot status={status} />}
+              {status !== undefined && <StatusDot status={status} t={t} />}
               <button
                 type="button"
                 style={labelButtonStyle}
@@ -181,7 +184,7 @@ export function CenterPane({
               <button
                 type="button"
                 style={closeButtonStyle}
-                title="关闭"
+                title={t('center.close')}
                 onClick={() => { onClose(tab.path) }}
               >
                 ×
@@ -196,14 +199,14 @@ export function CenterPane({
               style={viewMode === 'read' ? activeModeStyle : modeButtonStyle}
               onClick={() => { onViewMode('read') }}
             >
-              阅读
+              {t('center.read')}
             </button>
             <button
               type="button"
               style={viewMode === 'source' ? activeModeStyle : modeButtonStyle}
               onClick={() => { onViewMode('source') }}
             >
-              源码
+              {t('center.source')}
             </button>
           </div>
         )}

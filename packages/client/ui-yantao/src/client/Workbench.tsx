@@ -24,6 +24,7 @@ import { MailPanel, mailRangeOf } from './MailPanel.tsx'
 import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { remoteMessage } from './remote.ts'
 import type { TabMode } from './tabs.ts'
+import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 import { TodoBoard } from './TodoBoard.tsx'
 import { NewEntityRow } from './NewEntityRow.tsx'
 
@@ -60,24 +61,24 @@ function sectionOf(
   return sections?.find(section => section.files.some(file => file.path === path))?.id
 }
 
-/** Panel and tab labels — yantao's working language, until this plugin owns a dictionary. */
-export const SECTION_LABELS: Record<string, string> = {
-  resources: '资源',
-  todos: '待办',
-  meetings: '会议',
-  connector: '能力',
-  areas: '领域',
-  people: '人物',
-  projects: '项目',
+/** Panel and tab labels as dictionary keys — translated at render through the threaded `t`. */
+export const SECTION_KEYS: Record<KbTreeSectionId | 'connector', WorkbenchLocaleKey> = {
+  resources: 'section.resource',
+  todos: 'section.todo',
+  meetings: 'section.meeting',
+  connector: 'section.capability',
+  areas: 'section.domain',
+  people: 'section.person',
+  projects: 'section.project',
 }
 
-/** The person relations the KB knows, as the rail reads them. */
-export const RELATION_LABELS: Record<KbPersonRelation, string> = {
-  self: '自己',
-  subordinate: '下属',
-  superior: '上级',
-  peer: '同事',
-  external: '外部',
+/** The person relations the KB knows, as dictionary keys — translated at render. */
+export const RELATION_KEYS: Record<KbPersonRelation, WorkbenchLocaleKey> = {
+  self: 'relation.self',
+  subordinate: 'relation.subordinate',
+  superior: 'relation.superior',
+  peer: 'relation.peer',
+  external: 'relation.external',
 }
 
 /** The relation a new person gets until the human says otherwise. */
@@ -87,32 +88,37 @@ const DEFAULT_RELATION: KbPersonRelation = 'peer'
  * One relation as the rail reads it. The wire value is whatever the file
  * carries — a human edits these in Obsidian — so a word the KB does not know
  * is shown as written rather than dropped.
+ * @param t - the workbench translate face.
  * @param relation - the frontmatter's `relation`.
- * @returns the Chinese label, or the value itself when there is no label.
+ * @returns the label, or the value itself when there is no label.
  */
-function relationLabel(relation: string): string {
-  return Object.hasOwn(RELATION_LABELS, relation) ? RELATION_LABELS[relation as KbPersonRelation] : relation
+function relationLabel(t: WorkbenchT, relation: string): string {
+  return Object.hasOwn(RELATION_KEYS, relation) ? t(RELATION_KEYS[relation as KbPersonRelation]) : relation
 }
 
 /**
  * The relations the workbench offers — every one but 自己. `self` marks the KB
  * owner, and `kb_init` is what writes it: a second person carrying it would
  * make two owners of one knowledge base, so nobody picks it from a menu.
+ * @param t - the workbench translate face.
+ * @returns the pickable relation options.
  */
-const RELATION_OPTIONS: readonly RelationOption[] = (
-  Object.entries(RELATION_LABELS) as [KbPersonRelation, string][]
-).filter(([value]) => value !== 'self')
-  .map(([value, label]) => ({ value, label }))
+function relationOptions(t: WorkbenchT): readonly RelationOption[] {
+  return (Object.entries(RELATION_KEYS) as [KbPersonRelation, WorkbenchLocaleKey][])
+    .filter(([value]) => value !== 'self')
+    .map(([value, key]) => ({ value, label: t(key) }))
+}
 
 /**
  * The relations one row's menu offers. The owner — the person whose file
  * carries `relation: self` — offers none: 自己 is what makes a file the KB's
  * owner, not a label somebody can hand out or take away from a menu.
+ * @param t - the workbench translate face.
  * @param relation - the relation the row's file carries.
  * @returns the pickable relations, or an empty list for the owner.
  */
-function relationsFor(relation: string | undefined): readonly RelationOption[] {
-  return relation === 'self' ? [] : RELATION_OPTIONS
+function relationsFor(t: WorkbenchT, relation: string | undefined): readonly RelationOption[] {
+  return relation === 'self' ? [] : relationOptions(t)
 }
 
 const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
@@ -201,6 +207,7 @@ function useRail(load: TreeLoader, refreshKey: number): RailState {
 
 /** Render one rail section: a heading (unless the tab strip already labels it) and its file rows. */
 function Section({
+  t,
   id,
   section,
   selection,
@@ -208,6 +215,7 @@ function Section({
   onMenu,
   showHeading = true,
 }: {
+  t: WorkbenchT
   id: KbTreeSectionId
   section: KbTreeSection | undefined
   selection: string | null
@@ -218,8 +226,8 @@ function Section({
 }): ReactElement {
   return (
     <div>
-      {showHeading && <div style={titleStyle}>{SECTION_LABELS[id]}</div>}
-      {section === undefined && <div style={{ color: '#9a9488', padding: '4px 6px' }}>（空）</div>}
+      {showHeading && <div style={titleStyle}>{t(SECTION_KEYS[id])}</div>}
+      {section === undefined && <div style={{ color: '#9a9488', padding: '4px 6px' }}>{t('common.empty')}</div>}
       {section?.files.map(file => (
         <button
           key={file.path}
@@ -234,11 +242,11 @@ function Section({
           title={file.path}
         >
           {file.name}
-          {file.archived === true && <span style={{ color: '#9a9488' }}> · 已归档</span>}
+          {file.archived === true && <span style={{ color: '#9a9488' }}>{t('workbench.archived')}</span>}
           {file.relation !== undefined && (
             <span style={{ color: '#9a9488' }}>
               {' · '}
-              {relationLabel(file.relation)}
+              {relationLabel(t, file.relation)}
             </span>
           )}
         </button>
@@ -301,6 +309,7 @@ interface RelationOption {
  * @returns the menu element.
  */
 function RowMenu(props: {
+  t: WorkbenchT
   target: MenuTarget
   busy: boolean
   /** The relations this row offers, when it is a person's. */
@@ -314,7 +323,7 @@ function RowMenu(props: {
   onDelete: (path: string) => void
   onClose: () => void
 }): ReactElement {
-  const { target, busy, relations, onRelate, capabilities, onRunCapability, onDelete, onClose } = props
+  const { t, target, busy, relations, onRelate, capabilities, onRunCapability, onDelete, onClose } = props
   const [confirming, setConfirming] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -336,8 +345,8 @@ function RowMenu(props: {
     <div ref={ref} style={{ ...menuStyle, left: target.x, top: target.y }} data-row-menu={target.path}>
       {relations !== undefined && (
         <div data-row-relations="true">
-          <div style={menuNoteStyle}>关系</div>
-          {relations.length === 0 && <div style={menuNoteStyle}>知识库主人，不可改</div>}
+          <div style={menuNoteStyle}>{t('relation.label')}</div>
+          {relations.length === 0 && <div style={menuNoteStyle}>{t('relation.ownerFixed')}</div>}
           {relations.map(option => (
             <button
               key={option.value}
@@ -355,7 +364,7 @@ function RowMenu(props: {
       )}
       {capabilities !== undefined && capabilities.length > 0 && onRunCapability !== undefined && (
         <div data-row-capabilities="true">
-          <div style={menuNoteStyle}>能力</div>
+          <div style={menuNoteStyle}>{t('workbench.capabilityLabel')}</div>
           {capabilities.map(capability => (
             <button
               key={capability.name}
@@ -373,16 +382,16 @@ function RowMenu(props: {
       )}
       {!confirming && (
         <button type="button" style={menuItemStyle} disabled={busy} onClick={() => { setConfirming(true) }}>
-          删除「{target.name}」
+          {t('workbench.deleteConfirm', { name: target.name })}
         </button>
       )}
       {confirming && (
         <div>
-          <div style={menuNoteStyle}>不可撤销，确认删除？</div>
+          <div style={menuNoteStyle}>{t('workbench.deleteIrreversible')}</div>
           <button type="button" style={menuItemStyle} disabled={busy} onClick={() => { onDelete(target.path) }}>
-            删除
+            {t('workbench.delete')}
           </button>
-          <button type="button" style={menuItemStyle} onClick={onClose}>取消</button>
+          <button type="button" style={menuItemStyle} onClick={onClose}>{t('common.cancel')}</button>
         </div>
       )}
     </div>
@@ -510,6 +519,8 @@ function useCapabilities(load: CapabilityLoader, refreshKey: number): readonly K
 
 /** Presentational props shared by both rails. */
 export interface RailProps {
+  /** The workbench translate face — every label this rail renders goes through it. */
+  readonly t: WorkbenchT
   /** True while the frame renders this rail as a compact icon column. */
   readonly collapsed: boolean
   /** Load this rail's sections. */
@@ -583,7 +594,7 @@ function RailHeader({ error }: { error: string | null }): ReactElement {
  */
 export function IntakeRail(props: IntakeRailProps): ReactElement {
   const {
-    collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
+    t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
     read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource,
     capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, onRunCapability,
   } = props
@@ -604,7 +615,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
 
   if (collapsed) {
     return (
-      <CompactRail label="展开输入栏" error={error} onExpand={onExpand} side="intake" />
+      <CompactRail label={t('workbench.expandIntake')} error={error} onExpand={onExpand} side="intake" />
     )
   }
 
@@ -675,13 +686,14 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
             style={tab === id ? { ...tabRowStyle, background: '#eef3ff', borderColor: '#c7d7ff' } : tabRowStyle}
             onClick={() => { setTab(id) }}
           >
-            {SECTION_LABELS[id]}
+            {t(SECTION_KEYS[id])}
           </button>
         ))}
       </div>
       {actionError !== null && <div style={errorStyle}>{actionError}</div>}
       {tab === 'todos' && (
         <TodoBoard
+          t={t}
           load={loadTodos}
           write={writeTodos}
           refreshKey={refreshKey}
@@ -690,12 +702,14 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
       )}
       {tab === 'connector' && (
         <CapabilityPanel
+          t={t}
           load={capabilityList}
           create={capabilityCreate}
           adopt={capabilityAdopt}
           register={capabilityRegister}
           mail={state => (
             <MailPanel
+              t={t}
               fetch={mailFetch}
               mark={mailMarkRead}
               analyse={analyseMail}
@@ -708,6 +722,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
       )}
       {tab !== 'todos' && tab !== 'connector' && (
         <Section
+          t={t}
           id={tab}
           section={sections?.find(entry => entry.id === tab)}
           selection={selection}
@@ -719,8 +734,9 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
       )}
       {tab === 'meetings' && (
         <NewEntityRow
-          label="+ 新建"
-          placeholder="会议名称"
+          t={t}
+          label={t('workbench.newButton')}
+          placeholder={t('workbench.meetingPlaceholder')}
           submit={name => create('meeting', name).catch((failure: unknown) => {
             setActionError(failure instanceof Error ? failure.message : String(failure))
           })}
@@ -729,6 +745,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
       {rowMenu.menu !== null && (
         <RowMenu
           key={rowMenu.menu.path}
+          t={t}
           target={rowMenu.menu}
           busy={rowMenu.busy || dropping}
           capabilities={tab === 'resources'
@@ -753,7 +770,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
  */
 export function WorkspaceRail(props: RailProps): ReactElement {
   const {
-    collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, createEntity, deleteFile,
+    t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, createEntity, deleteFile,
     setRelation: writeRelation, capabilityList, onRunCapability,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
@@ -772,7 +789,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
 
   if (collapsed) {
     return (
-      <CompactRail label="展开工作栏" error={error} onExpand={onExpand} side="workspace" />
+      <CompactRail label={t('workbench.expandWorkspace')} error={error} onExpand={onExpand} side="workspace" />
     )
   }
 
@@ -805,12 +822,13 @@ export function WorkspaceRail(props: RailProps): ReactElement {
             style={tab === id ? { ...tabRowStyle, background: '#eef3ff', borderColor: '#c7d7ff' } : tabRowStyle}
             onClick={() => { setTab(id) }}
           >
-            {SECTION_LABELS[id]}
+            {t(SECTION_KEYS[id])}
           </button>
         ))}
       </div>
       {actionError !== null && <div style={errorStyle}>{actionError}</div>}
       <Section
+        t={t}
         id={tab}
         section={sections?.find(entry => entry.id === tab)}
         selection={selection}
@@ -819,10 +837,11 @@ export function WorkspaceRail(props: RailProps): ReactElement {
         showHeading={false}
       />
       <NewEntityRow
-        label="+ 新建"
-        placeholder={`${SECTION_LABELS[tab]}名称`}
+        t={t}
+        label={t('workbench.newButton')}
+        placeholder={t('workbench.entityNamePlaceholder', { section: t(SECTION_KEYS[tab]) })}
         choice={kind === 'person' ? {
-          options: RELATION_OPTIONS,
+          options: relationOptions(t),
           value: relation,
           onChange: (value) => { setRelation(value as KbPersonRelation) },
         } : undefined}
@@ -833,9 +852,10 @@ export function WorkspaceRail(props: RailProps): ReactElement {
       {rowMenu.menu !== null && (
         <RowMenu
           key={rowMenu.menu.path}
+          t={t}
           target={rowMenu.menu}
           busy={rowMenu.busy}
-          relations={tab === 'people' ? relationsFor(rowMenu.menu.relation) : undefined}
+          relations={tab === 'people' ? relationsFor(t, rowMenu.menu.relation) : undefined}
           onRelate={rowMenu.relate}
           capabilities={kind === undefined
             ? undefined
