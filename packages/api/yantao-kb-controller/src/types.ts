@@ -406,17 +406,21 @@ export interface KbCapabilityListResult {
   /** The capabilities, in discovery order. */
   readonly capabilities: readonly KbCapabilitySummary[]
   /**
-   * Skills discovered outside the KB that look adoptable (ADR-0025 决定 1):
-   * directory bundles without a yantao sidecar, name-sorted, registered
-   * capabilities excluded. Greyed rows carry the reason in their flags.
+   * Skills that are not yet capabilities (ADR-0025 决定 1), name-sorted,
+   * registered capabilities excluded. Two origins share the group: skills
+   * discovered outside the KB that adoption could copy in, and skills living
+   * inside the KB's own `.dsh/skills/` whose declaration is missing or
+   * invalid — those carry `inKb` and registration writes their sidecar in
+   * place. Greyed rows carry the reason in their flags.
    */
   readonly unregistered: readonly KbUnregisteredSkill[]
 }
 
 /**
- * One skill in `capabilityList`'s 未注册 group (ADR-0025 决定 1): a skill
- * `ctx.skills` discovered outside the KB's own `.dsh/skills/` that adoption
- * could copy into it.
+ * One skill in `capabilityList`'s 未注册 group (ADR-0025 决定 1): either a
+ * skill `ctx.skills` discovered outside the KB's own `.dsh/skills/` that
+ * adoption could copy into it, or an in-KB skill without a valid yantao
+ * declaration that registration can repair in place.
  */
 export interface KbUnregisteredSkill {
   /** The skill's frontmatter name. */
@@ -431,6 +435,13 @@ export interface KbUnregisteredSkill {
   readonly userInvocable: boolean
   /** True for a flat `xxx.md` skill: no directory to carry a sidecar, so adoption is unsupported. */
   readonly flat: boolean
+  /**
+   * The skill lives inside `<kbRoot>/.dsh/skills/` — registration writes its
+   * sidecar in place (no copy); absent for an out-of-KB adoption candidate.
+   */
+  readonly inKb?: boolean
+  /** Why the skill is not a capability — missing or invalid declaration; only in-KB rows carry it. */
+  readonly reason?: string
   /** The skill's own `yantao.json` sidecar, when it carries one — the adopt confirm box previews it. */
   readonly sidecar?: JsonValue
 }
@@ -444,6 +455,23 @@ export interface KbCapabilityAdoptArgs {
 /** Result of `yantaoKb.capabilityAdopt` (ADR-0025 决定 1). */
 export interface KbCapabilityAdoptResult {
   /** KB-relative path of the adopted capability directory, `.dsh/skills/<name>`. */
+  readonly path: string
+}
+
+/** Parameters of `yantaoKb.capabilityRegister` (ADR-0025 决定 1's in-KB registration). */
+export interface KbCapabilityRegisterArgs {
+  /** The in-KB skill's name, as `capabilityList`'s 未注册 group reported it. */
+  readonly name: string
+  /**
+   * Entry script path relative to the skill's directory; absent registers an
+   * instruction capability (no script, ADR-0023 决定 6).
+   */
+  readonly entry?: string
+}
+
+/** Result of `yantaoKb.capabilityRegister` (ADR-0025 决定 1's in-KB registration). */
+export interface KbCapabilityRegisterResult {
+  /** KB-relative path of the sidecar the call wrote, `.dsh/skills/<name>/yantao.json`. */
   readonly path: string
 }
 

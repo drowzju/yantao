@@ -22,6 +22,7 @@ import type {
 import type {
   KbCapabilityAdoptArgs, KbCapabilityAdoptResult, KbCapabilityCreateArgs, KbCapabilityCreateResult,
   KbCapabilityListResult,
+  KbCapabilityRegisterArgs, KbCapabilityRegisterResult,
   KbCapabilityRunArgs, KbCapabilityRunResult, KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
   KbDeleteFileResult, KbFileContent, KbLinksResult,
   KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
@@ -57,6 +58,8 @@ export interface KbRemote {
   capabilityCreate(args: KbCapabilityCreateArgs): Promise<RemoteResult<KbCapabilityCreateResult>>
   /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
   capabilityAdopt(args: KbCapabilityAdoptArgs): Promise<RemoteResult<KbCapabilityAdoptResult>>
+  /** Register one in-KB skill by writing its sidecar in place (ADR-0025 决定 1). */
+  capabilityRegister(args: KbCapabilityRegisterArgs): Promise<RemoteResult<KbCapabilityRegisterResult>>
   /** Copy one dropped file into `resources/` (ADR-0020). */
   registerResource(args: KbRegisterResourceArgs): Promise<RemoteResult<KbRegisterResourceResult>>
 }
@@ -137,6 +140,13 @@ export type CapabilityCreator = (name: string) => Promise<KbCapabilityCreateResu
 
 /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
 export type CapabilityAdopter = (name: string) => Promise<KbCapabilityAdoptResult>
+
+/**
+ * Register one in-KB skill by writing its `yantao.json` sidecar in place
+ * (ADR-0025 决定 1); `entry` present = script capability, absent =
+ * instruction capability.
+ */
+export type CapabilityRegistrar = (name: string, entry?: string) => Promise<KbCapabilityRegisterResult>
 
 /** One mail as the connector reports it (ADR-0019). */
 export type MailMessage = KbMailMessage
@@ -470,6 +480,22 @@ export async function adoptCapability(ctx: Context, name: string): Promise<KbCap
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.capabilityAdopt({ name }))
+}
+
+/**
+ * Register one in-KB skill as a capability (ADR-0025 决定 1): the host writes
+ * the skill's `yantao.json` sidecar in place — no copy. With an `entry` the
+ * sidecar declares a script capability; without one, an instruction
+ * capability, human-invocable only.
+ * @param ctx - client root context.
+ * @param name - the in-KB skill's name, as the 未注册 group reported it.
+ * @param entry - entry script path relative to the skill's directory; omit for an instruction capability.
+ * @returns the sidecar's KB-relative path, or a rejected promise carrying the reason.
+ */
+export async function registerCapability(ctx: Context, name: string, entry?: string): Promise<KbCapabilityRegisterResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.capabilityRegister({ name, ...entry !== undefined ? { entry } : {} }))
 }
 
 /**

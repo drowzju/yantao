@@ -48,9 +48,10 @@ kind: "package-reference"
 | `yantaoKb.mailMarkRead` | `({ lastReadAt?, firstReadAt? })` | `{ lastReadAt, firstReadAt? }`——把邮件能力的断点往前推，并把最早的 `firstReadAt` 记为已处理范围的起点；`lastReadAt` 缺省为当前时刻（ADR-0019） |
 | `yantaoKb.registerResource` | `({ name, contentBase64 })` | `{ resource }`——把一个拖入的文件逐字节复制进 `resources/`，清理文件名并拒绝重复；旁边不生成任何笔记（ADR-0020） |
 | `yantaoKb.capabilityRun` | `({ name, input? })` | `{ name, runAt, result?, content?, artifacts }`——把一个能力的宿主入口（通过目录根的 `yantao.json` sidecar 声明自己的 dsh skill 目录，兼容旧的 `metadata.yantao` frontmatter）作为 Python 子进程运行，产物写入 `.yantao/capabilities/<name>/`，状态记到 `<kbRoot>/.yantao/state.json` 的 `capabilities.<name>.state`（ADR-0024）；指令型能力（无 `entry`）不 spawn，改以 SKILL.md 正文作为 `content` 作答（ADR-0021、ADR-0023） |
-| `yantaoKb.capabilityList` | `()` | `{ capabilities, unregistered }`——知识库根目录下每个声明了能力清单的技能，每行合并它的持久化记录（`lastRunAt`、`state`），外加 `unregistered` 分组：没有 sidecar 的技能目录，可采纳进知识库（ADR-0025 决定 1）；内置能力会先被播种进 `<kbRoot>/.dsh/skills/`（ADR-0021） |
+| `yantaoKb.capabilityList` | `()` | `{ capabilities, unregistered }`——知识库根目录下每个声明了能力清单的技能，每行合并它的持久化记录（`lastRunAt`、`state`），外加 `unregistered` 分组：KB 外可采纳进知识库的技能目录，以及 KB 内声明缺失或无效的技能（灰显行携带 `inKb` 与原因）（ADR-0025 决定 1）；内置能力会先被播种进 `<kbRoot>/.dsh/skills/`（ADR-0021） |
 | `yantaoKb.capabilityCreate` | `({ name })` | `{ path }`——在 `.dsh/skills/<name>/` 脚手架出干净的 SKILL.md、声明用的 `yantao.json` sidecar 和说执行协议的 `scripts/entry.py`；第一次运行就能工作的能力（ADR-0021 决定 8） |
 | `yantaoKb.capabilityAdopt` | `({ name })` | `{ path }`——把一个 KB 外的技能目录拷贝进 `.dsh/skills/<name>/` 并写缺省的 human-invocable 指令型 sidecar；拒绝已存在的目标、`user-invocable: false` 的技能，以及一切不是「带 SKILL.md 的扁平目录束」的东西（ADR-0025 决定 1；源目录自带 sidecar 声明 `entry` 或 agent 的情况由面板的确认框显式过目，这里不拦） |
+| `yantaoKb.capabilityRegister` | `({ name, entry? })` | `{ path }`——把一个 KB 内技能注册成能力：原地写它的 `yantao.json` sidecar（不拷贝）；带 `entry` 即脚本型能力（`runtime: 'python'`），不带即指令型能力，`invocation` 恒为 `['human']`；拒绝已经是能力的技能（修复无效 sidecar 才是本调用的用途）、`user-invocable: false` 的技能、扁平单文件技能，以及逃逸技能目录的 `entry`（ADR-0025 决定 1） |
 
 `setRelation` 只对人物文件作答：其它文件一律 `yantao-kb/rejected` 且不被改写，五种关系之外的取值同样拒绝。它是对 frontmatter 的一行拼接，绝不重排 YAML——重新生成映射会丢掉人类写的注释与顺序。
 
@@ -64,7 +65,7 @@ kind: "package-reference"
 
 `capabilityRun`（ADR-0021）是把邮件/提取的子进程模式泛化进能力系统的那条执行缝：能力是一个 dsh skill 目录，声明放在目录根的 `yantao.json` sidecar 里（`entry`/`runtime`/`appliesTo`/`invocation`——外带声明，开源 skill 目录可以原样拷进来直接当能力用；没有 sidecar 时兼容读取旧的 `metadata.yantao` frontmatter）；发现是 `ctx.skills` 的事，控制器只拥有执行——一次 Python 子进程、stdin/stdout 走 JSON 的契约，产物由控制器写入（脚本自己选不了写路径），返回的状态作为下一次运行的起点持久化。从 ADR-0023 起同一条缝服务两个通道：人通过本 RPC 调用，agent 通过 `kb_run_capability` 工具——但只有 sidecar 声明了 `"invocation": ["agent"]` 的能力才对 agent 开放（缺省仅人类），而没有 `entry` 的能力是指令型能力，其 SKILL.md 正文就是全部答案。`tool-skill` 保持禁用，模型永远看不到裸技能目录；agent 能运行什么，由每轮注入的能力目录告知。
 
-`capabilityList` / `capabilityCreate`（ADR-0021 决定 8）是「能力」页签的管理半边。`capabilityList` 先把内置能力播种进知识库（缺失才复制、按版本覆盖，让脚本的修复真正到达 KB），再列出每个声明了能力清单的技能——普通技能被跳过而不是报错——并与各自的持久化记录合并。安装一个能力没有 RPC：人把能力目录拷进 `<kbRoot>/.dsh/skills/`（或任何其他 skill 根目录），发现机制自然会拾取。`capabilityCreate` 在知识库内脚手架一个新能力，入口脚本开箱即可运行。
+`capabilityList` / `capabilityCreate`（ADR-0021 决定 8）是「能力」页签的管理半边。`capabilityList` 先把内置能力播种进知识库（缺失才复制、按版本覆盖，让脚本的修复真正到达 KB），再列出每个声明了能力清单的技能——普通技能被跳过而不是报错——并与各自的持久化记录合并。安装一个能力没有 RPC：人把能力目录拷进 `<kbRoot>/.dsh/skills/`（或任何其他 skill 根目录），发现机制自然会拾取。`capabilityCreate` 在知识库内脚手架一个新能力，入口脚本开箱即可运行。`capabilityRegister`（ADR-0025 决定 1）为已经在 KB 内的技能补上闭环：拷进来的开源 skill 目录若没有 `yantao.json`，不再是无声的不可见——它会带着原因出现在未注册分组里，注册时由面板的引导对话框原地写入 sidecar。
 
 失败是 `RemoteError`：路径没有对应文件时为 `yantao-kb/not-found`；路径逃逸、目标不是文件、I/O 拒绝或知识库领域拒绝（实体已存在、`todo` 单例）时为 `yantao-kb/rejected`——两者的 `details` 都携带出问题的 `path`；断点写入失败时为 `yantao-kb/mail`，`details` 带失败种类 `kind` 与 `hint`。`yantao-kb/capability` 是能力对应物（`not-found` / `not-invocable` / `bad-manifest` / `python-missing` / `timeout` / `bad-output` / `capability-failed`），能力自己的失败 `kind` 与补救 `hint` 也一并放在 `details` 里；`not-invocable`（ADR-0023）指 agent 调用了 sidecar 未声明 `"agent"` 的能力。
 

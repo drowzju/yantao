@@ -3064,7 +3064,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'capabilityList\') async capabilityList(): Promise<KbCapabilityListResult>',
-        description: 'The capabilities the workbench\'s 能力 tab shows (ADR-0021 决定 8): every skill under the KB\'s own `.dsh/skills/` (ADR-0024 决定 4) that declares a capability manifest (`yantao.json` sidecar, legacy `metadata.yantao` frontmatter accepted) — plain skills without one are not capabilities and are skipped, not errors. Shipped capabilities are seeded first, so a fresh KB answers with 邮件 on its very first open.\n\nEach row merges the skill\'s declaration with the persisted record (`capabilities.<name>` in the KB\'s `.yantao/state.json`, ADR-0024): when it last ran and the state that run left behind, so the panel can show a real 断点 without running anything.\n\nThe answer also carries the 未注册 group (ADR-0025 决定 1): skills discovered outside the KB that adoption could copy in — directory bundles, name-sorted, after the registered list. Bundled skills (dsh\'s own) are not third-party finds and never appear.',
+        description: 'The capabilities the workbench\'s 能力 tab shows (ADR-0021 决定 8): every skill under the KB\'s own `.dsh/skills/` (ADR-0024 决定 4) that declares a capability manifest (`yantao.json` sidecar, legacy `metadata.yantao` frontmatter accepted) — plain skills without one are not capabilities and are skipped, not errors. Shipped capabilities are seeded first, so a fresh KB answers with 邮件 on its very first open.\n\nEach row merges the skill\'s declaration with the persisted record (`capabilities.<name>` in the KB\'s `.yantao/state.json`, ADR-0024): when it last ran and the state that run left behind, so the panel can show a real 断点 without running anything.\n\nThe answer also carries the 未注册 group (ADR-0025 决定 1): skills discovered outside the KB that adoption could copy in — directory bundles, name-sorted, after the registered list — and skills living inside the KB\'s own `.dsh/skills/` whose declaration is missing or invalid, greyed rows carrying the reason; registration (ADR-0025 决定 1) writes their sidecar in place. Bundled skills (dsh\'s own) are not third-party finds and never appear.',
         parameters: [],
         returns: 'both groups.',
       },
@@ -3079,6 +3079,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Adopt one unregistered skill (ADR-0025 决定 1): copy its directory into `<kbRoot>/​.dsh/skills/<name>/` and write the default sidecar (`invocation: ["human"]`, no `entry` — an instruction capability). The copy, never a move: the source directory is shared with every other dsh usage, and moving would steal it. Any sidecar the source carried is replaced by the default one — outside declarations never take effect silently; the confirm box showed them before this call existed.\n\nGuards: the name must be a single safe path segment, the target must not exist (a collision with a builtin or an adopted capability is refused, never overwritten), and the skill must be a directory bundle that its frontmatter has not marked `user-invocable: false`.',
         parameters: [{ name: 'args', description: 'the unregistered skill\'s name.' }],
         returns: 'the adopted directory\'s KB-relative path.',
+      },
+      {
+        signature: '@Remote(\'capabilityRegister\') async capabilityRegister(args: KbCapabilityRegisterArgs): Promise<KbCapabilityRegisterResult>',
+        description: 'Register one in-KB skill as a capability (ADR-0025 决定 1): write its `yantao.json` sidecar in place — no copy, the skill directory stays where it is. With an `entry` the sidecar declares a script capability (`runtime: \'python\'`); without one, an instruction capability (ADR-0023 决定 6). The invocation is always `[\'human\']`: opening a capability to the agent is a separate, deliberate edit of the sidecar, never a side effect of registration.\n\nGuards: the name must be a single safe path segment, the skill must be a directory bundle inside the KB\'s own `.dsh/skills/`, its frontmatter must not mark it `user-invocable: false`, it must not already be a capability (a valid declaration is never silently overwritten — repairing an invalid one is exactly what this call is for), and an `entry` must stay inside the skill\'s directory.',
+        parameters: [{ name: 'args', description: 'the in-KB skill\'s name and, for a script capability, its entry.' }],
+        returns: 'the sidecar\'s KB-relative path.',
       },
     ],
   },
@@ -4543,6 +4549,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbCapabilityListResult {\n    readonly capabilities: readonly KbCapabilitySummary[];\n    readonly unregistered: readonly KbUnregisteredSkill[];\n}',
   },
   {
+    name: 'KbCapabilityRegisterArgs',
+    declaration: 'export interface KbCapabilityRegisterArgs {\n    readonly name: string;\n    readonly entry?: string;\n}',
+  },
+  {
+    name: 'KbCapabilityRegisterResult',
+    declaration: 'export interface KbCapabilityRegisterResult {\n    readonly path: string;\n}',
+  },
+  {
     name: 'KbCapabilityRunArgs',
     declaration: 'export interface KbCapabilityRunArgs {\n    readonly name: string;\n    readonly input?: JsonValue;\n}',
   },
@@ -4644,7 +4658,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbUnregisteredSkill',
-    declaration: 'export interface KbUnregisteredSkill {\n    readonly name: string;\n    readonly description: string;\n    readonly source: string;\n    readonly directory?: string;\n    readonly userInvocable: boolean;\n    readonly flat: boolean;\n    readonly sidecar?: JsonValue;\n}',
+    declaration: 'export interface KbUnregisteredSkill {\n    readonly name: string;\n    readonly description: string;\n    readonly source: string;\n    readonly directory?: string;\n    readonly userInvocable: boolean;\n    readonly flat: boolean;\n    readonly inKb?: boolean;\n    readonly reason?: string;\n    readonly sidecar?: JsonValue;\n}',
   },
   {
     name: 'KbWriteResult',

@@ -220,8 +220,8 @@ describe('yantaoKb.capabilityRun', () => {
 describe('yantaoKb.capabilityList', () => {
   it('lists skills that declare a yantao manifest and skips plain skills', async () => {
     skillList.mockResolvedValue([
-      { name: 'mail', description: '读 Outlook 邮件', source: 'project', resourceBase: { kind: 'directory', path: skillDir } },
-      { name: 'plain', description: '普通技能', source: 'project' },
+      { name: 'mail', description: '读 Outlook 邮件', source: 'project', resourceBase: { kind: 'directory', path: skillDir }, invocation: { modelInvocable: false, userInvocable: true } },
+      { name: 'plain', description: '普通技能', source: 'project', invocation: { modelInvocable: true, userInvocable: true } },
     ])
     skillGet.mockImplementation(async (name: string) =>
       name === 'mail' ? definition() : definition({ name, metadata: {} }))
@@ -493,6 +493,61 @@ describe('capabilityList 未注册 group (ADR-0025)', () => {
     const { unregistered } = await ctx.yantaoKbController.capabilityList()
     expect(unregistered).toEqual([])
   })
+
+  it('surfaces an in-KB skill without a declaration as a greyed inKb row', async () => {
+    const directory = join(home, '.dsh', 'skills', 'notes-helper')
+    skillList.mockResolvedValue([
+      { name: 'notes-helper', description: '整理笔记', source: 'custom', invocation: { modelInvocable: true, userInvocable: true } },
+    ])
+    skillGet.mockResolvedValue({
+      name: 'notes-helper', description: '整理笔记',
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'custom', provider: 'skill-filesystem', content: '',
+      resourceBase: { kind: 'directory', path: directory },
+      path: join(directory, 'SKILL.md'), metadata: {},
+    } satisfies SkillDefinition)
+    const { capabilities, unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(capabilities).toEqual([])
+    expect(unregistered).toHaveLength(1)
+    expect(unregistered[0]).toMatchObject({ name: 'notes-helper', inKb: true, flat: false, directory })
+    expect(unregistered[0]?.reason).toMatch(/没有能力声明/)
+  })
+
+  it('carries the sidecar validation failure as an in-KB row reason', async () => {
+    const directory = join(home, '.dsh', 'skills', 'broken')
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'yantao.json'), '{ "entry": 42 }', 'utf8')
+    skillList.mockResolvedValue([
+      { name: 'broken', description: '坏声明', source: 'custom', invocation: { modelInvocable: true, userInvocable: true } },
+    ])
+    skillGet.mockResolvedValue({
+      name: 'broken', description: '坏声明',
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'custom', provider: 'skill-filesystem', content: '',
+      resourceBase: { kind: 'directory', path: directory },
+      path: join(directory, 'SKILL.md'), metadata: {},
+    } satisfies SkillDefinition)
+    const { unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(unregistered[0]).toMatchObject({ name: 'broken', inKb: true })
+    expect(unregistered[0]?.reason).toMatch(/entry/)
+  })
+
+  it('greys a flat in-KB skill out with no directory to register into', async () => {
+    skillList.mockResolvedValue([
+      { name: 'quick', description: '扁平技能', source: 'custom', invocation: { modelInvocable: true, userInvocable: true } },
+    ])
+    skillGet.mockResolvedValue({
+      name: 'quick', description: '扁平技能',
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'custom', provider: 'skill-filesystem', content: '',
+      resourceBase: { kind: 'directory', path: join(home, '.dsh', 'skills') },
+      path: join(home, '.dsh', 'skills', 'quick.md'), metadata: {},
+    } satisfies SkillDefinition)
+    const { unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(unregistered).toHaveLength(1)
+    expect(unregistered[0]).toMatchObject({ name: 'quick', inKb: true, flat: true })
+    expect(unregistered[0]?.directory).toBeUndefined()
+  })
 })
 
 describe('yantaoKb.capabilityAdopt (ADR-0025)', () => {
@@ -577,6 +632,97 @@ describe('yantaoKb.capabilityAdopt (ADR-0025)', () => {
   it('refuses to run before a KB root has been chosen', async () => {
     state.kbConfigured = false
     const failure = await ctx.yantaoKbController.capabilityAdopt({ name: 'notes-helper' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+  })
+})
+
+describe('yantaoKb.capabilityRegister (ADR-0025)', () => {
+  /** Seed one in-KB directory-bundle skill without a declaration, on disk and in the registry stand-in. */
+  async function seedInside(name: string): Promise<string> {
+    const directory = join(home, '.dsh', 'skills', name)
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'SKILL.md'), `---\nname: ${name}\ndescription: KB 内技能\n---\n\n照做。\n`, 'utf8')
+    skillList.mockResolvedValue([
+      { name, description: 'KB 内技能', source: 'custom', invocation: { modelInvocable: true, userInvocable: true } },
+    ])
+    skillGet.mockResolvedValue({
+      name, description: 'KB 内技能',
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'custom', provider: 'skill-filesystem', content: '',
+      resourceBase: { kind: 'directory', path: directory },
+      path: join(directory, 'SKILL.md'), metadata: {},
+    } satisfies SkillDefinition)
+    return directory
+  }
+
+  it('writes an instruction sidecar in place, no copy', async () => {
+    const directory = await seedInside('notes-helper')
+    const result = await ctx.yantaoKbController.capabilityRegister({ name: 'notes-helper' })
+    expect(result.path).toBe('.dsh/skills/notes-helper/yantao.json')
+    expect(JSON.parse(await readFile(join(directory, 'yantao.json'), 'utf8')))
+      .toEqual({ version: 1, invocation: ['human'] })
+    // In place: the skill directory keeps exactly the files it had.
+    expect((await readdir(directory)).sort()).toEqual(['SKILL.md', 'yantao.json'])
+  })
+
+  it('writes entry and runtime for a script capability', async () => {
+    const directory = await seedInside('scripted')
+    await mkdir(join(directory, 'scripts'), { recursive: true })
+    await ctx.yantaoKbController.capabilityRegister({ name: 'scripted', entry: 'scripts/entry.py' })
+    expect(JSON.parse(await readFile(join(directory, 'yantao.json'), 'utf8')))
+      .toEqual({ version: 1, invocation: ['human'], entry: 'scripts/entry.py', runtime: 'python' })
+  })
+
+  it('repairs an invalid sidecar by overwriting it', async () => {
+    const directory = await seedInside('broken')
+    await writeFile(join(directory, 'yantao.json'), '{ "entry": 42 }', 'utf8')
+    await ctx.yantaoKbController.capabilityRegister({ name: 'broken' })
+    expect(JSON.parse(await readFile(join(directory, 'yantao.json'), 'utf8')))
+      .toEqual({ version: 1, invocation: ['human'] })
+  })
+
+  it('refuses a skill that is already a capability', async () => {
+    skillGet.mockResolvedValue(definition({ path: join(skillDir, 'SKILL.md') }))
+    const failure = await ctx.yantaoKbController.capabilityRegister({ name: 'mail' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((failure as Error).message).toMatch(/已经是能力/)
+  })
+
+  it('refuses an entry that escapes the skill directory and writes nothing', async () => {
+    const directory = await seedInside('escaper')
+    const failure = await ctx.yantaoKbController
+      .capabilityRegister({ name: 'escaper', entry: '../outside.py' })
+      .catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((failure as Error).message).toMatch(/之外/)
+    await expect(readFile(join(directory, 'yantao.json'), 'utf8')).rejects.toThrow()
+  })
+
+  it('refuses an out-of-KB skill, a flat one, and a user-invocable: false one', async () => {
+    skillGet.mockResolvedValue({
+      ...definition(), resourceBase: { kind: 'directory', path: join(home, 'user-skills', 'mail') },
+    })
+    const outside = await ctx.yantaoKbController.capabilityRegister({ name: 'mail' }).catch((error: unknown) => error)
+    expect((outside as Error).message).toMatch(/找不到可注册的技能/)
+    skillGet.mockResolvedValue({
+      name: 'quick', description: '扁平', invocation: { modelInvocable: true, userInvocable: true },
+      source: 'custom', provider: 'skill-filesystem', content: '',
+      resourceBase: { kind: 'directory', path: join(home, '.dsh', 'skills') },
+      path: join(home, '.dsh', 'skills', 'quick.md'), metadata: {},
+    } satisfies SkillDefinition)
+    const flat = await ctx.yantaoKbController.capabilityRegister({ name: 'quick' }).catch((error: unknown) => error)
+    expect((flat as Error).message).toMatch(/找不到可注册的技能/)
+    skillGet.mockResolvedValue(definition({
+      invocation: { modelInvocable: true, userInvocable: false },
+      path: join(skillDir, 'SKILL.md'),
+    }))
+    const quiet = await ctx.yantaoKbController.capabilityRegister({ name: 'mail' }).catch((error: unknown) => error)
+    expect((quiet as Error).message).toMatch(/user-invocable/)
+  })
+
+  it('refuses to run before a KB root has been chosen', async () => {
+    state.kbConfigured = false
+    const failure = await ctx.yantaoKbController.capabilityRegister({ name: 'mail' }).catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
   })
 })

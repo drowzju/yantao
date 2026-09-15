@@ -98,6 +98,7 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     capabilityList: () => Promise.resolve({ capabilities: [], unregistered: [] }),
     capabilityCreate: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     capabilityAdopt: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
+    capabilityRegister: () => Promise.resolve({ path: '.dsh/skills/新能力/yantao.json' }),
     onRunCapability: () => {},
     ...overrides,
   }
@@ -576,6 +577,7 @@ function capabilityProps(overrides: Partial<Parameters<typeof CapabilityPanel>[0
     load: () => Promise.resolve({ capabilities: CAPABILITIES, unregistered: [] }),
     create: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     adopt: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
+    register: () => Promise.resolve({ path: '.dsh/skills/新能力/yantao.json' }),
     mail: () => <div data-mail-stub="true">邮件面板</div>,
     ...overrides,
   }
@@ -656,10 +658,20 @@ describe('CapabilityPanel', () => {
     ...overrides,
   })
 
+  /** One flat 未注册 row: no directory to carry a sidecar. */
+  const flatUnregistered = (name: string, extra: Partial<KbUnregisteredSkill> = {}): KbUnregisteredSkill => ({
+    name,
+    description: '扁平技能',
+    source: 'user',
+    userInvocable: true,
+    flat: true,
+    ...extra,
+  })
+
   it('lists 未注册 skills with their grey reasons and never opens a confirm for a greyed row', async () => {
     const rows = [
       unregistered(),
-      unregistered({ name: 'quick', directory: undefined, flat: true }),
+      flatUnregistered('quick'),
       unregistered({ name: 'hidden', userInvocable: false }),
     ]
     render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }) })} />)
@@ -693,6 +705,46 @@ describe('CapabilityPanel', () => {
     render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }) })} />)
     fireEvent.click(await screen.findByText('notes-helper'))
     expect(await screen.findByText(/外带声明不会静默生效/)).toBeTruthy()
+  })
+
+  it('registers an in-KB skill through the guided dialog, instruction type by default', async () => {
+    const capabilities: KbCapabilitySummary[] = []
+    const register = vi.fn(() => {
+      capabilities.push({ name: 'notes-helper', description: '整理笔记', source: 'custom', invocation: ['human'] })
+      return Promise.resolve({ path: '.dsh/skills/notes-helper/yantao.json' })
+    })
+    const rows = [unregistered({ inKb: true, reason: '能力「notes-helper」没有能力声明（yantao.json 或 SKILL.md 的 metadata.yantao 段）。' })]
+    const load = vi.fn(() => Promise.resolve({ capabilities, unregistered: rows }))
+    render(<CapabilityPanel {...capabilityProps({ load, register })} />)
+    expect(await screen.findByText(/没有能力声明/)).toBeTruthy()
+    fireEvent.click(screen.getByText('notes-helper'))
+    expect(await screen.findByText(/注册「notes-helper」为能力/)).toBeTruthy()
+    expect(screen.getByText('{"version":1,"invocation":["human"]}')).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByText('注册')) })
+    expect(register).toHaveBeenCalledWith('notes-helper', undefined)
+    expect(await screen.findByText('← 返回清单')).toBeTruthy()
+  })
+
+  it('registers a script capability with the entry the dialog collected', async () => {
+    const register = vi.fn(() => Promise.resolve({ path: '.dsh/skills/scripted/yantao.json' }))
+    const rows = [unregistered({ name: 'scripted', inKb: true, reason: '能力「scripted」没有能力声明。' })]
+    render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }), register })} />)
+    fireEvent.click(await screen.findByText('scripted'))
+    await screen.findByText(/注册「scripted」为能力/)
+    fireEvent.click(screen.getByText('脚本型'))
+    await act(async () => { fireEvent.change(screen.getByDisplayValue('scripts/entry.py'), { target: { value: 'run.py' } }) })
+    expect(screen.getByText('{"version":1,"invocation":["human"],"entry":"run.py","runtime":"python"}')).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByText('注册')) })
+    expect(register).toHaveBeenCalledWith('scripted', 'run.py')
+  })
+
+  it('never opens the register dialog for a greyed in-KB row', async () => {
+    const rows = [flatUnregistered('quick', { inKb: true, reason: '能力「quick」没有能力声明。' })]
+    render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }) })} />)
+    await screen.findByText('未注册技能（ADR-0025）')
+    expect(screen.getByText('扁平单文件技能没有自己的目录，无法放置 yantao.json')).toBeTruthy()
+    fireEvent.click(screen.getByText('quick'))
+    expect(screen.queryByText(/注册为能力/)).toBeNull()
   })
 })
 
@@ -767,6 +819,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       capabilityList={kb.capabilityList}
       capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
       capabilityAdopt={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
+      capabilityRegister={() => Promise.resolve({ path: '.dsh/skills/新能力/yantao.json' })}
       capabilityRun={kb.capabilityRun}
       promptSession={kb.promptSession}
       writeTodos={kb.writeTodos}
@@ -952,6 +1005,7 @@ describe('Frame', () => {
         capabilityList={() => Promise.resolve({ capabilities: [], unregistered: [] })}
         capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
         capabilityAdopt={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
+        capabilityRegister={() => Promise.resolve({ path: '.dsh/skills/新能力/yantao.json' })}
         capabilityRun={() => Promise.resolve({ name: '', runAt: '', artifacts: [] })}
         promptSession={kb.promptSession}
         onKbRootChanged={onKbRootChanged}

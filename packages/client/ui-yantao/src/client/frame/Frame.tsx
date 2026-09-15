@@ -13,7 +13,8 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
-  CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityCreator,
+  CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, CapabilityRunner, DirectoryPicker,
+  EntityCreator,
   ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader,
   MailFetcher, MailMarker, RelationSetter, ResourceRegistrar, RevisionLoader, RootLoader, RootSetter,
   SessionPrompter, TodoLoader, TodoWriter,
@@ -87,6 +88,8 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly capabilityCreate: CapabilityCreator
   /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
   readonly capabilityAdopt: CapabilityAdopter
+  /** Register one in-KB skill by writing its sidecar in place (ADR-0025 决定 1). */
+  readonly capabilityRegister: CapabilityRegistrar
   /** Run one capability with the caller's input (ADR-0021 决定 7's row menus). */
   readonly capabilityRun: CapabilityRunner
   /** Send one prompt to the conversation the human is watching (ADR-0025 决定 4). */
@@ -226,7 +229,8 @@ function DragHandle(props: {
 export function Frame({
   renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail,
-  registerResource, capabilityList, capabilityCreate, capabilityAdopt, capabilityRun, promptSession, onKbRootChanged,
+  registerResource, capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
+  promptSession, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -611,6 +615,7 @@ export function Frame({
           capabilityList={capabilityList}
           capabilityCreate={capabilityCreate}
           capabilityAdopt={capabilityAdopt}
+          capabilityRegister={capabilityRegister}
           onRunCapability={runRowCapability}
         />
       </div>

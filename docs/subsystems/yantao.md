@@ -333,8 +333,11 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  *
  * The answer also carries the 未注册 group (ADR-0025 决定 1): skills
  * discovered outside the KB that adoption could copy in — directory
- * bundles, name-sorted, after the registered list. Bundled skills (dsh's
- * own) are not third-party finds and never appear.
+ * bundles, name-sorted, after the registered list — and skills living
+ * inside the KB's own `.dsh/skills/` whose declaration is missing or
+ * invalid, greyed rows carrying the reason; registration (ADR-0025 决定 1)
+ * writes their sidecar in place. Bundled skills (dsh's own) are not
+ * third-party finds and never appear.
  * @returns both groups.
  */
 @Remote('capabilityList') async capabilityList(): Promise<KbCapabilityListResult>
@@ -367,6 +370,26 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * @returns the adopted directory's KB-relative path.
  */
 @Remote('capabilityAdopt') async capabilityAdopt(args: KbCapabilityAdoptArgs): Promise<KbCapabilityAdoptResult>
+
+/**
+ * Register one in-KB skill as a capability (ADR-0025 决定 1): write its
+ * `yantao.json` sidecar in place — no copy, the skill directory stays where
+ * it is. With an `entry` the sidecar declares a script capability
+ * (`runtime: 'python'`); without one, an instruction capability
+ * (ADR-0023 决定 6). The invocation is always `['human']`: opening a
+ * capability to the agent is a separate, deliberate edit of the sidecar,
+ * never a side effect of registration.
+ *
+ * Guards: the name must be a single safe path segment, the skill must be a
+ * directory bundle inside the KB's own `.dsh/skills/`, its frontmatter must
+ * not mark it `user-invocable: false`, it must not already be a capability
+ * (a valid declaration is never silently overwritten — repairing an invalid
+ * one is exactly what this call is for), and an `entry` must stay inside
+ * the skill's directory.
+ * @param args - the in-KB skill's name and, for a script capability, its entry.
+ * @returns the sidecar's KB-relative path.
+ */
+@Remote('capabilityRegister') async capabilityRegister(args: KbCapabilityRegisterArgs): Promise<KbCapabilityRegisterResult>
 ```
 
 Source: [`packages/api/yantao-kb-controller/src/index.ts`](../../packages/api/yantao-kb-controller/src/index.ts)

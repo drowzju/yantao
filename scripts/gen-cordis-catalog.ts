@@ -723,6 +723,8 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   KbCapabilityCreateResult: 'wire capabilityCreate result is owned by packages/api/yantao-kb-controller/README.md',
   KbCapabilityAdoptArgs: 'wire capabilityAdopt request is owned by packages/api/yantao-kb-controller/README.md',
   KbCapabilityAdoptResult: 'wire capabilityAdopt result is owned by packages/api/yantao-kb-controller/README.md',
+  KbCapabilityRegisterArgs: 'wire capabilityRegister request is owned by packages/api/yantao-kb-controller/README.md',
+  KbCapabilityRegisterResult: 'wire capabilityRegister result is owned by packages/api/yantao-kb-controller/README.md',
   BashEnvContributor: 'service-local extension type is owned by packages/shell/tool-bash/src/index.ts',
   BashEnvVariableInfo: 'service-local metadata type is owned by packages/shell/tool-bash/src/index.ts',
   CompactionAgentContext: 'compaction service input is owned by packages/compaction/compaction/src/index.ts',

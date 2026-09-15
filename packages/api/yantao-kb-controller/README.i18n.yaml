@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/api/yantao-kb-controller/README.md
-README.md: a5aa77809bbceaadc883d70a4d50ed1929499f5a
-README.zh.md: 88929bd0ccb60f6e164b64bf0919c2c8d4e3a6f5
+README.md: b0d3106d805d4bd1b060b2117cb16d829b66bb5c
+README.zh.md: 91a7215dd3525802cd1f0f92b5997fad0993e181

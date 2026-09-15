@@ -47,7 +47,7 @@ import { capabilityGestureSource } from './capability-gesture.ts'
 import {
   adoptCapability, createCapability, createEntity, deleteFile, fetchMail, loadCapabilities, loadIntake, loadLinks,
   loadRevision, loadRoot, loadTodos,
-  loadWorkspace, markMailRead, openExternal, readFile, registerResource, runCapability, setKbRoot,
+  loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, runCapability, setKbRoot,
   setRelation, writeFile, writeTodos,
 } from './remote.ts'
 import type { MailMessage } from './remote.ts'
@@ -172,6 +172,8 @@ export function apply(ctx: Context): void {
       capabilityCreate: (name: string) => createCapability(ctx, name),
       // ADR-0025 决定 1: adopt an out-of-KB skill into `.dsh/skills/`.
       capabilityAdopt: (name: string) => adoptCapability(ctx, name),
+      // ADR-0025 决定 1: register an in-KB skill by writing its sidecar in place.
+      capabilityRegister: (name: string, entry?: string) => registerCapability(ctx, name, entry),
       // ADR-0025 决定 4: an instruction capability's prompt goes to the
       // conversation the human is watching, on a KB-rooted session.
       promptSession: async (text: string) => {

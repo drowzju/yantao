@@ -9,7 +9,8 @@
  * files a new note from the KB's canonical template; `registerResource` is the
  * drag-and-drop intake (ADR-0020): a dropped file is copied into `resources/`.
  * The capability surface (ADR-0021) is `capabilityList`/`capabilityRun`/
- * `capabilityCreate`/`capabilityAdopt` (ADR-0025): a capability is a dsh skill
+ * `capabilityCreate`/`capabilityAdopt`/`capabilityRegister` (ADR-0025): a
+ * capability is a dsh skill
  * directory declaring a host entry, and this controller seeds the shipped
  * ones, lists them, runs them, writes their artifacts, and persists their
  * state. The UI is the human
@@ -48,6 +49,8 @@ import type {
   KbCapabilityCreateArgs,
   KbCapabilityCreateResult,
   KbCapabilityListResult,
+  KbCapabilityRegisterArgs,
+  KbCapabilityRegisterResult,
   KbCapabilityRunArgs,
   KbCapabilityRunResult,
   KbCapabilitySummary,
@@ -1053,8 +1056,11 @@ export class YantaoKbController extends TypertRemoteService {
    *
    * The answer also carries the 未注册 group (ADR-0025 决定 1): skills
    * discovered outside the KB that adoption could copy in — directory
-   * bundles, name-sorted, after the registered list. Bundled skills (dsh's
-   * own) are not third-party finds and never appear.
+   * bundles, name-sorted, after the registered list — and skills living
+   * inside the KB's own `.dsh/skills/` whose declaration is missing or
+   * invalid, greyed rows carrying the reason; registration (ADR-0025 决定 1)
+   * writes their sidecar in place. Bundled skills (dsh's own) are not
+   * third-party finds and never appear.
    * @returns both groups.
    */
   @Remote('capabilityList')
@@ -1097,8 +1103,25 @@ export class YantaoKbController extends TypertRemoteService {
       let manifest: CapabilityManifest
       try {
         manifest = manifestOf(definition)
-      } catch {
-        // A skill without a (valid) yantao declaration is a skill, not a capability.
+      } catch (error) {
+        // A skill without a (valid) yantao declaration is a skill, not a
+        // capability — but it already lives in the KB, so registration can
+        // write its sidecar in place: surface it in the 未注册 group with the
+        // reason, instead of dropping it silently.
+        const flat = definition.path === undefined || basename(definition.path) !== 'SKILL.md'
+        const directory = !flat && definition.resourceBase?.kind === 'directory'
+          ? definition.resourceBase.path
+          : undefined
+        unregistered.push({
+          name: summary.name,
+          description: summary.description,
+          source: summary.source,
+          ...directory !== undefined ? { directory } : {},
+          userInvocable: summary.invocation.userInvocable,
+          flat,
+          inKb: true,
+          reason: error instanceof CapabilityError ? error.message : String(error),
+        })
         continue
       }
       const record = readCapabilityRecord(kbRoot, summary.name)
@@ -1314,6 +1337,104 @@ export class YantaoKbController extends TypertRemoteService {
     }
     await this.settleSkills([name])
     return { path: `.dsh/skills/${name}` }
+  }
+
+  /**
+   * Register one in-KB skill as a capability (ADR-0025 决定 1): write its
+   * `yantao.json` sidecar in place — no copy, the skill directory stays where
+   * it is. With an `entry` the sidecar declares a script capability
+   * (`runtime: 'python'`); without one, an instruction capability
+   * (ADR-0023 决定 6). The invocation is always `['human']`: opening a
+   * capability to the agent is a separate, deliberate edit of the sidecar,
+   * never a side effect of registration.
+   *
+   * Guards: the name must be a single safe path segment, the skill must be a
+   * directory bundle inside the KB's own `.dsh/skills/`, its frontmatter must
+   * not mark it `user-invocable: false`, it must not already be a capability
+   * (a valid declaration is never silently overwritten — repairing an invalid
+   * one is exactly what this call is for), and an `entry` must stay inside
+   * the skill's directory.
+   * @param args - the in-KB skill's name and, for a script capability, its entry.
+   * @returns the sidecar's KB-relative path.
+   */
+  @Remote('capabilityRegister')
+  async capabilityRegister(args: KbCapabilityRegisterArgs): Promise<KbCapabilityRegisterResult> {
+    if (!this.ctx.yantaoKb.configured) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        '还没有选择知识库目录，技能无处注册。',
+        { path: args.name },
+      )
+    }
+    const name = args.name
+    if (name === '.' || name === '..' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name)) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `技能名不能用作能力目录名：${name}`,
+        { path: name },
+      )
+    }
+    const definition = await this.ctx.skills.get(name, { cwd: this.kbRoot })
+    const directory = definition?.resourceBase?.kind === 'directory' ? definition.resourceBase.path : undefined
+    if (definition === undefined || !this.isKbSkill(definition) || directory === undefined
+      || definition.path === undefined || basename(definition.path) !== 'SKILL.md') {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `找不到可注册的技能「${name}」（注册只面向 KB 内 .dsh/skills/ 下的目录技能）。`,
+        { path: name },
+      )
+    }
+    if (!definition.invocation.userInvocable) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `技能「${name}」的 frontmatter 声明了 user-invocable: false，不可注册。`,
+        { path: name },
+      )
+    }
+    let declared = false
+    try {
+      manifestOf(definition)
+      declared = true
+    } catch {
+      // Missing or invalid declaration: the repair path this call exists for.
+    }
+    if (declared) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `技能「${name}」已经是能力，无需注册。`,
+        { path: name },
+      )
+    }
+    const entry = args.entry?.trim()
+    if (entry !== undefined && entry !== '') {
+      const entryPath = resolve(directory, entry)
+      if (!entryPath.startsWith(resolve(directory) + sep)) {
+        throw new RemoteError(
+          'yantao-kb/rejected',
+          `entry 指向了技能目录之外：${entry}`,
+          { path: name },
+        )
+      }
+    }
+    // The declaration is assembled from validated pieces, so what lands on
+    // disk is a manifest the run path accepts by construction.
+    const sidecar = {
+      version: 1,
+      invocation: ['human'],
+      ...(entry !== undefined && entry !== '' ? { entry, runtime: 'python' } : {}),
+    }
+    try {
+      await writeFile(join(directory, 'yantao.json'), `${JSON.stringify(sidecar, null, 2)}\n`, 'utf8')
+    } catch (error) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `无法写入能力声明：${(error as Error).message}`,
+        { path: name },
+        { cause: error },
+      )
+    }
+    await this.settleSkills([name])
+    return { path: `.dsh/skills/${name}/yantao.json` }
   }
 }
 

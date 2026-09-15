@@ -27,6 +27,11 @@ ADR-0023 决定 4 的既定状态）；资源右键和选区右键没有指令�
      显式过目——外带声明不能静默生效。
    扁平单文件技能（`xxx.md`，无目录可写 sidecar）灰显标注「不支持」，不做自动转目录。
    sidecar 仍是能力的唯一凭证（ADR-0021 决定 6 不放松）：采纳动作本身就是审计点。
+   **落地注记（2026-09-15）**：KB **内**的技能（`.dsh/skills/` 下无 sidecar 或 sidecar
+   无效的开源目录）也进未注册分组——带 `inKb: true` 与校验失败原因，注册走第二十一个
+   RPC `capabilityRegister`：**原地**写 sidecar（不拷贝，技能目录本来就在归宿里），
+   引导式对话框选指令型/脚本型后写入；已是能力的技能拒绝覆盖（修复无效 sidecar 才是
+   注册的用途），`invocation` 恒为 `["human"]`，对 agent 开放仍是 sidecar 的手工编辑。
 
 2. **frontmatter 映射**。上游字段各管各的命名空间：`user-invocable: false` → 不可采纳、
    不可 `/xxx`，未注册分组里灰显并给原因；`disable-model-invocation` → **忽略**——
