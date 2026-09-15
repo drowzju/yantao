@@ -81,16 +81,16 @@
 
 | **`ui-yantao-kb` 退役(TODO 阶段 2 第 1 条 2026-09-15)** —— 包删除:自 ADR-0010/0011 起它已移出 roster(`KbEditor` 早已移植进 `ui-yantao` 的 `FileEditor`),删除同时移除它的 bundle 依赖、被注释的 roster 行、tsconfig 工程/路径映射、`yantaoKbWorkbench` 服务目录条目,doc-graph 的消费边改为 `client-ui-yantao`;模块/配置/能力缝目录重新生成后不再含它 | `packages/client/ui-yantao-kb/` 删除、`packages/bundle/yantao-web-app/{package.json,cordis.patch.yml}`、`scripts/{gen-cordis-catalog,gen-doc-graphs,verify-package-readme-model-experience}.ts`、`packages/client/README` 对、`packages/bundle/yantao-web-app/README` 对、`packages/api/yantao-kb-controller/README` 对。验证:各生成器 + pairing 全绿,ui-yantao 测试全绿,`build:lib:client`、client bundle、frontend build 通过 |
 
+| **共享 shell 外围逐行退场(TODO 阶段 2 第 1 条 2026-09-15)** —— yantao-web roster 一次一行移除九个 `ui-*` 行,每行单独重启并用无头 Edge 冒烟验证(playwright 驱动系统浏览器,`[data-rail-handle]` 标记 + 控制台错误哨兵):`ui-brand-official`、`ui-message-feedback`、`ui-model-selection`、`ui-permission`、`ui-agent-preset`,以及除基座外的整个设置面——`ui-settings-general`、`ui-settings-models`、`ui-settings-plugins`、`ui-settings-plugin-inventory`(工作台框架没有设置入口,这些页面本就不可达)。循环同时摸清了承重图并写进 roster 注释:`ui-settings` 提供 `settingsScope`,`locale` 等它,几乎所有插件等 `locale`;`ui-yantao` 自己等 `theme`/`uiWorkspace`/`inputTriggers`,钉死 `ui-theme`、`ui-workspace`、`ui-input-trigger`;`ui-conversation` + `ui-chat` 验证过可以一起移除(页面照常加载,只是对话 tab 变空),但在 deferred 的 L3 收归中列之前保留 | `packages/bundle/yantao-web-app/cordis.patch.yml`。验证:每行一次重启的无头冒烟全绿(无新错误签名),`gen-cordis-catalog --check`、`gen-client-catalog --check` 通过 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
 
-1. **逐行让共享 shell 退场** —— 每次只禁用一个 `ui-*` 行,重启,确认页面正常,再继续。`slots` 是运行时基础设施,不是 UI,
-    必须留到无人需要为止。`ui-layout` 已退场(ADR-0011);剩下的大头是 `ui-conversation` 与 `ui-chat`。只有 shell 退场后,中间一列才归我们并承载 agent 交互。
-2. **给工作台自己的词典** —— `Workbench.tsx` 里的文案是硬编码中文;等面板文案多起来就注册一个 locale 命名空间。
-3. **阅读视图 v4 —— Mermaid 与本地图片** —— 两者都要付代价:客户端包是单文件 CJS,mermaid 会被内联成 ~3.5MB(或要改宿主模块表);
+1. **给工作台自己的词典** —— `Workbench.tsx` 里的文案是硬编码中文;等面板文案多起来就注册一个 locale 命名空间。
+2. **阅读视图 v4 —— Mermaid 与本地图片** —— 两者都要付代价:客户端包是单文件 CJS,mermaid 会被内联成 ~3.5MB(或要改宿主模块表);
    本地图片需要新 RPC + 宿主路由,因为 `read()` 是 utf8,二进制会被解坏。等知识库里真出现一个再开工。
-4. **启动耗时分段测量** — 冷启动约 22–26 秒,但未拆过段。已知不等于结论的两点：慢的是 dsh 的
+3. **启动耗时分段测量** — 冷启动约 22–26 秒,但未拆过段。已知不等于结论的两点：慢的是 dsh 的
    profile boot（与同进程/子进程无关：CLI 22.6s、同进程 22.2s、子进程 26.1s）。
    下一步：在宿主启动时打时间戳，分清 **tsx 现转译** 与 **cordis 逐行挂载插件** 各占多少；
    转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。
@@ -110,7 +110,7 @@ _无。(曾在此的三项 —— 客户端 face 重建、`tsgolint`、`toThrowE
 | FTS 与 backlinks 索引 | 等知识库有真实内容后再定存储(drift/sqlite 还是 dsh `session-query`) |
 | *(已移入 next)* Connector 实现 → 能力系统(ADR-0021) | 连接概念已被能力取代;邮件已实现,剩余工作排在 next 的「能力系统」小节 |
 | *(已移入 done)* —— 注意:单包 `tsc -b` 会**重新生成**这些残留 | 用仓库自带的 `pnpm run clean` 再清,或先 `git clean -n -- packages` 预览、再 `git clean -f -- packages` |
-| 把中间一列也收归我们(ADR-0011 里的 L3) | 会话面在上游约 23k 行(ui-conversation + ui-chat + ui-tool);中间还是对话流水时没有产品理由重写。若中列变成 KB 文档视图再议。 |
+| 把中间一列也收归我们(ADR-0011 里的 L3) | 会话面在上游约 23k 行(ui-conversation + ui-chat + ui-tool);中间还是对话流水时没有产品理由重写。若中列变成 KB 文档视图再议。2026-09-15 验证:把 `ui-conversation` + `ui-chat` 移出 roster 后照常启动——等中列归我们时这一步本身没有成本。 |
 | 精简 profile(减少 base 行)以缩短约 35 秒启动 | 先测量;等 UI 完全归我们再做 |
 
 ## 这份清单的规矩

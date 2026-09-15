@@ -82,20 +82,18 @@ note), **deferred** (deliberately parked — see the note).
 
 | **`ui-yantao-kb` retires (TODO Phase 2 item 1 2026-09-15)** — the package is deleted: it had been out of the roster since ADR-0010/0011 (its `KbEditor` long since ported into `ui-yantao`'s `FileEditor`), and the deletion removes its bundle dependency, the commented roster row, the tsconfig project/path mappings, the `yantaoKbWorkbench` service-catalog entry, and the doc-graph consumer edge (now `client-ui-yantao`); the module/config/capability-seams catalogs regenerate without it | `packages/client/ui-yantao-kb/` deleted, `packages/bundle/yantao-web-app/{package.json,cordis.patch.yml}`, `scripts/{gen-cordis-catalog,gen-doc-graphs,verify-package-readme-model-experience}.ts`, `packages/client/README` pair, `packages/bundle/yantao-web-app/README` pair, `packages/api/yantao-kb-controller/README` pair. 验证：generators + pairing 全绿，ui-yantao 测试全绿，`build:lib:client`、client bundle、frontend build 通过 |
 
+| **Shared-shell chrome steps aside (TODO Phase 2 item 1 2026-09-15)** — the yantao-web roster shrinks by nine `ui-*` rows, each removed one at a time and reboot-verified with a headless Edge smoke (playwright over the stock browser, `[data-rail-handle]` marker + console-error tripwire): `ui-brand-official`, `ui-message-feedback`, `ui-model-selection`, `ui-permission`, `ui-agent-preset`, and the settings surface minus its base — `ui-settings-general`, `ui-settings-models`, `ui-settings-plugins`, `ui-settings-plugin-inventory` (the workbench frame has no settings entry point, so the pages were unreachable chrome). The loop also mapped the load-bearing graph, recorded as roster comments: `ui-settings` provides `settingsScope` on which `locale` waits and nearly everything waits on `locale`; `ui-yantao` itself waits on `theme`/`uiWorkspace`/`inputTriggers`, pinning `ui-theme`, `ui-workspace`, `ui-input-trigger`; `ui-conversation` + `ui-chat` were verified removable together (page loads clean, the 对话 tab simply empties) but stay until the deferred L3 step owns the middle | `packages/bundle/yantao-web-app/cordis.patch.yml`. 验证：headless smoke 每行一次重启全绿（无新错误签名），`gen-cordis-catalog --check`、`gen-client-catalog --check` 通过 |
+
 ## next
 
 ### Phase 2 — three-pane UI (ADR-0010)
 
-1. **Step the shared shell aside, one row at a time** — disable a single `ui-*` row, reboot, confirm the page still loads, repeat.
-   `slots` is runtime infrastructure, not UI: it must stay until nothing needs it. `ui-layout` already stepped aside (ADR-0011);
-   the remaining big ones are `ui-conversation` and `ui-chat`. Only when the shell is gone can the middle column become ours
-   and host agent interaction.
-2. **Give the workbench its own dictionary** — labels are hardcoded Chinese in `Workbench.tsx`; register a locale namespace
+1. **Give the workbench its own dictionary** — labels are hardcoded Chinese in `Workbench.tsx`; register a locale namespace
    when the panes grow past a handful of strings.
-3. **Reading view v4 — Mermaid and local images** — both are paywalled: client bundles are single-file CJS, so mermaid inlines at
+2. **Reading view v4 — Mermaid and local images** — both are paywalled: client bundles are single-file CJS, so mermaid inlines at
    ~3.5MB (or needs a host module-table change), and local images need a new RPC plus a host route because `read()` is utf8 and
    would corrupt binaries. Only worth it once a KB file actually contains one.
-4. **启动耗时分段测量** — 冷启动约 22–26 秒，但未拆过段。已知不等于结论的两点：慢的是 dsh 的
+3. **启动耗时分段测量** — 冷启动约 22–26 秒，但未拆过段。已知不等于结论的两点：慢的是 dsh 的
    profile boot（与同进程/子进程无关：CLI 22.6s、同进程 22.2s、子进程 26.1s）。
    下一步：在宿主启动时打时间戳，分清 **tsx 现转译** 与 **cordis 逐行挂载插件** 各占多少；
    转译占大头就预编译宿主为 JS，挂载占大头就瘦身 profile（见 deferred 那条「~35s boot」）。
@@ -115,7 +113,7 @@ _None. (The three items that sat here — the client-face rebuild, `tsgolint`, a
 | FTS + backlinks index | needs a storage decision (drift/sqlite vs dsh `session-query`) once the KB has real content |
 | *(moved to next)* Connector implementation → capability system (ADR-0021) | the connector concept is superseded by capabilities; mail is done, the remaining work sits in the「能力系统」section under next |
 | *(moved to done)* — note: a per-package `tsc -b` **recreates** this residue | re-clean with the repo's own `pnpm run clean`, or `git clean -f -- packages` after checking `git clean -n -- packages` |
-| Owning the middle column too (the L3 step in ADR-0011) | the conversation surface is ~23k lines upstream (ui-conversation + ui-chat + ui-tool); no product reason to rewrite it while the middle is still a chat transcript. Revisit if the middle becomes a KB document view. |
+| Owning the middle column too (the L3 step in ADR-0011) | the conversation surface is ~23k lines upstream (ui-conversation + ui-chat + ui-tool); no product reason to rewrite it while the middle is still a chat transcript. Revisit if the middle becomes a KB document view. Verified 2026-09-15: removing `ui-conversation` + `ui-chat` from the roster boots clean — the step itself is free once the middle is ours. |
 | Slimming the profile (fewer base rows) to cut the ~35s boot | measure first; only after the UI is ours |
 
 ## rules for this list

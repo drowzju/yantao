@@ -187,18 +187,15 @@
     - id: ui-session
       name: '@deepseek-ai/dsh-client-ui-session'
 
+    # The settings-scope base: locale, ui-theme and the conversation family
+    # all wait on settingsScope, so this stays even though the workbench
+    # frame has no settings entry point.
     - id: ui-settings
       name: '@deepseek-ai/dsh-client-ui-settings'
 
-    - id: ui-settings-general
-      name: '@deepseek-ai/dsh-client-ui-settings-general'
-
-    - id: ui-settings-models
-      name: '@deepseek-ai/dsh-client-ui-settings-models'
-
-    - id: ui-settings-plugin-inventory
-      name: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'
-
+    # The host conversation surface in the middle column (ADR-0011): stays
+    # until the deferred L3 step owns the middle — removing both loads fine
+    # (verified 2026-09-15) but leaves the 对话 tab empty.
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'
 
@@ -208,11 +205,9 @@
     - id: ui-chat
       name: '@deepseek-ai/dsh-client-ui-chat'
 
-    # Official occupants for the generic sidebar brand slots (the workbench
-    # sidebar re-declares them for this build).
-    - id: ui-brand-official
-      name: '@deepseek-ai/dsh-client-ui-brand-official'
-
+    # Conversation-surface cast: the attachment rail, drop invitation and
+    # image galleries the middle column's transcript shows (the middle stays
+    # the host conversation until the deferred L3 step).
     - id: ui-attachment
       name: '@deepseek-ai/dsh-client-ui-attachment'
 
@@ -221,6 +216,8 @@
     - id: ui-tool
       name: '@deepseek-ai/dsh-client-ui-tool'
 
+    # Provides the uiWorkspace service (pickDirectory et al.) that ui-yantao,
+    # ui-conversation and ui-chat wait on — the directory-picker client half.
     - id: ui-workspace
       name: '@deepseek-ai/dsh-client-ui-workspace'
 
@@ -234,28 +231,6 @@
 
     - id: ui-reference
       name: '@deepseek-ai/dsh-client-ui-reference'
-
-    # Per-message feedback: Like/Dislike plus an optional note in the
-    # assistant-message action strip, over the messageFeedback Remote.
-    - id: ui-message-feedback
-      name: '@deepseek-ai/dsh-client-ui-message-feedback'
-
-    # Model selection: the /model popupSelect + composer seat over session.models.
-    - id: ui-model-selection
-      name: '@deepseek-ai/dsh-client-ui-model-selection'
-
-    - id: ui-permission
-      name: '@deepseek-ai/dsh-client-ui-permission-presets'
-
-    # The agent-preset row in General settings: the default preset for
-    # sessions created later.
-    - id: ui-agent-preset
-      name: '@deepseek-ai/dsh-client-ui-agent-preset'
-
-    # Plugin configuration: the host-plane sections a user owns, as expandable
-    # cards (the yantao-kb kbRoot card renders here).
-    - id: ui-settings-plugins
-      name: '@deepseek-ai/dsh-client-ui-settings-plugins'
 
 # ── the agent plane moves behind agent presets ─────────────────────────────
 #
