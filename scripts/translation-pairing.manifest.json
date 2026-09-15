@@ -33,6 +33,8 @@
     "docs/adr/0021-capability-system.md",
     "docs/adr/0022-prompt-layering.md",
     "docs/adr/0023-agent-capability-invocation.md",
+    "docs/adr/0024-kb-self-containment.md",
+    "docs/adr/0025-third-party-skill-adoption.md",
     "packages/yantao/kb/prompt/sections/README.md"
   ]
 }

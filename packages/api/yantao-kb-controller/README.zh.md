@@ -47,13 +47,14 @@ kind: "package-reference"
 | `yantaoKb.writeTodos` | `({ items, expectedText })` | `{ path, text }`——替换单例的条目，保留 preamble（ADR-0018） |
 | `yantaoKb.mailMarkRead` | `({ lastReadAt?, firstReadAt? })` | `{ lastReadAt, firstReadAt? }`——把邮件能力的断点往前推，并把最早的 `firstReadAt` 记为已处理范围的起点；`lastReadAt` 缺省为当前时刻（ADR-0019） |
 | `yantaoKb.registerResource` | `({ name, contentBase64 })` | `{ resource }`——把一个拖入的文件逐字节复制进 `resources/`，清理文件名并拒绝重复；旁边不生成任何笔记（ADR-0020） |
-| `yantaoKb.capabilityRun` | `({ name, input? })` | `{ name, runAt, result?, content?, artifacts }`——把一个能力的宿主入口（通过目录根的 `yantao.json` sidecar 声明自己的 dsh skill 目录，兼容旧的 `metadata.yantao` frontmatter）作为 Python 子进程运行，产物写入 `.yantao/capabilities/<name>/`，状态记到 `~/.dsh/yantao-kb.json` 的 `capabilities.<name>.state`；指令型能力（无 `entry`）不 spawn，改以 SKILL.md 正文作为 `content` 作答（ADR-0021、ADR-0023） |
-| `yantaoKb.capabilityList` | `()` | `{ capabilities }`——知识库根目录下每个声明了能力清单的技能，每行合并它的持久化记录（`lastRunAt`、`state`）；内置能力会先被播种进 `<kbRoot>/.dsh/skills/`（ADR-0021） |
+| `yantaoKb.capabilityRun` | `({ name, input? })` | `{ name, runAt, result?, content?, artifacts }`——把一个能力的宿主入口（通过目录根的 `yantao.json` sidecar 声明自己的 dsh skill 目录，兼容旧的 `metadata.yantao` frontmatter）作为 Python 子进程运行，产物写入 `.yantao/capabilities/<name>/`，状态记到 `<kbRoot>/.yantao/state.json` 的 `capabilities.<name>.state`（ADR-0024）；指令型能力（无 `entry`）不 spawn，改以 SKILL.md 正文作为 `content` 作答（ADR-0021、ADR-0023） |
+| `yantaoKb.capabilityList` | `()` | `{ capabilities, unregistered }`——知识库根目录下每个声明了能力清单的技能，每行合并它的持久化记录（`lastRunAt`、`state`），外加 `unregistered` 分组：没有 sidecar 的技能目录，可采纳进知识库（ADR-0025 决定 1）；内置能力会先被播种进 `<kbRoot>/.dsh/skills/`（ADR-0021） |
 | `yantaoKb.capabilityCreate` | `({ name })` | `{ path }`——在 `.dsh/skills/<name>/` 脚手架出干净的 SKILL.md、声明用的 `yantao.json` sidecar 和说执行协议的 `scripts/entry.py`；第一次运行就能工作的能力（ADR-0021 决定 8） |
+| `yantaoKb.capabilityAdopt` | `({ name })` | `{ path }`——把一个 KB 外的技能目录拷贝进 `.dsh/skills/<name>/` 并写缺省的 human-invocable 指令型 sidecar；拒绝已存在的目标、`user-invocable: false` 的技能，以及一切不是「带 SKILL.md 的扁平目录束」的东西（ADR-0025 决定 1；源目录自带 sidecar 声明 `entry` 或 agent 的情况由面板的确认框显式过目，这里不拦） |
 
 `setRelation` 只对人物文件作答：其它文件一律 `yantao-kb/rejected` 且不被改写，五种关系之外的取值同样拒绝。它是对 frontmatter 的一行拼接，绝不重排 YAML——重新生成映射会丢掉人类写的注释与顺序。
 
-`setRoot` 只接受绝对路径（相对或空路径会被拒绝），并把它交给 `yantaoKb` 服务——服务负责把选择持久化到 `~/.dsh` 之下。`createEntity` 接受 `project`、`area`、`person`、`meeting`；会议文件名会冠以它自己的日期。人物实体会写入调用方给出的 `relation`——`self` / `subordinate` / `superior` / `peer` / `external`，即 kb 领域自己的五种关系；调用方不指定时，沿用领域自己的缺省值。还可以给出可选的 `email`，工作树会把它读回来，供邮件分析把发件人匹配到人员。
+`setRoot` 只接受绝对路径（相对或空路径会被拒绝），并把它交给 `yantaoKb` 服务——服务负责把选择持久化到 settings plane，即 `~/.dsh/settings.yaml` 的 `yantao-kb` 命名空间（ADR-0024 决定 3）。`createEntity` 接受 `project`、`area`、`person`、`meeting`；会议文件名会冠以它自己的日期。人物实体会写入调用方给出的 `relation`——`self` / `subordinate` / `superior` / `peer` / `external`，即 kb 领域自己的五种关系；调用方不指定时，沿用领域自己的缺省值。还可以给出可选的 `email`，工作树会把它读回来，供邮件分析把发件人匹配到人员。
 
 `todos` / `writeTodos`（ADR-0018）是编辑 `entities/todos.md` 单例的结构化方式——这一对方法存在的原因是 Client **不能** import kb 包的解析器（bundle purity）。`todos` 把缺失的文件报成 `text: ''` 与空条目，而不是报错；`writeTodos` 拿 `expectedText` 与磁盘上的当前文本比对，不一致就是 `yantao-kb/rejected`——于是工作台之外的修改会被刷新，绝不会被覆盖。文件的 preamble（清单上方人类写的标题）原样保留，只替换条目。
 

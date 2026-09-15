@@ -99,11 +99,11 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.yantaoKb` — `YantaoKbService`
 
-The live KB root, published while the yantao-kb plugin is mounted so host-side consumers (the yantao-kb-controller Remote) share this one configuration point instead of duplicating it. The root starts as the persisted override when the workbench has chosen one, and otherwise as the config default; `setRoot` retargets the whole host at a new root.
+The live KB root, published while the yantao-kb plugin is mounted so host-side consumers (the yantao-kb-controller Remote) share this one configuration point instead of duplicating it. The root starts as the settings-plane pointer when one is recorded (an imported legacy pointer included), and otherwise as the config default; `setRoot` retargets the whole host at a new root by writing the settings namespace, and an external edit of that namespace retargets the live root through the watcher.
 
 ```ts cordis-catalog
 /**
- * Retarget the live KB at `next` and persist it as the override.
+ * Retarget the live KB at `next` and persist it as the settings-plane pointer.
  * @param next - the new knowledge-base root directory (absolute).
  */
 setRoot(next: string): void
@@ -287,8 +287,8 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * is kept as the minimum ever seen, so the UI can show the processed range
  * (e.g. 2025-12-31 到 2026-01-31) without re-deriving it.
  *
- * The cursor lives in `~/.dsh`, next to the KB root it was read for, and
- * never in the KB itself — that is markdown for humans.
+ * The cursor lives in the KB's `.yantao/state.json` (ADR-0024) — machine
+ * state next to the KB it was read for, never in the KB's markdown.
  * @param args - the stamps to store; `lastReadAt` defaults to now.
  * @returns the processed range as it now stands.
  */
@@ -306,9 +306,9 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  *
  * The controller, not the script, owns every write: artifacts land under
  * `.yantao/capabilities/<name>/` at paths the script cannot choose, and the
- * returned state is persisted under `capabilities.<name>.state` in
- * `~/.dsh/yantao-kb.json` — metadata outside the KB, which stays markdown
- * for humans. The agent has its own channel into the same seam:
+ * returned state is persisted under `capabilities.<name>.state` in the KB's
+ * `.yantao/state.json` (ADR-0024) — machine state inside the KB, which stays
+ * markdown for humans. The agent has its own channel into the same seam:
  * `kb_run_capability` (ADR-0023), gated per capability by the sidecar's
  * `invocation` declaration.
  * @param args - the capability's skill name and the caller's input, handed
@@ -318,18 +318,24 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('capabilityRun') async capabilityRun(args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult>
 
 /**
- * List the capabilities the workbench's 能力 tab shows (ADR-0021 决定 8):
- * every skill `ctx.skills` discovers at the KB root that declares a
+ * The capabilities the workbench's 能力 tab shows (ADR-0021 决定 8):
+ * every skill under the KB's own `.dsh/skills/` (ADR-0024 决定 4) that
+ * declares a
  * capability manifest (`yantao.json` sidecar, legacy `metadata.yantao`
  * frontmatter accepted) — plain skills without one are not capabilities
  * and are skipped, not errors. Shipped capabilities are seeded first, so a
- * fresh KB answers with 邮件 and 读书 on its very first open.
+ * fresh KB answers with 邮件 on its very first open.
  *
  * Each row merges the skill's declaration with the persisted record
- * (`capabilities.<name>` in `~/.dsh/yantao-kb.json`): when it last ran and
+ * (`capabilities.<name>` in the KB's `.yantao/state.json`, ADR-0024): when it last ran and
  * the state that run left behind, so the panel can show a real 断点 without
  * running anything.
- * @returns the capability summaries, in discovery order.
+ *
+ * The answer also carries the 未注册 group (ADR-0025 决定 1): skills
+ * discovered outside the KB that adoption could copy in — directory
+ * bundles, name-sorted, after the registered list. Bundled skills (dsh's
+ * own) are not third-party finds and never appear.
+ * @returns both groups.
  */
 @Remote('capabilityList') async capabilityList(): Promise<KbCapabilityListResult>
 
@@ -343,6 +349,24 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * @returns the KB-relative path of the scaffolded directory.
  */
 @Remote('capabilityCreate') async capabilityCreate(args: KbCapabilityCreateArgs): Promise<KbCapabilityCreateResult>
+
+/**
+ * Adopt one unregistered skill (ADR-0025 决定 1): copy its directory into
+ * `<kbRoot>/​.dsh/skills/<name>/` and write the default sidecar
+ * (`invocation: ["human"]`, no `entry` — an instruction capability). The
+ * copy, never a move: the source directory is shared with every other dsh
+ * usage, and moving would steal it. Any sidecar the source carried is
+ * replaced by the default one — outside declarations never take effect
+ * silently; the confirm box showed them before this call existed.
+ *
+ * Guards: the name must be a single safe path segment, the target must not
+ * exist (a collision with a builtin or an adopted capability is refused,
+ * never overwritten), and the skill must be a directory bundle that its
+ * frontmatter has not marked `user-invocable: false`.
+ * @param args - the unregistered skill's name.
+ * @returns the adopted directory's KB-relative path.
+ */
+@Remote('capabilityAdopt') async capabilityAdopt(args: KbCapabilityAdoptArgs): Promise<KbCapabilityAdoptResult>
 ```
 
 Source: [`packages/api/yantao-kb-controller/src/index.ts`](../../packages/api/yantao-kb-controller/src/index.ts)

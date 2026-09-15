@@ -9,7 +9,7 @@
  * files a new note from the KB's canonical template; `registerResource` is the
  * drag-and-drop intake (ADR-0020): a dropped file is copied into `resources/`.
  * The capability surface (ADR-0021) is `capabilityList`/`capabilityRun`/
- * `capabilityCreate`: a capability is a dsh skill
+ * `capabilityCreate`/`capabilityAdopt` (ADR-0025): a capability is a dsh skill
  * directory declaring a host entry, and this controller seeds the shipped
  * ones, lists them, runs them, writes their artifacts, and persists their
  * state. The UI is the human
@@ -18,12 +18,13 @@
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
  */
 
-import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join } from 'node:path'
+import { mkdir, readdir, readFile, stat, unlink, writeFile, cp } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
-import type { SkillDefinition } from '@deepseek-ai/dsh-skill'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { SkillDefinition, SkillInvocationSource, SkillSummary } from '@deepseek-ai/dsh-skill'
+import { renderSkillContent } from '@deepseek-ai/dsh-skill'
+import { createUserMessage, type TextBlock, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
@@ -40,6 +41,8 @@ import type { CapabilityInvoker, CapabilityManifest } from './capability/run.ts'
 import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
 import { KbRevision } from './watch.ts'
 import type {
+  KbCapabilityAdoptArgs,
+  KbCapabilityAdoptResult,
   KbCreateEntityArgs,
   KbCreateEntityResult,
   KbCapabilityCreateArgs,
@@ -65,6 +68,7 @@ import type {
   KbTree,
   KbTreeFile,
   KbTreeSection,
+  KbUnregisteredSkill,
   KbWriteResult,
   KbWriteTodosArgs,
   KbWriteTodosResult,
@@ -169,6 +173,16 @@ function badManifestError(error: unknown): RemoteError {
   )
 }
 
+/**
+ * `/name` at the very start of a message — the yantao `/xxx` gesture
+ * (ADR-0025 决定 3). Unlike upstream tool-skill's anywhere-in-the-sentence
+ * scan, only the opening token counts: yantao's gesture means "run this
+ * capability on what follows", not "mention this skill". Built-in commands
+ * (`/compact` …) never reach here — the command registry resolves them
+ * client-side before a line becomes a prompt, so it wins by construction.
+ */
+const CAPABILITY_GESTURE = /^\/([a-zA-Z0-9][a-zA-Z0-9._-]*)(?=\s|$)/
+
 /** UI-direct KB operations over the `yantaoKb` Remote namespace. */
 export class YantaoKbController extends TypertRemoteService {
   /**
@@ -191,23 +205,31 @@ export class YantaoKbController extends TypertRemoteService {
     // `"invocation": ["agent", …]`. Nothing is hard-coded in any prompt —
     // capabilities are runtime-creatable, so the catalog is re-derived per
     // turn; with no agent-invocable capability the turn is untouched.
+    // The `/xxx` gesture (ADR-0025 决定 3) rides the same hook: a message
+    // opening with `/name` naming an instruction-type, human-invocable
+    // capability injects its SKILL.md body as `skill-invocation` instructions
+    // (upstream tool-skill's dual-message shape). The catalog is background
+    // and lands first; the instructions the model must act on land last.
     this.ctx.effect(() => this.ctx.on('agent/pre-step', async (_event, next): Promise<PreStepDecision> => {
       const decision = await next()
       if (decision.kind === 'reject') return decision
       const messages = decision.messages
       const last = messages[messages.length - 1]
       if (last === undefined || last.source.kind !== 'user') return decision
+      const injections: UserMessage[] = []
       const entries = await this.agentCapabilityCatalog()
-      if (entries.length === 0) return decision
-      return {
-        ...decision,
-        messages: [...messages, createUserMessage({
+      if (entries.length > 0) {
+        injections.push(createUserMessage({
           source: {
             kind: 'plugin', plugin: 'yantao-kb-controller', form: 'catalog', entries,
           },
           content: [{ type: 'text', text: renderCapabilityCatalog(entries) }],
-        })],
+        }))
       }
+      const invocation = await this.skillInvocationOf(last)
+      if (invocation !== undefined) injections.push(invocation)
+      if (injections.length === 0) return decision
+      return { ...decision, messages: [...messages, ...injections] }
     }))
     this.ctx.tools.register(defineTool({
       name: 'kb_run_capability',
@@ -254,6 +276,21 @@ export class YantaoKbController extends TypertRemoteService {
   /** The one KB root, read per call so a re-chosen root takes effect at once. */
   private get kbRoot(): string {
     return this.ctx.yantaoKb.root
+  }
+
+  /**
+   * The single-source rule (ADR-0024 决定 4): yantao only recognizes skills
+   * whose directory sits under the KB's own `.dsh/skills/`. The skill
+   * registry also discovers `~/.dsh/skills` and the nearest project's —
+   * those belong to dsh, not to this KB, and a same-named one must not
+   * shadow what the human installed in their KB.
+   */
+  private isKbSkill(skill: Pick<SkillSummary, 'resourceBase'>): boolean {
+    const base = skill.resourceBase
+    if (base?.kind !== 'directory') return false
+    const root = resolve(this.kbRoot, '.dsh', 'skills')
+    const directory = resolve(base.path)
+    return directory === root || directory.startsWith(root + sep)
   }
 
   /** Confine one wire path to the KB root, classifying an escape as `yantao-kb/rejected`. */
@@ -808,7 +845,8 @@ export class YantaoKbController extends TypertRemoteService {
    * passes the sidecar's `invocation` gate first — undeclared means refused
    * with `not-invocable` — and an instruction capability (a declaration with
    * no `entry`) answers with the SKILL.md body instead of spawning anything:
-   * no subprocess, no state, no artifacts.
+   * no subprocess, no state, no artifacts. Only skills under the KB's own
+   * `.dsh/skills/` resolve (ADR-0024 决定 4); anything else is not-found.
    * @param name - the capability's skill name.
    * @param input - the caller's input, handed to the entry script verbatim.
    * @param invoker - which channel is calling; only `'agent'` is gated.
@@ -827,7 +865,10 @@ export class YantaoKbController extends TypertRemoteService {
     // be copied in.
     await this.settleSkills(ensureBuiltinCapabilities(this.kbRoot))
     const definition = await this.ctx.skills.get(name, { cwd: this.kbRoot })
-    if (definition === undefined) {
+    // A definition resolved from outside the KB (a `~/.dsh/skills` or project
+    // skill shadowing the name) is not a yantao capability: single source
+    // (ADR-0024 决定 4).
+    if (definition === undefined || !this.isKbSkill(definition)) {
       throw new RemoteError(
         'yantao-kb/capability',
         `找不到能力「${name}」。`,
@@ -914,9 +955,60 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
+   * The `/xxx` gesture's injection (ADR-0025 决定 3), derived from one direct
+   * user message. A message opening with `/name` naming a registered KB
+   * capability answers one injected message: the SKILL.md body as
+   * `skill-invocation` instructions when the capability is instruction-type
+   * and human-invocable; an ordinary notice when it is script-type (`/xxx`
+   * is not that channel's form — ADR-0025 台账 2). A name that misses — no
+   * skill, a plain skill without a sidecar, a human-disabled one — stays
+   * ordinary prose: the gesture was never a claim this boundary recognizes.
+   * @param message - the step's claimed user message.
+   * @returns the message to append, or undefined when nothing applies.
+   */
+  private async skillInvocationOf(message: UserMessage): Promise<UserMessage | undefined> {
+    const first = message.content.find((block): block is TextBlock => block.type === 'text')
+    if (first === undefined) return undefined
+    const match = CAPABILITY_GESTURE.exec(first.text)
+    if (match === null) return undefined
+    const name = match[1]
+    if (name === undefined) return undefined
+    let definition: SkillDefinition | undefined
+    try {
+      definition = await this.ctx.skills.get(name, { cwd: this.kbRoot })
+    } catch {
+      definition = undefined
+    }
+    if (definition === undefined || !this.isKbSkill(definition)) return undefined
+    let manifest: CapabilityManifest
+    try {
+      manifest = manifestOf(definition)
+    } catch {
+      return undefined
+    }
+    if (manifest.entry !== undefined) {
+      const summary = `能力「${name}」是脚本型，/xxx 不适用`
+      return createUserMessage({
+        source: { kind: 'plugin', plugin: 'yantao-kb-controller', form: 'notice', summary },
+        content: [{
+          type: 'text',
+          text: `${summary}。请通过资源右键菜单运行它，或让 agent 用 kb_run_capability 调用。`,
+        }],
+      })
+    }
+    if (!manifest.invocation.includes('human')) return undefined
+    const source: SkillInvocationSource = { kind: 'skill-invocation', name, form: 'instructions' }
+    return createUserMessage({
+      source,
+      content: [{ type: 'text', text: renderSkillContent(definition) }],
+    })
+  }
+
+  /**
    * The agent-facing capability catalog (ADR-0023 决定 5): every capability
-   * whose sidecar declares `"agent"` in `invocation`, as `{name, description}`
-   * rows. Plain skills without a yantao declaration are not capabilities and
+   * under the KB's `.dsh/skills/` (ADR-0024 决定 4) whose sidecar declares
+   * `"agent"` in `invocation`, as `{name, description}` rows. Plain skills
+   * without a yantao declaration are not capabilities and
    * never appear; a KB with no agent-invocable capability answers empty and
    * the pre-step leaves the turn untouched.
    * @returns the catalog rows, in discovery order.
@@ -932,7 +1024,7 @@ export class YantaoKbController extends TypertRemoteService {
       } catch {
         definition = undefined
       }
-      if (definition === undefined) continue
+      if (definition === undefined || !this.isKbSkill(definition)) continue
       let manifest: CapabilityManifest
       try {
         manifest = manifestOf(definition)
@@ -946,18 +1038,24 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
-   * List the capabilities the workbench's 能力 tab shows (ADR-0021 决定 8):
-   * every skill `ctx.skills` discovers at the KB root that declares a
+   * The capabilities the workbench's 能力 tab shows (ADR-0021 决定 8):
+   * every skill under the KB's own `.dsh/skills/` (ADR-0024 决定 4) that
+   * declares a
    * capability manifest (`yantao.json` sidecar, legacy `metadata.yantao`
    * frontmatter accepted) — plain skills without one are not capabilities
    * and are skipped, not errors. Shipped capabilities are seeded first, so a
-   * fresh KB answers with 邮件 and 读书 on its very first open.
+   * fresh KB answers with 邮件 on its very first open.
    *
    * Each row merges the skill's declaration with the persisted record
    * (`capabilities.<name>` in the KB's `.yantao/state.json`, ADR-0024): when it last ran and
    * the state that run left behind, so the panel can show a real 断点 without
    * running anything.
-   * @returns the capability summaries, in discovery order.
+   *
+   * The answer also carries the 未注册 group (ADR-0025 决定 1): skills
+   * discovered outside the KB that adoption could copy in — directory
+   * bundles, name-sorted, after the registered list. Bundled skills (dsh's
+   * own) are not third-party finds and never appear.
+   * @returns both groups.
    */
   @Remote('capabilityList')
   async capabilityList(): Promise<KbCapabilityListResult> {
@@ -965,6 +1063,7 @@ export class YantaoKbController extends TypertRemoteService {
     await this.settleSkills(ensureBuiltinCapabilities(kbRoot))
     const summaries = await this.ctx.skills.list({ cwd: kbRoot })
     const capabilities: KbCapabilitySummary[] = []
+    const unregistered: KbUnregisteredSkill[] = []
     for (const summary of summaries) {
       let definition: SkillDefinition | undefined
       try {
@@ -973,6 +1072,28 @@ export class YantaoKbController extends TypertRemoteService {
         definition = undefined
       }
       if (definition === undefined) continue
+      if (!this.isKbSkill(definition)) {
+        // Outside the KB: an adoption candidate (ADR-0025 决定 1), unless it
+        // is dsh's own bundled skill — that one is not a third-party find.
+        if (summary.source === 'bundled') continue
+        const directory = definition.resourceBase?.kind === 'directory' ? definition.resourceBase.path : undefined
+        // A flat `xxx.md` skill's resourceBase is the shared skills root, not
+        // a per-skill directory; the SKILL.md basename is what tells the two
+        // apart. No path at all is treated the same way: nothing verifiable
+        // to copy.
+        const flat = definition.path === undefined || basename(definition.path) !== 'SKILL.md'
+        const sidecar = !flat && directory !== undefined ? await this.sidecarOf(directory) : undefined
+        unregistered.push({
+          name: summary.name,
+          description: summary.description,
+          source: summary.source,
+          ...!flat && directory !== undefined ? { directory } : {},
+          userInvocable: summary.invocation.userInvocable,
+          flat,
+          ...sidecar !== undefined ? { sidecar } : {},
+        })
+        continue
+      }
       let manifest: CapabilityManifest
       try {
         manifest = manifestOf(definition)
@@ -993,7 +1114,21 @@ export class YantaoKbController extends TypertRemoteService {
         ...record?.state !== undefined ? { state: record.state as JsonValue } : {},
       })
     }
-    return { capabilities }
+    unregistered.sort((left, right) => left.name.localeCompare(right.name))
+    return { capabilities, unregistered }
+  }
+
+  /**
+   * Read a directory's `yantao.json` sidecar, answering undefined when there
+   * is none or it is unreadable — an unregistered skill's sidecar is a
+   * preview for the confirm box, never a gate.
+   */
+  private async sidecarOf(directory: string): Promise<JsonValue | undefined> {
+    try {
+      return JSON.parse(await readFile(join(directory, 'yantao.json'), 'utf8')) as JsonValue
+    } catch {
+      return undefined
+    }
   }
 
   /**
@@ -1096,6 +1231,83 @@ export class YantaoKbController extends TypertRemoteService {
       throw new RemoteError(
         'yantao-kb/rejected',
         `无法创建能力目录：${(error as Error).message}`,
+        { path: name },
+        { cause: error },
+      )
+    }
+    await this.settleSkills([name])
+    return { path: `.dsh/skills/${name}` }
+  }
+
+  /**
+   * Adopt one unregistered skill (ADR-0025 决定 1): copy its directory into
+   * `<kbRoot>/​.dsh/skills/<name>/` and write the default sidecar
+   * (`invocation: ["human"]`, no `entry` — an instruction capability). The
+   * copy, never a move: the source directory is shared with every other dsh
+   * usage, and moving would steal it. Any sidecar the source carried is
+   * replaced by the default one — outside declarations never take effect
+   * silently; the confirm box showed them before this call existed.
+   *
+   * Guards: the name must be a single safe path segment, the target must not
+   * exist (a collision with a builtin or an adopted capability is refused,
+   * never overwritten), and the skill must be a directory bundle that its
+   * frontmatter has not marked `user-invocable: false`.
+   * @param args - the unregistered skill's name.
+   * @returns the adopted directory's KB-relative path.
+   */
+  @Remote('capabilityAdopt')
+  async capabilityAdopt(args: KbCapabilityAdoptArgs): Promise<KbCapabilityAdoptResult> {
+    if (!this.ctx.yantaoKb.configured) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        '还没有选择知识库目录，技能无处采纳。',
+        { path: args.name },
+      )
+    }
+    const name = args.name
+    if (name === '.' || name === '..' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name)) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `技能名不能用作能力目录名：${name}`,
+        { path: name },
+      )
+    }
+    const definition = await this.ctx.skills.get(name, { cwd: this.kbRoot })
+    const source = definition?.resourceBase?.kind === 'directory' ? definition.resourceBase.path : undefined
+    if (definition === undefined || this.isKbSkill(definition) || source === undefined
+      || definition.path === undefined || basename(definition.path) !== 'SKILL.md') {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `找不到可采纳的技能「${name}」。`,
+        { path: name },
+      )
+    }
+    if (!definition.invocation.userInvocable) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `技能「${name}」的 frontmatter 声明了 user-invocable: false，不可采纳。`,
+        { path: name },
+      )
+    }
+    const target = join(this.kbRoot, '.dsh', 'skills', name)
+    if (await stat(target).then(() => true, () => false)) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `能力目录已存在：.dsh/skills/${name}`,
+        { path: name },
+      )
+    }
+    try {
+      await cp(source, target, { recursive: true })
+      await writeFile(
+        join(target, 'yantao.json'),
+        `${JSON.stringify({ invocation: ['human'], version: 1 }, null, 2)}\n`,
+        'utf8',
+      )
+    } catch (error) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `无法采纳技能「${name}」：${(error as Error).message}`,
         { path: name },
         { cause: error },
       )

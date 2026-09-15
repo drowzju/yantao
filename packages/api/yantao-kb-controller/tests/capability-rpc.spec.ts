@@ -46,9 +46,12 @@ let skillDir: string
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'yantao-kb-capability-'))
   state.home = home
-  skillDir = join(home, 'skills', 'mail')
+  skillDir = join(home, '.dsh', 'skills', 'mail')
   await mkdir(join(skillDir, 'scripts'), { recursive: true })
   await writeFile(join(skillDir, 'scripts', 'entry.py'), 'print(1)', 'utf8')
+  // A version far above the shipped master's keeps the builtin seeder from
+  // overwriting this fake with the real mail capability mid-test.
+  await writeFile(join(skillDir, 'SKILL.md'), '---\nname: mail\ndescription: 测试\nversion: 999\n---\n\n测试。\n', 'utf8')
   runCapability.mockReset()
   skillGet.mockReset()
   // `settleSkills` probes the registry until the names it is waiting for show
@@ -118,6 +121,15 @@ describe('yantaoKb.capabilityRun', () => {
 
   it('reports a capability the registry does not know', async () => {
     skillGet.mockResolvedValue(undefined)
+    const failure = await ctx.yantaoKbController.capabilityRun({ name: 'mail' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/capability', details: { kind: 'not-found' } })
+    expect(runCapability).not.toHaveBeenCalled()
+  })
+
+  it('refuses a skill resolved from outside the KB (single source, ADR-0024)', async () => {
+    skillGet.mockResolvedValue(definition({
+      resourceBase: { kind: 'directory', path: join(home, 'elsewhere', 'mail') },
+    }))
     const failure = await ctx.yantaoKbController.capabilityRun({ name: 'mail' }).catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/capability', details: { kind: 'not-found' } })
     expect(runCapability).not.toHaveBeenCalled()
@@ -227,6 +239,18 @@ describe('yantaoKb.capabilityList', () => {
     expect(capabilities[0]?.state).toBeUndefined()
   })
 
+  it('offers a manifest-carrying skill that lives outside the KB for adoption, not registration (ADR-0024/0025)', async () => {
+    skillList.mockResolvedValue([
+      { name: 'mail', description: '读 Outlook 邮件', source: 'project', invocation: { modelInvocable: true, userInvocable: true } },
+    ])
+    skillGet.mockResolvedValue(definition({
+      resourceBase: { kind: 'directory', path: join(home, 'elsewhere', 'mail') },
+    }))
+    const { capabilities, unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(capabilities).toEqual([])
+    expect(unregistered.map(skill => skill.name)).toEqual(['mail'])
+  })
+
   it('merges the persisted record: when it last ran and the state it left', async () => {
     skillGet.mockResolvedValue(definition())
     skillList.mockResolvedValue([{ name: 'mail', description: '读 Outlook 邮件', source: 'project' }])
@@ -328,6 +352,17 @@ describe('capability manifests', () => {
     }))).toThrow(/带点的扩展名/)
   })
 
+  it('parses the selection opt-in and refuses a non-boolean one (ADR-0025 决定 5)', async () => {
+    const { manifestOf } = await import('../src/capability/run.ts')
+    const manifest = manifestOf(definition({
+      metadata: { yantao: { appliesTo: { selection: true } } },
+    }))
+    expect(manifest.appliesTo).toEqual({ selection: true })
+    expect(() => manifestOf(definition({
+      metadata: { yantao: { appliesTo: { selection: 'yes' } } },
+    }))).toThrow(/appliesTo\.selection 必须是布尔值/)
+  })
+
   it('reads the declaration from the yantao.json sidecar, frontmatter untouched', async () => {
     const { manifestOf } = await import('../src/capability/run.ts')
     await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
@@ -387,5 +422,161 @@ describe('capability manifests', () => {
     const { manifestOf } = await import('../src/capability/run.ts')
     await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ entry: '', runtime: 'python' }), 'utf8')
     expect(() => manifestOf(definition({ metadata: {} }))).toThrow(/entry/)
+  })
+})
+
+describe('capabilityList 未注册 group (ADR-0025)', () => {
+  /** An out-of-KB directory-bundle skill, as `~/.dsh/skills` discovery would report it. */
+  function outside(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
+    const directory = join(home, 'user-skills', overrides.name ?? 'notes-helper')
+    return {
+      name: 'notes-helper',
+      description: '整理笔记',
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'user',
+      provider: 'skill-filesystem',
+      content: '',
+      resourceBase: { kind: 'directory', path: directory },
+      path: join(directory, 'SKILL.md'),
+      metadata: {},
+      ...overrides,
+    }
+  }
+
+  it('lists out-of-KB directory bundles name-sorted, with a sidecar preview when one exists', async () => {
+    const z = outside({ name: 'zeta-tool' })
+    const a = outside({ name: 'alpha-tool' })
+    const zDir = join(home, 'user-skills', 'zeta-tool')
+    await mkdir(zDir, { recursive: true })
+    await writeFile(join(zDir, 'yantao.json'), JSON.stringify({ appliesTo: { resource: ['.md'] } }), 'utf8')
+    skillList.mockResolvedValue([
+      { name: 'zeta-tool', description: 'z', source: 'user', invocation: { modelInvocable: true, userInvocable: true } },
+      { name: 'alpha-tool', description: 'a', source: 'user', invocation: { modelInvocable: true, userInvocable: true } },
+    ])
+    skillGet.mockImplementation(async (name: string) => (name === 'zeta-tool' ? z : a))
+    const { unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(unregistered.map(skill => skill.name)).toEqual(['alpha-tool', 'zeta-tool'])
+    expect(unregistered[1]).toMatchObject({
+      name: 'zeta-tool', source: 'user', directory: zDir,
+      userInvocable: true, flat: false,
+      sidecar: { appliesTo: { resource: ['.md'] } },
+    })
+  })
+
+  it('greys a flat single-file skill out and never offers a directory', async () => {
+    const flat = outside({ name: 'quick', path: join(home, 'user-skills', 'quick.md') })
+    skillList.mockResolvedValue([
+      { name: 'quick', description: '扁平技能', source: 'user', invocation: { modelInvocable: true, userInvocable: true } },
+    ])
+    skillGet.mockResolvedValue(flat)
+    const { unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(unregistered).toHaveLength(1)
+    expect(unregistered[0]).toMatchObject({ name: 'quick', flat: true, userInvocable: true })
+    expect(unregistered[0]?.directory).toBeUndefined()
+    expect(unregistered[0]?.sidecar).toBeUndefined()
+  })
+
+  it('carries user-invocable: false as the grey-out reason', async () => {
+    skillList.mockResolvedValue([
+      { name: 'notes-helper', description: '整理笔记', source: 'user', invocation: { modelInvocable: true, userInvocable: false } },
+    ])
+    skillGet.mockResolvedValue(outside({ invocation: { modelInvocable: true, userInvocable: false } }))
+    const { unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(unregistered[0]).toMatchObject({ name: 'notes-helper', userInvocable: false })
+  })
+
+  it('never lists dsh-bundled skills as adoption candidates', async () => {
+    skillList.mockResolvedValue([
+      { name: 'dsh-badge', description: 'badge', source: 'bundled', resourceBase: { kind: 'directory', path: join(home, 'bundled', 'dsh-badge') } },
+    ])
+    skillGet.mockResolvedValue(outside({ name: 'dsh-badge', source: 'bundled' }))
+    const { unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(unregistered).toEqual([])
+  })
+})
+
+describe('yantaoKb.capabilityAdopt (ADR-0025)', () => {
+  /** Seed one out-of-KB directory-bundle skill on disk and in the registry stand-in. */
+  async function seedOutside(name: string): Promise<string> {
+    const directory = join(home, 'user-skills', name)
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'SKILL.md'), `---\nname: ${name}\ndescription: 三方技能\n---\n\n# ${name}\n\n照做。\n`, 'utf8')
+    skillList.mockResolvedValue([
+      { name, description: '三方技能', source: 'user', invocation: { modelInvocable: true, userInvocable: true } },
+    ])
+    skillGet.mockResolvedValue({
+      name,
+      description: '三方技能',
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'user',
+      provider: 'skill-filesystem',
+      content: '照做。',
+      resourceBase: { kind: 'directory', path: directory },
+      path: join(directory, 'SKILL.md'),
+      metadata: {},
+    } satisfies SkillDefinition)
+    return directory
+  }
+
+  it('copies the bundle into the KB and writes the default sidecar', async () => {
+    const source = await seedOutside('notes-helper')
+    const result = await ctx.yantaoKbController.capabilityAdopt({ name: 'notes-helper' })
+    expect(result.path).toBe('.dsh/skills/notes-helper')
+    const target = join(home, '.dsh', 'skills', 'notes-helper')
+    expect(await readFile(join(target, 'SKILL.md'), 'utf8')).toContain('照做')
+    expect(JSON.parse(await readFile(join(target, 'yantao.json'), 'utf8'))).toEqual({ invocation: ['human'], version: 1 })
+    // Copy, never move: the source stays for the other dsh usages.
+    expect(await readFile(join(source, 'SKILL.md'), 'utf8')).toContain('照做')
+  })
+
+  it('replaces a sidecar the source carried with the default one', async () => {
+    const source = await seedOutside('scripted')
+    await writeFile(join(source, 'yantao.json'), JSON.stringify({ entry: 'scripts/run.py', invocation: ['human', 'agent'] }), 'utf8')
+    await ctx.yantaoKbController.capabilityAdopt({ name: 'scripted' })
+    expect(JSON.parse(await readFile(join(home, '.dsh', 'skills', 'scripted', 'yantao.json'), 'utf8')))
+      .toEqual({ invocation: ['human'], version: 1 })
+  })
+
+  it('refuses a name collision instead of overwriting', async () => {
+    await seedOutside('mail')
+    await mkdir(join(home, '.dsh', 'skills', 'mail'), { recursive: true })
+    const failure = await ctx.yantaoKbController.capabilityAdopt({ name: 'mail' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((failure as Error).message).toMatch(/已存在/)
+  })
+
+  it('refuses a skill its frontmatter marked user-invocable: false', async () => {
+    await seedOutside('quiet')
+    skillGet.mockResolvedValue({
+      name: 'quiet', description: '安静', invocation: { modelInvocable: true, userInvocable: false },
+      source: 'user', provider: 'skill-filesystem', content: '',
+      resourceBase: { kind: 'directory', path: join(home, 'user-skills', 'quiet') },
+      path: join(home, 'user-skills', 'quiet', 'SKILL.md'), metadata: {},
+    })
+    const failure = await ctx.yantaoKbController.capabilityAdopt({ name: 'quiet' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((failure as Error).message).toMatch(/user-invocable/)
+  })
+
+  it('refuses a skill that already lives inside the KB and a flat one', async () => {
+    // Inside the KB: the single-source filter's own side of the line.
+    skillGet.mockResolvedValue(definition({ metadata: {} }))
+    const inside = await ctx.yantaoKbController.capabilityAdopt({ name: 'mail' }).catch((error: unknown) => error)
+    expect((inside as Error).message).toMatch(/找不到可采纳的技能/)
+    // A flat skill's resourceBase is the shared root — nothing to copy.
+    skillGet.mockResolvedValue({
+      name: 'quick', description: '扁平', invocation: { modelInvocable: true, userInvocable: true },
+      source: 'user', provider: 'skill-filesystem', content: '',
+      resourceBase: { kind: 'directory', path: join(home, 'user-skills') },
+      path: join(home, 'user-skills', 'quick.md'), metadata: {},
+    })
+    const flat = await ctx.yantaoKbController.capabilityAdopt({ name: 'quick' }).catch((error: unknown) => error)
+    expect((flat as Error).message).toMatch(/找不到可采纳的技能/)
+  })
+
+  it('refuses to run before a KB root has been chosen', async () => {
+    state.kbConfigured = false
+    const failure = await ctx.yantaoKbController.capabilityAdopt({ name: 'notes-helper' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
   })
 })

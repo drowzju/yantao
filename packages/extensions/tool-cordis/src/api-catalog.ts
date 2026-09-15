@@ -2936,7 +2936,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'yantaoKb',
     summary: 'The live KB root, published while the yantao-kb plugin is mounted so host-side consumers (the yantao-kb-controller Remote) share this one configuration point instead of duplicating it.',
-    description: 'The live KB root, published while the yantao-kb plugin is mounted so host-side consumers (the yantao-kb-controller Remote) share this one configuration point instead of duplicating it. The root starts as the persisted override when the workbench has chosen one, and otherwise as the config default; `setRoot` retargets the whole host at a new root.',
+    description: 'The live KB root, published while the yantao-kb plugin is mounted so host-side consumers (the yantao-kb-controller Remote) share this one configuration point instead of duplicating it. The root starts as the settings-plane pointer when one is recorded (an imported legacy pointer included), and otherwise as the config default; `setRoot` retargets the whole host at a new root by writing the settings namespace, and an external edit of that namespace retargets the live root through the watcher.',
     methods: [
       {
         signature: 'readonly root: string',
@@ -2945,12 +2945,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'readonly configured: boolean',
-        description: 'True when the root comes from a persisted override rather than the config default.',
+        description: 'True when the root comes from the settings plane (or an imported pointer) rather than the config default.',
         parameters: [],
       },
       {
         signature: 'setRoot(next: string): void',
-        description: 'Retarget the live KB at `next` and persist it as the override.',
+        description: 'Retarget the live KB at `next` and persist it as the settings-plane pointer.',
         parameters: [{ name: 'next', description: 'the new knowledge-base root directory (absolute).' }],
       },
     ],
@@ -3052,27 +3052,33 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'mailMarkRead\') async mailMarkRead(args: KbMailMarkReadArgs): Promise<KbMailMarkReadResult>',
-        description: 'Move the mail capability\'s processed range (ADR-0019): everything at or before `lastReadAt` has been seen, so the next `mailFetch` starts after it; `firstReadAt` names the oldest mail of the batch just dealt with and is kept as the minimum ever seen, so the UI can show the processed range (e.g. 2025-12-31 到 2026-01-31) without re-deriving it.\n\nThe cursor lives in `~/.dsh`, next to the KB root it was read for, and never in the KB itself — that is markdown for humans.',
+        description: 'Move the mail capability\'s processed range (ADR-0019): everything at or before `lastReadAt` has been seen, so the next `mailFetch` starts after it; `firstReadAt` names the oldest mail of the batch just dealt with and is kept as the minimum ever seen, so the UI can show the processed range (e.g. 2025-12-31 到 2026-01-31) without re-deriving it.\n\nThe cursor lives in the KB\'s `.yantao/state.json` (ADR-0024) — machine state next to the KB it was read for, never in the KB\'s markdown.',
         parameters: [{ name: 'args', description: 'the stamps to store; `lastReadAt` defaults to now.' }],
         returns: 'the processed range as it now stands.',
       },
       {
         signature: '@Remote(\'capabilityRun\') async capabilityRun(args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult>',
-        description: 'Run one capability\'s host entry (ADR-0021) — the human channel\'s execution seam, the mail connector\'s and the extractor\'s subprocess pattern generalized. The capability is resolved through `ctx.skills` (the skill-filesystem provider discovers the directories; this controller only consumes the winner), its `yantao.json` declaration (legacy `metadata.yantao` frontmatter accepted) picks the entry script, and the run is one Python subprocess with a JSON stdin/stdout contract (`capability/run.ts`).\n\nThe controller, not the script, owns every write: artifacts land under `.yantao/capabilities/<name>/` at paths the script cannot choose, and the returned state is persisted under `capabilities.<name>.state` in `~/.dsh/yantao-kb.json` — metadata outside the KB, which stays markdown for humans. The agent has its own channel into the same seam: `kb_run_capability` (ADR-0023), gated per capability by the sidecar\'s `invocation` declaration.',
+        description: 'Run one capability\'s host entry (ADR-0021) — the human channel\'s execution seam, the mail connector\'s and the extractor\'s subprocess pattern generalized. The capability is resolved through `ctx.skills` (the skill-filesystem provider discovers the directories; this controller only consumes the winner), its `yantao.json` declaration (legacy `metadata.yantao` frontmatter accepted) picks the entry script, and the run is one Python subprocess with a JSON stdin/stdout contract (`capability/run.ts`).\n\nThe controller, not the script, owns every write: artifacts land under `.yantao/capabilities/<name>/` at paths the script cannot choose, and the returned state is persisted under `capabilities.<name>.state` in the KB\'s `.yantao/state.json` (ADR-0024) — machine state inside the KB, which stays markdown for humans. The agent has its own channel into the same seam: `kb_run_capability` (ADR-0023), gated per capability by the sidecar\'s `invocation` declaration.',
         parameters: [{ name: 'args', description: 'the capability\'s skill name and the caller\'s input, handed to the entry script verbatim.' }],
         returns: 'what the run answered, when it ran, and which artifact paths were written.',
       },
       {
         signature: '@Remote(\'capabilityList\') async capabilityList(): Promise<KbCapabilityListResult>',
-        description: 'List the capabilities the workbench\'s 能力 tab shows (ADR-0021 决定 8): every skill `ctx.skills` discovers at the KB root that declares a capability manifest (`yantao.json` sidecar, legacy `metadata.yantao` frontmatter accepted) — plain skills without one are not capabilities and are skipped, not errors. Shipped capabilities are seeded first, so a fresh KB answers with 邮件 and 读书 on its very first open.\n\nEach row merges the skill\'s declaration with the persisted record (`capabilities.<name>` in `~/.dsh/yantao-kb.json`): when it last ran and the state that run left behind, so the panel can show a real 断点 without running anything.',
+        description: 'The capabilities the workbench\'s 能力 tab shows (ADR-0021 决定 8): every skill under the KB\'s own `.dsh/skills/` (ADR-0024 决定 4) that declares a capability manifest (`yantao.json` sidecar, legacy `metadata.yantao` frontmatter accepted) — plain skills without one are not capabilities and are skipped, not errors. Shipped capabilities are seeded first, so a fresh KB answers with 邮件 on its very first open.\n\nEach row merges the skill\'s declaration with the persisted record (`capabilities.<name>` in the KB\'s `.yantao/state.json`, ADR-0024): when it last ran and the state that run left behind, so the panel can show a real 断点 without running anything.\n\nThe answer also carries the 未注册 group (ADR-0025 决定 1): skills discovered outside the KB that adoption could copy in — directory bundles, name-sorted, after the registered list. Bundled skills (dsh\'s own) are not third-party finds and never appear.',
         parameters: [],
-        returns: 'the capability summaries, in discovery order.',
+        returns: 'both groups.',
       },
       {
         signature: '@Remote(\'capabilityCreate\') async capabilityCreate(args: KbCapabilityCreateArgs): Promise<KbCapabilityCreateResult>',
         description: 'Scaffold a new capability directory (ADR-0021 决定 8\'s 「新建能力」): `<kbRoot>/.dsh/skills/<name>/` with a clean SKILL.md, a `yantao.json` sidecar that declares the host entry, and an entry script that speaks the run protocol and echoes its input — a working capability on the first run, for the human to grow into theirs.',
         parameters: [{ name: 'args', description: 'the capability\'s name (kebab-case; it becomes the skill name).' }],
         returns: 'the KB-relative path of the scaffolded directory.',
+      },
+      {
+        signature: '@Remote(\'capabilityAdopt\') async capabilityAdopt(args: KbCapabilityAdoptArgs): Promise<KbCapabilityAdoptResult>',
+        description: 'Adopt one unregistered skill (ADR-0025 决定 1): copy its directory into `<kbRoot>/​.dsh/skills/<name>/` and write the default sidecar (`invocation: ["human"]`, no `entry` — an instruction capability). The copy, never a move: the source directory is shared with every other dsh usage, and moving would steal it. Any sidecar the source carried is replaced by the default one — outside declarations never take effect silently; the confirm box showed them before this call existed.\n\nGuards: the name must be a single safe path segment, the target must not exist (a collision with a builtin or an adopted capability is refused, never overwritten), and the skill must be a directory bundle that its frontmatter has not marked `user-invocable: false`.',
+        parameters: [{ name: 'args', description: 'the unregistered skill\'s name.' }],
+        returns: 'the adopted directory\'s KB-relative path.',
       },
     ],
   },
@@ -4513,8 +4519,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'KbCapabilityAdoptArgs',
+    declaration: 'export interface KbCapabilityAdoptArgs {\n    readonly name: string;\n}',
+  },
+  {
+    name: 'KbCapabilityAdoptResult',
+    declaration: 'export interface KbCapabilityAdoptResult {\n    readonly path: string;\n}',
+  },
+  {
     name: 'KbCapabilityAppliesTo',
-    declaration: 'export interface KbCapabilityAppliesTo {\n    readonly resource?: readonly string[];\n    readonly entity?: readonly string[];\n    readonly external?: readonly string[];\n}',
+    declaration: 'export interface KbCapabilityAppliesTo {\n    readonly resource?: readonly string[];\n    readonly entity?: readonly string[];\n    readonly external?: readonly string[];\n    readonly selection?: boolean;\n}',
   },
   {
     name: 'KbCapabilityCreateArgs',
@@ -4526,7 +4540,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbCapabilityListResult',
-    declaration: 'export interface KbCapabilityListResult {\n    readonly capabilities: readonly KbCapabilitySummary[];\n}',
+    declaration: 'export interface KbCapabilityListResult {\n    readonly capabilities: readonly KbCapabilitySummary[];\n    readonly unregistered: readonly KbUnregisteredSkill[];\n}',
   },
   {
     name: 'KbCapabilityRunArgs',
@@ -4627,6 +4641,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KbTreeSectionId',
     declaration: 'export type KbTreeSectionId = \'resources\' | \'meetings\' | \'todos\' | \'projects\' | \'areas\' | \'people\';',
+  },
+  {
+    name: 'KbUnregisteredSkill',
+    declaration: 'export interface KbUnregisteredSkill {\n    readonly name: string;\n    readonly description: string;\n    readonly source: string;\n    readonly directory?: string;\n    readonly userInvocable: boolean;\n    readonly flat: boolean;\n    readonly sidecar?: JsonValue;\n}',
   },
   {
     name: 'KbWriteResult',

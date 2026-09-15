@@ -13,18 +13,19 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
-  CapabilityCreator, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityCreator, ExternalOpener,
-  FileDeleter, FileReader, FileWriter, LinksLoader,
+  CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityCreator,
+  ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader,
   MailFetcher, MailMarker, RelationSetter, ResourceRegistrar, RevisionLoader, RootLoader, RootSetter,
-  TodoLoader, TodoWriter,
+  SessionPrompter, TodoLoader, TodoWriter,
 } from '../remote.ts'
 import type { MailAnalyser } from '../mail-analysis.ts'
 import type { Proposal } from '../proposal.ts'
 import { applyProposal, type ProposalApplyResult } from '../proposal-apply.ts'
 import { proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
+import { SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage } from '../remote.ts'
-import type { KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary, KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
@@ -84,8 +85,12 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly capabilityList: CapabilityLoader
   /** Scaffold one new capability (「新建能力」). */
   readonly capabilityCreate: CapabilityCreator
+  /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
+  readonly capabilityAdopt: CapabilityAdopter
   /** Run one capability with the caller's input (ADR-0021 决定 7's row menus). */
   readonly capabilityRun: CapabilityRunner
+  /** Send one prompt to the conversation the human is watching (ADR-0025 决定 4). */
+  readonly promptSession: SessionPrompter
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
   readonly onKbRootChanged: () => void
 }
@@ -221,7 +226,7 @@ function DragHandle(props: {
 export function Frame({
   renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail,
-  registerResource, capabilityList, capabilityCreate, capabilityRun, onKbRootChanged,
+  registerResource, capabilityList, capabilityCreate, capabilityAdopt, capabilityRun, promptSession, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -377,21 +382,32 @@ export function Frame({
     [createEntity, read, write, todos, writeTodos],
   )
 
-  // ADR-0021 决定 7: a row menu's capability run. A run that answers with a
-  // proposal (`{ actions: [...] }`) opens the shared card; anything else is
-  // one dismissable notice at the frame's foot.
+  // ADR-0021 决定 7 + ADR-0025 决定 4: a row menu's capability run. A run
+  // that answers with a proposal (`{ actions: [...] }`) opens the shared
+  // card; one that answers with the SKILL.md body (an instruction capability)
+  // becomes a prompt into the conversation the human is watching — the row's
+  // file rides along as an `@` reference, serialized exactly as the composer's
+  // `@` chip would; anything else is one dismissable notice at the frame's
+  // foot.
   const [capabilityProposal, setCapabilityProposal] = useState<Proposal | null>(null)
   const [capabilityNotice, setCapabilityNotice] = useState<string | null>(null)
   const runRowCapability = useCallback((name: string, path: string): void => {
     setCapabilityNotice(null)
     void capabilityRun({ name, input: { path } }).then((result) => {
+      if (typeof result.content === 'string') {
+        void promptSession(`${result.content}\n\n@${path}`).then(
+          () => { setCapabilityNotice(`能力「${name}」的说明已发送到当前会话。`) },
+          (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`) },
+        )
+        return
+      }
       const proposal = proposalOfRunResult(result)
       if (proposal !== null) setCapabilityProposal(proposal)
       else setCapabilityNotice(runNoticeOf(result))
     }, (failure: unknown) => {
       setCapabilityNotice(`能力「${name}」失败：${remoteMessage(failure)}`)
     })
-  }, [capabilityRun])
+  }, [capabilityRun, promptSession])
 
   // ADR-0017: editing belongs to Obsidian, so this only hands the file over.
   // Without a root we still open the KB-relative path and let the host resolve
@@ -402,6 +418,87 @@ export function Frame({
       console.warn('opening the file outside the workbench failed:', reason)
     })
   }, [kbRoot, openExternal])
+
+  // ── the selection right-click (ADR-0025 决定 5) ───────────────────────────
+  // The menu's capability list: the instruction capabilities that opted in
+  // through `appliesTo.selection: true` — the menu must not grow with every
+  // capability that has no better idea than bare text. Reloaded with the
+  // tree: a KB revision may have brought new skills.
+  const [selectionCaps, setSelectionCaps] = useState<KbCapabilitySummary[]>([])
+  useEffect(() => {
+    let stale = false
+    void capabilityList().then((result) => {
+      if (stale) return
+      setSelectionCaps(result.capabilities.filter(capability =>
+        capability.entry === undefined
+        && capability.appliesTo?.selection === true
+        && capability.invocation.includes('human')))
+    }, () => {
+      // A failed load just leaves the menu with 「发送到会话」.
+    })
+    return () => {
+      stale = true
+    }
+  }, [capabilityList, treeKey])
+
+  // One document-level mouseup reads the selection from the two v1 surfaces —
+  // the source editor's textarea (its own selectionStart/End; the DOM
+  // selection never sees textarea text) and the reading view's rendered body
+  // (window.getSelection, scoped by the body's data marker). Everything else —
+  // including the conversation's own composer — leaves the menu alone.
+  const [selectionMenu, setSelectionMenu] = useState<{ text: string; x: number; y: number } | null>(null)
+  useEffect(() => {
+    const onMouseUp = (event: MouseEvent): void => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      // A mouseup inside the menu itself must not re-evaluate the selection:
+      // it lands before the item's click and would close the menu unclicked.
+      if (target.closest('[data-selection-menu="true"]') !== null) return
+      let text = ''
+      if (target instanceof HTMLTextAreaElement && target.dataset.kbEditor === 'true') {
+        const { selectionStart, selectionEnd, value } = target
+        text = value.slice(selectionStart, selectionEnd)
+      } else {
+        const selection = window.getSelection()
+        const anchor = selection?.anchorNode
+        const anchorElement = anchor instanceof Element ? anchor : anchor?.parentElement
+        if (anchorElement?.closest('[data-markdown-body="true"]') !== null) text = selection?.toString() ?? ''
+      }
+      if (text.trim() === '') return
+      setSelectionMenu({ text, x: event.clientX, y: event.clientY })
+    }
+    document.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [])
+
+  // 「发送到会话」: the selection *is* the prompt.
+  const sendSelection = useCallback((text: string): void => {
+    setCapabilityNotice(null)
+    void promptSession(text).then(
+      () => { setCapabilityNotice('已发送到当前会话。') },
+      (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`) },
+    )
+  }, [promptSession])
+
+  // A selection capability: fetch the SKILL.md body (the instruction answer)
+  // and prepend it to the selection — fixed concatenation, no template system.
+  const runSelectionCapability = useCallback((name: string, selection: string): void => {
+    setCapabilityNotice(null)
+    void capabilityRun({ name, input: { selection } }).then((result) => {
+      if (typeof result.content !== 'string') {
+        setCapabilityNotice(`能力「${name}」没有返回说明文本。`)
+        return
+      }
+      void promptSession(`${result.content}\n\n${selection}`).then(
+        () => { setCapabilityNotice(`能力「${name}」的说明已发送到当前会话。`) },
+        (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`) },
+      )
+    }, (failure: unknown) => {
+      setCapabilityNotice(`能力「${name}」失败：${remoteMessage(failure)}`)
+    })
+  }, [capabilityRun, promptSession])
 
   // The active file's link graph, host-computed: one call per activation, and
   // again after a tree reload, which is when a new file could have appeared.
@@ -513,6 +610,7 @@ export function Frame({
           registerResource={registerResource}
           capabilityList={capabilityList}
           capabilityCreate={capabilityCreate}
+          capabilityAdopt={capabilityAdopt}
           onRunCapability={runRowCapability}
         />
       </div>
@@ -622,6 +720,17 @@ export function Frame({
         >
           {capabilityNotice}
         </div>
+      )}
+      {selectionMenu !== null && (
+        <SelectionMenu
+          text={selectionMenu.text}
+          x={selectionMenu.x}
+          y={selectionMenu.y}
+          capabilities={selectionCaps}
+          onSend={sendSelection}
+          onRun={runSelectionCapability}
+          onClose={() => { setSelectionMenu(null) }}
+        />
       )}
       {/* A handle exists whenever its rail is expanded — including at the
           width limits, because the handle is the only way back from one. */}

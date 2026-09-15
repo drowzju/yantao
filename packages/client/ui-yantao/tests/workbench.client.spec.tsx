@@ -10,10 +10,11 @@ import { Frame } from '../src/client/frame/Frame.tsx'
 import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveColumns } from '../src/client/frame/columns.ts'
 import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
 import type {
-  DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader, RelationSetter,
-  RevisionLoader, RootLoader, RootSetter, TodoLoader, TodoWriter,
+  CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader,
+  FileWriter, LinksLoader, RelationSetter, RevisionLoader, RootLoader, RootSetter, SessionPrompter, TodoLoader,
+  TodoWriter,
 } from '../src/client/remote.ts'
-import type { KbCapabilitySummary } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary, KbUnregisteredSkill } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { CapabilityPanel } from '../src/client/CapabilityPanel.tsx'
 import { TAB_STORAGE_KEY } from '../src/client/tabs.ts'
 
@@ -94,8 +95,9 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
     analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } }),
     registerResource: () => Promise.resolve('resources/新资源.pdf'),
-    capabilityList: () => Promise.resolve({ capabilities: [] }),
+    capabilityList: () => Promise.resolve({ capabilities: [], unregistered: [] }),
     capabilityCreate: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
+    capabilityAdopt: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     onRunCapability: () => {},
     ...overrides,
   }
@@ -152,7 +154,7 @@ describe('IntakeRail', () => {
   })
 
   it('renders the 能力 tab as the capability panel', async () => {
-    const capabilityList = vi.fn(() => Promise.resolve({ capabilities: CAPABILITIES }))
+    const capabilityList = vi.fn(() => Promise.resolve({ capabilities: CAPABILITIES, unregistered: [] }))
     render(<IntakeRail {...railProps({ capabilityList })} />)
     fireEvent.click(screen.getByText('能力'))
     expect(await screen.findByText('mail')).toBeTruthy()
@@ -354,7 +356,7 @@ describe('IntakeRail', () => {
     const onRunCapability = vi.fn()
     const { container } = render(
       <IntakeRail {...railProps({
-        capabilityList: () => Promise.resolve({ capabilities: ROW_CAPABILITIES }),
+        capabilityList: () => Promise.resolve({ capabilities: ROW_CAPABILITIES, unregistered: [] }),
         onRunCapability,
       })} />,
     )
@@ -375,7 +377,7 @@ describe('IntakeRail', () => {
 
   it('offers the matching capability on a meeting row\'s menu', async () => {
     const { container } = render(
-      <IntakeRail {...railProps({ capabilityList: () => Promise.resolve({ capabilities: ROW_CAPABILITIES }) })} />,
+      <IntakeRail {...railProps({ capabilityList: () => Promise.resolve({ capabilities: ROW_CAPABILITIES, unregistered: [] }) })} />,
     )
     fireEvent.click(screen.getByText('会议'))
     fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
@@ -534,7 +536,7 @@ describe('WorkspaceRail', () => {
     const { container } = render(
       <WorkspaceRail {...railProps({
         load: loader(workspace),
-        capabilityList: () => Promise.resolve({ capabilities: ROW_CAPABILITIES }),
+        capabilityList: () => Promise.resolve({ capabilities: ROW_CAPABILITIES, unregistered: [] }),
         onRunCapability,
       })} />,
     )
@@ -571,8 +573,9 @@ const ROW_CAPABILITIES: KbCapabilitySummary[] = [
 /** The capability panel's faces, all spies. */
 function capabilityProps(overrides: Partial<Parameters<typeof CapabilityPanel>[0]> = {}): Parameters<typeof CapabilityPanel>[0] {
   return {
-    load: () => Promise.resolve({ capabilities: CAPABILITIES }),
+    load: () => Promise.resolve({ capabilities: CAPABILITIES, unregistered: [] }),
     create: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
+    adopt: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     mail: () => <div data-mail-stub="true">邮件面板</div>,
     ...overrides,
   }
@@ -597,7 +600,7 @@ describe('CapabilityPanel', () => {
   it('hands the capability\'s persisted state to the mail detail', async () => {
     const capabilities = [{ ...CAPABILITIES[0]!, state: { lastReadAt: '2026-01-31T00:00:00+00:00' } }]
     const mail = vi.fn(() => <div data-mail-stub="true">邮件面板</div>)
-    render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities }), mail })} />)
+    render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities, unregistered: [] }), mail })} />)
     fireEvent.click(await screen.findByText('mail'))
     await screen.findByText('邮件面板')
     expect(mail).toHaveBeenCalledWith({ lastReadAt: '2026-01-31T00:00:00+00:00' })
@@ -612,7 +615,7 @@ describe('CapabilityPanel', () => {
 
   it('scaffolds a new capability through 新建能力 and opens its detail', async () => {
     const capabilities = [...CAPABILITIES]
-    const load = vi.fn(() => Promise.resolve({ capabilities }))
+    const load = vi.fn(() => Promise.resolve({ capabilities, unregistered: [] }))
     const create = vi.fn((name: string) => {
       capabilities.push({ name, description: '', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'] })
       return Promise.resolve({ path: `.dsh/skills/${name}` })
@@ -641,6 +644,56 @@ describe('CapabilityPanel', () => {
     expect(await screen.findByText('能力名称不合规范')).toBeTruthy()
     expect(screen.queryByText('← 返回清单')).toBeNull()
   })
+
+  /** One 未注册 row as `capabilityList` reports it (ADR-0025 决定 1). */
+  const unregistered = (overrides: Partial<KbUnregisteredSkill> = {}): KbUnregisteredSkill => ({
+    name: 'notes-helper',
+    description: '整理笔记',
+    source: 'user',
+    directory: 'C:/Users/me/.dsh/skills/notes-helper',
+    userInvocable: true,
+    flat: false,
+    ...overrides,
+  })
+
+  it('lists 未注册 skills with their grey reasons and never opens a confirm for a greyed row', async () => {
+    const rows = [
+      unregistered(),
+      unregistered({ name: 'quick', directory: undefined, flat: true }),
+      unregistered({ name: 'hidden', userInvocable: false }),
+    ]
+    render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }) })} />)
+    expect(await screen.findByText('未注册技能（ADR-0025）')).toBeTruthy()
+    expect(screen.getByText('notes-helper')).toBeTruthy()
+    expect(screen.getByText('扁平单文件技能不支持采纳')).toBeTruthy()
+    expect(screen.getByText('SKILL.md 已标记 user-invocable: false')).toBeTruthy()
+    fireEvent.click(screen.getByText('quick'))
+    expect(screen.queryByText(/采纳「quick」/)).toBeNull()
+  })
+
+  it('adopts through the inline confirm: target path, sidecar preview, then the detail', async () => {
+    const adopt = vi.fn(() => {
+      capabilities.push({ name: 'notes-helper', description: '整理笔记', source: 'user', invocation: ['human'] })
+      return Promise.resolve({ path: '.dsh/skills/notes-helper' })
+    })
+    const capabilities: KbCapabilitySummary[] = []
+    const load = vi.fn(() => Promise.resolve({ capabilities, unregistered: [unregistered()] }))
+    render(<CapabilityPanel {...capabilityProps({ load, adopt })} />)
+    fireEvent.click(await screen.findByText('notes-helper'))
+    expect(await screen.findByText(/采纳「notes-helper」/)).toBeTruthy()
+    expect(screen.getByText(/\.dsh\/skills\/notes-helper\//)).toBeTruthy()
+    expect(screen.getByText('{"invocation":["human"],"version":1}')).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByText('采纳')) })
+    expect(adopt).toHaveBeenCalledWith('notes-helper')
+    expect(await screen.findByText('← 返回清单')).toBeTruthy()
+  })
+
+  it('warns in the confirm when the source carries its own declaration', async () => {
+    const rows = [unregistered({ sidecar: { entry: 'run.py', invocation: ['human', 'agent'] } })]
+    render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }) })} />)
+    fireEvent.click(await screen.findByText('notes-helper'))
+    expect(await screen.findByText(/外带声明不会静默生效/)).toBeTruthy()
+  })
 })
 
 /** The frame's file channel and first-run faces, all spies. */
@@ -658,6 +711,9 @@ interface FrameFaces {
   readonly links: LinksLoader
   readonly revision: RevisionLoader
   readonly openExternal: ExternalOpener
+  readonly promptSession: SessionPrompter
+  readonly capabilityList: CapabilityLoader
+  readonly capabilityRun: CapabilityRunner
 }
 
 /** Build the frame's spies; `read` answers every path with the same content. */
@@ -676,6 +732,9 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     pickDirectory: () => Promise.resolve(null),
     revision: () => Promise.resolve({ root: '/kb', revision: 0 }),
     openExternal: () => Promise.resolve({ target: '' }),
+    promptSession: () => Promise.resolve(),
+    capabilityList: () => Promise.resolve({ capabilities: [], unregistered: [] }),
+    capabilityRun: () => Promise.resolve({ name: '', runAt: '', artifacts: [] }),
     ...overrides,
   }
 }
@@ -705,9 +764,11 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
       analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } })}
       registerResource={() => Promise.resolve('resources/新资源.pdf')}
-      capabilityList={() => Promise.resolve({ capabilities: [] })}
+      capabilityList={kb.capabilityList}
       capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
-      capabilityRun={() => Promise.resolve({ name: '', runAt: '', artifacts: [] })}
+      capabilityAdopt={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
+      capabilityRun={kb.capabilityRun}
+      promptSession={kb.promptSession}
       writeTodos={kb.writeTodos}
       onKbRootChanged={onKbRootChanged}
     />
@@ -888,9 +949,11 @@ describe('Frame', () => {
         mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
         analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } })}
         registerResource={() => Promise.resolve('resources/新资源.pdf')}
-        capabilityList={() => Promise.resolve({ capabilities: [] })}
+        capabilityList={() => Promise.resolve({ capabilities: [], unregistered: [] })}
         capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
+        capabilityAdopt={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
         capabilityRun={() => Promise.resolve({ name: '', runAt: '', artifacts: [] })}
+        promptSession={kb.promptSession}
         onKbRootChanged={onKbRootChanged}
       />,
     )
@@ -945,5 +1008,143 @@ describe('Frame', () => {
     expect(container.querySelector('[data-rail-handle="workspace"]')).not.toBeNull()
     drag('workspace', 9999, 8000)
     expect(widthOf('workspace')).toBeLessThan(window.innerWidth - RAIL_MIN)
+  })
+
+  it('sends an instruction capability\'s run to the current session as a prompt (ADR-0025 决定 4)', async () => {
+    const promptSession = vi.fn(() => Promise.resolve())
+    const { container } = render(renderFrame({
+      promptSession,
+      capabilityList: () => Promise.resolve({
+        capabilities: [{
+          name: 'eml-triage', description: '分诊一封邮件', source: 'project', invocation: ['human'],
+          appliesTo: { resource: ['.eml'] },
+        }],
+        unregistered: [],
+      }),
+      // An instruction capability's run answers with the SKILL.md body.
+      capabilityRun: () => Promise.resolve({ name: 'eml-triage', runAt: '', content: '按以下步骤分诊邮件', artifacts: [] }),
+    }))
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    const group = await waitFor(() => {
+      const found = container.querySelector('[data-row-capabilities="true"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    fireEvent.click(within(group).getByText('eml-triage'))
+    // The prompt is the SKILL.md body plus the row's file as an `@` reference,
+    // serialized exactly as the composer's `@` chip would.
+    await waitFor(() => { expect(promptSession).toHaveBeenCalledWith('按以下步骤分诊邮件\n\n@resources/周报.eml') })
+    expect(await screen.findByText('能力「eml-triage」的说明已发送到当前会话。')).toBeTruthy()
+  })
+
+  it('reports a failed session prompt in the frame\'s notice', async () => {
+    const promptSession = vi.fn(() => Promise.reject(new Error('会话通道不可用，无法发送。')))
+    const { container } = render(renderFrame({
+      promptSession,
+      capabilityList: () => Promise.resolve({
+        capabilities: [{
+          name: 'eml-triage', description: '分诊一封邮件', source: 'project', invocation: ['human'],
+          appliesTo: { resource: ['.eml'] },
+        }],
+        unregistered: [],
+      }),
+      capabilityRun: () => Promise.resolve({ name: 'eml-triage', runAt: '', content: '按以下步骤分诊邮件', artifacts: [] }),
+    }))
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    const group = await waitFor(() => {
+      const found = container.querySelector('[data-row-capabilities="true"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    fireEvent.click(within(group).getByText('eml-triage'))
+    expect(await screen.findByText('发送失败：会话通道不可用，无法发送。')).toBeTruthy()
+  })
+
+  it('opens the selection menu in the reading view and sends the raw text (ADR-0025 决定 5)', async () => {
+    const promptSession = vi.fn(() => Promise.resolve())
+    const { container } = render(renderFrame({ promptSession }))
+    fireEvent.click(await screen.findByText('健康'))
+    const body = await within(
+      container.querySelector('[data-tab="entities/areas/健康.md"]') as HTMLElement,
+    ).findByText('写下第一个待办')
+    const selection = {
+      anchorNode: container.querySelector('[data-markdown-body="true"]'),
+      toString: () => '选中的文字',
+    }
+    const spy = vi.spyOn(window, 'getSelection').mockReturnValue(selection as unknown as Selection)
+    try {
+      fireEvent.mouseUp(body)
+    } finally {
+      spy.mockRestore()
+    }
+    fireEvent.click(await screen.findByText('发送到会话'))
+    // 「发送到会话」 needs no capability: the selection *is* the prompt.
+    await waitFor(() => { expect(promptSession).toHaveBeenCalledWith('选中的文字') })
+    expect(await screen.findByText('已发送到当前会话。')).toBeTruthy()
+  })
+
+  it('runs a selection capability as body + selection fixed concatenation (ADR-0025 决定 5)', async () => {
+    const promptSession = vi.fn(() => Promise.resolve())
+    const capabilityRun = vi.fn(() =>
+      Promise.resolve({ name: 'notes-helper', runAt: '', content: '按以下步骤整理笔记', artifacts: [] }))
+    const { container } = render(renderFrame({
+      promptSession,
+      capabilityRun,
+      capabilityList: () => Promise.resolve({
+        capabilities: [{
+          name: 'notes-helper', description: '整理一段笔记', source: 'project', invocation: ['human'],
+          appliesTo: { selection: true },
+        }],
+        unregistered: [],
+      }),
+    }))
+    fireEvent.click(await screen.findByText('健康'))
+    const body = await within(
+      container.querySelector('[data-tab="entities/areas/健康.md"]') as HTMLElement,
+    ).findByText('写下第一个待办')
+    const selection = {
+      anchorNode: container.querySelector('[data-markdown-body="true"]'),
+      toString: () => '选中的文字',
+    }
+    const spy = vi.spyOn(window, 'getSelection').mockReturnValue(selection as unknown as Selection)
+    try {
+      fireEvent.mouseUp(body)
+    } finally {
+      spy.mockRestore()
+    }
+    fireEvent.click(await screen.findByText('notes-helper'))
+    expect(capabilityRun).toHaveBeenCalledWith({ name: 'notes-helper', input: { selection: '选中的文字' } })
+    await waitFor(() => { expect(promptSession).toHaveBeenCalledWith('按以下步骤整理笔记\n\n选中的文字') })
+  })
+
+  it('leaves the selection menu out of a non-opting capability and foreign textareas', async () => {
+    const { container } = render(renderFrame({
+      capabilityList: () => Promise.resolve({
+        capabilities: [{
+          name: 'script-cap', description: '脚本型', source: 'project', entry: 'scripts/entry.py', runtime: 'python',
+          invocation: ['human'], appliesTo: { selection: true },
+        }],
+        unregistered: [],
+      }),
+    }))
+    fireEvent.click(await screen.findByText('健康'))
+    const body = await within(
+      container.querySelector('[data-tab="entities/areas/健康.md"]') as HTMLElement,
+    ).findByText('写下第一个待办')
+    const selection = {
+      anchorNode: container.querySelector('[data-markdown-body="true"]'),
+      toString: () => '选中的文字',
+    }
+    const spy = vi.spyOn(window, 'getSelection').mockReturnValue(selection as unknown as Selection)
+    try {
+      fireEvent.mouseUp(body)
+    } finally {
+      spy.mockRestore()
+    }
+    // The menu opens, but the script-type capability never appears — only
+    // instruction capabilities are offered on the selection.
+    expect(await screen.findByText('发送到会话')).toBeTruthy()
+    expect(screen.queryByText('script-cap')).toBeNull()
+    expect(container.querySelector('[data-selection-capability]')).toBeNull()
   })
 })

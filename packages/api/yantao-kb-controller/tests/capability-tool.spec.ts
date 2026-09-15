@@ -43,9 +43,12 @@ let skillDir: string
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'yantao-kb-tool-'))
   state.home = home
-  skillDir = join(home, 'skills', 'mail')
+  skillDir = join(home, '.dsh', 'skills', 'mail')
   await mkdir(join(skillDir, 'scripts'), { recursive: true })
   await writeFile(join(skillDir, 'scripts', 'entry.py'), 'print(1)', 'utf8')
+  // A version far above the shipped master's keeps the builtin seeder from
+  // overwriting this fake with the real mail capability mid-test.
+  await writeFile(join(skillDir, 'SKILL.md'), '---\nname: mail\ndescription: 测试\nversion: 999\n---\n\n测试。\n', 'utf8')
   runCapability.mockReset()
   skillGet.mockReset()
   skillList.mockReset().mockImplementation(async () => {
@@ -217,5 +220,108 @@ describe('agent-facing capability catalog (ADR-0023 决定 5)', () => {
       () => Promise.resolve({ kind: 'enter' as const, messages: [toolMessage] }),
     )
     expect(toolStep.kind === 'enter' ? toolStep.messages : []).toHaveLength(1)
+  })
+})
+
+describe('the /xxx gesture (ADR-0025 决定 3)', () => {
+  /** A minimal agent stand-in; the pre-step listener never touches it. */
+  const agent = {} as Agent
+
+  /** A user-prompt step's claimed messages. */
+  function userMessages(text: string): UserMessage[] {
+    return [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] })]
+  }
+
+  /** Drive the controller's pre-step listener with `next` answering `decision`. */
+  function preStep(decision: PreStepDecision, text = '帮我看看邮件'): Promise<PreStepDecision> {
+    return agentEvents(ctx, agent).waterfall(
+      'agent/pre-step',
+      preStepPayload(text),
+      () => Promise.resolve(decision),
+    )
+  }
+
+  /** The injected messages' `(kind, form)` pairs, read structurally. */
+  function injectedSources(decision: PreStepDecision): { kind: string; form?: string }[] {
+    if (decision.kind !== 'enter') return []
+    return decision.messages.slice(1).map((message) => {
+      const source = message.source as { kind: string; form?: string }
+      return source.form === undefined ? { kind: source.kind } : { kind: source.kind, form: source.form }
+    })
+  }
+
+  it('injects an instruction capability\'s SKILL.md body for a leading /name', async () => {
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {}, content: '# 指令正文' }))
+    const decision = await preStep(
+      { kind: 'enter', messages: userMessages('/mail 帮我看看今天的邮件') },
+      '/mail 帮我看看今天的邮件',
+    )
+    expect(decision.kind).toBe('enter')
+    expect(injectedSources(decision)).toEqual([{ kind: 'skill-invocation', form: 'instructions' }])
+    const messages = decision.kind === 'enter' ? decision.messages : []
+    const injected = messages[1] as unknown as { content: readonly { type: string; text: string }[] }
+    expect(injected.content[0]?.text).toContain('<skill_content name="mail">')
+  })
+
+  it('keeps a mid-sentence /name and an unknown name as ordinary prose', async () => {
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
+    skillGet.mockImplementation(async (name: string) =>
+      name === 'mail' ? definition({ metadata: {} }) : undefined)
+    for (const text of ['请 /mail 看看', '/unknown 做事']) {
+      const decision = await preStep({ kind: 'enter', messages: userMessages(text) }, text)
+      expect(injectedSources(decision)).toEqual([])
+    }
+  })
+
+  it('answers a script-type hit with an ordinary notice, not instructions', async () => {
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
+      entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'],
+    }), 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {} }))
+    const decision = await preStep(
+      { kind: 'enter', messages: userMessages('/mail 读一下') },
+      '/mail 读一下',
+    )
+    expect(injectedSources(decision)).toEqual([{ kind: 'plugin', form: 'notice' }])
+  })
+
+  it('keeps a human-disabled capability and a sidecar-less plain skill plain', async () => {
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['agent'] }), 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {} }))
+    // The gesture stays silent, but the capability is agent-open, so the
+    // catalog still rides the step.
+    expect(injectedSources(await preStep(
+      { kind: 'enter', messages: userMessages('/mail 读一下') },
+      '/mail 读一下',
+    ))).toEqual([{ kind: 'plugin', form: 'catalog' }])
+    // No yantao.json and no legacy metadata: a plain skill, not a capability.
+    skillGet.mockResolvedValue(definition({ metadata: {} }))
+    await rm(join(skillDir, 'yantao.json'), { force: true })
+    expect(injectedSources(await preStep(
+      { kind: 'enter', messages: userMessages('/mail 读一下') },
+      '/mail 读一下',
+    ))).toEqual([])
+  })
+
+  it('lands the catalog before the skill instructions', async () => {
+    await mkdir(join(home, '.dsh', 'skills', 'digest'), { recursive: true })
+    await writeFile(join(home, '.dsh', 'skills', 'digest', 'SKILL.md'), '---\nname: digest\ndescription: d\nversion: 999\n---\n\n正文\n', 'utf8')
+    await writeFile(join(home, '.dsh', 'skills', 'digest', 'yantao.json'), JSON.stringify({ invocation: ['human', 'agent'] }), 'utf8')
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
+    skillGet.mockImplementation(async (name: string) => name === 'mail'
+      ? definition({ metadata: {}, content: '# 指令正文' })
+      : definition({
+        name, metadata: {}, content: '# d',
+        resourceBase: { kind: 'directory', path: join(home, '.dsh', 'skills', name) },
+      }))
+    const decision = await preStep(
+      { kind: 'enter', messages: userMessages('/mail 读一下') },
+      '/mail 读一下',
+    )
+    expect(injectedSources(decision)).toEqual([
+      { kind: 'plugin', form: 'catalog' },
+      { kind: 'skill-invocation', form: 'instructions' },
+    ])
   })
 })

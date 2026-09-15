@@ -373,6 +373,8 @@ export interface KbCapabilityAppliesTo {
   readonly entity?: readonly string[]
   /** External sources the capability reads, e.g. `['mailbox']`. */
   readonly external?: readonly string[]
+  /** Opted into the selection right-click menu (ADR-0025 决定 5). */
+  readonly selection?: boolean
 }
 
 /** One capability as the 能力 tab lists it (ADR-0021 决定 8). */
@@ -399,10 +401,50 @@ export interface KbCapabilitySummary {
   readonly state?: JsonValue
 }
 
-/** Result of `yantaoKb.capabilityList` (ADR-0021). */
+/** Result of `yantaoKb.capabilityList` (ADR-0021; unregistered group ADR-0025 决定 1). */
 export interface KbCapabilityListResult {
   /** The capabilities, in discovery order. */
   readonly capabilities: readonly KbCapabilitySummary[]
+  /**
+   * Skills discovered outside the KB that look adoptable (ADR-0025 决定 1):
+   * directory bundles without a yantao sidecar, name-sorted, registered
+   * capabilities excluded. Greyed rows carry the reason in their flags.
+   */
+  readonly unregistered: readonly KbUnregisteredSkill[]
+}
+
+/**
+ * One skill in `capabilityList`'s 未注册 group (ADR-0025 决定 1): a skill
+ * `ctx.skills` discovered outside the KB's own `.dsh/skills/` that adoption
+ * could copy into it.
+ */
+export interface KbUnregisteredSkill {
+  /** The skill's frontmatter name. */
+  readonly name: string
+  /** The SKILL.md description. */
+  readonly description: string
+  /** Where the skill was discovered (`user`, `project`, …). */
+  readonly source: string
+  /** Absolute path of the skill's directory; absent on a flat single-file skill. */
+  readonly directory?: string
+  /** False when the frontmatter declared `user-invocable: false` — not adoptable, not /xxx-able. */
+  readonly userInvocable: boolean
+  /** True for a flat `xxx.md` skill: no directory to carry a sidecar, so adoption is unsupported. */
+  readonly flat: boolean
+  /** The skill's own `yantao.json` sidecar, when it carries one — the adopt confirm box previews it. */
+  readonly sidecar?: JsonValue
+}
+
+/** Parameters of `yantaoKb.capabilityAdopt` (ADR-0025 决定 1). */
+export interface KbCapabilityAdoptArgs {
+  /** The unregistered skill's name, as `capabilityList`'s 未注册 group reported it. */
+  readonly name: string
+}
+
+/** Result of `yantaoKb.capabilityAdopt` (ADR-0025 决定 1). */
+export interface KbCapabilityAdoptResult {
+  /** KB-relative path of the adopted capability directory, `.dsh/skills/<name>`. */
+  readonly path: string
 }
 
 /** Parameters of `yantaoKb.capabilityCreate` (ADR-0021 决定 8's 「新建能力」). */

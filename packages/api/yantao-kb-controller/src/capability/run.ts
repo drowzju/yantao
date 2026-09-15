@@ -40,6 +40,12 @@ export interface CapabilityAppliesTo {
   readonly entity?: readonly string[]
   /** External sources the capability reads, e.g. `['mailbox']`. */
   readonly external?: readonly string[]
+  /**
+   * Opt into the selection right-click menu (ADR-0025 决定 5): only declared
+   * instruction capabilities appear there — the menu must not grow with every
+   * capability that has no better idea than bare text.
+   */
+  readonly selection?: boolean
 }
 
 /** Who may invoke a capability (ADR-0023 决定 2): the 能力 tab, the agent's `kb_run_capability`, or both. */
@@ -231,11 +237,15 @@ function appliesToOf(name: string, value: unknown): CapabilityAppliesTo {
   if (typeof value !== 'object' || value === null) {
     throw fail('bad-manifest', `能力「${name}」的 appliesTo 必须是对象。`)
   }
-  const { resource, entity, external } = value as Record<string, unknown>
+  const { resource, entity, external, selection } = value as Record<string, unknown>
+  if (selection !== undefined && typeof selection !== 'boolean') {
+    throw fail('bad-manifest', `能力「${name}」的 appliesTo.selection 必须是布尔值。`)
+  }
   return {
     ...resource !== undefined ? { resource: suffixList(name, 'resource', resource) } : {},
     ...entity !== undefined ? { entity: stringList(name, 'entity', entity) } : {},
     ...external !== undefined ? { external: stringList(name, 'external', external) } : {},
+    ...selection !== undefined ? { selection } : {},
   }
 }
 

@@ -24,6 +24,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls the `ctx.workspaces` service merge (the workspace
 // controller owns the declaration) — ADR-0013 points it at the KB root.
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
+// Type-only: pulls the `ctx.sessions` service merge (the session controller's
+// client face owns the declaration) — ADR-0025 决定 4 prompts the current
+// session through it.
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 // Type-only: pulls the `ctx.inputTriggers` service merge (ui-input-trigger
 // owns the declaration) — the `@` menu's KB source registers through it.
 import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
@@ -32,14 +36,16 @@ import type {
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
+import { promptCurrentSession } from './session-prompt.ts'
 import { Frame } from './frame/Frame.tsx'
 import { ThemePresenter } from './frame/theme-presenter.ts'
 import { WorkbenchLayout, createPanelSeat } from './frame/layout.ts'
 import { YantaoMark } from './brand/YantaoMark.tsx'
 import { alignWorkspace } from './kb-workspace.ts'
 import { kbReferenceSource } from './kb-reference.ts'
+import { capabilityGestureSource } from './capability-gesture.ts'
 import {
-  createCapability, createEntity, deleteFile, fetchMail, loadCapabilities, loadIntake, loadLinks,
+  adoptCapability, createCapability, createEntity, deleteFile, fetchMail, loadCapabilities, loadIntake, loadLinks,
   loadRevision, loadRoot, loadTodos,
   loadWorkspace, markMailRead, openExternal, readFile, registerResource, runCapability, setKbRoot,
   setRelation, writeFile, writeTodos,
@@ -52,9 +58,10 @@ export const name = 'ui-yantao'
 // or the accessor throws "cannot get property remote.yantaoKb without inject".
 // `uiWorkspace` is the host's directory picker the first-run flow calls.
 // `remote.session` is ADR-0019's: the mail analysis creates and drives a real
-// dsh session from the browser.
+// dsh session from the browser. `sessions` is ADR-0025 决定 4's: the current
+// session is read (and, when none is open, created and selected) through it.
 export const inject = [
-  'slots', 'theme', 'remote', 'remote.yantaoKb', 'remote.session', 'uiWorkspace', 'workspaces',
+  'slots', 'theme', 'remote', 'remote.yantaoKb', 'remote.session', 'sessions', 'uiWorkspace', 'workspaces',
   'inputTriggers',
 ]
 
@@ -163,6 +170,13 @@ export function apply(ctx: Context): void {
       capabilityList: () => loadCapabilities(ctx),
       capabilityRun: (args: KbCapabilityRunArgs) => runCapability(ctx, args),
       capabilityCreate: (name: string) => createCapability(ctx, name),
+      // ADR-0025 决定 1: adopt an out-of-KB skill into `.dsh/skills/`.
+      capabilityAdopt: (name: string) => adoptCapability(ctx, name),
+      // ADR-0025 决定 4: an instruction capability's prompt goes to the
+      // conversation the human is watching, on a KB-rooted session.
+      promptSession: async (text: string) => {
+        await promptCurrentSession(ctx, text, await kbCwd())
+      },
       onKbRootChanged: align,
     }),
   }, Frame), 'ui-yantao: root frame')
@@ -179,4 +193,9 @@ export function apply(ctx: Context): void {
     intake: () => loadIntake(ctx),
     workspace: () => loadWorkspace(ctx),
   })), 'ui-yantao: @ kb source')
+
+  // ADR-0025 决定 6: `/` completes the capability gesture — menu only, no
+  // match hooks, so ui-commands keeps its enter/space adjudication.
+  ctx.effect(() => ctx.inputTriggers.registerSource(capabilityGestureSource(() => loadCapabilities(ctx))),
+    'ui-yantao: / capability source')
 }

@@ -301,6 +301,10 @@ export function FileEditor({
         style={textareaStyle}
         value={draft ?? ''}
         data-status={status}
+        // The selection right-click's source marker (ADR-0025 决定 5): the
+        // frame's document-level mouseup reads this textarea's
+        // selectionStart/End — and only this one, never the conversation's.
+        data-kb-editor="true"
         onChange={(event) => {
           setDraft(event.target.value)
           setStatus('dirty')

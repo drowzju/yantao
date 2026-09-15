@@ -62,15 +62,24 @@ SKILL.md 加资源文件，模型按需加载正文。能力借它的**目录形
    不可被 `[[…]]` 引用。已安装能力清单与各自状态存 `~/.dsh/yantao-kb.json`——现有
    `connectors.mail.lastReadAt` 槽泛化为 `capabilities.<name>.state`（任意 JSON，由各能力
    自解释）。
+   （落地注记 2026-09-14，ADR-0024 决定 2：状态文件迁入 KB——`<kbRoot>/.yantao/state.json`，
+   旧文件一次性导入后改名 `.bak`。「知识库之外」修订为「KB 根的 `.yantao/` 邻居」；
+   不进 `resources/`、不进 `entities/` 的立场不变。）
 
 6. **发现挂 skill-filesystem，消费层自建**。启用 dsh `skill-filesystem`（目录扫描、chokidar
    监听、项目 `.dsh/skills` → `customSkillDirs` → 用户目录的 rank 优先级是现成的）；
    `tool-skill` 继续禁用。yantao 写自己的消费者（能力面板 + 执行缝）从 `ctx.skills` 读目录。
    自建扫描/监听等于复制一段容易出错的文件监听代码，没有必要。
+   （落地注记 2026-09-14，ADR-0025 决定 1：能力面板新增「未注册」分组展示无 sidecar 的
+   技能目录——「完全没有能力声明的 skill 目录仍然不是能力」不变，采纳动作本身就是审计点；
+   技能来源按 ADR-0024 决定 4 只认 `<kbRoot>/.dsh/skills/`。）
 
 7. **appliesTo 声明式匹配**。UI 据此在资源右键菜单（按扩展名）、实体面板（按类型）、能力
    tab 里过滤可用能力。`external` 源由 controller 内置登记（v1 只有 mailbox）——外部源是
    controller 的知识，不是能力的。
+   （落地注记 2026-09-14，ADR-0025 决定 5：`appliesTo` 新增 `selection` 键——指令型能力
+   opt-in 选区右键菜单，默认不出现；决定 4 的资源右键语义补齐：指令型能力发当前会话，
+   脚本型仍走 `capabilityRun` → 提案卡。）
 
 8. **UI：连接 tab 改能力 tab**。清单 + 详情两态：清单列名称、来源目录、appliesTo 摘要、
    上次运行/断点摘要；详情态含描述、入口脚本、状态 JSON、运行按钮。邮箱作为

@@ -281,7 +281,7 @@ export function MarkdownView({
           </tbody>
         </table>
       )}
-      <div style={bodyStyle} ref={bodyRef} onClick={onClick}>
+      <div style={bodyStyle} ref={bodyRef} onClick={onClick} data-markdown-body="true">
         {backlinksOpen && (links?.incoming.length ?? 0) > 0 && (
           <div style={{ ...outlineStyle, left: 8, right: 'auto' }} data-backlinks="true">
             {links?.incoming.map(entry => (

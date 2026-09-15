@@ -20,7 +20,8 @@ import type {
   SessionPromptValue, SessionRenameRequest, SessionRenameValue,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {
-  KbCapabilityCreateArgs, KbCapabilityCreateResult, KbCapabilityListResult,
+  KbCapabilityAdoptArgs, KbCapabilityAdoptResult, KbCapabilityCreateArgs, KbCapabilityCreateResult,
+  KbCapabilityListResult,
   KbCapabilityRunArgs, KbCapabilityRunResult, KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
   KbDeleteFileResult, KbFileContent, KbLinksResult,
   KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
@@ -54,6 +55,8 @@ export interface KbRemote {
   capabilityRun(args: KbCapabilityRunArgs): Promise<RemoteResult<KbCapabilityRunResult>>
   /** Scaffold one new capability under `.dsh/skills/` (ADR-0021 决定 8's 「新建能力」). */
   capabilityCreate(args: KbCapabilityCreateArgs): Promise<RemoteResult<KbCapabilityCreateResult>>
+  /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
+  capabilityAdopt(args: KbCapabilityAdoptArgs): Promise<RemoteResult<KbCapabilityAdoptResult>>
   /** Copy one dropped file into `resources/` (ADR-0020). */
   registerResource(args: KbRegisterResourceArgs): Promise<RemoteResult<KbRegisterResourceResult>>
 }
@@ -131,6 +134,9 @@ export type CapabilityRunner = (args: KbCapabilityRunArgs) => Promise<KbCapabili
 
 /** Scaffold one new capability under `.dsh/skills/` (ADR-0021 决定 8's 「新建能力」). */
 export type CapabilityCreator = (name: string) => Promise<KbCapabilityCreateResult>
+
+/** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
+export type CapabilityAdopter = (name: string) => Promise<KbCapabilityAdoptResult>
 
 /** One mail as the connector reports it (ADR-0019). */
 export type MailMessage = KbMailMessage
@@ -453,6 +459,20 @@ export async function createCapability(ctx: Context, name: string): Promise<KbCa
 }
 
 /**
+ * Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1): the host
+ * copies the bundle and writes the default human-only sidecar — any
+ * declaration the source carried never takes effect silently.
+ * @param ctx - client root context.
+ * @param name - the unregistered skill's name, as the 未注册 group reported it.
+ * @returns the adopted directory's KB-relative path.
+ */
+export async function adoptCapability(ctx: Context, name: string): Promise<KbCapabilityAdoptResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.capabilityAdopt({ name }))
+}
+
+/**
  * Reach the session namespace without assuming it is mounted — the same
  * defensive access `kbRemoteOf` uses.
  * @param ctx - client root context.
@@ -461,6 +481,12 @@ export async function createCapability(ctx: Context, name: string): Promise<KbCa
 export function sessionRemoteOf(ctx: Context): SessionRemote | undefined {
   return (ctx as unknown as { remote?: { session?: SessionRemote } }).remote?.session
 }
+
+/**
+ * Send one prompt to the conversation the human is looking at (ADR-0025
+ * 决定 4) — the frame's instruction-capability runs go through this.
+ */
+export type SessionPrompter = (text: string) => Promise<void>
 
 /**
  * The `details` one Remote failure carries, when it has any. ADR-0019's mail

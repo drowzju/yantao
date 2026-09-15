@@ -10,7 +10,7 @@ import type {
   KbCapabilitySummary, KbPersonRelation, KbTreeFile, KbTreeSection, KbTreeSectionId,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type {
-  CapabilityCreator, CapabilityLoader, EntityCreator, FileDeleter, FileReader, FileWriter,
+  CapabilityAdopter, CapabilityCreator, CapabilityLoader, EntityCreator, FileDeleter, FileReader, FileWriter,
   MailFetcher, MailMarker, RelationSetter, ResourceRegistrar,
   TodoLoader, TodoWriter,
 } from './remote.ts'
@@ -557,6 +557,8 @@ export interface IntakeRailProps extends RailProps {
   readonly registerResource: ResourceRegistrar
   /** Scaffold one new capability (「新建能力」). */
   readonly capabilityCreate: CapabilityCreator
+  /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
+  readonly capabilityAdopt: CapabilityAdopter
 }
 
 /** The rail's error marker: it is the only thing left above the tab strip. */
@@ -580,7 +582,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const {
     collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
     read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource,
-    capabilityList, capabilityCreate, onRunCapability,
+    capabilityList, capabilityCreate, capabilityAdopt, onRunCapability,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const capabilities = useCapabilities(capabilityList, refreshKey)
@@ -687,6 +689,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
         <CapabilityPanel
           load={capabilityList}
           create={capabilityCreate}
+          adopt={capabilityAdopt}
           mail={state => (
             <MailPanel
               fetch={mailFetch}
