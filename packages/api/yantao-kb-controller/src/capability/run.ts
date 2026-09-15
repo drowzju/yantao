@@ -186,7 +186,7 @@ function frontmatterOf(definition: SkillDefinition): unknown {
 }
 
 /** Assemble one manifest from a declaration, validating every field. */
-function manifestFrom(name: string, declared: unknown): CapabilityManifest {
+export function manifestFrom(name: string, declared: unknown): CapabilityManifest {
   if (typeof declared !== 'object' || declared === null) {
     throw fail('bad-manifest', `能力「${name}」没有能力声明（yantao.json 或 SKILL.md 的 metadata.yantao 段）。`)
   }

@@ -19,7 +19,8 @@ carrying the **yantao** personal knowledge workbench on a local branch `main`. U
    That list is deliberately short — do not grow it without an ADR.
 2. **The trust boundary is the tool layer.** The agent gets the eight `kb_*` tools and no generic write capability; it may edit an
    entity's `状态` (ADR-0010 overturned ADR-0004's human-only rule) but only through `kb_write_state`, and it runs a capability
-   (ADR-0023) only through `kb_run_capability` and only when the capability's sidecar declared `"invocation": ["agent"]`. The UI is
+   (ADR-0023) only through `kb_run_capability` and only when the capability's declaration — its `yantao.json` sidecar or its entry
+   in the central routing file `.dsh/skills/yantao.json` (ADR-0025) — opened it to the agent. The UI is
    the human channel and may edit anything.
 3. **Cordis discipline.** Reading a service or a Remote namespace requires declaring it: `inject = ['remote', 'remote.yantaoKb']`.
    Reading an undeclared one throws at runtime.

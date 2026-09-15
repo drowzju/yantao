@@ -100,7 +100,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0022 | 系统提示词分层:yantao 的系统指令以命名 section 叠加在 dsh 注册表上,源文件为仓库 Markdown;persona 保持薄身份声明 |
 | 0023 | 能力的模型侧调用:`kb_run_capability` 按 sidecar `invocation` 字段逐能力门控,动态目录注入,缺 entry 的指令型能力,播种覆盖前备份;重开 ADR-0021 台账第 1、2 条 |
 | 0024 | KB 自包含:yantao 自有数据只落 KB 根——能力状态迁至 `<kbRoot>/.yantao/state.json`(一次性导入,旧文件改名 `.bak`),KB 指针进 settings plane,技能只认 `<kbRoot>/.dsh/skills/` |
-| 0025 | 三方技能接入:未注册分组 + 拷贝进 KB 的采纳动作,`/xxx` 手势(pre-step 双消息注入),资源右键对指令型能力发当前会话,选区右键 opt-in,`/` 自动补全源 |
+| 0025 | 三方技能接入:未注册分组 + 拷贝进 KB 的采纳动作,`/xxx` 手势(pre-step 双消息注入),资源右键对指令型能力发当前会话,选区右键 opt-in,`/` 自动补全源,注册 = 在中央路由文件 `.dsh/skills/yantao.json` 写路由条目(不移动、不改名) |
 
 ## 5. 快速上手
 

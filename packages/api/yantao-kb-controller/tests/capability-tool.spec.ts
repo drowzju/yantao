@@ -157,6 +157,38 @@ describe('kb_run_capability tool (ADR-0023)', () => {
     expect(result).toMatchObject({ name: 'mail', content: '# 指令正文', artifacts: [] })
     expect(runCapability).not.toHaveBeenCalled()
   })
+
+  it('runs a centrally routed skill the registry never discovered when the route opens it to the agent', async () => {
+    const directory = join(home, '.dsh', 'skills', 'routed-skill')
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n# 路由正文\n', 'utf8')
+    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({
+      version: 1,
+      capabilities: { 'routed-skill': { path: 'routed-skill', invocation: ['human', 'agent'] } },
+    }), 'utf8')
+    skillGet.mockResolvedValue(undefined)
+    const result = await registeredTool()?.execute({ name: 'routed-skill' }) as { content?: string; artifacts: readonly string[] }
+    expect(result.content).toContain('路由正文')
+    expect(result.artifacts).toEqual([])
+    expect(runCapability).not.toHaveBeenCalled()
+  })
+
+  it('refuses a routed capability whose route did not open it to the agent', async () => {
+    const directory = join(home, '.dsh', 'skills', 'routed-skill')
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n# 路由正文\n', 'utf8')
+    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({
+      version: 1,
+      capabilities: { 'routed-skill': { path: 'routed-skill', invocation: ['human'] } },
+    }), 'utf8')
+    skillGet.mockResolvedValue(undefined)
+    const failure = await registeredTool()?.execute({ name: 'routed-skill' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({
+      code: 'yantao-kb/capability',
+      details: { kind: 'not-invocable' },
+    })
+    expect(runCapability).not.toHaveBeenCalled()
+  })
 })
 
 describe('agent-facing capability catalog (ADR-0023 决定 5)', () => {
@@ -203,6 +235,26 @@ describe('agent-facing capability catalog (ADR-0023 决定 5)', () => {
     skillGet.mockResolvedValue(definition())
     const decision = await preStep({ kind: 'enter', messages: [] })
     expect(decision.kind === 'enter' ? decision.messages : []).toHaveLength(0)
+  })
+
+  it('appends routed agent-open capabilities the registry cannot see', async () => {
+    const directory = join(home, '.dsh', 'skills', 'routed-skill')
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n正文\n', 'utf8')
+    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({
+      version: 1,
+      capabilities: { 'routed-skill': { path: 'routed-skill', invocation: ['agent'] } },
+    }), 'utf8')
+    skillList.mockResolvedValue([])
+    skillGet.mockResolvedValue(undefined)
+    const decision = await preStep({ kind: 'enter', messages: userMessages('帮我看看邮件') })
+    expect(decision.kind).toBe('enter')
+    const messages = decision.kind === 'enter' ? decision.messages : []
+    expect(messages).toHaveLength(2)
+    const injected = messages[1] as unknown as {
+      source: { form: string; entries: readonly { name: string; description: string }[] }
+    }
+    expect(injected.source.entries).toEqual([{ name: 'routed-skill', description: '路由技能' }])
   })
 
   it('leaves a rejected decision untouched and skips non-user steps', async () => {
@@ -323,5 +375,52 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
       { kind: 'plugin', form: 'catalog' },
       { kind: 'skill-invocation', form: 'instructions' },
     ])
+  })
+
+  it('injects a routed capability\'s SKILL.md body even when the registry cannot see the skill', async () => {
+    const directory = join(home, '.dsh', 'skills', 'routed-skill')
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n# 路由正文\n', 'utf8')
+    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({
+      version: 1,
+      capabilities: { 'routed-skill': { path: 'routed-skill', invocation: ['human'] } },
+    }), 'utf8')
+    skillGet.mockResolvedValue(undefined)
+    const decision = await preStep(
+      { kind: 'enter', messages: userMessages('/routed-skill 做事') },
+      '/routed-skill 做事',
+    )
+    expect(injectedSources(decision)).toEqual([{ kind: 'skill-invocation', form: 'instructions' }])
+    const messages = decision.kind === 'enter' ? decision.messages : []
+    const injected = messages[1] as unknown as { content: readonly { type: string; text: string }[] }
+    expect(injected.content[0]?.text).toContain('<skill_content name="routed-skill">')
+  })
+
+  it('keeps a routed capability the route closed to humans silent', async () => {
+    const directory = join(home, '.dsh', 'skills', 'routed-skill')
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n# 路由正文\n', 'utf8')
+    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({
+      version: 1,
+      capabilities: { 'routed-skill': { path: 'routed-skill', invocation: ['agent'] } },
+    }), 'utf8')
+    skillGet.mockResolvedValue(undefined)
+    const decision = await preStep(
+      { kind: 'enter', messages: userMessages('/routed-skill 做事') },
+      '/routed-skill 做事',
+    )
+    // Human-closed, so no gesture injection; the route is agent-open, so the
+    // catalog still rides the step.
+    expect(injectedSources(decision)).toEqual([{ kind: 'plugin', form: 'catalog' }])
+  })
+
+  it('keeps the gesture silent when the central routing file is broken', async () => {
+    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), '{ not json', 'utf8')
+    skillGet.mockResolvedValue(undefined)
+    const decision = await preStep(
+      { kind: 'enter', messages: userMessages('/mail 读一下') },
+      '/mail 读一下',
+    )
+    expect(injectedSources(decision)).toEqual([])
   })
 })

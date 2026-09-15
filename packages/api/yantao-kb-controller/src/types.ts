@@ -413,8 +413,9 @@ export interface KbCapabilityListResult {
    * registered capabilities excluded. Two origins share the group: skills
    * discovered outside the KB that adoption could copy in, and skills living
    * inside the KB's own `.dsh/skills/` whose declaration is missing or
-   * invalid — those carry `inKb` and registration writes their sidecar in
-   * place. Greyed rows carry the reason in their flags.
+   * invalid — those carry `inKb` and registration routes them in the central
+   * routing file (ADR-0025 落地注记二). Greyed rows carry the reason in their
+   * flags.
    */
   readonly unregistered: readonly KbUnregisteredSkill[]
 }
@@ -422,8 +423,8 @@ export interface KbCapabilityListResult {
 /**
  * One skill in `capabilityList`'s 未注册 group (ADR-0025 决定 1): either a
  * skill `ctx.skills` discovered outside the KB's own `.dsh/skills/` that
- * adoption could copy into it, or an in-KB skill without a valid yantao
- * declaration that registration can repair in place.
+ * adoption can copy into it, or an in-KB skill without a valid yantao
+ * declaration that registration can route in the central routing file.
  */
 export interface KbUnregisteredSkill {
   /** The skill's frontmatter name. */
@@ -439,16 +440,17 @@ export interface KbUnregisteredSkill {
   /** True for a flat `xxx.md` skill: no directory to carry a sidecar, so adoption is unsupported. */
   readonly flat: boolean
   /**
-   * The skill lives inside `<kbRoot>/.dsh/skills/` — registration writes its
-   * sidecar in place (no copy); absent for an out-of-KB adoption candidate.
+   * The skill lives inside `<kbRoot>/.dsh/skills/` — registration routes it
+   * in the central routing file (no copy); absent for an out-of-KB adoption
+   * candidate.
    */
   readonly inKb?: boolean
   /** Why the skill is not a capability — missing or invalid declaration; only in-KB rows carry it. */
   readonly reason?: string
   /**
    * The directory is a dropped plugin repository (no top-level `SKILL.md`,
-   * but `skills/<name>/SKILL.md` inside): registration extracts the nested
-   * skill directories into their own top-level directories.
+   * but `skills/<name>/SKILL.md` inside): registration writes one central
+   * route entry per nested skill, the repository tree untouched.
    */
   readonly plugin?: boolean
   /** The nested skill directory names a plugin repository carries; only plugin rows carry it. */
@@ -487,9 +489,9 @@ export interface KbCapabilityRegisterArgs {
 /** Result of `yantaoKb.capabilityRegister` (ADR-0025 决定 1's in-KB registration). */
 export interface KbCapabilityRegisterResult {
   /**
-   * KB-relative path of a sidecar the call wrote, `.dsh/skills/<name>/yantao.json`.
-   * A plugin repository registration may extract several nested skills; the
-   * path then names the first extraction's sidecar.
+   * KB-relative path of the central routing file the call wrote,
+   * `.dsh/skills/yantao.json` (ADR-0025 落地注记二) — one route entry per
+   * registered skill, the skill directories untouched.
    */
   readonly path: string
 }

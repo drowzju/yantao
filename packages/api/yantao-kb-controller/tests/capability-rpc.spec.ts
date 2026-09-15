@@ -111,6 +111,12 @@ function definition(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
   }
 }
 
+/** Write the central routing file by hand, as registration would leave it. */
+async function writeCentral(capabilities: Record<string, unknown>): Promise<void> {
+  await mkdir(join(home, '.dsh', 'skills'), { recursive: true })
+  await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({ version: 1, capabilities }), 'utf8')
+}
+
 describe('yantaoKb.capabilityRun', () => {
   it('refuses to run before a KB root has been chosen', async () => {
     state.kbConfigured = false
@@ -215,6 +221,39 @@ describe('yantaoKb.capabilityRun', () => {
     expect(result.content).toBe('# 指令正文')
     expect(runCapability).not.toHaveBeenCalled()
   })
+
+  it('answers a centrally routed skill the registry never discovered', async () => {
+    const directory = join(home, '.dsh', 'skills', 'routed-skill')
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n# 路由正文\n', 'utf8')
+    await writeCentral({ 'routed-skill': { path: 'routed-skill', invocation: ['human'] } })
+    skillGet.mockResolvedValue(undefined)
+    const result = await ctx.yantaoKbController.capabilityRun({ name: 'routed-skill' })
+    expect(result.content).toContain('路由正文')
+    expect(result.artifacts).toEqual([])
+    expect(result.result).toBeUndefined()
+    expect(runCapability).not.toHaveBeenCalled()
+  })
+
+  it('lets a valid sidecar beat a same-named central route', async () => {
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
+    await writeCentral({ mail: { path: 'elsewhere/mail', invocation: ['human'] } })
+    skillGet.mockResolvedValue(definition({ metadata: {}, content: '# sidecar 正文' }))
+    const result = await ctx.yantaoKbController.capabilityRun({ name: 'mail' })
+    expect(result.content).toBe('# sidecar 正文')
+    expect(runCapability).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a broken central routing file as bad-manifest on the run path', async () => {
+    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), '{ not json', 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {} }))
+    const failure = await ctx.yantaoKbController.capabilityRun({ name: 'mail' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({
+      code: 'yantao-kb/capability',
+      details: { kind: 'bad-manifest' },
+    })
+    expect(runCapability).not.toHaveBeenCalled()
+  })
 })
 
 describe('yantaoKb.capabilityList', () => {
@@ -287,6 +326,89 @@ describe('yantaoKb.capabilityList', () => {
     skillGet.mockResolvedValue(definition({ metadata: {} }))
     const { capabilities } = await ctx.yantaoKbController.capabilityList()
     expect(capabilities.find(capability => capability.name === 'mail')?.invocation).toEqual(['human', 'agent'])
+  })
+
+  it('lists a routed capability with its description from the routed SKILL.md', async () => {
+    const directory = join(home, '.dsh', 'skills', 'routed-skill')
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n正文\n', 'utf8')
+    await writeCentral({ 'routed-skill': { path: 'routed-skill', invocation: ['human', 'agent'] } })
+    skillList.mockResolvedValue([])
+    skillGet.mockResolvedValue(undefined)
+    const { capabilities, unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(unregistered).toEqual([])
+    expect(capabilities).toHaveLength(1)
+    expect(capabilities[0]).toMatchObject({
+      name: 'routed-skill',
+      description: '路由技能',
+      source: 'kb',
+      directory,
+      invocation: ['human', 'agent'],
+    })
+  })
+
+  it('does not duplicate a capability a sidecar already declared when a route claims the name', async () => {
+    skillList.mockResolvedValue([{ name: 'mail', description: '读 Outlook 邮件', source: 'project' }])
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
+    await writeCentral({ mail: { path: 'mail', invocation: ['agent'] } })
+    skillGet.mockResolvedValue(definition({ metadata: {} }))
+    const { capabilities } = await ctx.yantaoKbController.capabilityList()
+    expect(capabilities).toHaveLength(1)
+    expect(capabilities[0]).toMatchObject({ name: 'mail', invocation: ['human'] })
+  })
+
+  it('skips a stale route whose target lost its SKILL.md', async () => {
+    await writeCentral({ ghost: { path: 'ghost', invocation: ['human'] } })
+    skillList.mockResolvedValue([])
+    skillGet.mockResolvedValue(undefined)
+    const { capabilities } = await ctx.yantaoKbController.capabilityList()
+    expect(capabilities).toEqual([])
+  })
+
+  it('answers the listing without routes when the central routing file is broken', async () => {
+    skillList.mockResolvedValue([{ name: 'mail', description: '读 Outlook 邮件', source: 'project' }])
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
+    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), '{ not json', 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {} }))
+    const { capabilities } = await ctx.yantaoKbController.capabilityList()
+    expect(capabilities.map(capability => capability.name)).toEqual(['mail'])
+  })
+
+  it('does not offer a name for registration or adoption when a route already claims it', async () => {
+    // In KB, no declaration: normally a greyed 未注册 row — but the route wins.
+    const directory = join(home, '.dsh', 'skills', 'notes-helper')
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'SKILL.md'), '---\nname: notes-helper\ndescription: KB 内技能\n---\n\n照做。\n', 'utf8')
+    await writeCentral({
+      'notes-helper': { path: 'notes-helper', invocation: ['human'] },
+      outside: { path: 'outside', invocation: ['human'] },
+    })
+    skillList.mockResolvedValue([
+      { name: 'notes-helper', description: 'KB 内技能', source: 'custom', invocation: { modelInvocable: true, userInvocable: true } },
+      // Out of KB: normally an adoption candidate — but the route wins.
+      { name: 'outside', description: '外面', source: 'user', invocation: { modelInvocable: true, userInvocable: true } },
+    ])
+    skillGet.mockImplementation(async (name: string) => {
+      if (name === 'notes-helper') {
+        return {
+          name, description: 'KB 内技能',
+          invocation: { modelInvocable: true, userInvocable: true },
+          source: 'custom', provider: 'skill-filesystem', content: '',
+          resourceBase: { kind: 'directory', path: directory },
+          path: join(directory, 'SKILL.md'), metadata: {},
+        } satisfies SkillDefinition
+      }
+      return {
+        name: 'outside', description: '外面',
+        invocation: { modelInvocable: true, userInvocable: true },
+        source: 'user', provider: 'skill-filesystem', content: '',
+        resourceBase: { kind: 'directory', path: join(home, 'user-skills', 'outside') },
+        path: join(home, 'user-skills', 'outside', 'SKILL.md'), metadata: {},
+      } satisfies SkillDefinition
+    })
+    const { capabilities, unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(unregistered).toEqual([])
+    expect(capabilities.map(capability => capability.name)).toEqual(['notes-helper'])
   })
 })
 
@@ -584,23 +706,32 @@ describe('yantaoKb.capabilityAdopt (ADR-0025)', () => {
     return directory
   }
 
-  it('copies the bundle into the KB and writes the default sidecar', async () => {
+  it('copies the bundle into the KB and routes it in the central file', async () => {
     const source = await seedOutside('notes-helper')
     const result = await ctx.yantaoKbController.capabilityAdopt({ name: 'notes-helper' })
     expect(result.path).toBe('.dsh/skills/notes-helper')
     const target = join(home, '.dsh', 'skills', 'notes-helper')
     expect(await readFile(join(target, 'SKILL.md'), 'utf8')).toContain('照做')
-    expect(JSON.parse(await readFile(join(target, 'yantao.json'), 'utf8'))).toEqual({ invocation: ['human'], version: 1 })
+    // No sidecar in the copy — the declaration is the central route.
+    expect(await stat(join(target, 'yantao.json')).then(() => true, () => false)).toBe(false)
+    expect(JSON.parse(await readFile(join(home, '.dsh', 'skills', 'yantao.json'), 'utf8'))).toEqual({
+      version: 1,
+      capabilities: { 'notes-helper': { path: 'notes-helper', invocation: ['human'] } },
+    })
     // Copy, never move: the source stays for the other dsh usages.
     expect(await readFile(join(source, 'SKILL.md'), 'utf8')).toContain('照做')
   })
 
-  it('replaces a sidecar the source carried with the default one', async () => {
+  it('strips a sidecar the source carried — outside declarations never take effect', async () => {
     const source = await seedOutside('scripted')
     await writeFile(join(source, 'yantao.json'), JSON.stringify({ entry: 'scripts/run.py', invocation: ['human', 'agent'] }), 'utf8')
     await ctx.yantaoKbController.capabilityAdopt({ name: 'scripted' })
-    expect(JSON.parse(await readFile(join(home, '.dsh', 'skills', 'scripted', 'yantao.json'), 'utf8')))
-      .toEqual({ invocation: ['human'], version: 1 })
+    const target = join(home, '.dsh', 'skills', 'scripted')
+    expect(await stat(join(target, 'yantao.json')).then(() => true, () => false)).toBe(false)
+    expect(JSON.parse(await readFile(join(home, '.dsh', 'skills', 'yantao.json'), 'utf8')).capabilities.scripted)
+      .toEqual({ path: 'scripted', invocation: ['human'] })
+    // The source keeps its own sidecar; only the copy is stripped.
+    expect(await readFile(join(source, 'yantao.json'), 'utf8')).toContain('agent')
   })
 
   it('refuses a name collision instead of overwriting', async () => {
@@ -666,31 +797,50 @@ describe('yantaoKb.capabilityRegister (ADR-0025)', () => {
     return directory
   }
 
-  it('writes an instruction sidecar in place, no copy', async () => {
+  /** The central routing file's parsed content, as registration leaves it. */
+  async function central(): Promise<{ version: number; capabilities: Record<string, unknown> }> {
+    return JSON.parse(await readFile(join(home, '.dsh', 'skills', 'yantao.json'), 'utf8'))
+  }
+
+  it('writes a route entry into the central routing file, no copy', async () => {
     const directory = await seedInside('notes-helper')
     const result = await ctx.yantaoKbController.capabilityRegister({ name: 'notes-helper' })
-    expect(result.path).toBe('.dsh/skills/notes-helper/yantao.json')
-    expect(JSON.parse(await readFile(join(directory, 'yantao.json'), 'utf8')))
-      .toEqual({ version: 1, invocation: ['human'] })
-    // In place: the skill directory keeps exactly the files it had.
-    expect((await readdir(directory)).sort()).toEqual(['SKILL.md', 'yantao.json'])
+    expect(result.path).toBe('.dsh/skills/yantao.json')
+    expect(await central()).toEqual({
+      version: 1,
+      capabilities: { 'notes-helper': { path: 'notes-helper', invocation: ['human'] } },
+    })
+    // Pure configuration: the skill directory keeps exactly the files it had.
+    expect((await readdir(directory)).sort()).toEqual(['SKILL.md'])
   })
 
-  it('carries the chosen reach into invocation and appliesTo', async () => {
-    const directory = await seedInside('wide')
+  it('carries the chosen reach into the route entry', async () => {
+    await seedInside('wide')
     await ctx.yantaoKbController.capabilityRegister({
       name: 'wide', agentInvoke: true, resourceMenu: true, selectionMenu: true,
     })
-    expect(JSON.parse(await readFile(join(directory, 'yantao.json'), 'utf8')))
-      .toEqual({ version: 1, invocation: ['human', 'agent'], appliesTo: { resource: true, selection: true } })
+    expect((await central()).capabilities.wide).toEqual({
+      path: 'wide', invocation: ['human', 'agent'], appliesTo: { resource: true, selection: true },
+    })
   })
 
-  it('repairs an invalid sidecar by overwriting it', async () => {
+  it('overwrites the route entry on re-register', async () => {
+    await seedInside('notes-helper')
+    await ctx.yantaoKbController.capabilityRegister({ name: 'notes-helper' })
+    await ctx.yantaoKbController.capabilityRegister({ name: 'notes-helper', agentInvoke: true })
+    expect((await central()).capabilities['notes-helper'])
+      .toEqual({ path: 'notes-helper', invocation: ['human', 'agent'] })
+  })
+
+  it('refuses a directory that carries an invalid yantao.json', async () => {
     const directory = await seedInside('broken')
     await writeFile(join(directory, 'yantao.json'), '{ "entry": 42 }', 'utf8')
-    await ctx.yantaoKbController.capabilityRegister({ name: 'broken' })
-    expect(JSON.parse(await readFile(join(directory, 'yantao.json'), 'utf8')))
-      .toEqual({ version: 1, invocation: ['human'] })
+    const failure = await ctx.yantaoKbController.capabilityRegister({ name: 'broken' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((failure as Error).message).toMatch(/先删除或修复/)
+    // The broken sidecar is left for the human to deal with.
+    expect(await readFile(join(directory, 'yantao.json'), 'utf8')).toBe('{ "entry": 42 }')
+    expect(await stat(join(home, '.dsh', 'skills', 'yantao.json')).then(() => true, () => false)).toBe(false)
   })
 
   it('refuses a skill that is already a capability', async () => {
@@ -729,7 +879,7 @@ describe('yantaoKb.capabilityRegister (ADR-0025)', () => {
   })
 })
 
-describe('plugin repository registration (ADR-0025 决定 1 的提取分支)', () => {
+describe('plugin repository registration (ADR-0025 落地注记二)', () => {
   /** Seed a Claude-style plugin repository: no top-level SKILL.md, nested `skills/<name>/SKILL.md`. */
   async function seedPlugin(repo: string, nested: readonly string[]): Promise<string> {
     const repository = join(home, '.dsh', 'skills', repo)
@@ -746,6 +896,11 @@ describe('plugin repository registration (ADR-0025 决定 1 的提取分支)', (
     return repository
   }
 
+  /** The central routing file's parsed content, as registration leaves it. */
+  async function central(): Promise<{ version: number; capabilities: Record<string, unknown> }> {
+    return JSON.parse(await readFile(join(home, '.dsh', 'skills', 'yantao.json'), 'utf8'))
+  }
+
   it('lists a dropped plugin repository in the 未注册 group with its nested skills', async () => {
     await seedPlugin('diagram-design', ['diagram-design'])
     const { unregistered } = await ctx.yantaoKbController.capabilityList()
@@ -753,77 +908,85 @@ describe('plugin repository registration (ADR-0025 决定 1 的提取分支)', (
     expect(unregistered[0]).toMatchObject({
       name: 'diagram-design', inKb: true, plugin: true, pluginSkills: ['diagram-design'],
     })
-    expect(unregistered[0]?.reason).toMatch(/插件仓库/)
+    expect(unregistered[0]?.reason).toMatch(/中央路由/)
   })
 
-  it('flattens a nested skill named after the repository into the repository itself', async () => {
+  it('routes each nested skill in the central file, repository untouched', async () => {
     const repository = await seedPlugin('diagram-design', ['diagram-design'])
     const result = await ctx.yantaoKbController.capabilityRegister({ name: 'diagram-design' })
-    expect(result.path).toBe('.dsh/skills/diagram-design/yantao.json')
-    // The repository *becomes* the skill: SKILL.md sits at its root.
-    expect(await readFile(join(repository, 'SKILL.md'), 'utf8')).toContain('照做')
-    expect(JSON.parse(await readFile(join(repository, 'yantao.json'), 'utf8')))
-      .toEqual({ version: 1, invocation: ['human'] })
-    // The nested bundle was moved up, not copied.
-    await expect(readFile(join(repository, 'skills', 'diagram-design', 'SKILL.md'), 'utf8')).rejects.toThrow()
-  })
-
-  it('merges the flatten past the repository\'s own top-level directories', async () => {
-    // The real drop shape: the plugin repo carries a `scripts/` of its own
-    // (maintainer tooling), disjoint from the nested skill's `scripts/`.
-    const repository = await seedPlugin('diagram-design', ['diagram-design'])
-    await mkdir(join(repository, 'scripts'), { recursive: true })
-    await writeFile(join(repository, 'scripts', 'lint.py'), '# 仓库自己的工具\n', 'utf8')
-    await mkdir(join(repository, 'skills', 'diagram-design', 'scripts'), { recursive: true })
-    await writeFile(
-      join(repository, 'skills', 'diagram-design', 'scripts', 'extract.py'),
-      '# 技能的脚本\n',
-      'utf8',
-    )
-    await ctx.yantaoKbController.capabilityRegister({ name: 'diagram-design' })
-    // Both script sets coexist under the one merged directory.
-    expect(await readFile(join(repository, 'scripts', 'lint.py'), 'utf8')).toContain('仓库自己的工具')
-    expect(await readFile(join(repository, 'scripts', 'extract.py'), 'utf8')).toContain('技能的脚本')
-    expect(await readFile(join(repository, 'SKILL.md'), 'utf8')).toContain('照做')
-    // The nested husk is gone.
-    await expect(stat(join(repository, 'skills', 'diagram-design'))).rejects.toThrow()
-  })
-
-  it('refuses the flatten when a skill file would land on an existing repository file', async () => {
-    const repository = await seedPlugin('diagram-design', ['diagram-design'])
-    await writeFile(join(repository, 'README.md'), '# 仓库的 README\n', 'utf8')
-    await writeFile(join(repository, 'skills', 'diagram-design', 'README.md'), '# 技能的 README\n', 'utf8')
-    const failure = await ctx.yantaoKbController.capabilityRegister({ name: 'diagram-design' }).catch((error: unknown) => error)
-    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
-    expect((failure as Error).message).toMatch(/同名文件冲突/)
-    // All-or-nothing: the nested bundle is untouched.
+    expect(result.path).toBe('.dsh/skills/yantao.json')
+    expect(await central()).toEqual({
+      version: 1,
+      capabilities: {
+        'diagram-design': { path: 'diagram-design/skills/diagram-design', invocation: ['human'] },
+      },
+    })
+    // The repository tree is byte-identical: the nested bundle stays put and
+    // no top-level SKILL.md appeared.
     expect(await readFile(join(repository, 'skills', 'diagram-design', 'SKILL.md'), 'utf8')).toContain('照做')
+    await expect(stat(join(repository, 'SKILL.md'))).rejects.toThrow()
   })
 
-  it('extracts sibling skills while flattening the self-named one', async () => {
-    const repository = await seedPlugin('pack', ['pack', 'beta'])
-    const result = await ctx.yantaoKbController.capabilityRegister({ name: 'pack' })
-    expect(result.path).toBe('.dsh/skills/pack/yantao.json')
-    expect(await readFile(join(repository, 'SKILL.md'), 'utf8')).toContain('照做')
-    expect(await readFile(join(home, '.dsh', 'skills', 'beta', 'SKILL.md'), 'utf8')).toContain('照做')
-  })
-
-  it('writes the chosen reach into every extracted sidecar', async () => {
+  it('writes the chosen reach into every child entry', async () => {
     await seedPlugin('pack', ['alpha', 'beta'])
     const result = await ctx.yantaoKbController.capabilityRegister({ name: 'pack', agentInvoke: true, selectionMenu: true })
-    expect(result.path).toBe('.dsh/skills/alpha/yantao.json')
-    for (const child of ['alpha', 'beta']) {
-      expect(JSON.parse(await readFile(join(home, '.dsh', 'skills', child, 'yantao.json'), 'utf8')))
-        .toEqual({ version: 1, invocation: ['human', 'agent'], appliesTo: { selection: true } })
-    }
+    expect(result.path).toBe('.dsh/skills/yantao.json')
+    const { capabilities } = await central()
+    expect(capabilities.alpha).toEqual({
+      path: 'pack/skills/alpha', invocation: ['human', 'agent'], appliesTo: { selection: true },
+    })
+    expect(capabilities.beta).toEqual({
+      path: 'pack/skills/beta', invocation: ['human', 'agent'], appliesTo: { selection: true },
+    })
   })
 
-  it('refuses when an extracted name collides with an existing skill directory', async () => {
+  it('refuses when a child name collides with an existing sidecar capability', async () => {
     await seedPlugin('pack', ['mail'])
-    await mkdir(join(home, '.dsh', 'skills', 'mail'), { recursive: true })
+    skillGet.mockImplementation(async (name: string) => name === 'mail' ? definition() : undefined)
     const failure = await ctx.yantaoKbController.capabilityRegister({ name: 'pack' }).catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
     expect((failure as Error).message).toMatch(/同名/)
+    // All-or-nothing: no route entry was written.
+    expect(await stat(join(home, '.dsh', 'skills', 'yantao.json')).then(() => true, () => false)).toBe(false)
+  })
+
+  it('refuses a child name that cannot be a capability name', async () => {
+    const repository = join(home, '.dsh', 'skills', 'pack')
+    const directory = join(repository, 'skills', '坏 名字')
+    await mkdir(join(directory, 'skills'), { recursive: true })
+    await writeFile(join(directory, 'SKILL.md'), '---\nname: x\ndescription: d\n---\n\n照做。\n', 'utf8')
+    await mkdir(join(repository, '.claude-plugin'), { recursive: true })
+    skillList.mockResolvedValue([])
+    skillGet.mockResolvedValue(undefined)
+    const failure = await ctx.yantaoKbController.capabilityRegister({ name: 'pack' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((failure as Error).message).toMatch(/不能用作能力名/)
+  })
+
+  it('lets a fully routed repository leave the 未注册 group and list its children as capabilities', async () => {
+    await seedPlugin('diagram-design', ['diagram-design'])
+    await ctx.yantaoKbController.capabilityRegister({ name: 'diagram-design' })
+    const { capabilities, unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(unregistered).toHaveLength(0)
+    expect(capabilities).toHaveLength(1)
+    expect(capabilities[0]).toMatchObject({
+      name: 'diagram-design',
+      description: '插件内技能',
+      source: 'kb',
+      directory: join(home, '.dsh', 'skills', 'diagram-design', 'skills', 'diagram-design'),
+      invocation: ['human'],
+    })
+  })
+
+  it('runs a routed nested child the registry never discovered', async () => {
+    await seedPlugin('diagram-design', ['diagram-design'])
+    await ctx.yantaoKbController.capabilityRegister({ name: 'diagram-design' })
+    const result = await ctx.yantaoKbController.capabilityRun({ name: 'diagram-design' })
+    expect(result.name).toBe('diagram-design')
+    expect(result.content).toContain('照做')
+    expect(result.artifacts).toEqual([])
+    expect(result.result).toBeUndefined()
+    expect(runCapability).not.toHaveBeenCalled()
   })
 
   it('ignores a dropped directory without the plugin shape', async () => {

@@ -102,7 +102,7 @@ Do not invent synonyms in code, commits, or docs — and never call the LLM rout
 | 0022 | Prompt layering: yantao's system instructions become named sections over dsh's section registry, sourced from repo Markdown; the persona stays a thin identity |
 | 0023 | Agent-side capability invocation: `kb_run_capability` gated per-capability via the sidecar `invocation` field, dynamic catalog injection, entry-less instruction capabilities, and drift-backup on reseed; reopens ADR-0021's ledger items 1–2 |
 | 0024 | KB self-containment: yantao-owned data lives only under the KB root — capability state moves to `<kbRoot>/.yantao/state.json` (one-time import, old file renamed `.bak`), the KB pointer becomes a settings-plane field, and skills resolve only from `<kbRoot>/.dsh/skills/` |
-| 0025 | Third-party skill adoption: an unregistered group + copy-into-KB adopt action, the `/xxx` gesture (dual-message injection in the pre-step), resource right-click prompts the current session for instruction capabilities, opt-in selection right-click, and a `/` autocomplete source |
+| 0025 | Third-party skill adoption: an unregistered group + copy-into-KB adopt action, the `/xxx` gesture (dual-message injection in the pre-step), resource right-click prompts the current session for instruction capabilities, opt-in selection right-click, a `/` autocomplete source, and registration as route entries in the central routing file `.dsh/skills/yantao.json` (no moves, no renames) |
 
 ## 5. Quick start
 

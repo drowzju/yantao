@@ -10,8 +10,10 @@
  * drag-and-drop intake (ADR-0020): a dropped file is copied into `resources/`.
  * The capability surface (ADR-0021) is `capabilityList`/`capabilityRun`/
  * `capabilityCreate`/`capabilityAdopt`/`capabilityRegister` (ADR-0025): a
- * capability is a dsh skill
- * directory declaring a host entry, and this controller seeds the shipped
+ * capability is a dsh skill directory declaring a host entry — in a
+ * `yantao.json` sidecar, or in the central routing file
+ * `.dsh/skills/yantao.json` that registration writes (ADR-0025 落地注记二) —
+ * and this controller seeds the shipped
  * ones, lists them, runs them, writes their artifacts, and persists their
  * state. The UI is the human
  * channel, so `write` is a full-file write; the ADR-0004 trust boundary
@@ -19,7 +21,7 @@
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
  */
 
-import { mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile, cp } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, stat, unlink, writeFile, cp } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -39,6 +41,8 @@ import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities } from './capability/builtin.ts'
 import { CAPABILITY_HINTS, CapabilityError, manifestOf, resolveEntry, runCapability } from './capability/run.ts'
 import type { CapabilityInvoker, CapabilityManifest } from './capability/run.ts'
+import { addRoutes, readRoutes, routedSkill, ROUTES_PATH } from './capability/routing.ts'
+import type { CapabilityRoute } from './capability/routing.ts'
 import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
 import { KbRevision } from './watch.ts'
 import type {
@@ -844,12 +848,17 @@ export class YantaoKbController extends TypertRemoteService {
 
   /**
    * Resolve and run one capability for either invoker (ADR-0023): the human
-   * RPC and the agent's `kb_run_capability` share this seam. The agent path
-   * passes the sidecar's `invocation` gate first — undeclared means refused
-   * with `not-invocable` — and an instruction capability (a declaration with
-   * no `entry`) answers with the SKILL.md body instead of spawning anything:
-   * no subprocess, no state, no artifacts. Only skills under the KB's own
-   * `.dsh/skills/` resolve (ADR-0024 决定 4); anything else is not-found.
+   * RPC and the agent's `kb_run_capability` share this seam. Resolution
+   * walks two declaration channels with fixed precedence: the skill's own
+   * declaration first (a `yantao.json` sidecar, legacy `metadata.yantao`
+   * frontmatter accepted), then the central routing file
+   * `.dsh/skills/yantao.json` (ADR-0025 落地注记二) — a valid sidecar beats a
+   * same-named route. Only skills under the KB's own `.dsh/skills/` resolve
+   * (ADR-0024 决定 4); anything else is not-found. The agent path passes the
+   * declaration's `invocation` gate first — undeclared means refused with
+   * `not-invocable` — and an instruction capability (a declaration with no
+   * `entry`) answers with the SKILL.md body instead of spawning anything:
+   * no subprocess, no state, no artifacts.
    * @param name - the capability's skill name.
    * @param input - the caller's input, handed to the entry script verbatim.
    * @param invoker - which channel is calling; only `'agent'` is gated.
@@ -868,24 +877,86 @@ export class YantaoKbController extends TypertRemoteService {
     // be copied in.
     await this.settleSkills(ensureBuiltinCapabilities(this.kbRoot))
     const definition = await this.ctx.skills.get(name, { cwd: this.kbRoot })
+    if (definition !== undefined && this.isKbSkill(definition)) {
+      let manifest: CapabilityManifest
+      try {
+        manifest = manifestOf(definition)
+      } catch (error: unknown) {
+        // No declaration (or a broken one): the central route may still
+        // claim the name — registration writes routes, not sidecars.
+        const route = await this.routeOf(name)
+        if (route === undefined) throw badManifestError(error)
+        return this.runRouted(name, route, invoker)
+      }
+      return this.runDeclared(name, definition, manifest, input, invoker)
+    }
     // A definition resolved from outside the KB (a `~/.dsh/skills` or project
     // skill shadowing the name) is not a yantao capability: single source
-    // (ADR-0024 决定 4).
-    if (definition === undefined || !this.isKbSkill(definition)) {
+    // (ADR-0024 决定 4). A routed skill the registry never discovered (a
+    // plugin repository's nested child) resolves through the central file.
+    const route = await this.routeOf(name)
+    if (route === undefined) {
       throw new RemoteError(
         'yantao-kb/capability',
         `找不到能力「${name}」。`,
         { kind: 'not-found', hint: CAPABILITY_HINTS['not-found'] },
       )
     }
-    let manifest: CapabilityManifest
+    return this.runRouted(name, route, invoker)
+  }
+
+  /**
+   * The central route claiming `name`, or undefined. A broken routing file
+   * surfaces as a bad-manifest error — it is a declaration, and a broken one
+   * must be seen, not silently ignored.
+   */
+  private async routeOf(name: string): Promise<CapabilityRoute | undefined> {
+    let routes: Record<string, CapabilityRoute>
     try {
-      manifest = manifestOf(definition)
+      routes = await readRoutes(join(this.kbRoot, '.dsh', 'skills'))
     } catch (error: unknown) {
       throw badManifestError(error)
     }
+    return routes[name]
+  }
+
+  /**
+   * Run one centrally routed capability (ADR-0025 落地注记二): an instruction
+   * capability by construction — the routed SKILL.md body is the whole
+   * answer. Nothing spawns, nothing persists. The agent channel passes the
+   * route's `invocation` gate first.
+   */
+  private async runRouted(name: string, route: CapabilityRoute, invoker: CapabilityInvoker): Promise<KbCapabilityRunResult> {
     // The invocation gate (ADR-0023 决定 2): the agent only reaches what the
-    // sidecar declared `"agent"`; the human channel is ungated.
+    // route declared `"agent"`; the human channel is ungated.
+    if (invoker === 'agent' && !route.invocation.includes('agent')) {
+      throw new RemoteError(
+        'yantao-kb/capability',
+        `能力「${name}」没有对 agent 开放（${ROUTES_PATH} 的路由未声明 "invocation": ["agent"]）。`,
+        { kind: 'not-invocable', hint: CAPABILITY_HINTS['not-invocable'] },
+      )
+    }
+    const routed = await routedSkill(join(this.kbRoot, '.dsh', 'skills'), route)
+    if (routed === undefined) {
+      throw new RemoteError(
+        'yantao-kb/capability',
+        `能力「${name}」的路由目标缺少可读的 SKILL.md：${route.path}`,
+        { kind: 'bad-manifest', hint: CAPABILITY_HINTS['bad-manifest'] },
+      )
+    }
+    return { name, runAt: new Date().toISOString(), content: routed.body, artifacts: [] }
+  }
+
+  /** Run a skill whose own declaration (sidecar or frontmatter) resolved — the sidecar channel. */
+  private async runDeclared(
+    name: string,
+    definition: SkillDefinition,
+    manifest: CapabilityManifest,
+    input: unknown,
+    invoker: CapabilityInvoker,
+  ): Promise<KbCapabilityRunResult> {
+    // The invocation gate (ADR-0023 决定 2): the agent only reaches what the
+    // declaration declared `"agent"`; the human channel is ungated.
     if (invoker === 'agent' && !manifest.invocation.includes('agent')) {
       throw new RemoteError(
         'yantao-kb/capability',
@@ -982,28 +1053,62 @@ export class YantaoKbController extends TypertRemoteService {
     } catch {
       definition = undefined
     }
-    if (definition === undefined || !this.isKbSkill(definition)) return undefined
-    let manifest: CapabilityManifest
+    if (definition !== undefined && this.isKbSkill(definition)) {
+      let manifest: CapabilityManifest
+      try {
+        manifest = manifestOf(definition)
+      } catch {
+        // No sidecar declaration: the central route may still claim the name.
+        return this.routedInvocation(name)
+      }
+      if (manifest.entry !== undefined) {
+        const summary = `能力「${name}」是脚本型，/xxx 不适用`
+        return createUserMessage({
+          source: { kind: 'plugin', plugin: 'yantao-kb-controller', form: 'notice', summary },
+          content: [{
+            type: 'text',
+            text: `${summary}。请通过资源右键菜单运行它，或让 agent 用 kb_run_capability 调用。`,
+          }],
+        })
+      }
+      if (!manifest.invocation.includes('human')) return undefined
+      const source: SkillInvocationSource = { kind: 'skill-invocation', name, form: 'instructions' }
+      return createUserMessage({
+        source,
+        content: [{ type: 'text', text: renderSkillContent(definition) }],
+      })
+    }
+    return this.routedInvocation(name)
+  }
+
+  /**
+   * The `/xxx` gesture's central-route channel (ADR-0025 落地注记二): a
+   * routed, human-invocable instruction capability injects its SKILL.md
+   * body — even when the registry cannot see the skill at all (a plugin
+   * repository's nested child). A miss stays ordinary prose.
+   */
+  private async routedInvocation(name: string): Promise<UserMessage | undefined> {
+    let route: CapabilityRoute | undefined
     try {
-      manifest = manifestOf(definition)
+      route = (await readRoutes(join(this.kbRoot, '.dsh', 'skills')))[name]
     } catch {
       return undefined
     }
-    if (manifest.entry !== undefined) {
-      const summary = `能力「${name}」是脚本型，/xxx 不适用`
-      return createUserMessage({
-        source: { kind: 'plugin', plugin: 'yantao-kb-controller', form: 'notice', summary },
-        content: [{
-          type: 'text',
-          text: `${summary}。请通过资源右键菜单运行它，或让 agent 用 kb_run_capability 调用。`,
-        }],
-      })
-    }
-    if (!manifest.invocation.includes('human')) return undefined
+    if (route === undefined || !route.invocation.includes('human')) return undefined
+    const routed = await routedSkill(join(this.kbRoot, '.dsh', 'skills'), route)
+    if (routed === undefined) return undefined
     const source: SkillInvocationSource = { kind: 'skill-invocation', name, form: 'instructions' }
     return createUserMessage({
       source,
-      content: [{ type: 'text', text: renderSkillContent(definition) }],
+      content: [{
+        type: 'text',
+        text: renderSkillContent({
+          name,
+          provider: 'yantao-kb-routing',
+          resourceBase: { kind: 'directory', path: routed.directory },
+          content: routed.body,
+        }),
+      }],
     })
   }
 
@@ -1037,6 +1142,22 @@ export class YantaoKbController extends TypertRemoteService {
       if (!manifest.invocation.includes('agent')) continue
       entries.push({ name: summary.name, description: summary.description })
     }
+    // The central-route channel (ADR-0025 落地注记二): routed capabilities the
+    // registry cannot see (a plugin repository's nested children). A valid
+    // sidecar already pushed above wins; a broken routing file is skipped —
+    // background decoration must not break the turn.
+    let routes: Record<string, CapabilityRoute>
+    try {
+      routes = await readRoutes(join(kbRoot, '.dsh', 'skills'))
+    } catch {
+      return entries
+    }
+    for (const [routedName, route] of Object.entries(routes)) {
+      if (!route.invocation.includes('agent')) continue
+      if (entries.some(entry => entry.name === routedName)) continue
+      const routed = await routedSkill(join(kbRoot, '.dsh', 'skills'), route)
+      if (routed !== undefined) entries.push({ name: routedName, description: routed.description })
+    }
     return entries
   }
 
@@ -1068,6 +1189,15 @@ export class YantaoKbController extends TypertRemoteService {
     const kbRoot = this.kbRoot
     await this.settleSkills(ensureBuiltinCapabilities(kbRoot))
     const summaries = await this.ctx.skills.list({ cwd: kbRoot })
+    // The central routing file (ADR-0025 落地注记二): registration's
+    // declarations. A broken file answers no routes — the panel still lists
+    // what the sidecars declare.
+    let routes: Record<string, CapabilityRoute> = {}
+    try {
+      routes = await readRoutes(join(kbRoot, '.dsh', 'skills'))
+    } catch {
+      routes = {}
+    }
     const capabilities: KbCapabilitySummary[] = []
     const unregistered: KbUnregisteredSkill[] = []
     for (const summary of summaries) {
@@ -1081,7 +1211,9 @@ export class YantaoKbController extends TypertRemoteService {
       if (!this.isKbSkill(definition)) {
         // Outside the KB: an adoption candidate (ADR-0025 决定 1), unless it
         // is dsh's own bundled skill — that one is not a third-party find.
-        if (summary.source === 'bundled') continue
+        // A name the central routing file already claims is not offered
+        // either: the routed capability answers, adoption would only collide.
+        if (summary.source === 'bundled' || routes[summary.name] !== undefined) continue
         const directory = definition.resourceBase?.kind === 'directory' ? definition.resourceBase.path : undefined
         // A flat `xxx.md` skill's resourceBase is the shared skills root, not
         // a per-skill directory; the SKILL.md basename is what tells the two
@@ -1105,9 +1237,11 @@ export class YantaoKbController extends TypertRemoteService {
         manifest = manifestOf(definition)
       } catch (error) {
         // A skill without a (valid) yantao declaration is a skill, not a
-        // capability — but it already lives in the KB, so registration can
-        // write its sidecar in place: surface it in the 未注册 group with the
-        // reason, instead of dropping it silently.
+        // capability — but a central route may claim it (registration's
+        // channel), in which case it is a capability after all. Otherwise it
+        // already lives in the KB, so registration can route it in place:
+        // surface it in the 未注册 group with the reason, not silently.
+        if (routes[summary.name] !== undefined) continue
         const flat = definition.path === undefined || basename(definition.path) !== 'SKILL.md'
         const directory = !flat && definition.resourceBase?.kind === 'directory'
           ? definition.resourceBase.path
@@ -1137,13 +1271,13 @@ export class YantaoKbController extends TypertRemoteService {
         ...record?.state !== undefined ? { state: record.state as JsonValue } : {},
       })
     }
-    // Plugin repositories (ADR-0025 决定 1's extraction path): directories
-    // under `.dsh/skills/` that the registry never claimed — no top-level
-    // `SKILL.md` for `discoverRoot`'s one-level scan — but that carry nested
+    // Plugin repositories (ADR-0025 决定 1): directories under `.dsh/skills/`
+    // that the registry never claimed — no top-level `SKILL.md` for
+    // `discoverRoot`'s one-level scan — but that carry nested
     // `skills/<name>/SKILL.md` bundles. A Claude-style plugin repository
     // dropped whole into the skills directory looks exactly like this;
-    // registration extracts the nested skills instead of writing a sidecar
-    // no scanner would ever see.
+    // registration routes the nested skills in the central file instead of
+    // writing a sidecar no scanner would ever see.
     const claimed = new Set(
       summaries
         .map(summary => summary.resourceBase)
@@ -1164,6 +1298,8 @@ export class YantaoKbController extends TypertRemoteService {
         }
       }
       if (nestedSkills.length === 0) continue
+      // Fully routed: every nested child is a capability now — the row is done.
+      if (nestedSkills.every(child => routes[child] !== undefined)) continue
       unregistered.push({
         name: entry.name,
         description: `插件仓库，内含技能：${nestedSkills.sort().join('、')}`,
@@ -1174,7 +1310,28 @@ export class YantaoKbController extends TypertRemoteService {
         inKb: true,
         plugin: true,
         pluginSkills: nestedSkills,
-        reason: '插件仓库：顶层没有 SKILL.md，注册将把内含技能提取为独立技能目录',
+        reason: `插件仓库：顶层没有 SKILL.md，注册将在中央路由 ${ROUTES_PATH} 为内含技能各写一条路由`,
+      })
+    }
+    // The central routes (ADR-0025 落地注记二) become capability rows: the
+    // description is read from the routed SKILL.md's frontmatter, the reach
+    // from the route entry. A name a sidecar capability already claimed is
+    // skipped — the sidecar wins; a route whose target was deleted is stale
+    // and skipped too.
+    for (const [routedName, route] of Object.entries(routes)) {
+      if (capabilities.some(capability => capability.name === routedName)) continue
+      const routed = await routedSkill(skillsRoot, route)
+      if (routed === undefined) continue
+      const record = readCapabilityRecord(kbRoot, routedName)
+      capabilities.push({
+        name: routedName,
+        description: routed.description,
+        source: 'kb',
+        directory: routed.directory,
+        invocation: route.invocation,
+        ...route.appliesTo !== undefined ? { appliesTo: route.appliesTo } : {},
+        ...record?.lastRunAt !== undefined ? { lastRunAt: record.lastRunAt } : {},
+        ...record?.state !== undefined ? { state: record.state as JsonValue } : {},
       })
     }
     unregistered.sort((left, right) => left.name.localeCompare(right.name))
@@ -1304,12 +1461,13 @@ export class YantaoKbController extends TypertRemoteService {
 
   /**
    * Adopt one unregistered skill (ADR-0025 决定 1): copy its directory into
-   * `<kbRoot>/​.dsh/skills/<name>/` and write the default sidecar
-   * (`invocation: ["human"]`, no `entry` — an instruction capability). The
-   * copy, never a move: the source directory is shared with every other dsh
-   * usage, and moving would steal it. Any sidecar the source carried is
-   * replaced by the default one — outside declarations never take effect
-   * silently; the confirm box showed them before this call existed.
+   * `<kbRoot>/​.dsh/skills/<name>/` and declare it in the central routing
+   * file (`invocation: ['human']`, no `entry` — an instruction capability;
+   * ADR-0025 落地注记二). The copy, never a move: the source directory is
+   * shared with every other dsh usage, and moving would steal it. Any
+   * `yantao.json` sidecar the source carried is removed from the copy —
+   * outside declarations never take effect silently; the confirm box showed
+   * them before this call existed.
    *
    * Guards: the name must be a single safe path segment, the target must not
    * exist (a collision with a builtin or an adopted capability is refused,
@@ -1362,11 +1520,14 @@ export class YantaoKbController extends TypertRemoteService {
     }
     try {
       await cp(source, target, { recursive: true })
-      await writeFile(
-        join(target, 'yantao.json'),
-        `${JSON.stringify({ invocation: ['human'], version: 1 }, null, 2)}\n`,
-        'utf8',
-      )
+      // The copy must not carry the source's declaration in: a sidecar at a
+      // registry-discovered path would take effect silently. Out-of-band
+      // declarations never survive adoption; the declaration is the central
+      // route written below (ADR-0025 落地注记二).
+      await rm(join(target, 'yantao.json'), { force: true })
+      await addRoutes(join(this.kbRoot, '.dsh', 'skills'), {
+        [name]: { path: name, invocation: ['human'] },
+      })
     } catch (error) {
       throw new RemoteError(
         'yantao-kb/rejected',
@@ -1380,39 +1541,36 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
-   * Register one in-KB skill as a capability (ADR-0025 决定 1): write its
-   * `yantao.json` sidecar in place — no copy, the skill directory stays where
-   * it is. Registration always writes an *instruction capability* (no
-   * `entry`, ADR-0023 决定 6): a third-party skill's essence is its SKILL.md
-   * instructions, and nothing in the drop speaks the run protocol, so the
-   * type is never a question the human answers. The three boolean args are
-   * the reach of the capability: `agentInvoke` widens `invocation` to
-   * `['human', 'agent']`, `resourceMenu` writes `appliesTo.resource: true`
-   * (every resource's right-click menu), `selectionMenu` writes
-   * `appliesTo.selection: true` (the middle-pane right-click menu).
+   * Register one in-KB skill as a capability (ADR-0025 决定 1) by writing a
+   * route entry into the central routing file `.dsh/skills/yantao.json`
+   * (ADR-0025 落地注记二) — pure configuration: no copy, no move, no rename,
+   * the skill directory stays byte-identical. Registration always writes an
+   * *instruction capability* (no `entry`, ADR-0023 决定 6): a third-party
+   * skill's essence is its SKILL.md instructions, and nothing in the drop
+   * speaks the run protocol, so the type is never a question the human
+   * answers. The three boolean args are the reach of the capability:
+   * `agentInvoke` widens `invocation` to `['human', 'agent']`,
+   * `resourceMenu` writes `appliesTo.resource: true` (every resource's
+   * right-click menu), `selectionMenu` writes `appliesTo.selection: true`
+   * (the middle-pane right-click menu).
    *
    * A dropped **plugin repository** (no top-level `SKILL.md`, but nested
-   * `skills/<name>/SKILL.md` bundles) registers by extraction: every nested
-   * skill directory moves to `.dsh/skills/<name>/` — a move, not a copy: the
-   * nested bundle is self-contained and its only useful home is the top
-   * level the scanner reads — and each extraction gets the sidecar. A nested
-   * skill named after the repository itself (the common drop shape
-   * `<repo>/skills/<repo>/`) cannot move out under its own name, so it
-   * flattens instead: its contents merge up one level (the repository's own
-   * top level is not empty — a plugin repo carries `commands/`, `scripts/`,
-   * `docs/` of its own — so same-named directories merge recursively and a
-   * file landing on an existing file refuses the call) and the repository
-   * directory *becomes* the skill. Any other name collision refuses the
-   * whole call; the emptied repository shell stays behind, inert (no
-   * top-level SKILL.md, never scanned).
+   * `skills/<name>/SKILL.md` bundles) registers as one route entry per
+   * nested child, `path` pointing at `<repo>/skills/<child>` — any depth
+   * works, because instruction capabilities run entirely controller-side and
+   * never need the scanner to see the directory. The repository tree is
+   * never touched, so updating it is a plain re-drop, and un-registering is
+   * deleting the entry.
    *
-   * Guards: the name must be a single safe path segment, the skill must be a
-   * directory bundle inside the KB's own `.dsh/skills/`, its frontmatter must
-   * not mark it `user-invocable: false`, and it must not already be a
-   * capability (a valid declaration is never silently overwritten —
-   * repairing an invalid one is exactly what this call is for).
+   * Guards: the name must be a single safe path segment; a plain skill must
+   * be a directory bundle inside the KB's own `.dsh/skills/` whose
+   * frontmatter does not mark it `user-invocable: false`; a valid
+   * declaration (sidecar or frontmatter) is never silently overwritten; and
+   * a directory carrying an *invalid* `yantao.json` refuses too — delete or
+   * fix that file first, a central route must not quietly shadow a
+   * declaration the human left in place.
    * @param args - the in-KB skill's name and the capability's reach.
-   * @returns the KB-relative path of one sidecar the call wrote.
+   * @returns the KB-relative path of the central routing file.
    */
   @Remote('capabilityRegister')
   async capabilityRegister(args: KbCapabilityRegisterArgs): Promise<KbCapabilityRegisterResult> {
@@ -1427,7 +1585,7 @@ export class YantaoKbController extends TypertRemoteService {
     if (name === '.' || name === '..' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name)) {
       throw new RemoteError(
         'yantao-kb/rejected',
-        `技能名不能用作能力目录名：${name}`,
+        `技能名不能用作能力名：${name}`,
         { path: name },
       )
     }
@@ -1435,7 +1593,7 @@ export class YantaoKbController extends TypertRemoteService {
     const definition = await this.ctx.skills.get(name, { cwd: this.kbRoot })
     const directory = definition?.resourceBase?.kind === 'directory' ? definition.resourceBase.path : undefined
     if (definition === undefined && await this.pluginShape(join(skillsRoot, name))) {
-      return this.registerPlugin(join(skillsRoot, name), args)
+      return this.registerPluginRoutes(skillsRoot, name, args)
     }
     if (definition === undefined || !this.isKbSkill(definition) || directory === undefined
       || definition.path === undefined || basename(definition.path) !== 'SKILL.md') {
@@ -1466,9 +1624,18 @@ export class YantaoKbController extends TypertRemoteService {
         { path: name },
       )
     }
-    await this.writeSidecar(directory, args)
-    await this.settleSkills([name])
-    return { path: `.dsh/skills/${name}/yantao.json` }
+    // A sidecar file still in the directory means a broken one (a valid
+    // declaration was refused above). A central route must not quietly
+    // shadow a declaration the human left in place: fix or delete it first.
+    if (await stat(join(directory, 'yantao.json')).then(() => true, () => false)) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `技能「${name}」目录里有一个无效的 yantao.json；请先删除或修复它，再注册。`,
+        { path: name },
+      )
+    }
+    await this.writeRoutes(skillsRoot, { [name]: this.routeEntry(name, args) })
+    return { path: ROUTES_PATH }
   }
 
   /**
@@ -1488,129 +1655,94 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
-   * Register a plugin repository by extraction: move every nested
-   * `skills/<name>/` bundle to `.dsh/skills/<name>/` and give each the
-   * registration sidecar. All-or-nothing: one collision refuses the call
-   * before anything moves. The self-named child (see the flatten note in
-   * {@link capabilityRegister}) merges into the repository instead — its
-   * pre-flight conflict check keeps that branch all-or-nothing too.
+   * Register a plugin repository by routing (ADR-0025 落地注记二): one
+   * central-file entry per nested `skills/<name>/SKILL.md` bundle, `path`
+   * pointing inside the repository. All-or-nothing: a child whose name is
+   * not a safe capability name, or that a sidecar capability already
+   * claims, refuses the call before any entry is written. Existing route
+   * entries for these names are overwritten — re-registering a re-dropped
+   * repository is the update path.
    */
-  private async registerPlugin(repository: string, args: KbCapabilityRegisterArgs): Promise<KbCapabilityRegisterResult> {
-    const skillsRoot = join(this.kbRoot, '.dsh', 'skills')
-    const nested = await readdir(join(repository, 'skills'), { withFileTypes: true })
-    const children = nested.filter(child => child.isDirectory()).map(child => child.name)
-    // A child named after the repository itself (the common drop shape:
-    // `<repo>/skills/<repo>/SKILL.md`) cannot move out under its own name —
-    // the repository directory is still there. It flattens instead: the nested
-    // skill's contents move up one level and the repository *becomes* the skill.
-    const selfName = basename(repository)
-    const flattens = children.includes(selfName)
+  private async registerPluginRoutes(
+    skillsRoot: string,
+    repository: string,
+    args: KbCapabilityRegisterArgs,
+  ): Promise<KbCapabilityRegisterResult> {
+    const nested = await readdir(join(skillsRoot, repository, 'skills'), { withFileTypes: true })
+    const children: string[] = []
+    for (const child of nested) {
+      if (!child.isDirectory()) continue
+      if (await stat(join(skillsRoot, repository, 'skills', child.name, 'SKILL.md')).then(() => true, () => false)) {
+        children.push(child.name)
+      }
+    }
     for (const child of children) {
-      if (child === selfName) continue
-      const target = join(skillsRoot, child)
-      if (await stat(target).then(() => true, () => false)) {
+      // The route key is the child's name; it must survive the routing
+      // file's own validation, or the file would stop parsing.
+      if (child === '.' || child === '..' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(child)) {
         throw new RemoteError(
           'yantao-kb/rejected',
-          `插件内含技能「${child}」与既有目录同名，注册被拒绝：.dsh/skills/${child}`,
+          `插件内含技能目录名「${child}」不能用作能力名，注册被拒绝。`,
+          { path: args.name },
+        )
+      }
+      const definition = await this.ctx.skills.get(child, { cwd: this.kbRoot })
+      if (definition === undefined || !this.isKbSkill(definition)) continue
+      let declared = false
+      try {
+        manifestOf(definition)
+        declared = true
+      } catch {
+        // A same-named skill without a valid declaration does not block the
+        // route: the route wins over a broken or missing declaration.
+      }
+      if (declared) {
+        throw new RemoteError(
+          'yantao-kb/rejected',
+          `插件内含技能「${child}」与既有能力同名，注册被拒绝；请先处理同名能力。`,
           { path: args.name },
         )
       }
     }
-    const firstChild = flattens ? selfName : children[0]
-    const firstPath = `.dsh/skills/${firstChild ?? selfName}/yantao.json`
+    const entries: Record<string, CapabilityRoute> = {}
+    for (const child of children) {
+      entries[child] = this.routeEntry(`${repository}/skills/${child}`, args)
+    }
+    await this.writeRoutes(skillsRoot, entries)
+    return { path: ROUTES_PATH }
+  }
+
+  /**
+   * Append route entries to the central routing file, surfacing a broken
+   * existing file or an I/O failure as `yantao-kb/rejected`.
+   */
+  private async writeRoutes(skillsRoot: string, entries: Record<string, CapabilityRoute>): Promise<void> {
     try {
-      for (const child of children) {
-        if (child === selfName) {
-          const nestedDir = join(repository, 'skills', child)
-          // The repository's own top level is not empty (a plugin repo carries
-          // commands/, scripts/, docs/… of its own), so a blind move-up hits
-          // whatever is already there. Pre-flight the merge, then merge-move:
-          // directories merge recursively, a file landing on an existing path
-          // refuses the whole call before anything has moved.
-          const conflict = await this.mergeConflict(nestedDir, repository)
-          if (conflict !== undefined) {
-            throw new Error(
-              `插件内含技能与仓库顶层同名文件冲突，无法拍平：${conflict}`,
-            )
-          }
-          await this.moveInto(nestedDir, repository)
-          await rm(nestedDir, { recursive: true, force: true })
-          await this.writeSidecar(repository, args)
-        } else {
-          await rename(join(repository, 'skills', child), join(skillsRoot, child))
-          await this.writeSidecar(join(skillsRoot, child), args)
-        }
-      }
-    } catch (error) {
+      await addRoutes(skillsRoot, entries)
+    } catch (error: unknown) {
       throw new RemoteError(
         'yantao-kb/rejected',
-        `无法提取插件内含技能：${(error as Error).message}`,
-        { path: args.name },
+        error instanceof CapabilityError ? error.message : `无法写入中央路由文件 ${ROUTES_PATH}。`,
+        { path: ROUTES_PATH },
         { cause: error },
       )
     }
-    await this.settleSkills(children)
-    return { path: firstPath }
   }
 
   /**
-   * The first file-level conflict a merge of `from` into the existing
-   * directory `to` would hit — a source path (file or directory) landing on
-   * an existing non-directory, or a file on a file. Directory-on-directory
-   * overlaps are not conflicts; they merge. Undefined when the merge is clean.
+   * One route entry assembled from the caller's reach choices; always an
+   * instruction capability (no `entry`), so what lands in the routing file
+   * is a declaration the run path accepts by construction.
    */
-  private async mergeConflict(from: string, to: string): Promise<string | undefined> {
-    if (!(await stat(to).then(() => true, () => false))) return undefined
-    const [fromStat, toStat] = await Promise.all([stat(from), stat(to)])
-    if (!fromStat.isDirectory() || !toStat.isDirectory()) return to
-    for (const entry of await readdir(from, { withFileTypes: true })) {
-      const deeper = await this.mergeConflict(join(from, entry.name), join(to, entry.name))
-      if (deeper !== undefined) return deeper
-    }
-    return undefined
-  }
-
-  /**
-   * Merge-move `from` into the existing directory `to`: whatever `to` lacks
-   * is renamed in wholesale, same-named directory pairs recurse. Only ever
-   * called after {@link mergeConflict} cleared the pair, so no file lands on
-   * an existing file.
-   */
-  private async moveInto(from: string, to: string): Promise<void> {
-    if (!(await stat(to).then(() => true, () => false))) {
-      await rename(from, to)
-      return
-    }
-    for (const entry of await readdir(from, { withFileTypes: true })) {
-      await this.moveInto(join(from, entry.name), join(to, entry.name))
-    }
-  }
-
-  /**
-   * Write one registration sidecar: always an instruction capability (no
-   * `entry` — the declaration is assembled from validated pieces, so what
-   * lands on disk is a manifest the run path accepts by construction), with
-   * the invocation and `appliesTo` reach the caller chose.
-   */
-  private async writeSidecar(directory: string, args: KbCapabilityRegisterArgs): Promise<void> {
+  private routeEntry(path: string, args: KbCapabilityRegisterArgs): CapabilityRoute {
     const appliesTo = {
       ...(args.resourceMenu === true ? { resource: true as const } : {}),
       ...(args.selectionMenu === true ? { selection: true as const } : {}),
     }
-    const sidecar = {
-      version: 1,
+    return {
+      path,
       invocation: args.agentInvoke === true ? ['human', 'agent'] : ['human'],
       ...(Object.keys(appliesTo).length > 0 ? { appliesTo } : {}),
-    }
-    try {
-      await writeFile(join(directory, 'yantao.json'), `${JSON.stringify(sidecar, null, 2)}\n`, 'utf8')
-    } catch (error) {
-      throw new RemoteError(
-        'yantao-kb/rejected',
-        `无法写入能力声明：${(error as Error).message}`,
-        { path: args.name },
-        { cause: error },
-      )
     }
   }
 }

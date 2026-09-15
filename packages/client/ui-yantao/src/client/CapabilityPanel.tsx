@@ -5,8 +5,9 @@
  * sits the 未注册 group (ADR-0025 决定 1): skills that are not capabilities
  * yet, greyed rows carrying their reason. Out-of-KB rows are adoption
  * candidates — an inline confirm precedes the copy; in-KB rows (missing or
- * invalid declaration) open a guided registration that writes the skill's
- * `yantao.json` sidecar in place. The mail capability's detail
+ * invalid declaration) open a guided registration that writes a route entry
+ * into the central routing file `.dsh/skills/yantao.json` (ADR-0025 落地注记二).
+ * The mail capability's detail
  * embeds {@link MailPanel}; every other capability's detail is its manifest,
  * read-only.
  */
@@ -24,7 +25,7 @@ export interface CapabilityPanelProps {
   readonly create: CapabilityCreator
   /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
   readonly adopt: CapabilityAdopter
-  /** Register one in-KB skill by writing its sidecar in place (ADR-0025 决定 1). */
+  /** Register one in-KB skill by writing its route entry into the central routing file (ADR-0025 决定 1). */
   readonly register: CapabilityRegistrar
   /** The mail capability's detail: the connector panel, transport and all; handed the capability's persisted state. */
   readonly mail: (state: unknown) => ReactElement
@@ -94,17 +95,23 @@ interface RegisterReach {
 const DEFAULT_REGISTER_REACH: RegisterReach = { agentInvoke: false, resourceMenu: false, selectionMenu: false }
 
 /**
- * The sidecar the guided registration will write, previewed as JSON.
+ * The route entry the guided registration will write into the central
+ * routing file, previewed as JSON. A plugin repository writes one entry per
+ * nested skill; the preview shows the first as the shape of all of them.
+ * @param skill - the row being registered.
  * @param reach - the capability's reach as the checkboxes hold it.
  * @returns the JSON text the confirm step shows.
  */
-function registerPreview(reach: RegisterReach): string {
+function registerPreview(skill: KbUnregisteredSkill, reach: RegisterReach): string {
   const appliesTo = {
     ...(reach.resourceMenu ? { resource: true as const } : {}),
     ...(reach.selectionMenu ? { selection: true as const } : {}),
   }
+  const path = skill.plugin === true
+    ? `${skill.name}/skills/${skill.pluginSkills?.[0] ?? '<child>'}`
+    : skill.name
   return JSON.stringify({
-    version: 1,
+    path,
     invocation: reach.agentInvoke ? ['human', 'agent'] : ['human'],
     ...(Object.keys(appliesTo).length > 0 ? { appliesTo } : {}),
   })
@@ -117,7 +124,7 @@ function registerPreview(reach: RegisterReach): string {
  */
 function greyReasonOf(skill: KbUnregisteredSkill): string | undefined {
   if (skill.inKb === true) {
-    if (skill.flat) return '扁平单文件技能没有自己的目录，无法放置 yantao.json'
+    if (skill.flat) return '扁平单文件技能没有自己的目录，无法注册为能力'
     if (!skill.userInvocable) return 'SKILL.md 已标记 user-invocable: false'
     return undefined
   }
@@ -212,7 +219,7 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
     }
   }
 
-  /** 「注册为能力」: write the sidecar in place (extracting a plugin's nested skills first), then open the capability. */
+  /** 「注册为能力」: write route entries into the central routing file, then open the capability. */
   const registerSkill = async (skill: KbUnregisteredSkill): Promise<void> => {
     try {
       await latest.current.register(skill.name, registerReach)
@@ -283,11 +290,12 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
                 将整个目录复制到 <span style={codeStyle}>.dsh/skills/{confirming.name}/</span>，原处保留。
               </div>
               <div style={mutedStyle}>
-                默认 sidecar：<span style={codeStyle}>{'{"invocation":["human"],"version":1}'}</span>
+                并在中央路由 <span style={codeStyle}>.dsh/skills/yantao.json</span> 写入：
+                <span style={codeStyle}>{`{"path":"${confirming.name}","invocation":["human"]}`}</span>
               </div>
               {declaresMore(confirming) && (
                 <div style={warnStyle}>
-                  注意：该技能自带 yantao.json 声明，采纳后会被默认 sidecar 取代，外带声明不会静默生效。
+                  注意：该技能自带 yantao.json 声明，副本中的该文件会被删除，外带声明不会静默生效。
                 </div>
               )}
               <div style={confirmButtonRowStyle}>
@@ -301,12 +309,12 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
               <div style={nameStyle}>注册「{registering.name}」为能力</div>
               {registering.plugin === true ? (
                 <div style={mutedStyle}>
-                  这是插件仓库：注册将把内含技能（{registering.pluginSkills?.join('、')}）提取为
-                  .dsh/skills/ 下的独立能力目录，并写入各自的能力声明。
+                  这是插件仓库：注册将在 <span style={codeStyle}>.dsh/skills/yantao.json</span> 为内含技能
+                  （{registering.pluginSkills?.join('、')}）各写一条路由，仓库目录原地保留。
                 </div>
               ) : (
                 <div style={mutedStyle}>
-                  在 <span style={codeStyle}>.dsh/skills/{registering.name}/yantao.json</span> 写入能力声明，技能目录原地保留。
+                  在 <span style={codeStyle}>.dsh/skills/yantao.json</span> 写入一条路由，技能目录原地保留（不移动、不改名）。
                 </div>
               )}
               <label style={mutedStyle}>
@@ -334,7 +342,7 @@ export function CapabilityPanel({ load, create, adopt, register, mail }: Capabil
                 出现在中间区右键菜单（选中文字＝提示词，无选中＝当前文件为对象）
               </label>
               <div style={mutedStyle}>
-                将写入：<span style={codeStyle}>{registerPreview(registerReach)}</span>
+                将写入的路由条目：<span style={codeStyle}>{registerPreview(registering, registerReach)}</span>
               </div>
               <div style={confirmButtonRowStyle}>
                 <button type="button" style={buttonStyle} onClick={() => { void registerSkill(registering) }}>注册</button>
