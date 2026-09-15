@@ -1,6 +1,11 @@
 # Git hooks (lefthook). Keep these local checkpoints fast; CI owns the full
 # repository-wide gate matrix.
 # Install: `node scripts/install-lefthook.mjs` (runs automatically via postinstall).
+#
+# yantao fork note (ADR-0027): upstream's pre-push full-repo typecheck is
+# removed — this is a single-user fork, pushes go only to the owner's remote,
+# and a full tsc run is heavy on this machine. yantao-scoped tests and
+# build:lib run before commits instead.
 
 pre-commit:
   jobs:
@@ -48,8 +53,3 @@ pre-merge-commit:
     - name: archived agent notes
       glob: '.agents/notes/archived/**'
       run: node_modules/.bin/tsx scripts/verify-archived-agent-notes.ts
-
-pre-push:
-  jobs:
-    - name: typecheck
-      run: pnpm run typecheck

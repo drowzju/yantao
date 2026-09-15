@@ -129,7 +129,6 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/host/plugin-inventory': { kind: 'none', reason: 'Host-side read-only Loader projection; registers nothing model-facing.' },
   'packages/bundle/base': { kind: 'indirect', reason: 'The bundle is a patch-list carrier; each inserted row\'s package owns its model-facing behavior.' },
   'packages/bundle/headless': { kind: 'none', reason: 'The one-shot runner submits the task as an ordinary user message; prompts and tools belong to the composed base and headless bundles.' },
-  'packages/bundle/yantao': { kind: 'indirect', reason: 'The bundle is a patch-list carrier; the provider route, default-model, persona, and disabled-tool rows it configures are owned by their mounted packages, as is the kb_ tool family it inserts.' },
   'packages/llm/llm': { kind: 'none', reason: 'The adapter registry forwards already-assembled requests unchanged.' },
   'packages/llm/token-meter': { kind: 'indirect', reason: 'The measurement service leaves model-visible changes to its consumers.' },
   'packages/lsp/lsp': { kind: 'indirect', reason: 'The provider registry delegates model rendering to dsh-tool-lsp.' },
@@ -192,6 +191,19 @@ interface Failure {
   path: string
   message: string
 }
+
+/**
+ * yantao is a single-user personal fork (ADR-0027): its packages carry
+ * Chinese-only READMEs and are exempt from the Model Experience audit.
+ * Upstream packages remain fully gated.
+ */
+const PERSONAL_FORK_EXEMPT: ReadonlySet<string> = new Set([
+  'packages/yantao/kb',
+  'packages/api/yantao-kb-controller',
+  'packages/client/ui-yantao',
+  'packages/bundle/yantao',
+  'packages/bundle/yantao-web-app',
+])
 
 type Line = MarkdownProseLine
 
@@ -304,6 +316,7 @@ for (const [pkg, contract] of Object.entries(SENTENCE_MODEL_EXPERIENCE)) {
 
 for (const packageJson of packageJsons) {
   const pkg = packageJson.slice(0, -'/package.json'.length)
+  if (PERSONAL_FORK_EXEMPT.has(pkg)) continue
   const readme = packageJson.replace(/package\.json$/, 'README.md')
   const abs = resolve(root, readme)
   if (!existsSync(abs)) {

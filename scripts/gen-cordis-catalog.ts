@@ -18,7 +18,7 @@
  * a missing regeneration.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import {
   projectCordisCatalog,
@@ -1043,15 +1043,18 @@ export function computeOutputs(): [string, string][] {
       events.filter(e => EVENT_SCOPE_PAGE[e.scope] === page),
       CORDIS_CATALOG_POLICY,
     )
-    for (const side of [page, page.replace(/\.md$/, '.zh.md')]) {
+    // The zh side is optional: the pairing gate owns pair completeness for
+    // governed pages, and yantao.md is single-language (ADR-0027).
+    for (const side of [page, page.replace(/\.md$/, '.zh.md')]
+      .filter((side, index) => index === 0 || existsSync(resolve(root, `${SUBSYSTEMS_DIR}/${side}`)))) {
       const rel = `${SUBSYSTEMS_DIR}/${side}`
       const localizedRegion = localizePageRegion(region, rel)
       let current: string
       try {
         current = readFileSync(resolve(root, rel), 'utf8')
       } catch {
-        // Both pair sides must exist before a region can be injected; the
-        // pairing gate owns pair completeness, this generator names the miss.
+        // The primary side of a mapped page must exist before a region can
+        // be injected; this generator names the miss.
         problems.push(`${rel}: mapped subsystems page does not exist.`)
         continue
       }
