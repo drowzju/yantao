@@ -134,7 +134,7 @@ Why the `_dsh` copies live under `docs/upstream/` rather than at the root: the b
 |---|---|
 | [development.md](development.md) | build, run, stop, tests, gates, pitfalls |
 | [TODO.md](TODO.md) | backlog: done / next / deferred (each deferred item keeps its reason) |
-| [../adr/](../adr/) | ADR 0001–0021 — index in section 4 |
+| [../adr/](../adr/) | ADR 0001–0025 — index in section 4 |
 | [../subsystems/yantao.md](../subsystems/yantao.md) | the KB + `yantaoKb` Remote subsystem page (upstream's subsystem format) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | context map: yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | the glossary (canonical terms) |
