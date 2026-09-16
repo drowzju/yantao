@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-api-yantao-kb-controller` 是 yantao 工作台 UI 背后的 Typert Remote 控制器：`yantaoKb` 命名空间下的十九个一元方法——`intakeTree`、`workspaceTree`、`read`、`write`、`deleteFile`、`setRelation`、`root`、`setRoot`、`createEntity`、`links`、`revision`、`openExternal`、`todos`、`writeTodos`、`mailMarkRead`、`registerResource`、`capabilityList`、`capabilityRun`、`capabilityCreate`——让浏览器直接列出、编辑与扩充知识库。所有路径都是知识库相对路径，并被限制在 `yantao-kb` 插件以 `yantaoKb` 服务发布的 kbRoot 之内，因此控制器共享插件的唯一配置点，绝不重复配置；`setRoot` 则重新指向这个唯一的根目录。UI 是人类通道，所以 `write` 是整文件写入；ADR-0004 信任边界只约束 agent 的 `kb_` 工具，从不约束本表面。
+`dsh-api-yantao-kb-controller` 是 yantao 工作台 UI 背后的 Typert Remote 控制器：`yantaoKb` 命名空间下的二十一个一元方法——`intakeTree`、`workspaceTree`、`read`、`write`、`deleteFile`、`setRelation`、`root`、`setRoot`、`createEntity`、`links`、`revision`、`openExternal`、`todos`、`writeTodos`、`mailMarkRead`、`registerResource`、`capabilityList`、`capabilityRun`、`capabilityCreate`、`capabilityAdopt`、`capabilityRegister`——让浏览器直接列出、编辑与扩充知识库。所有路径都是知识库相对路径，并被限制在 `yantao-kb` 插件以 `yantaoKb` 服务发布的 kbRoot 之内，因此控制器共享插件的唯一配置点，绝不重复配置；`setRoot` 则重新指向这个唯一的根目录。UI 是人类通道，所以 `write` 是整文件写入；ADR-0004 信任边界只约束 agent 的 `kb_` 工具，从不约束本表面。
 
 ## 目录
 
