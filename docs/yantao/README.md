@@ -99,7 +99,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0023 | 能力的模型侧调用:`kb_run_capability` 按 sidecar `invocation` 字段逐能力门控,动态目录注入,缺 entry 的指令型能力,播种覆盖前备份;重开 ADR-0021 台账第 1、2 条 |
 | 0024 | KB 自包含:yantao 自有数据只落 KB 根——能力状态迁至 `<kbRoot>/.yantao/state.json`(一次性导入,旧文件改名 `.bak`),KB 指针进 settings plane,技能只认 `<kbRoot>/.dsh/skills/` |
 | 0025 | 三方技能接入:未注册分组 + 拷贝进 KB 的采纳动作,`/xxx` 手势(pre-step 双消息注入),资源右键对指令型能力发当前会话,选区右键 opt-in,`/` 自动补全源,注册 = 在中央路由文件 `.dsh/skills/yantao.json` 写路由条目(不移动、不改名) |
-| 0026 | 类型化模板与协作边界重划:实体模板文件 `<kbRoot>/.dsh/templates/<type>.md` + 内置回落(project 加目标/下一步、area 加标准/检视、person 不变),`kb_edit_section` 区段寻址编辑(流水仍只追加、frontmatter 封存),`kb_write_resource` 只新建不覆盖,右键/选区手势统一为合成 `/name @path` slash 消息走 pre-step 管线(客户端拼接退役) |
+| 0026 | 类型化模板与协作边界重划:实体模板文件 `<kbRoot>/.yantao/templates/<type>.md` + 内置回落(状态以模板为主——模板没写该区段就不补、不校验;流水由机制保证——缺失自动补齐、重复才回落),`kb_edit_section` 区段寻址编辑(流水仍只追加、frontmatter 封存),`kb_write_resource` 只新建不覆盖,右键/选区手势统一为合成 `/name @path` slash 消息走 pre-step 管线(客户端拼接退役) |
 | 0027 | 单人项目的门禁降级:yantao 自有文档与包 README 中文单语化(删 twins 与配对记录,豁免目录化),model-experience 门摘除 yantao 包,pre-push 全仓 typecheck 移除;staged lint、whitespace、vendor manifest、notices、生成目录检查与测试保留 |
 
 ## 5. 快速上手

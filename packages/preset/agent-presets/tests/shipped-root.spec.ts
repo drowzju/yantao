@@ -89,7 +89,10 @@ describe('the shipped preset root', () => {
     const ctx = await roster({ includeUserRoot: false })
 
     const listed = await ctx.agentPresets.list()
-    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'minimal', 'ptc', 'standard'])
+    // 'yantao' is this fork's own shipped workbench preset (an empty
+    // composition; see packages/bundle/yantao/tests/persona.spec.ts).
+    expect(listed.map(preset => preset.id).sort())
+      .toEqual(['cordis', 'minimal', 'ptc', 'standard', 'yantao'])
     expect(listed.every(preset => preset.trust === 'system')).toBe(true)
     // Not `broken === undefined`: health asks whether each row's package is
     // installed above the base, and the shipped rows name packages the

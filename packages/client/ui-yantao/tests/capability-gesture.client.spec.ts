@@ -3,7 +3,7 @@ import type {
   CandidateRequest, ClientSessionContext, InputTriggerPick,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { KbCapabilitySummary } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import { capabilityGestureSource } from '../src/client/capability-gesture.ts'
+import { capabilityGestureMessage, capabilityGestureSource } from '../src/client/capability-gesture.ts'
 
 /** The capability rows one `capabilityList` answers with, covering every gate. */
 const CAPABILITIES: KbCapabilitySummary[] = [
@@ -57,5 +57,25 @@ describe('capability / source', () => {
     // ADR-0025 决定 6: enter/space adjudication stays with ui-commands.
     expect('matchEnter' in source).toBe(false)
     expect('matchSpace' in source).toBe(false)
+  })
+})
+
+describe('capabilityGestureMessage (ADR-0026 决定 4)', () => {
+  it('serializes a path as the `/name @path` message', () => {
+    expect(capabilityGestureMessage('mail', { path: 'resources/周报.eml' })).toBe('/mail @resources/周报.eml')
+  })
+
+  it('rides a single-line selection inline after the command', () => {
+    expect(capabilityGestureMessage('notes-helper', { selection: '选中的文字' })).toBe('/notes-helper 选中的文字')
+  })
+
+  it('wraps a multiline selection in a `> ` quote block, `/name` still first', () => {
+    expect(capabilityGestureMessage('notes-helper', { selection: '第一行\n第二行\n\n第四行' }))
+      .toBe('/notes-helper\n> 第一行\n> 第二行\n> \n> 第四行')
+  })
+
+  it('normalizes CRLF line endings in the selection', () => {
+    expect(capabilityGestureMessage('notes-helper', { selection: '第一行\r\n第二行' }))
+      .toBe('/notes-helper\n> 第一行\n> 第二行')
   })
 })

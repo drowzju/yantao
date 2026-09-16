@@ -23,6 +23,7 @@ import type { MailAnalyser } from '../mail-analysis.ts'
 import type { Proposal } from '../proposal.ts'
 import { applyProposal, type ProposalApplyResult } from '../proposal-apply.ts'
 import { proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
+import { capabilityGestureMessage } from '../capability-gesture.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
 import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage } from '../remote.ts'
@@ -389,30 +390,31 @@ export function Frame({
     [createEntity, read, write, todos, writeTodos],
   )
 
-  // ADR-0021 决定 7 + ADR-0025 决定 4: a row menu's capability run. A run
-  // that answers with a proposal (`{ actions: [...] }`) opens the shared
-  // card; one that answers with the SKILL.md body (an instruction capability)
-  // becomes a prompt into the conversation the human is watching — the row's
-  // file rides along as an `@` reference, serialized exactly as the composer's
-  // `@` chip would; anything else is one dismissable notice at the frame's
-  // foot.
+  // ADR-0021 决定 7 + ADR-0026 决定 4: a row menu's capability run. A
+  // script capability still runs through `capabilityRun` — a run that
+  // answers with a proposal (`{ actions: [...] }`) opens the shared card,
+  // anything else is one dismissable notice at the frame's foot. An
+  // instruction capability is the gesture instead: the client sends the
+  // plain user message `/name @path` — no fetch, no concatenation — and the
+  // controller's pre-step (ADR-0025 决定 3) injects the SKILL.md body. The
+  // message lands in the transcript exactly as if the human had typed it.
   const [capabilityProposal, setCapabilityProposal] = useState<Proposal | null>(null)
   const [capabilityNotice, setCapabilityNotice] = useState<string | null>(null)
-  const runRowCapability = useCallback((name: string, path: string): void => {
+  const runRowCapability = useCallback((capability: KbCapabilitySummary, path: string): void => {
     setCapabilityNotice(null)
-    void capabilityRun({ name, input: { path } }).then((result) => {
-      if (typeof result.content === 'string') {
-        void promptSession(`${result.content}\n\n@${path}`).then(
-          () => { setCapabilityNotice(`能力「${name}」的说明已发送到当前会话。`) },
-          (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`) },
-        )
-        return
-      }
+    if (capability.entry === undefined) {
+      void promptSession(capabilityGestureMessage(capability.name, { path })).then(
+        () => {},
+        (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`) },
+      )
+      return
+    }
+    void capabilityRun({ name: capability.name, input: { path } }).then((result) => {
       const proposal = proposalOfRunResult(result)
       if (proposal !== null) setCapabilityProposal(proposal)
       else setCapabilityNotice(runNoticeOf(result))
     }, (failure: unknown) => {
-      setCapabilityNotice(`能力「${name}」失败：${remoteMessage(failure)}`)
+      setCapabilityNotice(`能力「${capability.name}」失败：${remoteMessage(failure)}`)
     })
   }, [capabilityRun, promptSession])
 
@@ -492,9 +494,10 @@ export function Frame({
   // The no-selection sibling (ADR-0025 决定 5): right-clicking the middle
   // pane's md surfaces with nothing selected offers the same opted-in
   // capabilities, the open file riding along as the object — runRowCapability
-  // serializes it as SKILL.md body + `@path`, the resource right-click's
-  // exact form. A selection keeps the mouseup menu in charge; a bare
-  // right-click opens this one, and only when some capability opted in.
+  // sends it as the `/name @path` gesture message (ADR-0026 决定 4), the
+  // resource right-click's exact form. A selection keeps the mouseup menu in
+  // charge; a bare right-click opens this one, and only when some capability
+  // opted in.
   const [fileMenu, setFileMenu] = useState<{ path: string; x: number; y: number } | null>(null)
   const activePathRef = useRef<string | null>(null)
   activePathRef.current = activeFile(tabs)?.path ?? null
@@ -525,23 +528,18 @@ export function Frame({
     }
   }, [])
 
-  // A selection capability: fetch the SKILL.md body (the instruction answer)
-  // and prepend it to the selection — fixed concatenation, no template system.
+  // ADR-0026 决定 4: the selection gesture is a plain user message — `/name`
+  // with the selection riding inline (a `> ` quote block once it spans lines)
+  // — and the controller's pre-step (ADR-0025 决定 3) injects the SKILL.md
+  // body. No client-side fetch, no concatenation; the message is visible in
+  // the transcript as if the human had typed it.
   const runSelectionCapability = useCallback((name: string, selection: string): void => {
     setCapabilityNotice(null)
-    void capabilityRun({ name, input: { selection } }).then((result) => {
-      if (typeof result.content !== 'string') {
-        setCapabilityNotice(`能力「${name}」没有返回说明文本。`)
-        return
-      }
-      void promptSession(`${result.content}\n\n${selection}`).then(
-        () => { setCapabilityNotice(`能力「${name}」的说明已发送到当前会话。`) },
-        (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`) },
-      )
-    }, (failure: unknown) => {
-      setCapabilityNotice(`能力「${name}」失败：${remoteMessage(failure)}`)
-    })
-  }, [capabilityRun, promptSession])
+    void promptSession(capabilityGestureMessage(name, { selection })).then(
+      () => {},
+      (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`) },
+    )
+  }, [promptSession])
 
   // The active file's link graph, host-computed: one call per activation, and
   // again after a tree reload, which is when a new file could have appeared.
@@ -789,9 +787,9 @@ export function Frame({
           x={fileMenu.x}
           y={fileMenu.y}
           capabilities={selectionCaps}
-          onRun={(name) => {
+          onRun={(capability) => {
             setFileMenu(null)
-            runRowCapability(name, fileMenu.path)
+            runRowCapability(capability, fileMenu.path)
           }}
           onClose={() => { setFileMenu(null) }}
           t={t}

@@ -318,8 +318,8 @@ function RowMenu(props: {
   onRelate?: ((path: string, relation: KbPersonRelation) => Promise<void>) | undefined
   /** The capabilities whose `appliesTo` accepts this row (ADR-0021 决定 7). */
   capabilities?: readonly KbCapabilitySummary[] | undefined
-  /** Run one of those capabilities against this row. */
-  onRunCapability?: ((name: string, path: string) => void) | undefined
+  /** Run one of those capabilities against this row (ADR-0026 决定 4 routes the run). */
+  onRunCapability?: ((capability: KbCapabilitySummary, path: string) => void) | undefined
   onDelete: (path: string) => void
   onClose: () => void
 }): ReactElement {
@@ -373,7 +373,7 @@ function RowMenu(props: {
               disabled={busy}
               data-capability={capability.name}
               title={capability.description}
-              onClick={() => { onRunCapability(capability.name, target.path) }}
+              onClick={() => { onClose(); onRunCapability(capability, target.path) }}
             >
               {capability.name}
             </button>
@@ -560,7 +560,7 @@ export interface RailProps {
   /** List the registered capabilities (ADR-0021) — the row menus' 能力 group. */
   readonly capabilityList: CapabilityLoader
   /** Run one capability against a row (ADR-0021 决定 7); the frame owns the run. */
-  readonly onRunCapability: (name: string, path: string) => void
+  readonly onRunCapability: (capability: KbCapabilitySummary, path: string) => void
 }
 
 /** Intake-side additions: the intake rail owns resource registration (ADR-0020) and the 能力 tab (ADR-0021). */

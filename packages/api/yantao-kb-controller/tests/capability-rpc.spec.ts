@@ -43,6 +43,14 @@ let ctx: Context
 let fiber: { dispose(): Promise<void> }
 let skillDir: string
 
+/** The central routing file's parsed content, as registration leaves it. */
+async function central(): Promise<{ version: number; capabilities: Record<string, unknown> }> {
+  return JSON.parse(await readFile(join(home, '.dsh', 'skills', 'yantao.json'), 'utf8')) as {
+    version: number
+    capabilities: Record<string, unknown>
+  }
+}
+
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'yantao-kb-capability-'))
   state.home = home
@@ -728,8 +736,10 @@ describe('yantaoKb.capabilityAdopt (ADR-0025)', () => {
     await ctx.yantaoKbController.capabilityAdopt({ name: 'scripted' })
     const target = join(home, '.dsh', 'skills', 'scripted')
     expect(await stat(join(target, 'yantao.json')).then(() => true, () => false)).toBe(false)
-    expect(JSON.parse(await readFile(join(home, '.dsh', 'skills', 'yantao.json'), 'utf8')).capabilities.scripted)
-      .toEqual({ path: 'scripted', invocation: ['human'] })
+    const routing = JSON.parse(await readFile(join(home, '.dsh', 'skills', 'yantao.json'), 'utf8')) as {
+      capabilities: Record<string, unknown>
+    }
+    expect(routing.capabilities.scripted).toEqual({ path: 'scripted', invocation: ['human'] })
     // The source keeps its own sidecar; only the copy is stripped.
     expect(await readFile(join(source, 'yantao.json'), 'utf8')).toContain('agent')
   })
@@ -795,11 +805,6 @@ describe('yantaoKb.capabilityRegister (ADR-0025)', () => {
       path: join(directory, 'SKILL.md'), metadata: {},
     } satisfies SkillDefinition)
     return directory
-  }
-
-  /** The central routing file's parsed content, as registration leaves it. */
-  async function central(): Promise<{ version: number; capabilities: Record<string, unknown> }> {
-    return JSON.parse(await readFile(join(home, '.dsh', 'skills', 'yantao.json'), 'utf8'))
   }
 
   it('writes a route entry into the central routing file, no copy', async () => {
@@ -894,11 +899,6 @@ describe('plugin repository registration (ADR-0025 落地注记二)', () => {
     skillList.mockResolvedValue([])
     skillGet.mockResolvedValue(undefined)
     return repository
-  }
-
-  /** The central routing file's parsed content, as registration leaves it. */
-  async function central(): Promise<{ version: number; capabilities: Record<string, unknown> }> {
-    return JSON.parse(await readFile(join(home, '.dsh', 'skills', 'yantao.json'), 'utf8'))
   }
 
   it('lists a dropped plugin repository in the 未注册 group with its nested skills', async () => {

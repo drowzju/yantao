@@ -1,5 +1,5 @@
 ---
-description: "yantao PARA+P 知识库插件：七个 kb_ 工具，是 agent 写入文件型个人知识库的唯一途径，面向 yantao profile 的使用者与维护者。"
+description: "yantao PARA+P 知识库插件：九个 kb_ 工具，是 agent 写入文件型个人知识库的唯一途径，面向 yantao profile 的使用者与维护者。"
 kind: "package-reference"
 ---
 
@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-yantao-kb` 是 yantao profile 的领域插件：建立在纯文件个人知识库（PARA+P）之上的七个模型侧工具。知识库是一个由 Markdown 实体笔记（`entities/projects|areas|people|meetings/*.md`，以及单例清单 `entities/todos.md`）、永不改写的原始材料（`resources/`）与会话归档（`sessions/`）组成的目录。每个实体文件都有 agent 可整体改写的 `## 状态` 区与只许追加的 `## 流水` 区；工具在结构上执行这条边界——创建永远写入 canonical 模板，此后仅允许改写『状态』区与在『流水』区末尾追加一条带日期的条目，其余每个字节都原样保留。yantao profile bundle 挂载本插件时会移除通用写入工具，使这组工具成为 agent 的唯一写入口。
+`dsh-yantao-kb` 是 yantao profile 的领域插件：建立在纯文件个人知识库（PARA+P）之上的九个模型侧工具。知识库是一个由 Markdown 实体笔记（`entities/projects|areas|people|meetings/*.md`，以及单例清单 `entities/todos.md`）、永不改写的原始材料（`resources/`）与会话归档（`sessions/`）组成的目录。每个实体文件都有只许追加的 `## 流水` 区（机制保证存在）；其余 `## ` 区段是否存在于模板的定性——agent 可经区段工具整体改写任意区段（『流水』除外），frontmatter 永不可写；`resources/` 只接受新建、拒绝覆盖。工具在结构上执行这条边界。yantao profile bundle 挂载本插件时会移除通用写入工具，使这组工具成为 agent 的唯一写入口。
 
 ## 目录
 
@@ -33,17 +33,19 @@ yantao profile 会自动挂载本插件；随后用 `kb_init` 准备一个全新
 
 agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我自己」+ 待办单例）、`kb_create_entity`（按 canonical 模板写入项目文件）、`kb_append_log`（在『流水』区末尾追加 `- YYYY-MM-DD …` 条目）。除非 agent 调用 `kb_write_state`，新文件的『状态』区始终与模板逐字节一致。
 
-### 七个工具
+### 九个工具
 
 | 工具 | 签名 | 作用 |
 |---|---|---|
 | `kb_init` | `()` | 创建知识库目录结构、根 README、库主实体与待办单例（幂等） |
-| `kb_create_entity` | `(type, name, relation?, date?)` | 按模板写入一个实体文件（会议文件名会冠以它自己的日期，`<YYYY-MM-DD> <name>`）；文件已存在时拒绝，`todo` 单例也拒绝 |
+| `kb_create_entity` | `(type, name, relation?, date?)` | 按模板写入一个实体文件（优先读 `.yantao/templates/<type>.md` 自定义模板，缺失回落内置；会议文件名会冠以它自己的日期，`<YYYY-MM-DD> <name>`）；文件已存在时拒绝，`todo` 单例也拒绝 |
 | `kb_append_log` | `(entity, text)` | 在实体的『流水』区末尾追加一条带日期的日志 |
 | `kb_write_state` | `(entity, text)` | 整体替换『状态』区正文；『流水』区与 frontmatter 原样保留 |
+| `kb_edit_section` | `(entity, section, text)` | 整体替换任意 `## ` 区段正文；『流水』区拒绝（只走 `kb_append_log`），锚点缺失或重复时报错不重建（ADR-0026） |
 | `kb_read_entity` | `(type, name)` | 返回实体文件的完整内容；会议按裸名即可找到，即使文件名带日期前缀 |
 | `kb_list_entities` | `(type?, includeArchived?)` | 列出实体名；frontmatter 含 `archive: true` 的默认隐藏 |
 | `kb_register_resource` | `(path)` | 把原始材料按原名（经安全文件名处理）原样复制进 `resources/`；同名重复时拒绝（ADR-0020） |
+| `kb_write_resource` | `(path, content)` | 在 `resources/` 下新建一个文本文件（可含子目录，路径以 `resources/` 开头）；目标已存在时拒绝——不覆盖、不静默改名（ADR-0026） |
 
 ### 配置
 
@@ -73,21 +75,21 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 
 ### 信任边界是拼接器，不是编辑器
 
-`kb_append_log` 从不改写文件：它按 `\n` 切分文本，要求『## 流水』锚点标题恰好出现一次（缺失或重复都是硬错误，绝不重建），并把日志行直接插入该小节最后一个非空行之后。按同样的分隔符重新拼合行序列，其余内容逐字节保留——尤其是上方的『状态』区。`kb_write_state` 是同一拼接器在『## 状态』锚点上的镜像：它替换标题与下一小节之间的行，因此『流水』区与 frontmatter 不受影响，`text` 为空则恢复模板中的空『状态』区。多行文本会成为一条日志，后续行缩进两格。任何写入之前 frontmatter 信封必须能解析（js-yaml）；实体名先经 `sanitizeFileName` 处理（`\/:*?"<>|` 替换为 `_`、去首尾空白、去掉结尾点与空格、空名回退 `未命名`）才成为文件名；路径形式的实体定位被限制在 kbRoot 之内。
+`kb_append_log` 从不改写文件：它按 `\n` 切分文本，要求『## 流水』锚点标题恰好出现一次（缺失或重复都是硬错误，绝不重建），并把日志行直接插入该小节最后一个非空行之后。按同样的分隔符重新拼合行序列，其余内容逐字节保留——尤其是上方的『状态』区。`kb_write_state` 是同一拼接器在『## 状态』锚点上的镜像：它替换标题与下一小节之间的行，因此『流水』区与 frontmatter 不受影响，`text` 为空则恢复模板中的空『状态』区。ADR-0026 把这条拼接机制泛化为 `replaceSection`：`kb_edit_section` 以同样的行级替换服务任意 `## ` 锚点（『流水』在拼接层拒绝，frontmatter 仍须可解析）。多行文本会成为一条日志，后续行缩进两格。任何写入之前 frontmatter 信封必须能解析（js-yaml）；实体名先经 `sanitizeFileName` 处理（`\/:*?"<>|` 替换为 `_`、去首尾空白、去掉结尾点与空格、空名回退 `未命名`）才成为文件名；路径形式的实体定位被限制在 kbRoot 之内。
 
 ### 源码地图
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：Config（`kbRoot`）与七个 `defineTool` 注册 |
-| [`src/core.ts`](src/core.ts) | 工具背后的七个文件系统操作 |
-| [`src/splice.ts`](src/splice.ts) | 『状态』/『流水』区拼接器与日志条目构造 |
+| [`src/index.ts`](src/index.ts) | 插件入口：Config（`kbRoot`）与九个 `defineTool` 注册 |
+| [`src/core.ts`](src/core.ts) | 工具背后的九个文件系统操作 |
+| [`src/splice.ts`](src/splice.ts) | 区段拼接器（任意 `## ` 锚点，『流水』拒写）与日志条目构造 |
 | [`src/frontmatter.ts`](src/frontmatter.ts) | 只读的 frontmatter 信封解析（js-yaml） |
 | [`src/paths.ts`](src/paths.ts) | `sanitizeFileName`、日期戳、限制在 kbRoot 内的路径解析，以及带日期的会议定位 |
 | [`src/root-store.ts`](src/root-store.ts) | 持久化的知识库根目录覆盖（`~/.dsh/yantao-kb.json`） |
 | [`src/templates.ts`](src/templates.ts) | canonical 实体 / 根 README 文件布局 |
 | [`src/types.ts`](src/types.ts) | 实体分类与 `KbError` |
-| — | 不发布运行时不变量伴生包；本插件是无状态工具族，其修改契约（仅一次模板创建、逐字节保留的『状态』改写与『流水』追加）由包内单元测试覆盖。 |
+| — | 不发布运行时不变量伴生包；本插件是无状态工具族，其修改契约（仅一次模板创建、区段级改写与『流水』追加）由包内单元测试覆盖。 |
 | [`tests/kb.spec.ts`](tests/kb.spec.ts) | 基于真实临时目录的拼接器、模板与操作覆盖 |
 | [`tests/root-store.spec.ts`](tests/root-store.spec.ts) | 基于一次性 dsh home 的持久化根目录覆盖 |
 
@@ -119,11 +121,11 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 
 #### 模型看到什么
 
-七个 `kb_` 模式（`kb_init`、`kb_create_entity`、`kb_append_log`、`kb_write_state`、`kb_read_entity`、`kb_list_entities`、`kb_register_resource`）：中文描述会点名信任边界（`kb_append_log` 声明只向『流水』区追加，缺少锚点时报错而非重建；`kb_write_state` 声明只替换『状态』区、不碰『流水』区）。成功的结果是携带知识库相对路径的紧凑 JSON；`kb_read_entity` 返回实体文件全文。失败以中文 `KbError` 消息到达，指明具体问题（缺少锚点、实体已存在、frontmatter 不合法、路径越出知识库根目录）。
+九个 `kb_` 模式（`kb_init`、`kb_create_entity`、`kb_append_log`、`kb_write_state`、`kb_edit_section`、`kb_read_entity`、`kb_list_entities`、`kb_register_resource`、`kb_write_resource`）：中文描述会点名信任边界（`kb_append_log` 声明只向『流水』区追加，缺少锚点时报错而非重建；`kb_write_state` 声明只替换『状态』区、不碰『流水』区；`kb_edit_section` 声明任意区段可改写但『流水』除外、frontmatter 永不可写；`kb_write_resource` 声明只在 `resources/` 下新建、拒绝覆盖）。成功的结果是携带知识库相对路径的紧凑 JSON；`kb_read_entity` 返回实体文件全文。失败以中文 `KbError` 消息到达，指明具体问题（缺少锚点、实体已存在、frontmatter 不合法、路径越出知识库根目录、目标必须在 `resources/` 下）。
 
 #### Token 影响
 
-七个工具的固定模式开销，外加每次调用一条紧凑结果；`kb_read_entity` 的结果是数据相关的（实体文件全文），本包不设上限。
+九个工具的固定模式开销，外加每次调用一条紧凑结果；`kb_read_entity` 的结果是数据相关的（实体文件全文），本包不设上限。
 
 #### KV Cache 影响
 
@@ -135,8 +137,8 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 
 这些限制定义了 KB 工具在哪些地方设计上需要人类照料。它们是本包当前的约束，不是任务清单。
 
-- **拼接器是基于行的，不理解文档结构**——手工编辑后缺失或重复『## 状态』/『## 流水』标题的文件会硬性失败，工具绝不修复；修复文件是人类的工作。
-- **待办单例没有区段结构**——`entities/todos.md` 是一个纯复选框清单，`kb_append_log` 与 `kb_write_state` 都会拒绝它；agent 用 `kb_read_entity` 阅读，人类则整体编辑这个文件。
+- **拼接器是基于行的，不理解文档结构**——手工编辑后，被寻址的『## 锚点』标题缺失或重复（『流水』必须恰好一次）会硬性失败，工具绝不修复；修复文件是人类的工作。
+- **待办单例没有区段结构**——`entities/todos.md` 是一个纯复选框清单，`kb_append_log`、`kb_write_state` 与 `kb_edit_section` 都会拒绝它；agent 用 `kb_read_entity` 阅读，人类则整体编辑这个文件。
 - **没有归档修改工具**——归档是人类对 frontmatter 的编辑（`archive: true`）；工具只读取该标记，agent 无法归档或取消归档实体。
 - **资源只复制、不移动、也不按内容去重**——原文件保留在原处；同名资源即使来自不同源文件，第二次登记也会被拒绝。
 - **每个挂载实例一个知识库根目录**——根目录可以在运行时改选（持久化在 `~/.dsh` 之下），之后所有工具都跟随它；但没有按次调用的根目录覆盖，同时使用多个知识库仍需分开的 profile。

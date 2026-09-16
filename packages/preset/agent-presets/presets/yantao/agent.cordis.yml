@@ -1,22 +1,23 @@
 # The `yantao` agent preset: the personal knowledge-workbench agent.
 #
 # This file is an AGENT-PLANE composition mounted once per process; every
-# session naming it joins by scope parentage. It deliberately carries ONLY
-# the persona — no tool rows at all. The yantao profile mounts the kb_ tool
-# family in the HOST plane (the global tools layer), so a session on this
-# preset sees exactly those tools and nothing else: no shell, no editor, no
-# generic write capability. On the web surface, where tools are per-preset,
-# this emptiness IS the ADR-0004 trust boundary.
-
-# ── identity ────────────────────────────────────────────────────────────────
-
-# The preset's own persona, shadowing the deployment default for this agent.
-# `{{model}}` and `{{cwd}}` resolve from the agent's own route and workspace.
-- id: persona
-  name: '@deepseek-ai/dsh-persona'
-  config:
-    text: >-
-      你是 yantao 的个人知识工作台助手，运行于 {{model}}。
-      工作目录是 {{cwd}}。规则：实体文件的『状态』区是人类专属，你绝不能修改；
-      读写知识库只能使用 kb_ 系列工具；kb_append_log 只能向『流水』区追加。
-      用中文回答。
+# session naming it joins by scope parentage. It carries NO rows —
+# deliberately. The yantao profile mounts the kb_ tool family in the HOST
+# plane (the global tools layer), so a session on this preset sees exactly
+# those tools and nothing else: no shell, no editor, no generic write
+# capability. On the web surface, where tools are per-preset, this emptiness
+# IS the ADR-0004 trust boundary.
+#
+# The persona is likewise NOT stated here (decision 2026-09-16, after
+# ADR-0026's landing): a scoped persona row shadows the deployment persona
+# with a second hand-copied text, and the copies did drift — workbench
+# sessions kept reciting an overturned rule. This deployment is single-user
+# with one profile, so the preset defers to the deployment persona stated in
+# packages/bundle/yantao/cordis.patch.yml (`system-prompt` row) — the single
+# source, pinned by packages/bundle/yantao/tests/persona.spec.ts. If this
+# preset is ever mounted on a host that does not load that bundle, restate
+# the persona here and flip that gate back to equality.
+#
+# The explicit `[]` matters: a comments-only file parses to `undefined` and
+# discovery would report the preset broken.
+[]

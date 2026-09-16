@@ -1,8 +1,9 @@
 /**
  * The section splicer — the only writes the agent side of the trust boundary
  * may perform. Appending locates the single `## 流水` anchor heading and
- * inserts bullet lines at the end of that section; rewriting locates the
- * single `## 状态` anchor and replaces only that section's body. Both
+ * inserts bullet lines at the end of that section; rewriting locates a single
+ * `## ` anchor — the `## 状态` specialization or any section via
+ * {@link replaceSection} — and replaces only that section's body. Both
  * preserve every other byte of the file exactly as it was. Missing or
  * duplicated anchors are hard errors; the splicer never recreates structure.
  * @module @deepseek-ai/dsh-yantao-kb/splice
@@ -124,8 +125,53 @@ export function appendToLogSection(content: string, lines: readonly string[], di
  * @returns the complete new file text.
  */
 export function replaceStateSection(content: string, text: string, displayPath: string): string {
+  return replaceAnchorSection(content, STATE_SECTION, text, displayPath)
+}
+
+/**
+ * Replace the whole body of any `## ` section with `text` — the generalized
+ * form behind `kb_edit_section` (ADR-0026 决定 2). The heading is given as
+ * `目标` or `## 目标` and must match one heading line exactly; the same
+ * single-anchor rule applies, and every other byte of the file survives.
+ * The `## 流水` section is refused here — the one choke point every
+ * section-addressed writer passes through — because history is append-only
+ * for every writer, human or agent; `kb_append_log` is its only door.
+ * @param content - the complete current file text.
+ * @param heading - the section anchor, `目标` or `## 目标` (regex metacharacters are literal).
+ * @param text - the new section body; CRLF is normalized and outer blank lines dropped.
+ * @param displayPath - path used in error prose.
+ * @returns the complete new file text.
+ */
+export function replaceSection(content: string, heading: string, text: string, displayPath: string): string {
+  const name = heading.replace(/\r\n/g, '\n').trim().replace(/^##[ \t]*/, '').trim()
+  if (name === '') throw new KbError('empty-section', '区段锚点为空；请给出形如「目标」或「## 目标」的区段名')
+  if (name === '流水') {
+    throw new KbError('log-append-only', '『流水』区只追加、不改写（人与 agent 同规）；追加日志请用 kb_append_log')
+  }
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const section: SectionAnchor = {
+    heading: new RegExp(`^## ${escaped}[ \\t]*\\r?$`),
+    label: `## ${name}`,
+    code: 'section',
+  }
+  return replaceAnchorSection(content, section, text, displayPath)
+}
+
+/**
+ * The shared whole-section replacement: locate the single anchor, swap the
+ * rows between the heading and the next section for the normalized body.
+ * The canonical layout is restored around the new body — one blank line
+ * below the heading and one above the next section — which is why an empty
+ * `text` empties the section rather than removing it.
+ * @param content - the complete current file text.
+ * @param section - which section to replace.
+ * @param text - the new section body.
+ * @param displayPath - path used in error prose.
+ * @returns the complete new file text.
+ */
+function replaceAnchorSection(content: string, section: SectionAnchor, text: string, displayPath: string): string {
   const rows = content.split('\n')
-  const { anchor, end } = locateSection(rows, STATE_SECTION, displayPath)
+  const { anchor, end } = locateSection(rows, section, displayPath)
   const normalized = text.replace(/\r\n/g, '\n').replace(/^\n+/, '').replace(/\n+$/, '')
   const body = ['', ...normalized.trim() === '' ? [] : normalized.split('\n'), '']
   rows.splice(anchor + 1, end - anchor - 1, ...body)

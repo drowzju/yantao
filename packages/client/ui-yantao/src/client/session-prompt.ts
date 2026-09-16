@@ -1,11 +1,13 @@
 /**
  * One prompt into the conversation the human is looking at (ADR-0025 决定 4).
  *
- * The frame's resource right-click routes instruction capabilities here: the
- * SKILL.md body plus an `@path` file reference becomes the prompt text, and
- * the middle column — the host's own conversation surface — shows the turn.
- * When no session is open one is created first (with the KB root as its
- * directory, ADR-0020) and selected, so the human watches the turn land.
+ * The frame's capability gestures route here (ADR-0026 决定 4): the gesture
+ * message — `/name` opening the text, an `@path` reference or the selection
+ * riding along — is sent as a plain user message, and the controller's
+ * pre-step (ADR-0025 决定 3) injects the SKILL.md body. The middle column —
+ * the host's own conversation surface — shows the turn. When no session is
+ * open one is created first (with the KB root as its directory, ADR-0020)
+ * and selected, so the human watches the turn land.
  * @module @deepseek-ai/dsh-client-ui-yantao/session-prompt
  */
 // Type-only: pulls the `ctx.sessions` service merge (the session controller's

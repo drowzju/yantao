@@ -51,3 +51,22 @@ export function capabilityGestureSource(list: CapabilityLoader): InputTriggerSou
     },
   }
 }
+
+/**
+ * Synthesize one gesture message (ADR-0026 决定 4): `/name` opens the message
+ * — the form the controller's pre-step reads (ADR-0025 决定 3) — and the
+ * gesture's object rides along. A path becomes an `@` reference, serialized
+ * exactly as the composer's `@` chip; a selection rides inline, wrapped in a
+ * `> ` quote block once it spans lines so `/name` stays the first token and
+ * the pre-step keeps recognizing it.
+ * @param name - the capability's skill name.
+ * @param object - the file path, or the selected text.
+ * @returns the message text, ready for `promptSession`.
+ */
+export function capabilityGestureMessage(name: string, object: { path: string } | { selection: string }): string {
+  if ('path' in object) return `/${name} @${object.path}`
+  const lines = object.selection.replace(/\r\n/g, '\n').split('\n')
+  return lines.length === 1
+    ? `/${name} ${object.selection}`
+    : `/${name}\n${lines.map(line => `> ${line}`).join('\n')}`
+}

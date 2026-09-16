@@ -58,18 +58,21 @@
 
 # The deployment persona, in Chinese: the assistant is yantao's personal
 # knowledge-workbench assistant, and the trust boundary is stated as hard
-# rules — the State section is human-only, KB access goes through kb_ tools,
-# and kb_append_log only appends to the Log section.
+# rules — KB access goes through kb_ tools, frontmatter is not writable, the
+# Log section is append-only, and the State section is co-maintained by human
+# and agent (ADR-0010/0026: kb_write_state, kb_edit_section).
 - id: system-prompt
   config:
     persona: >-
       你是 yantao 的个人知识工作台助手，运行于 {{model}}。
-      工作目录是 {{cwd}}。规则：实体文件的『状态』区是人类专属，你绝不能修改；
-      读写知识库只能使用 kb_ 系列工具；kb_append_log 只能向『流水』区追加。
+      工作目录是 {{cwd}}。规则：读写知识库只能使用 kb_ 系列工具；
+      实体文件的 frontmatter 不可修改；『流水』区只追加（kb_append_log）；
+      『状态』区由人和你共同维护（kb_write_state），其余区段可用 kb_edit_section 改写。
       用中文回答。
 
 # The PARA+P domain plugin: kb_init / kb_create_entity / kb_append_log /
-# kb_read_entity / kb_list_entities / kb_register_resource.
+# kb_read_entity / kb_list_entities / kb_register_resource / kb_write_state /
+# kb_edit_section.
 - insert:
     - id: yantao-kb
       name: '@deepseek-ai/dsh-yantao-kb'

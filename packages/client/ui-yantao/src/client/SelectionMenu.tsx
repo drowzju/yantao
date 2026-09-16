@@ -54,7 +54,7 @@ export function SelectionMenu(props: {  /** The selected text, as the user marke
   readonly capabilities: readonly KbCapabilitySummary[]
   /** Send the raw selection to the current session (「发送到会话」). */
   readonly onSend: (text: string) => void
-  /** Run one selection capability: its SKILL.md body + the selection. */
+  /** Run one selection capability: the `/name` gesture message (ADR-0026 决定 4). */
   readonly onRun: (name: string, selection: string) => void
   readonly onClose: () => void
   readonly t: WorkbenchT
@@ -107,8 +107,8 @@ export function SelectionMenu(props: {  /** The selected text, as the user marke
 /**
  * The middle-pane right-click's no-selection sibling (ADR-0025 决定 5): the
  * same opted-in capabilities, but the open file is the object — no selection
- * to quote, so no 「发送到会话」 item. The frame runs a capability as
- * SKILL.md body + `@path`, the resource right-click's serialization.
+ * to quote, so no 「发送到会话」 item. The frame runs the capability as the
+ * `/name @path` gesture message (ADR-0026 决定 4).
  * @param props - the position, the opted-in capabilities, and the two actions.
  * @returns the menu element.
  */
@@ -119,7 +119,7 @@ export function CapabilityMenu(props: {
   /** The instruction capabilities that declared `appliesTo.selection`. */
   readonly capabilities: readonly KbCapabilitySummary[]
   /** Run one capability against the open file. */
-  readonly onRun: (name: string) => void
+  readonly onRun: (capability: KbCapabilitySummary) => void
   readonly onClose: () => void
   readonly t: WorkbenchT
 }): ReactElement {
@@ -150,7 +150,7 @@ export function CapabilityMenu(props: {
           style={itemStyle}
           data-file-capability={capability.name}
           title={capability.description}
-          onClick={() => { props.onRun(capability.name); props.onClose() }}
+          onClick={() => { props.onRun(capability); props.onClose() }}
         >
           {capability.name}
         </button>

@@ -35,3 +35,5 @@ status: accepted
 - 33 个测试中验证"状态不可写"的用例需更新（`kb_append_log` 测试中验证 State section byte-for-byte 保留的用例仍成立——appendLog 仍只追加流水，不改状态；但任何显式断言"agent 不能写状态"的用例需移除或反转）。
 - `ui-yantao-kb` 的去向前置：三栏 UI 不用槽位，`ui-yantao-kb` 的 KB 树/编辑器逻辑可移植进 `ui-yantao` 或 `apps/yantao/src/`。
 - `packages/yantao/CONTEXT.md` 词汇表需更新：增加 meeting、todo、connector 条目；`状态` 定义改为"agent 可编辑"。
+
+落地注记（2026-09-16，ADR-0026）：决定 1 的"区段级限制取消"当时只落在 `kb_write_state` 一条缝上；ADR-0026 把它放开为区段级寻址编辑——`kb_edit_section`（第九个 `kb_*` 工具）可整体替换任意 `## ` 区段，`kb_write_state` 保留为状态区的语义糖。`流水` 区对一切写者 append-only 的铁律重申（拼接层拒绝改写），frontmatter 仍不可写。

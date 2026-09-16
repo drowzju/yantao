@@ -3,8 +3,8 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, registerResourceContent, writeState } from '../src/core.ts'
-import { appendToLogSection, logBullet, replaceStateSection } from '../src/splice.ts'
+import { appendLog, createEntity, editSection, initKb, listEntities, readEntity, registerResource, registerResourceContent, writeResource, writeState } from '../src/core.ts'
+import { appendToLogSection, logBullet, replaceSection, replaceStateSection } from '../src/splice.ts'
 import { sanitizeFileName, todayStamp } from '../src/paths.ts'
 import { entityFileContent, todoFileContent } from '../src/templates.ts'
 import { KbError } from '../src/types.ts'
@@ -55,6 +55,12 @@ describe('entity template', () => {
       + 'created: 2026-09-05\n'
       + '---\n'
       + '\n'
+      + '## 目标\n'
+      + '\n'
+      + '\n'
+      + '## 下一步\n'
+      + '\n'
+      + '\n'
       + '## 状态\n'
       + '\n'
       + '\n'
@@ -66,6 +72,11 @@ describe('entity template', () => {
   it('places relation before tags for a person', () => {
     const content = entityFileContent('person', '我自己', '2026-09-05', { relation: 'self' })
     expect(content).toContain('type: person\nrelation: self\ntags: []')
+  })
+
+  it('gives an area the 标准 and 检视 sections ahead of 状态', () => {
+    const content = entityFileContent('area', '健康', '2026-09-05')
+    expect(content).toContain('## 标准\n\n\n## 检视\n\n\n## 状态\n')
   })
 
   it('carries the meeting date and title, defaulting the date to the creation day', () => {
@@ -94,6 +105,58 @@ describe('entity template', () => {
     )
     expect(content).not.toContain('## 状态')
     expect(content).not.toContain('## 流水')
+  })
+})
+
+describe('custom entity templates', () => {
+  const templateDir = () => join(kbRoot, '.yantao', 'templates')
+
+  it('uses the custom body skeleton and strips the template frontmatter', async () => {
+    await mkdir(templateDir(), { recursive: true })
+    await writeFile(
+      join(templateDir(), 'project.md'),
+      '---\nnote: 模板自己的 frontmatter 会被忽略\n---\n\n## 目标\n\n北极星\n\n## 里程碑\n',
+    )
+    const { path } = await createEntity(kbRoot, 'project', 'dsh 学习')
+    const content = await read(path)
+    expect(content).toContain('## 里程碑\n')
+    expect(content).not.toContain('note:')
+    expect(content).toMatch(/^---\ntype: project\n/)
+    // 流水 is appended mechanically at the end, with the creation bullet inside.
+    expect(content.trimEnd().endsWith(`## 流水\n\n- ${TODAY} 创建 dsh 学习`)).toBe(true)
+    expect(content.indexOf('## 流水')).toBeGreaterThan(content.indexOf('## 里程碑'))
+  })
+
+  it('appends the creation bullet at the end of a template-provided 流水 section', async () => {
+    await mkdir(templateDir(), { recursive: true })
+    await writeFile(join(templateDir(), 'area.md'), '## 标准\n\n\n## 流水\n\n- 预置条目\n')
+    const { path } = await createEntity(kbRoot, 'area', '健康')
+    const content = await read(path)
+    expect(content).toContain('## 流水\n\n- 预置条目\n')
+    expect(content).toContain(`- 预置条目\n- ${TODAY} 创建 健康\n`)
+  })
+
+  it('keeps 状态 absent when the template omits it, and kb_write_state then errors', async () => {
+    await mkdir(templateDir(), { recursive: true })
+    await writeFile(join(templateDir(), 'person.md'), '## 相识\n\n如何认识、现状如何\n')
+    const { path } = await createEntity(kbRoot, 'person', '张三')
+    const content = await read(path)
+    expect(content).not.toContain('## 状态')
+    expect(content).toContain('## 流水')
+    await expect(writeState(kbRoot, 'person:张三', 'x')).rejects.toThrow(/缺少『## 状态』锚点/)
+  })
+
+  it('falls back to the built-in template when the 流水 anchor repeats, with a notice', async () => {
+    await mkdir(templateDir(), { recursive: true })
+    await writeFile(join(templateDir(), 'project.md'), '## 流水\n\n- 甲\n\n## 目标\n\n\n## 流水\n\n- 乙\n')
+    const result = await createEntity(kbRoot, 'project', 'dsh 学习')
+    expect(result.notice).toContain('已回落内置模板')
+    expect(await read('entities/projects/dsh 学习.md')).toBe(entityFileContent('project', 'dsh 学习', TODAY))
+  })
+
+  it('leaves entities without a template file on the built-in skeletons', async () => {
+    const { path } = await createEntity(kbRoot, 'project', '内置')
+    expect(await read(path)).toBe(entityFileContent('project', '内置', TODAY))
   })
 })
 
@@ -167,7 +230,9 @@ describe('replaceStateSection', () => {
 
   it('fills the empty State section and preserves every other byte', () => {
     const next = replaceStateSection(base, '进行中：等待评审', 'demo.md')
-    expect(next).toBe('---\ntype: project\nareas: []\ntags: []\ncreated: 2026-09-05\n---\n\n## 状态\n\n进行中：等待评审\n' + logTail)
+    expect(next).toBe(
+      '---\ntype: project\nareas: []\ntags: []\ncreated: 2026-09-05\n---\n\n## 目标\n\n\n## 下一步\n\n\n## 状态\n\n进行中：等待评审\n' + logTail,
+    )
   })
 
   it('replaces existing State content instead of appending to it', () => {
@@ -353,6 +418,88 @@ describe('kb_write_state', () => {
   })
 })
 
+describe('replaceSection', () => {
+  const base = entityFileContent('project', 'demo', '2026-09-05')
+
+  it('replaces an arbitrary section and preserves every other byte', () => {
+    const next = replaceSection(base, '目标', '吃透 cordis 的组装链', 'demo.md')
+    expect(next).toBe(base.replace('## 目标\n\n\n## 下一步', '## 目标\n\n吃透 cordis 的组装链\n\n## 下一步'))
+  })
+
+  it('accepts the ## heading spelling and matches metacharacters literally', () => {
+    expect(replaceSection(base, '## 目标', 'x', 'demo.md')).toBe(base.replace('## 目标\n\n\n## 下一步', '## 目标\n\nx\n\n## 下一步'))
+    const tricky = base.replace('## 目标', '## 目标 (v2)')
+    expect(replaceSection(tricky, '目标 (v2)', 'y', 'demo.md')).toBe(tricky.replace('## 目标 (v2)\n\n\n## 下一步', '## 目标 (v2)\n\ny\n\n## 下一步'))
+  })
+
+  it('refuses the 流水 section outright', () => {
+    expect(() => replaceSection(base, '流水', 'x', 'demo.md')).toThrow(/只追加、不改写/)
+  })
+
+  it('rejects an empty heading', () => {
+    expect(() => replaceSection(base, '  ', 'x', 'demo.md')).toThrow(/区段锚点为空/)
+  })
+})
+
+describe('kb_edit_section', () => {
+  it('rewrites an arbitrary section and preserves every other byte', async () => {
+    await createEntity(kbRoot, 'project', 'dsh 学习')
+    const before = await read('entities/projects/dsh 学习.md')
+    const result = await editSection(kbRoot, 'project:dsh 学习', '下一步', '接入 kb_edit_section')
+    expect(result.path).toBe('entities/projects/dsh 学习.md')
+    expect(result.section).toBe('下一步')
+    const after = await read('entities/projects/dsh 学习.md')
+    expect(after).toBe(before.replace('## 下一步\n\n\n## 状态', '## 下一步\n\n接入 kb_edit_section\n\n## 状态'))
+  })
+
+  it('accepts plural spellings, path locators and ## heading spellings', async () => {
+    await createEntity(kbRoot, 'area', '健康')
+    await editSection(kbRoot, 'areas:健康', '标准', '每周三次运动')
+    await editSection(kbRoot, 'entities/areas/健康.md', '## 检视', '周日晚检视')
+    const after = await read('entities/areas/健康.md')
+    expect(after).toContain('## 标准\n\n每周三次运动\n')
+    expect(after).toContain('## 检视\n\n周日晚检视\n')
+  })
+
+  it('refuses the 流水 section and leaves the file unchanged', async () => {
+    await createEntity(kbRoot, 'project', 'dsh 学习')
+    const before = await read('entities/projects/dsh 学习.md')
+    await expect(editSection(kbRoot, 'project:dsh 学习', '流水', 'x')).rejects.toThrow(/只追加、不改写/)
+    expect(await read('entities/projects/dsh 学习.md')).toBe(before)
+  })
+
+  it('errors on a missing anchor without modifying the file', async () => {
+    await createEntity(kbRoot, 'project', 'broken')
+    const target = join(kbRoot, 'entities/projects/broken.md')
+    const broken = (await read('entities/projects/broken.md')).replace('## 目标\n', '## 愿景\n')
+    await writeFile(target, broken)
+    await expect(editSection(kbRoot, 'project:broken', '目标', 'x')).rejects.toThrow(/缺少『## 目标』锚点/)
+    expect(await read('entities/projects/broken.md')).toBe(broken)
+  })
+
+  it('refuses the todo singleton explicitly', async () => {
+    await initKb(kbRoot)
+    await expect(editSection(kbRoot, 'todo:todos', '状态', 'x')).rejects.toThrow(/单例文件/)
+  })
+
+  it('errors on malformed frontmatter without modifying the file', async () => {
+    await createEntity(kbRoot, 'project', 'bad')
+    const target = join(kbRoot, 'entities/projects/bad.md')
+    const malformed = (await read('entities/projects/bad.md')).replace('type: project', 'type: [unclosed')
+    await writeFile(target, malformed)
+    await expect(editSection(kbRoot, 'project:bad', '目标', 'x')).rejects.toThrow(/frontmatter/)
+    expect(await read('entities/projects/bad.md')).toBe(malformed)
+  })
+
+  it('empties the section when the text is blank', async () => {
+    await createEntity(kbRoot, 'project', 'dsh 学习')
+    await editSection(kbRoot, 'project:dsh 学习', '目标', '先写一版')
+    await editSection(kbRoot, 'project:dsh 学习', '目标', '  \n\n')
+    const after = await read('entities/projects/dsh 学习.md')
+    expect(after).toContain('## 目标\n\n\n## 下一步')
+  })
+})
+
 describe('kb_append_log', () => {
   it('appends a dated bullet and leaves the State section untouched', async () => {
     await createEntity(kbRoot, 'project', 'dsh 学习')
@@ -498,5 +645,37 @@ describe('registerResourceContent', () => {
     await expect(registerResourceContent(kbRoot, 'a/b.txt', new Uint8Array([4])))
       .rejects.toThrow(/已登记过/)
     expect(existsSync(join(kbRoot, 'resources/a_b.txt'))).toBe(true)
+  })
+})
+
+describe('kb_write_resource', () => {
+  it('creates a new text file under resources/, including new subdirectories', async () => {
+    const result = await writeResource(kbRoot, 'resources/报告/2026-09/周报.md', '# 周报\n\n本周接入 kb_write_resource。')
+    expect(result.resource).toBe('resources/报告/2026-09/周报.md')
+    expect(await read('resources/报告/2026-09/周报.md')).toBe('# 周报\n\n本周接入 kb_write_resource。')
+  })
+
+  it('refuses an existing target and leaves its content untouched', async () => {
+    await writeResource(kbRoot, 'resources/笔记.md', '第一版')
+    await expect(writeResource(kbRoot, 'resources/笔记.md', '第二版')).rejects.toThrow(/不覆盖/)
+    expect(await read('resources/笔记.md')).toBe('第一版')
+  })
+
+  it('refuses targets outside the resources plane', async () => {
+    await expect(writeResource(kbRoot, 'entities/projects/x.md', 'x')).rejects.toThrow(/必须在 resources\/ 下/)
+    await expect(writeResource(kbRoot, 'notes.md', 'x')).rejects.toThrow(/必须在 resources\/ 下/)
+    await expect(writeResource(kbRoot, 'resources/', 'x')).rejects.toThrow(/资源名不能为空/)
+  })
+
+  it('refuses relative directory segments outright', async () => {
+    await expect(writeResource(kbRoot, 'resources/../secrets.md', 'x')).rejects.toThrow(/不合法/)
+    await expect(writeResource(kbRoot, 'resources/a/./b.md', 'x')).rejects.toThrow(/不合法/)
+    expect(existsSync(join(kbRoot, 'secrets.md'))).toBe(false)
+  })
+
+  it('sanitizes hostile path segments', async () => {
+    const result = await writeResource(kbRoot, 'resources/a<b>/周报?.md', 'x')
+    expect(result.resource).toBe('resources/a_b_/周报_.md')
+    expect(await read('resources/a_b_/周报_.md')).toBe('x')
   })
 })

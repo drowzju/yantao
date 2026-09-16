@@ -41,7 +41,7 @@ patch 按 id 覆盖 base 配置项并挂载一个插件，每处替换都完整�
 |---|---|---|
 | `llm-pi-ai` | `providers.model-gateway` | 注册内网模型网关路由：对网关端点使用 OpenAI completions 协议，`GLM5.1` 及其别名 `GLM`、`glm52`，以及 `deepseek` 推理有线格式 |
 | `agent-default-model` | `provider: model-gateway`、`model: GLM5.1` | 未显式选择模型而创建的 Agent——包括 headless runner 的那个——使用网关路由 |
-| `system-prompt` | 中文 persona | 以硬规则陈述工作台身份与信任边界：『状态』区是人类专属，读写知识库只能使用 kb_ 工具，`kb_append_log` 只能向『流水』区追加 |
+| `system-prompt` | 中文 persona | 以硬规则陈述工作台身份与信任边界：读写知识库只能使用 kb_ 工具，frontmatter 不可修改，`kb_append_log` 只向『流水』区追加，『状态』区由人和助手共同维护（`kb_write_state`），其余区段可用 `kb_edit_section` 改写 |
 | `yantao-kb`（插入） | `@deepseek-ai/dsh-yantao-kb` | 挂载八个 kb_ 工具——agent 写入知识库的唯一途径 |
 | `tool-bash`、`tool-pwsh`、`tool-str-replace-editor` | `disabled: true` | 移除所有通用写能力（shell 命令、编辑器）；读与搜索保留 |
 

@@ -7,7 +7,7 @@ kind: "package-group"
 
 ## 概述
 
-yantao 组承载 `yantao` profile 挂载的个人知识工作台领域：一个基于文件的 PARA+P 知识库，其实体笔记把人类专属的「状态」区与只许追加的「流水」区分开，以及一组让『流水』成为 agent 唯一写入口的工具。profile 组合本身——GLM 网关路由、默认模型、persona 与被禁用的通用写入工具——在 [`bundle/yantao`](../bundle/yantao/README.md) 包里；本组拥有领域插件及其文件格式。
+yantao 组承载 `yantao` profile 挂载的个人知识工作台领域：一个基于文件的 PARA+P 知识库，其实体笔记把由人和 agent 共同维护的「状态」区与只许追加的「流水」区分开，以及一组让『流水』成为 agent 唯一写入口的工具。profile 组合本身——GLM 网关路由、默认模型、persona 与被禁用的通用写入工具——在 [`bundle/yantao`](../bundle/yantao/README.md) 包里；本组拥有领域插件及其文件格式。
 
 ## 目录
 

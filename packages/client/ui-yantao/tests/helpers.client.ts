@@ -1,12 +1,22 @@
 /**
  * A translate face bound to the zh truth, for rendering workbench components
- * in specs without the locale runtime. Interpolation mirrors the locale
- * plugin's `{name}` template form.
+ * in specs without the locale runtime. Resolution mirrors the locale plugin's
+ * lookup chain: the workbench dictionary, then the shared common vocabulary,
+ * then the raw key; interpolation mirrors its `{name}` template form.
  */
-import { zh, type WorkbenchLocaleKey, type WorkbenchT } from '../src/client/locales.ts'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import { zh, type WorkbenchT } from '../src/client/locales.ts'
 
-export function testT(key: WorkbenchLocaleKey, params?: Record<string, unknown>): string {
-  let text = zh[key]
+function testT(key: Parameters<WorkbenchT>[0], params?: Record<string, unknown>): string {
+  const dicts: Record<string, string>[] = [zh, commonZh]
+  let text: string = key
+  for (const dict of dicts) {
+    const hit = dict[key]
+    if (hit !== undefined) {
+      text = hit
+      break
+    }
+  }
   for (const [name, value] of Object.entries(params ?? {})) {
     text = text.replaceAll(`{${name}}`, String(value))
   }

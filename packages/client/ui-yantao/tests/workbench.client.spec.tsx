@@ -375,7 +375,10 @@ describe('IntakeRail', () => {
     expect(within(group).queryByText('meeting-minutes')).toBeNull()
     expect(within(group).queryByText('agent-only')).toBeNull()
     fireEvent.click(within(group).getByText('eml-digest'))
-    expect(onRunCapability).toHaveBeenCalledWith('eml-digest', 'resources/周报.eml')
+    expect(onRunCapability).toHaveBeenCalledWith(ROW_CAPABILITIES[0], 'resources/周报.eml')
+    // Running a capability closes the menu: the gesture's effect lands in the
+    // conversation, and a lingering menu reads as "nothing happened".
+    await waitFor(() => { expect(container.querySelector('[data-row-menu]')).toBeNull() })
   })
 
   it('offers the matching capability on a meeting row\'s menu', async () => {
@@ -555,7 +558,7 @@ describe('WorkspaceRail', () => {
     expect(within(group).getByText('project-review')).toBeTruthy()
     expect(within(group).queryByText('eml-digest')).toBeNull()
     fireEvent.click(within(group).getByText('project-review'))
-    expect(onRunCapability).toHaveBeenCalledWith('project-review', 'entities/projects/dsh 学习.md')
+    expect(onRunCapability).toHaveBeenCalledWith(ROW_CAPABILITIES[2], 'entities/projects/dsh 学习.md')
   })
 })
 
@@ -1088,8 +1091,9 @@ describe('Frame', () => {
     expect(widthOf('workspace')).toBeLessThan(window.innerWidth - RAIL_MIN)
   })
 
-  it('sends an instruction capability\'s run to the current session as a prompt (ADR-0025 决定 4)', async () => {
+  it('sends an instruction capability as the `/name @path` gesture message (ADR-0026 决定 4)', async () => {
     const promptSession = vi.fn(() => Promise.resolve())
+    const capabilityRun = vi.fn(() => Promise.resolve({ name: 'eml-triage', runAt: '', artifacts: [] }))
     const { container } = render(renderFrame({
       promptSession,
       capabilityList: () => Promise.resolve({
@@ -1099,8 +1103,7 @@ describe('Frame', () => {
         }],
         unregistered: [],
       }),
-      // An instruction capability's run answers with the SKILL.md body.
-      capabilityRun: () => Promise.resolve({ name: 'eml-triage', runAt: '', content: '按以下步骤分诊邮件', artifacts: [] }),
+      capabilityRun,
     }))
     fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
     const group = await waitFor(() => {
@@ -1109,10 +1112,11 @@ describe('Frame', () => {
       return found as HTMLElement
     })
     fireEvent.click(within(group).getByText('eml-triage'))
-    // The prompt is the SKILL.md body plus the row's file as an `@` reference,
-    // serialized exactly as the composer's `@` chip would.
-    await waitFor(() => { expect(promptSession).toHaveBeenCalledWith('按以下步骤分诊邮件\n\n@resources/周报.eml') })
-    expect(await screen.findByText('能力「eml-triage」的说明已发送到当前会话。')).toBeTruthy()
+    // The gesture is a plain user message — no SKILL.md fetch, no client-side
+    // concatenation; the controller's pre-step injects the body (ADR-0025
+    // 决定 3), and the transcript itself is the notification.
+    await waitFor(() => { expect(promptSession).toHaveBeenCalledWith('/eml-triage @resources/周报.eml') })
+    expect(capabilityRun).not.toHaveBeenCalled()
   })
 
   it('reports a failed session prompt in the frame\'s notice', async () => {
@@ -1126,7 +1130,6 @@ describe('Frame', () => {
         }],
         unregistered: [],
       }),
-      capabilityRun: () => Promise.resolve({ name: 'eml-triage', runAt: '', content: '按以下步骤分诊邮件', artifacts: [] }),
     }))
     fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
     const group = await waitFor(() => {
@@ -1161,10 +1164,9 @@ describe('Frame', () => {
     expect(await screen.findByText('已发送到当前会话。')).toBeTruthy()
   })
 
-  it('runs a selection capability as body + selection fixed concatenation (ADR-0025 决定 5)', async () => {
+  it('runs a selection capability as the `/name` gesture message (ADR-0026 决定 4)', async () => {
     const promptSession = vi.fn(() => Promise.resolve())
-    const capabilityRun = vi.fn(() =>
-      Promise.resolve({ name: 'notes-helper', runAt: '', content: '按以下步骤整理笔记', artifacts: [] }))
+    const capabilityRun = vi.fn(() => Promise.resolve({ name: 'notes-helper', runAt: '', artifacts: [] }))
     const { container } = render(renderFrame({
       promptSession,
       capabilityRun,
@@ -1191,8 +1193,10 @@ describe('Frame', () => {
       spy.mockRestore()
     }
     fireEvent.click(await screen.findByText('notes-helper'))
-    expect(capabilityRun).toHaveBeenCalledWith({ name: 'notes-helper', input: { selection: '选中的文字' } })
-    await waitFor(() => { expect(promptSession).toHaveBeenCalledWith('按以下步骤整理笔记\n\n选中的文字') })
+    // The gesture message carries the selection inline; the SKILL.md body is
+    // the pre-step's job, not the client's.
+    await waitFor(() => { expect(promptSession).toHaveBeenCalledWith('/notes-helper 选中的文字') })
+    expect(capabilityRun).not.toHaveBeenCalled()
   })
 
   it('leaves the selection menu out of a non-opting capability and foreign textareas', async () => {

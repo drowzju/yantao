@@ -20,7 +20,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, writeState } from './core.ts'
+import { appendLog, createEntity, editSection, initKb, listEntities, readEntity, registerResource, writeResource, writeState } from './core.ts'
 import { kbMentions, renderKbMentions } from './mentions.ts'
 import { importLegacyRootState } from './root-store.ts'
 import { registerPromptSections } from './sections.ts'
@@ -247,12 +247,13 @@ export function apply(ctx: Context, config: Config): void {
           kbRoot: { type: 'string', required: true },
           created: { type: 'array', items: { type: 'string' }, required: true },
           existing: { type: 'array', items: { type: 'string' }, required: true },
+          notice: { type: 'string' },
         },
       },
       render: (_args, value) => [{
         type: 'text',
         text: `知识库已就绪：${value.kbRoot}\n新建 ${value.created.length} 项（${value.created.join('、') || '无'}）；`
-          + `已存在 ${value.existing.length} 项`,
+          + `已存在 ${value.existing.length} 项${value.notice !== undefined ? `\n${value.notice}` : ''}`,
       }],
     },
     execute: () => initKb(liveRoot.root),
@@ -263,6 +264,8 @@ export function apply(ctx: Context, config: Config): void {
     description:
       '创建一个实体笔记文件（type + name）。实体名会转换为安全文件名；同名实体已存在时拒绝——'
       + '之后的一切补充都通过 kb_append_log 追加或 kb_write_state 改写状态。'
+      + '正文骨架来自 .yantao/templates/<type>.md（无此文件时用内置模板）；「流水」区由机制保证必然存在，'
+      + '「状态」区以模板为准（模板没写该区段时 kb_write_state 不可用）。'
       + 'relation 与 email 仅对 person 有意义，relation 默认 subordinate；date 仅对 meeting 有意义，是该会议的日期，默认今天。'
       + 'todo 是单例，不能用此工具创建。',
     parameters: {
@@ -288,9 +291,13 @@ export function apply(ctx: Context, config: Config): void {
         additionalProperties: false,
         properties: {
           path: { type: 'string', required: true },
+          notice: { type: 'string' },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `已创建实体：${value.path}` }],
+      render: (_args, value) => [{
+        type: 'text',
+        text: `已创建实体：${value.path}${value.notice !== undefined ? `\n${value.notice}` : ''}`,
+      }],
     },
     execute: args => createEntity(liveRoot.root, args.type, args.name, {
       ...args.relation !== undefined ? { relation: args.relation } : {},
@@ -347,6 +354,37 @@ export function apply(ctx: Context, config: Config): void {
       render: (_args, value) => [{ type: 'text', text: `已更新 ${value.path} 的『状态』区：\n${value.state}` }],
     },
     execute: args => writeState(liveRoot.root, args.entity, args.text),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'kb_edit_section',
+    description:
+      '整体改写实体文件正文的任意『## 区段』（如 目标、下一步、标准、检视）：用 text 替换该区段的全部内容，'
+      + '可写入多行 markdown，区段其余部分与 frontmatter 原样保留。'
+      + '『流水』区只追加、拒绝改写——追加日志请用 kb_append_log；改写『状态』区用 kb_write_state 亦可。'
+      + '区段锚点缺失或重复会报错而不是重建；todo 单例没有区段，不能用此工具。'
+      + 'entity 形如 "project:dsh 学习"（也接受各类复数拼写或实体文件路径）。',
+    parameters: {
+      entity: { type: 'string', required: true, description: '实体定位："type:name"（如 "project:dsh 学习"）或实体文件路径' },
+      section: { type: 'string', required: true, description: '区段锚点名，如 "目标" 或 "## 目标"' },
+      text: { type: 'string', required: true, description: '新的区段正文（markdown）；留空表示清空该区段' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          path: { type: 'string', required: true },
+          section: { type: 'string', required: true },
+          state: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `已更新 ${value.path} 的『${value.section}』区：\n${value.state}`,
+      }],
+    },
+    execute: args => editSection(liveRoot.root, args.entity, args.section, args.text),
   }))
 
   ctx.tools.register(defineTool({
@@ -432,12 +470,36 @@ export function apply(ctx: Context, config: Config): void {
     },
     execute: args => registerResource(liveRoot.root, args.path),
   }))
+
+  ctx.tools.register(defineTool({
+    name: 'kb_write_resource',
+    description:
+      '在 resources/ 下新建一个文本文件（可含尚不存在的子目录）：把 content 写入 path 指向的新文件。'
+      + 'path 是知识库内路径，必须以 resources/ 开头（如 resources/报告/2026-09/周报.md）。'
+      + '目标已存在时拒绝：resources/ 下的原始材料不覆盖、也不静默改名，请换一个名字。'
+      + '本工具只做新建、不做编辑——修改已有资源请由人完成。',
+    parameters: {
+      path: { type: 'string', required: true, description: '知识库内目标路径，以 resources/ 开头（如 resources/报告/周报.md）' },
+      content: { type: 'string', required: true, description: '文件的文本内容（UTF-8）' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          resource: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `已新建资源：${value.resource}` }],
+    },
+    execute: args => writeResource(liveRoot.root, args.path, args.content),
+  }))
 }
 
 // Host-side consumers (the yantao-kb-controller Remote) reuse the filesystem
 // operations and path confinement through these public re-exports; the
 // plugin above remains the model-facing shell over the same operations.
-export { appendLog, createEntity, initKb, listEntities, readEntity, registerResource, registerResourceContent, writeState } from './core.ts'
+export { appendLog, createEntity, editSection, initKb, listEntities, readEntity, registerResource, registerResourceContent, writeResource, writeState } from './core.ts'
 export type { InitKbResult, ListedEntity } from './core.ts'
 export { entityDisplayPath, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
 export {
@@ -445,7 +507,7 @@ export {
   writeCapabilityState, writeMailWatermark,
 } from './root-store.ts'
 export type { CapabilityRecord } from './root-store.ts'
-export { appendToLogSection, logBullet, replaceStateSection } from './splice.ts'
+export { appendToLogSection, logBullet, replaceSection, replaceStateSection } from './splice.ts'
 export { linksOf, resolveWikiLink, wikilinks } from './links.ts'
 export type { KbLinkSource, KbLinkTarget, KbLinks, WikiLink } from './links.ts'
 export { parseFrontmatter } from './frontmatter.ts'

@@ -3,19 +3,19 @@
  * kbRoot explicitly and is transport-free, so tests drive them directly.
  * Writes are confined to kbRoot and follow the trust boundary: entity files
  * are created from the canonical template once, and afterwards the agent may
- * only rewrite the `## 状态` section and append to the `## 流水` section —
- * every other byte of a file is read-only for the tool layer.
+ * rewrite any `## ` section except `## 流水` (append-only) and never the
+ * frontmatter; resources/ accepts creation only, never overwrite.
  * @module @deepseek-ai/dsh-yantao-kb/core
  */
 
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { parseFrontmatter } from './frontmatter.ts'
 import { entityFilePath, resolveEntityLocator, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
-import { appendToLogSection, logBullet, replaceStateSection } from './splice.ts'
+import { appendToLogSection, logBullet, replaceSection, replaceStateSection } from './splice.ts'
 import type { EntityTemplateOptions } from './templates.ts'
-import { entityFileContent, KB_README, todoFileContent } from './templates.ts'
+import { assembleEntityFile, builtinEntityBody, entityFrontmatter, KB_README, templateBodyOf, todoFileContent } from './templates.ts'
 import type { EntityType } from './types.ts'
 import { ENTITY_DIRS, ENTITY_TYPES, KbError, SINGLETON_FILES } from './types.ts'
 
@@ -43,6 +43,8 @@ export interface InitKbResult {
   kbRoot: string
   created: string[]
   existing: string[]
+  /** Present when the owner entity fell back from a broken custom template to the built-in one. */
+  notice?: string
 }
 
 /**
@@ -57,6 +59,7 @@ export async function initKb(kbRoot: string): Promise<InitKbResult> {
   const root = resolveWithinKb(kbRoot)
   const created: string[] = []
   const existing: string[] = []
+  let notice: string | undefined
   const directories = [
     '',
     'resources',
@@ -100,8 +103,10 @@ export async function initKb(kbRoot: string): Promise<InitKbResult> {
     existing.push('entities/people/我自己.md')
   } else {
     const selfPath = join(peopleDir, '我自己.md')
-    await writeFile(selfPath, entityFileContent('person', '我自己', todayStamp(), { relation: 'self' }), 'utf8')
+    const built = buildEntityFile(root, 'person', '我自己', todayStamp(), { relation: 'self' })
+    await writeFile(selfPath, built.content, 'utf8')
     created.push('entities/people/我自己.md')
+    notice = built.notice
   }
   const todoPath = join(root, 'entities', 'todos.md')
   if (existsSync(todoPath)) {
@@ -110,7 +115,54 @@ export async function initKb(kbRoot: string): Promise<InitKbResult> {
     await writeFile(todoPath, todoFileContent(todayStamp()), 'utf8')
     created.push('entities/todos.md')
   }
-  return { kbRoot: root, created, existing }
+  return { kbRoot: root, created, existing, ...(notice !== undefined ? { notice } : {}) }
+}
+
+/**
+ * Assemble one entity file's content: code-generated frontmatter, the body
+ * skeleton from the user's template file when one exists (the built-in
+ * skeleton otherwise), and the mechanically guaranteed `## 流水` section
+ * (ADR-0026 决定 1). 状态 is the template's call — whatever sections its body
+ * carries are what the entity gets; 流水 is the mechanism's — a body without
+ * one gets the section appended at the end. A template whose `## 流水` anchor
+ * repeats cannot be located uniquely by the splicer, so the built-in skeleton
+ * replaces it and the notice says so.
+ * @param root - the resolved knowledge-base root.
+ * @param type - the entity kind (never a singleton — callers refuse those first).
+ * @param name - the entity display name.
+ * @param date - the creation date stamp.
+ * @param options - kind-specific frontmatter knobs.
+ * @returns the file content plus a user-facing notice when the template fell back.
+ */
+function buildEntityFile(
+  root: string,
+  type: EntityType,
+  name: string,
+  date: string,
+  options: EntityTemplateOptions = {},
+): { content: string; notice: string | undefined } {
+  const frontmatter = entityFrontmatter(type, name, date, options)
+  const templatePath = join(root, '.yantao', 'templates', `${type}.md`)
+  let body = builtinEntityBody(type)
+  let notice: string | undefined
+  if (existsSync(templatePath)) {
+    let text: string
+    try {
+      text = readFileSync(templatePath, 'utf8')
+    } catch (error) {
+      text = ''
+      notice = `自定义模板 .yantao/templates/${type}.md 无法读取（${(error as Error).message}），已回落内置模板`
+    }
+    if (notice === undefined) {
+      const parsed = templateBodyOf(text)
+      if (parsed.kind === 'duplicate-log') {
+        notice = `自定义模板 .yantao/templates/${type}.md 含多个『## 流水』区段，锚点无法唯一定位，已回落内置模板`
+      } else {
+        body = parsed.body
+      }
+    }
+  }
+  return { content: assembleEntityFile(frontmatter, body, date, name), notice }
 }
 
 /** Create one entity file from the canonical template, refusing to overwrite.
@@ -120,14 +172,14 @@ export async function initKb(kbRoot: string): Promise<InitKbResult> {
  *   file name is prefixed with its own date, `<YYYY-MM-DD> <name>`, while the frontmatter keeps
  *   `title: <name>`.
  * @param options - person relation and meeting date, as the template defines them.
- * @returns the KB-relative path of the created file.
+ * @returns the KB-relative path of the created file, plus a notice when the custom template fell back.
  */
 export async function createEntity(
   kbRoot: string,
   type: EntityType,
   name: string,
   options: EntityTemplateOptions = {},
-): Promise<{ path: string }> {
+): Promise<{ path: string; notice?: string }> {
   const root = resolveWithinKb(kbRoot)
   const singleton = SINGLETON_FILES[type]
   if (singleton !== undefined) {
@@ -144,9 +196,10 @@ export async function createEntity(
   if (existsSync(target)) {
     throw new KbError('entity-exists', `实体「${name}」已存在（${display}）；如需补充请使用 kb_append_log`)
   }
+  const built = buildEntityFile(root, type, name, todayStamp(), options)
   await mkdir(dirname(target), { recursive: true })
-  await writeFile(target, entityFileContent(type, name, todayStamp(), options), 'utf8')
-  return { path: display }
+  await writeFile(target, built.content, 'utf8')
+  return built.notice === undefined ? { path: display } : { path: display, notice: built.notice }
 }
 
 /**
@@ -190,6 +243,38 @@ export async function writeState(kbRoot: string, locator: string, text: string):
   const next = replaceStateSection(content, text, display)
   await writeFile(target, next, 'utf8')
   return { path: display, state: text }
+}
+
+/**
+ * Replace the whole body of any `## ` section in an entity file — the
+ * agent's section-addressed edit surface (ADR-0026 决定 2, generalizing the
+ * ADR-0010 state-section seam). The `## 流水` section is refused at this tool
+ * layer: history is append-only for every writer, and `kb_append_log` is its
+ * only door. The frontmatter is never touched; a missing or duplicated anchor
+ * is an error, never a rebuild; the todo singleton has no sections at all.
+ * @param kbRoot - the knowledge-base root the entity lives under.
+ * @param locator - entity locator: `type:name` (plural spellings accepted) or an entity file path.
+ * @param section - the section anchor, `目标` or `## 目标` form.
+ * @param text - the new section body; newlines become plain markdown lines, empty text empties the section.
+ * @returns the KB-relative path, the section anchor as given, and the text written.
+ */
+export async function editSection(kbRoot: string, locator: string, section: string, text: string): Promise<{
+  path: string
+  section: string
+  state: string
+}> {
+  const root = resolveWithinKb(kbRoot)
+  const target = resolveEntityLocator(root, locator)
+  const { content, display } = await readEntityFile(root, target)
+  for (const singleton of Object.values(SINGLETON_FILES)) {
+    if (display === `entities/${singleton}`) {
+      throw new KbError('singleton-entity', `「${display}」是单例文件，没有区段结构，不能用区段工具编辑`)
+    }
+  }
+  parseFrontmatter(content, display)
+  const next = replaceSection(content, section, text, display)
+  await writeFile(target, next, 'utf8')
+  return { path: display, section: section.trim(), state: text }
 }
 
 /**
@@ -344,4 +429,44 @@ async function writeResourceFile(root: string, base: string, content: Uint8Array
   await mkdir(dirname(resourceTarget), { recursive: true })
   await writeFile(resourceTarget, content)
   return displayPath(root, resourceTarget)
+}
+
+/**
+ * Create one new text file under `resources/` — the agent's door into the
+ * resource plane (ADR-0026 决定 3). The path is KB-relative and must land
+ * under `resources/`, possibly inside not-yet-existing subdirectories; every
+ * segment is sanitized and `.`/`..` are refused outright. An existing target
+ * is refused — never overwritten, never silently renamed — the same collision
+ * semantics as {@link registerResource}. Only creation is offered: editing a
+ * resource stays a human act, preserving resources/' 原始材料 semantics. The
+ * workbench tree learns of the new file through the ADR-0017 revision watch,
+ * so no extra notification channel exists or is needed.
+ * @param kbRoot - the knowledge-base root to write into.
+ * @param path - KB-relative target path, e.g. `resources/reports/周报.md`.
+ * @param content - the file's text, written as UTF-8.
+ * @returns the KB-relative path of the created resource.
+ */
+export async function writeResource(kbRoot: string, path: string, content: string): Promise<{ resource: string }> {
+  const root = resolveWithinKb(kbRoot)
+  const segments = path.split(/[\\/]/).filter(segment => segment !== '')
+  if (segments[0] !== 'resources') {
+    throw new KbError('resource-outside-plane', `目标必须在 resources/ 下（形如 resources/报告/周报.md），收到的是「${path}」`)
+  }
+  const rest = segments.slice(1)
+  if (rest.length === 0) {
+    throw new KbError('resource-invalid-name', '资源名不能为空；请给出形如 resources/周报.md 的目标路径')
+  }
+  for (const segment of rest) {
+    if (segment === '.' || segment === '..') {
+      throw new KbError('resource-invalid-name', `资源路径段「${segment}」不合法；不允许相对目录段`)
+    }
+  }
+  const resourceTarget = resolveWithinKb(root, 'resources', ...rest.map(segment => sanitizeFileName(segment)))
+  if (existsSync(resourceTarget)) {
+    const display = displayPath(root, resourceTarget)
+    throw new KbError('resource-exists', `资源「${display}」已存在；resources/ 下的原始材料不覆盖，请换一个名字`)
+  }
+  await mkdir(dirname(resourceTarget), { recursive: true })
+  await writeFile(resourceTarget, content, 'utf8')
+  return { resource: displayPath(root, resourceTarget) }
 }

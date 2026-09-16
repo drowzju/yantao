@@ -312,10 +312,13 @@
 - id: tool-web
   disabled: true
 
-# The preset roster names the yantao workbench preset as the default: the
-# Chinese persona and NO tool rows, so a session's agent sees exactly the
-# host-plane kb_ tools (the ADR-0004 boundary on this surface). The shipped
-# presets stay selectable — switching presets is the human's informed act.
+# The preset roster names the yantao workbench preset as the default: an
+# empty composition — NO tool rows, no persona row — so a session's agent
+# sees exactly the host-plane kb_ tools (the ADR-0004 boundary on this
+# surface) and speaks the deployment persona from the yantao profile bundle
+# (the single source; gate: packages/bundle/yantao/tests/persona.spec.ts).
+# The shipped presets stay selectable — switching presets is the human's
+# informed act.
 - insert:
     - id: agent-presets
       name: '@deepseek-ai/dsh-agent-presets'
