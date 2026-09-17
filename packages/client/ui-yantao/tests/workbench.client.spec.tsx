@@ -553,6 +553,24 @@ describe('WorkspaceRail', () => {
     expect(load).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps the human\'s tab through a tree reload — a relation write must not yank it back', async () => {
+    // A 领域 file is the one the centre pane shows; the human has since moved
+    // to 人物 and changes a relation there. The write reloads the tree, the
+    // reveal effect re-runs with the same selection — and must leave 人物 up.
+    const load = vi.fn(loader(workspace))
+    const { rerender } = render(
+      <WorkspaceRail {...railProps({ load, selection: 'entities/areas/健康.md' })} />,
+    )
+    await screen.findByText('健康')
+    fireEvent.click(screen.getByText('人物'))
+    expect(await screen.findByText('张三')).toBeTruthy()
+    await act(async () => {
+      rerender(<WorkspaceRail {...railProps({ load, selection: 'entities/areas/健康.md', refreshKey: 1 })} />)
+    })
+    expect(screen.getByText('张三')).toBeTruthy()
+    expect(screen.queryByText('健康')).toBeNull()
+  })
+
   it('offers no relation on 我自己 — 自己 is what makes a file the KB\'s owner', async () => {
     const setRelation = vi.fn(() => Promise.resolve())
     render(<WorkspaceRail {...railProps({ load: loader(workspace), setRelation })} />)

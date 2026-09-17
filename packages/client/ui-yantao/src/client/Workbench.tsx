@@ -749,10 +749,17 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const rowMenu = useRowMenu({ deleteFile, setRelation, refresh, onCloseFile, onError: setActionError })
   // Reveal a selection this rail owns: the tab carrying the file comes to the
   // front, so the highlighted row is a visible one. A selection owned by the
-  // other rail leaves the human's own tab choice alone.
+  // other rail leaves the human's own tab choice alone. Only a *new*
+  // selection reveals: the effect re-runs after every tree reload too (a
+  // relation write, a revision poll), and re-revealing then would yank the
+  // tab back from the one the human has since chosen.
+  const revealedFor = useRef<string | null>(null)
   useEffect(() => {
+    if (revealedFor.current === selection) return
     const owner = sectionOf(sections, selection)
-    if (owner !== undefined) setTab(owner)
+    if (owner === undefined) return
+    revealedFor.current = selection
+    setTab(owner)
   }, [sections, selection])
 
   if (collapsed) {
@@ -932,10 +939,15 @@ export function WorkspaceRail(props: RailProps): ReactElement {
   const [relation, setRelation] = useState<KbPersonRelation>(DEFAULT_RELATION)
   const rowMenu = useRowMenu({ deleteFile, setRelation: writeRelation, refresh, onCloseFile, onError: setActionError })
   // Same reveal as the intake rail: a selection this rail owns pulls its tab
-  // forward, one it does not own is left to the other rail.
+  // forward, one it does not own is left to the other rail — and only a *new*
+  // selection reveals, so a tree reload cannot yank the tab back.
+  const revealedFor = useRef<string | null>(null)
   useEffect(() => {
+    if (revealedFor.current === selection) return
     const owner = sectionOf(sections, selection)
-    if (owner !== undefined) setTab(owner)
+    if (owner === undefined) return
+    revealedFor.current = selection
+    setTab(owner)
   }, [sections, selection])
 
   if (collapsed) {
