@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { KbFileContent } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { SessionRemote } from '../src/client/remote.ts'
 import {
-  parseRefineVerdict, refinePrompt, runRefine, templateBodyOf, verdictToProposal,
+  RESOURCE_DRAG_TYPE, dropPayloadOf, parseRefineVerdict, refinePrompt, runRefine, templateBodyOf, verdictToProposal,
 } from '../src/client/refine.ts'
 
 const SESSION = 'session-1'
@@ -329,5 +329,33 @@ describe('runRefine', () => {
       entityName: '飞书迁移',
       entityType: 'project',
     })).rejects.toThrow('没有可用的 agent')
+  })
+})
+
+describe('dropPayloadOf', () => {
+  /** A dataTransfer answering `getData` from `types` and carrying `files`. */
+  function transfer(types: Record<string, string>, files: readonly File[] = []): DataTransfer {
+    return {
+      getData: (type: string) => types[type] ?? '',
+      files,
+    } as unknown as DataTransfer
+  }
+  const file = (name: string): File => ({ name }) as File
+
+  it('reads a library drag as the resource its row handed over', () => {
+    expect(dropPayloadOf(transfer({ [RESOURCE_DRAG_TYPE]: 'resources/纪要.md' }))).toEqual({
+      kind: 'resource',
+      path: 'resources/纪要.md',
+    })
+  })
+
+  it('reads an OS drag as its files', () => {
+    const payload = dropPayloadOf(transfer({}, [file('说明.pdf')]))
+    expect(payload).toEqual({ kind: 'files', files: [file('说明.pdf')] })
+  })
+
+  it('reads nothing for a drop the pipeline does not accept', () => {
+    expect(dropPayloadOf(transfer({ 'text/plain': '随便什么' }))).toBeNull()
+    expect(dropPayloadOf(transfer({}, []))).toBeNull()
   })
 })

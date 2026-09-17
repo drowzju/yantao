@@ -40,6 +40,7 @@ import type {
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
+import { runRefine, type RefineGesture } from './refine.ts'
 import { promptCurrentSession } from './session-prompt.ts'
 import { Frame } from './frame/Frame.tsx'
 import { ThemePresenter } from './frame/theme-presenter.ts'
@@ -175,6 +176,12 @@ export function apply(ctx: Context): void {
           ...cwd !== undefined ? { cwd } : {},
           ...onProgress !== undefined ? { onProgress } : {},
         })
+      },
+      // ADR-0029: the refine loop — both gestures run their dedicated session
+      // rooted at the KB root, exactly the mail analysis's cwd discipline.
+      refine: async (gesture: RefineGesture) => {
+        const cwd = await kbCwd()
+        return runRefine({ ctx, ...gesture, ...cwd !== undefined ? { cwd } : {} })
       },
       // ADR-0020: the resource intake.
       registerResource: (name: string, contentBase64: string) => registerResource(ctx, name, contentBase64),

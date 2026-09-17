@@ -20,6 +20,7 @@ import type {
   SessionPrompter, TodoLoader, TodoWriter,
 } from '../remote.ts'
 import type { MailAnalyser } from '../mail-analysis.ts'
+import type { RefineGesture, RefineRunner } from '../refine.ts'
 import type { Proposal } from '../proposal.ts'
 import { applyProposal, type ProposalApplyResult } from '../proposal-apply.ts'
 import { proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
@@ -84,6 +85,8 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly mailMarkRead: MailMarker
   /** Run one mail analysis in a dsh session (ADR-0019). */
   readonly analyseMail: MailAnalyser
+  /** Run one refine analysis in a dsh session — both ADR-0029 gestures. */
+  readonly refine: RefineRunner
   /** Copy one dropped file into `resources/` (ADR-0020). */
   readonly registerResource: ResourceRegistrar
   /** List the registered capabilities (ADR-0021). */
@@ -232,7 +235,7 @@ function DragHandle(props: {
  */
 export function Frame({
   t, renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
-  pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail,
+  pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine,
   registerResource, capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
   promptSession, onKbRootChanged,
 }: FrameProps): ReactElement {
@@ -390,6 +393,18 @@ export function Frame({
     [createEntity, read, write, todos, writeTodos],
   )
 
+  // The one confirm path every proposal card shares (capability runs'
+  // ADR-0021 决定 4, refine's ADR-0029 决定 3): apply, reload the trees, and
+  // report the writes — or the failure — in the foot notice.
+  const confirmProposal = useCallback((proposal: Proposal, ticked: readonly number[]): void => {
+    void applyConfirmed({ proposal, ticked }).then((result) => {
+      setTreeKey(key => key + 1)
+      setCapabilityNotice([...result.written, ...result.skipped].join('；') || '没有写入任何内容。')
+    }, (failure: unknown) => {
+      setCapabilityNotice(`写入失败：${remoteMessage(failure)}`)
+    })
+  }, [applyConfirmed])
+
   // ADR-0021 决定 7 + ADR-0026 决定 4: a row menu's capability run. A
   // script capability still runs through `capabilityRun` — a run that
   // answers with a proposal (`{ actions: [...] }`) opens the shared card,
@@ -417,6 +432,33 @@ export function Frame({
       setCapabilityNotice(`能力「${capability.name}」失败：${remoteMessage(failure)}`)
     })
   }, [capabilityRun, promptSession])
+
+  // ADR-0029: the refine gestures — 归入 (a resource dropped on an entity
+  // row) and 提炼 (the row menu's item) — both land here. The frame gathers
+  // the sibling entity names for `[[双链]]` suggestions from the workspace
+  // tree and hands the gesture to the inject face, which roots the dedicated
+  // session at the KB root. An irrelevant intake verdict is a toast with the
+  // reason — no card, no log, no trace (决定 2); anything else opens the same
+  // proposal card the capability runs use.
+  const [refineProposal, setRefineProposal] = useState<Proposal | null>(null)
+  const runRefineGesture = useCallback((gesture: RefineGesture): void => {
+    setCapabilityNotice(`提炼「${gesture.entityName}」中…`)
+    void (async () => {
+      const tree = await workspace()
+      const siblings = [...new Set(tree.flatMap(section => section.files.map(file => file.name)))]
+      return refine({ ...gesture, siblings })
+    })().then((run) => {
+      if (!run.relevant) {
+        const what = gesture.resource?.name ?? gesture.entityName
+        setCapabilityNotice(`「${what}」与「${gesture.entityName}」无关：${run.reason}`)
+        return
+      }
+      setCapabilityNotice(null)
+      if (run.proposal !== undefined) setRefineProposal(run.proposal)
+    }, (failure: unknown) => {
+      setCapabilityNotice(`提炼失败：${remoteMessage(failure)}`)
+    })
+  }, [refine, workspace])
 
   // ADR-0017: editing belongs to Obsidian, so this only hands the file over.
   // Without a root we still open the KB-relative path and let the host resolve
@@ -654,6 +696,7 @@ export function Frame({
           capabilityAdopt={capabilityAdopt}
           capabilityRegister={capabilityRegister}
           onRunCapability={runRowCapability}
+          onRefine={runRefineGesture}
           t={t}
         />
       </div>
@@ -734,8 +777,10 @@ export function Frame({
           mailFetch={mailFetch}
           mailMarkRead={mailMarkRead}
           analyseMail={analyseMail}
+          registerResource={registerResource}
           capabilityList={capabilityList}
           onRunCapability={runRowCapability}
+          onRefine={runRefineGesture}
           t={t}
         />
       </div>
@@ -749,14 +794,21 @@ export function Frame({
           onConfirm={(ticked) => {
             const proposal = capabilityProposal
             setCapabilityProposal(null)
-            void applyConfirmed({ proposal, ticked }).then((result) => {
-              setTreeKey(key => key + 1)
-              setCapabilityNotice([...result.written, ...result.skipped].join('；') || '没有写入任何内容。')
-            }, (failure: unknown) => {
-              setCapabilityNotice(`写入失败：${remoteMessage(failure)}`)
-            })
+            confirmProposal(proposal, ticked)
           }}
           onDismiss={() => { setCapabilityProposal(null) }}
+          t={t}
+        />
+      )}
+      {refineProposal !== null && (
+        <ProposalCard
+          proposal={refineProposal}
+          onConfirm={(ticked) => {
+            const proposal = refineProposal
+            setRefineProposal(null)
+            confirmProposal(proposal, ticked)
+          }}
+          onDismiss={() => { setRefineProposal(null) }}
           t={t}
         />
       )}

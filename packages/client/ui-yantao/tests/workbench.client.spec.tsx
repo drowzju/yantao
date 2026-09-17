@@ -14,8 +14,11 @@ import type {
   FileWriter, LinksLoader, RelationSetter, RevisionLoader, RootLoader, RootSetter, SessionPrompter, TodoLoader,
   TodoWriter,
 } from '../src/client/remote.ts'
+import type { RefineRunner } from '../src/client/refine.ts'
 import type { KbCapabilitySummary, KbUnregisteredSkill } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { CapabilityPanel } from '../src/client/CapabilityPanel.tsx'
+import { RESOURCE_DRAG_TYPE } from '../src/client/refine.ts'
+import type { Proposal } from '../src/client/proposal.ts'
 import { t } from './helpers.client.ts'
 import { TAB_STORAGE_KEY } from '../src/client/tabs.ts'
 
@@ -102,6 +105,7 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     capabilityAdopt: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     capabilityRegister: () => Promise.resolve({ path: '.dsh/skills/yantao.json' }),
     onRunCapability: () => {},
+    onRefine: () => {},
     ...overrides,
   }
 }
@@ -395,6 +399,91 @@ describe('IntakeRail', () => {
     expect(within(group).getByText('meeting-minutes')).toBeTruthy()
     expect(within(group).queryByText('eml-digest')).toBeNull()
   })
+
+  it('offers 提炼 on a meeting row\'s menu and starts the refine gesture (ADR-0029 决定 2)', async () => {
+    const onRefine = vi.fn()
+    render(<IntakeRail {...railProps({ onRefine })} />)
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('提炼'))
+    expect(onRefine).toHaveBeenCalledWith({
+      mode: 'refine',
+      entityPath: 'entities/meetings/周会.md',
+      entityName: '周会',
+      entityType: 'meeting',
+    })
+  })
+
+  it('offers no 提炼 on a resource row\'s menu', async () => {
+    render(<IntakeRail {...railProps()} />)
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    expect(await screen.findByText('删除「周报.eml」')).toBeTruthy()
+    expect(screen.queryByText('提炼')).toBeNull()
+  })
+
+  it('hands a resource row\'s KB path to the drag payload (ADR-0029 决定 2)', async () => {
+    const setData = vi.fn()
+    render(<IntakeRail {...railProps()} />)
+    const row = await screen.findByText('周报.eml')
+    fireEvent.dragStart(row, { dataTransfer: { setData } })
+    expect(setData).toHaveBeenCalledWith(RESOURCE_DRAG_TYPE, 'resources/周报.eml')
+  })
+
+  it('starts the 归入 gesture when a library resource drops on a meeting row', async () => {
+    const onRefine = vi.fn()
+    render(<IntakeRail {...railProps({ onRefine })} />)
+    fireEvent.click(screen.getByText('会议'))
+    const row = await screen.findByText('周会')
+    await act(async () => {
+      fireEvent.drop(row, {
+        dataTransfer: { getData: (type: string) => (type === RESOURCE_DRAG_TYPE ? 'resources/周报.eml' : ''), files: [] },
+      })
+    })
+    expect(onRefine).toHaveBeenCalledWith({
+      mode: 'intake',
+      entityPath: 'entities/meetings/周会.md',
+      entityName: '周会',
+      entityType: 'meeting',
+      resource: { path: 'resources/周报.eml', name: '周报.eml' },
+    })
+  })
+
+  it('registers an OS file dropped on a meeting row, then starts the 归入 gesture', async () => {
+    const registerResource = vi.fn(() => Promise.resolve('resources/纪要.pdf'))
+    const onRefine = vi.fn()
+    render(<IntakeRail {...railProps({ registerResource, onRefine })} />)
+    fireEvent.click(screen.getByText('会议'))
+    const row = await screen.findByText('周会')
+    await act(async () => {
+      fireEvent.drop(row, {
+        dataTransfer: { getData: () => '', files: [new File(['内容'], '纪要.pdf')] },
+      })
+    })
+    await waitFor(() => { expect(registerResource).toHaveBeenCalledOnce() })
+    expect(onRefine).toHaveBeenCalledWith({
+      mode: 'intake',
+      entityPath: 'entities/meetings/周会.md',
+      entityName: '周会',
+      entityType: 'meeting',
+      resource: { path: 'resources/纪要.pdf', name: '纪要.pdf' },
+    })
+  })
+
+  it('rejects a multi-file drop on an entity row with a message (ADR-0029 台账 #4)', async () => {
+    const registerResource = vi.fn()
+    const onRefine = vi.fn()
+    render(<IntakeRail {...railProps({ registerResource, onRefine })} />)
+    fireEvent.click(screen.getByText('会议'))
+    const row = await screen.findByText('周会')
+    await act(async () => {
+      fireEvent.drop(row, {
+        dataTransfer: { getData: () => '', files: [new File(['a'], 'a.pdf'), new File(['b'], 'b.pdf')] },
+      })
+    })
+    expect(await screen.findByText('一次只归入一个文件。')).toBeTruthy()
+    expect(registerResource).not.toHaveBeenCalled()
+    expect(onRefine).not.toHaveBeenCalled()
+  })
 })
 
 describe('ResourceTree', () => {
@@ -637,6 +726,63 @@ describe('WorkspaceRail', () => {
     fireEvent.click(within(group).getByText('project-review'))
     expect(onRunCapability).toHaveBeenCalledWith(ROW_CAPABILITIES[2], 'entities/projects/dsh 学习.md')
   })
+
+  it('offers 提炼 on a project row\'s menu and starts the refine gesture (ADR-0029 决定 2)', async () => {
+    const onRefine = vi.fn()
+    render(<WorkspaceRail {...railProps({ load: loader(workspace), onRefine })} />)
+    fireEvent.click(await screen.findByText('项目'))
+    fireEvent.contextMenu(await screen.findByText('dsh 学习'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('提炼'))
+    expect(onRefine).toHaveBeenCalledWith({
+      mode: 'refine',
+      entityPath: 'entities/projects/dsh 学习.md',
+      entityName: 'dsh 学习',
+      entityType: 'project',
+    })
+  })
+
+  it('starts the 归入 gesture when a library resource drops on a project row', async () => {
+    const onRefine = vi.fn()
+    const registerResource = vi.fn()
+    render(<WorkspaceRail {...railProps({ load: loader(workspace), onRefine, registerResource })} />)
+    fireEvent.click(await screen.findByText('项目'))
+    const row = await screen.findByText('dsh 学习')
+    await act(async () => {
+      fireEvent.drop(row, {
+        dataTransfer: { getData: (type: string) => (type === RESOURCE_DRAG_TYPE ? 'resources/周报.eml' : ''), files: [] },
+      })
+    })
+    expect(onRefine).toHaveBeenCalledWith({
+      mode: 'intake',
+      entityPath: 'entities/projects/dsh 学习.md',
+      entityName: 'dsh 学习',
+      entityType: 'project',
+      resource: { path: 'resources/周报.eml', name: '周报.eml' },
+    })
+    // A library drag is already in the KB: no registration happens.
+    expect(registerResource).not.toHaveBeenCalled()
+  })
+
+  it('registers an OS file dropped on a project row, then starts the 归入 gesture', async () => {
+    const registerResource = vi.fn(() => Promise.resolve('resources/纪要.pdf'))
+    const onRefine = vi.fn()
+    render(<WorkspaceRail {...railProps({ load: loader(workspace), registerResource, onRefine })} />)
+    fireEvent.click(await screen.findByText('项目'))
+    const row = await screen.findByText('dsh 学习')
+    await act(async () => {
+      fireEvent.drop(row, {
+        dataTransfer: { getData: () => '', files: [new File(['内容'], '纪要.pdf')] },
+      })
+    })
+    await waitFor(() => { expect(registerResource).toHaveBeenCalledOnce() })
+    expect(onRefine).toHaveBeenCalledWith({
+      mode: 'intake',
+      entityPath: 'entities/projects/dsh 学习.md',
+      entityName: 'dsh 学习',
+      entityType: 'project',
+      resource: { path: 'resources/纪要.pdf', name: '纪要.pdf' },
+    })
+  })
 })
 
 /** Two capabilities as `capabilityList` answers them (ADR-0021). */
@@ -868,6 +1014,7 @@ interface FrameFaces {
   readonly promptSession: SessionPrompter
   readonly capabilityList: CapabilityLoader
   readonly capabilityRun: CapabilityRunner
+  readonly refine: RefineRunner
 }
 
 /** Build the frame's spies; `read` answers every path with the same content. */
@@ -889,6 +1036,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     promptSession: () => Promise.resolve(),
     capabilityList: () => Promise.resolve({ capabilities: [], unregistered: [] }),
     capabilityRun: () => Promise.resolve({ name: '', runAt: '', artifacts: [] }),
+    refine: () => Promise.resolve({ sessionId: '', title: '', relevant: true, reason: '' }),
     ...overrides,
   }
 }
@@ -918,6 +1066,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       mailFetch={() => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] })}
       mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
       analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } })}
+      refine={kb.refine}
       registerResource={() => Promise.resolve('resources/新资源.pdf')}
       capabilityList={kb.capabilityList}
       capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
@@ -1105,6 +1254,7 @@ describe('Frame', () => {
         mailFetch={() => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] })}
         mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
         analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } })}
+        refine={() => Promise.resolve({ sessionId: '', title: '', relevant: true, reason: '' })}
         registerResource={() => Promise.resolve('resources/新资源.pdf')}
         capabilityList={() => Promise.resolve({ capabilities: [], unregistered: [] })}
         capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
@@ -1216,6 +1366,75 @@ describe('Frame', () => {
     })
     fireEvent.click(within(group).getByText('eml-triage'))
     expect(await screen.findByText('发送失败：会话通道不可用，无法发送。')).toBeTruthy()
+  })
+
+  it('runs the 提炼 gesture into a proposal card and applies the confirmed writes (ADR-0029)', async () => {
+    const write = vi.fn((_path: string, _content: string) => Promise.resolve())
+    const refine = vi.fn(() => Promise.resolve({
+      sessionId: 's1',
+      title: '提炼 dsh 学习',
+      relevant: true,
+      reason: '',
+      proposal: {
+        title: '提炼 dsh 学习',
+        actions: [
+          {
+            kind: 'edit-section', path: 'entities/projects/dsh 学习.md', section: '目标',
+            before: '', after: '跑通 hello world', why: '补充了目标',
+          },
+          {
+            kind: 'append-log', entityPath: 'entities/projects/dsh 学习.md', entityName: 'dsh 学习',
+            text: '提炼了一次', reason: '提炼记录',
+          },
+        ],
+      } satisfies Proposal,
+    }))
+    render(renderFrame({ write, refine }))
+    fireEvent.click(await screen.findByText('项目'))
+    fireEvent.contextMenu(await screen.findByText('dsh 学习'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('提炼'))
+    // The gesture reaches the runner with the workspace's entity names as the
+    // [[双链]] candidates.
+    await waitFor(() => {
+      expect(refine).toHaveBeenCalledWith(expect.objectContaining({
+        mode: 'refine',
+        entityPath: 'entities/projects/dsh 学习.md',
+        entityName: 'dsh 学习',
+        entityType: 'project',
+        siblings: ['dsh 学习', '健康', '我自己', '张三'],
+      }))
+    })
+    // The verdict opens the shared proposal card, edit-section group included.
+    expect(await screen.findByText('提炼 dsh 学习')).toBeTruthy()
+    expect(document.querySelector('[data-proposal-group="edit-section"]')).not.toBeNull()
+    fireEvent.click(screen.getByText('全部接受'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('确认写入（2）'))
+    })
+    await waitFor(() => { expect(write).toHaveBeenCalled() })
+    const written = write.mock.calls.map(call => call[1]).join('\n')
+    expect(written).toContain('跑通 hello world')
+    // The card is gone once the writes land.
+    expect(document.querySelector('[data-proposal-card="true"]')).toBeNull()
+  })
+
+  it('toasts the reason and opens no card for an irrelevant resource (ADR-0029 决定 2)', async () => {
+    const refine = vi.fn(() => Promise.resolve({
+      sessionId: 's1',
+      title: '提炼 dsh 学习',
+      relevant: false,
+      reason: '内容与项目无关',
+    }))
+    const { container } = render(renderFrame({ refine }))
+    fireEvent.click(await screen.findByText('项目'))
+    const row = await screen.findByText('dsh 学习')
+    await act(async () => {
+      fireEvent.drop(row, {
+        dataTransfer: { getData: (type: string) => (type === RESOURCE_DRAG_TYPE ? 'resources/周报.eml' : ''), files: [] },
+      })
+    })
+    expect(await screen.findByText('「周报.eml」与「dsh 学习」无关：内容与项目无关')).toBeTruthy()
+    expect(container.querySelector('[data-proposal-card="true"]')).toBeNull()
   })
 
   it('opens the selection menu in the reading view and sends the raw text (ADR-0025 决定 5)', async () => {

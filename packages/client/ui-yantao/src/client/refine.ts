@@ -75,6 +75,48 @@ export interface RefineResource {
   readonly name: string
 }
 
+/** The gesture one rail emits; the frame owns the run (ADR-0029 决定 2). */
+export interface RefineGesture {
+  /** `intake` for a resource dropped on an entity row, `refine` for the row menu's 提炼. */
+  readonly mode: RefineMode
+  readonly entityPath: string
+  readonly entityName: string
+  readonly entityType: string
+  /** The dropped resource — intake only. */
+  readonly resource?: RefineResource
+}
+
+/** The frame's refine face: one run, with the sibling names for `[[双链]]` suggestions. */
+export type RefineRunner = (
+  args: RefineGesture & { readonly siblings?: readonly string[] },
+) => Promise<RefineRun>
+
+/** The MIME type a dragged resource row carries its KB path under (ADR-0029 决定 2). */
+export const RESOURCE_DRAG_TYPE = 'application/x-yantao-resource'
+
+/** What a drop on an entity row carries: a library resource, or OS files. */
+export type DropPayload =
+  | { readonly kind: 'resource'; readonly path: string }
+  | { readonly kind: 'files'; readonly files: readonly File[] }
+
+/**
+ * Read one drop event's payload: a library drag (a resource row's own drag
+ * start) carries the resource's KB path under the workbench's MIME type; an
+ * OS drag carries files. Anything else is nothing this pipeline accepts.
+ * Read from the `dragover`'s `dataTransfer` this is always "files" (the
+ * payload is protected until drop) — callers consult it on drop only.
+ * @param dataTransfer - the drop event's data transfer.
+ * @returns the payload, or null when the drop carries nothing for the pipeline.
+ */
+export function dropPayloadOf(
+  dataTransfer: { getData(type: string): string; readonly files: ArrayLike<File> },
+): DropPayload | null {
+  const path = dataTransfer.getData(RESOURCE_DRAG_TYPE)
+  if (path !== '') return { kind: 'resource', path }
+  const files = Array.from(dataTransfer.files)
+  return files.length > 0 ? { kind: 'files', files } : null
+}
+
 /** What one resource contributes to the prompt: its name and its (possibly placeholder) content. */
 interface ResourceView {
   readonly name: string

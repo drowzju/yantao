@@ -17,6 +17,7 @@ import type {
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
 import type { MailAnalyser } from './mail-analysis.ts'
+import { RESOURCE_DRAG_TYPE, dropPayloadOf, type RefineGesture } from './refine.ts'
 import type { ProposalTarget } from './proposal-apply.ts'
 import { entitiesOfTree } from './mail-apply.ts'
 import { CapabilityPanel } from './CapabilityPanel.tsx'
@@ -168,6 +169,9 @@ const rowStyle = {
 
 const selectedRowStyle = { ...rowStyle, background: '#eef3ff', borderColor: '#c7d7ff' } as const
 
+/** An entity row while a resource drag hovers over it — the drop target's affordance. */
+const dropHoverStyle = { outline: '2px dashed #c7d7ff', outlineOffset: -2 } as const
+
 const tabRowStyle = { ...rowStyle, width: 'auto', flex: 1, textAlign: 'center' } as const
 
 /** One rail's load state: the sections it renders, the last failure, and the refresh action. */
@@ -213,6 +217,8 @@ function FileRow({
   onSelect,
   onMenu,
   indent = 0,
+  drag,
+  drop,
 }: {
   t: WorkbenchT
   file: KbTreeFile
@@ -221,16 +227,46 @@ function FileRow({
   onMenu?: ((file: KbTreeFile, x: number, y: number) => void) | undefined
   /** Indentation level inside the resource tree; 0 for flat sections. */
   indent?: number
+  /** Make the row a drag source — resource rows hand their KB path over (ADR-0029 决定 2). */
+  drag?: ((file: KbTreeFile, event: React.DragEvent<HTMLButtonElement>) => void) | undefined
+  /** Make the row a drop target — entity rows receive a resource drop (ADR-0029 决定 2). */
+  drop?: ((file: KbTreeFile, event: React.DragEvent<HTMLButtonElement>) => void) | undefined
 }): ReactElement {
+  const [dropHover, setDropHover] = useState(false)
   return (
     <button
       type="button"
-      style={{ ...(selection === file.path ? selectedRowStyle : rowStyle), paddingLeft: 6 + indent * 14 }}
+      style={{
+        ...(selection === file.path ? selectedRowStyle : rowStyle),
+        ...(dropHover ? dropHoverStyle : {}),
+        paddingLeft: 6 + indent * 14,
+      }}
       data-selected={selection === file.path || undefined}
+      data-drop-target={drop !== undefined || undefined}
+      draggable={drag !== undefined || undefined}
       onClick={() => { onSelect(file.path) }}
       onContextMenu={onMenu === undefined ? undefined : (event) => {
         event.preventDefault()
         onMenu(file, event.clientX, event.clientY)
+      }}
+      onDragStart={drag === undefined ? undefined : (event) => {
+        event.stopPropagation()
+        drag(file, event)
+      }}
+      onDragOver={drop === undefined ? undefined : (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        setDropHover(true)
+      }}
+      onDragLeave={drop === undefined ? undefined : (event) => {
+        event.stopPropagation()
+        setDropHover(false)
+      }}
+      onDrop={drop === undefined ? undefined : (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        setDropHover(false)
+        drop(file, event)
       }}
       title={file.path}
     >
@@ -255,6 +291,8 @@ function Section({
   onSelect,
   onMenu,
   showHeading = true,
+  drag,
+  drop,
 }: {
   t: WorkbenchT
   id: KbTreeSectionId
@@ -264,13 +302,26 @@ function Section({
   /** Open the row's right-click menu; absent for a section whose rows are not the human's to drop. */
   onMenu?: ((file: KbTreeFile, x: number, y: number) => void) | undefined
   showHeading?: boolean
+  /** Make every row a drag source (ADR-0029 决定 2). */
+  drag?: ((file: KbTreeFile, event: React.DragEvent<HTMLButtonElement>) => void) | undefined
+  /** Make every row a drop target (ADR-0029 决定 2). */
+  drop?: ((file: KbTreeFile, event: React.DragEvent<HTMLButtonElement>) => void) | undefined
 }): ReactElement {
   return (
     <div>
       {showHeading && <div style={titleStyle}>{t(SECTION_KEYS[id])}</div>}
       {section === undefined && <div style={{ color: '#9a9488', padding: '4px 6px' }}>{t('common.empty')}</div>}
       {section?.files.map(file => (
-        <FileRow key={file.path} t={t} file={file} selection={selection} onSelect={onSelect} onMenu={onMenu} />
+        <FileRow
+          key={file.path}
+          t={t}
+          file={file}
+          selection={selection}
+          onSelect={onSelect}
+          onMenu={onMenu}
+          drag={drag}
+          drop={drop}
+        />
       ))}
     </div>
   )
@@ -336,12 +387,15 @@ function ResourceTree({
   selection,
   onSelect,
   onMenu,
+  drag,
 }: {
   t: WorkbenchT
   section: KbTreeSection | undefined
   selection: string | null
   onSelect: (path: string) => void
   onMenu: (file: KbTreeFile, x: number, y: number) => void
+  /** Make every resource row a drag source (ADR-0029 决定 2's 归入). */
+  drag: (file: KbTreeFile, event: React.DragEvent<HTMLButtonElement>) => void
 }): ReactElement {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const toggle = useCallback((dir: string): void => {
@@ -388,6 +442,7 @@ function ResourceTree({
           selection={selection}
           onSelect={onSelect}
           onMenu={onMenu}
+          drag={drag}
           indent={depth}
         />,
       )
@@ -462,10 +517,12 @@ function RowMenu(props: {
   capabilities?: readonly KbCapabilitySummary[] | undefined
   /** Run one of those capabilities against this row (ADR-0026 决定 4 routes the run). */
   onRunCapability?: ((capability: KbCapabilitySummary, path: string) => void) | undefined
+  /** Start the 提炼 gesture on this entity row (ADR-0029 决定 2); absent for non-entity rows. */
+  onRefine?: ((path: string, name: string) => void) | undefined
   onDelete: (path: string) => void
   onClose: () => void
 }): ReactElement {
-  const { t, target, busy, relations, onRelate, capabilities, onRunCapability, onDelete, onClose } = props
+  const { t, target, busy, relations, onRelate, capabilities, onRunCapability, onRefine, onDelete, onClose } = props
   const [confirming, setConfirming] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -521,6 +578,17 @@ function RowMenu(props: {
             </button>
           ))}
         </div>
+      )}
+      {onRefine !== undefined && (
+        <button
+          type="button"
+          style={menuItemStyle}
+          disabled={busy}
+          data-row-refine="true"
+          onClick={() => { onClose(); onRefine(target.path, target.name) }}
+        >
+          {t('workbench.refine')}
+        </button>
       )}
       {!confirming && (
         <button type="button" style={menuItemStyle} disabled={busy} onClick={() => { setConfirming(true) }}>
@@ -699,16 +767,18 @@ export interface RailProps {
   readonly mailMarkRead: MailMarker
   /** Run one mail analysis in a dsh session (ADR-0019). */
   readonly analyseMail: MailAnalyser
+  /** Copy one dropped file into `resources/` — both rails' entity rows accept OS drops (ADR-0029 决定 2). */
+  readonly registerResource: ResourceRegistrar
+  /** Start one refine gesture (归入 or 提炼); the frame owns the run (ADR-0029). */
+  readonly onRefine: (gesture: RefineGesture) => void
   /** List the registered capabilities (ADR-0021) — the row menus' 能力 group. */
   readonly capabilityList: CapabilityLoader
   /** Run one capability against a row (ADR-0021 决定 7); the frame owns the run. */
   readonly onRunCapability: (capability: KbCapabilitySummary, path: string) => void
 }
 
-/** Intake-side additions: the intake rail owns resource registration (ADR-0020) and the 能力 tab (ADR-0021). */
+/** Intake-side additions: the intake rail owns the 能力 tab (ADR-0021). */
 export interface IntakeRailProps extends RailProps {
-  /** Copy one dropped file into `resources/`. */
-  readonly registerResource: ResourceRegistrar
   /** Scaffold one new capability (「新建能力」). */
   readonly capabilityCreate: CapabilityCreator
   /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
@@ -727,6 +797,54 @@ function RailHeader({ error }: { error: string | null }): ReactElement {
 }
 
 /**
+ * One entity row's drop (ADR-0029 决定 2's 归入): a library drag carries the
+ * resource's KB path straight into the gesture; an OS drop registers the file
+ * into `resources/` first — 「拖入入库」与「归入实体」合成一个手势 — and more
+ * than one file is refused with a message (台账 #4). Every drag event stops
+ * propagation at the row, so a drop on an entity never reaches the rails'
+ * whole-rail registration or the conversation's composer.
+ */
+async function dropOnEntity(args: {
+  readonly event: React.DragEvent
+  readonly entity: KbTreeFile
+  readonly entityType: KbCreatableEntityType
+  readonly registerResource: ResourceRegistrar
+  readonly onRefine: (gesture: RefineGesture) => void
+  readonly onError: (message: string) => void
+}): Promise<void> {
+  const payload = dropPayloadOf(args.event.dataTransfer)
+  if (payload === null) return
+  if (payload.kind === 'resource') {
+    args.onRefine({
+      mode: 'intake',
+      entityPath: args.entity.path,
+      entityName: args.entity.name,
+      entityType: args.entityType,
+      resource: { path: payload.path, name: payload.path.split('/').pop() ?? payload.path },
+    })
+    return
+  }
+  if (payload.files.length > 1) {
+    args.onError('一次只归入一个文件。')
+    return
+  }
+  const file = payload.files[0]
+  if (file === undefined) return
+  try {
+    const path = await args.registerResource(file.name, await fileToBase64(file))
+    args.onRefine({
+      mode: 'intake',
+      entityPath: args.entity.path,
+      entityName: args.entity.name,
+      entityType: args.entityType,
+      resource: { path, name: file.name },
+    })
+  } catch (failure: unknown) {
+    args.onError(`${file.name}：${remoteMessage(failure)}`)
+  }
+}
+
+/**
  * The intake rail: 资源 / 待办 / 会议 / 能力 as tabs. 待办 renders the
  * singleton as a TODO / DONE board inline (ADR-0018); 会议 can create a
  * meeting inline; 资源 rows open read-only; 能力 lists the registered
@@ -737,7 +855,7 @@ function RailHeader({ error }: { error: string | null }): ReactElement {
 export function IntakeRail(props: IntakeRailProps): ReactElement {
   const {
     t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
-    read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource,
+    read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource, onRefine,
     capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, onRunCapability,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
@@ -877,6 +995,9 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           // An original opens read-only; a `.md` note is ours to edit.
           onSelect={(path) => { onOpenFile(path, path.endsWith('.md') ? 'edit' : 'read') }}
           onMenu={rowMenu.open}
+          // ADR-0029 决定 2: a resource row is a drag source — dropping it on
+          // an entity row starts the 归入 gesture.
+          drag={(file, event) => { event.dataTransfer.setData(RESOURCE_DRAG_TYPE, file.path) }}
         />
       )}
       {tab === 'meetings' && (
@@ -888,6 +1009,9 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           onSelect={(path) => { onOpenFile(path, path.endsWith('.md') ? 'edit' : 'read') }}
           onMenu={rowMenu.open}
           showHeading={false}
+          drop={(file, event) => {
+            void dropOnEntity({ event, entity: file, entityType: 'meeting', registerResource, onRefine, onError: setActionError })
+          }}
         />
       )}
       {tab === 'meetings' && (
@@ -912,6 +1036,9 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
               ? matchCapabilities(capabilities, { kind: 'entity', path: rowMenu.menu.path, entityType: 'meeting' })
               : undefined}
           onRunCapability={onRunCapability}
+          onRefine={tab === 'meetings'
+            ? (path, name) => { onRefine({ mode: 'refine', entityPath: path, entityName: name, entityType: 'meeting' }) }
+            : undefined}
           onDelete={(path) => { void rowMenu.remove(path) }}
           onClose={rowMenu.close}
         />
@@ -929,7 +1056,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
 export function WorkspaceRail(props: RailProps): ReactElement {
   const {
     t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, createEntity, deleteFile,
-    setRelation: writeRelation, capabilityList, onRunCapability,
+    setRelation: writeRelation, registerResource, onRefine, capabilityList, onRunCapability,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const capabilities = useCapabilities(capabilityList, refreshKey)
@@ -970,8 +1097,8 @@ export function WorkspaceRail(props: RailProps): ReactElement {
     <div
       style={railStyle}
       // Same separation as the intake rail: a file drag over this rail never
-      // reaches the conversation's document-level drop target. The dragover
-      // is not accepted, so a release here drops nothing.
+      // reaches the conversation's document-level drop target. The rail
+      // itself accepts no drop — only its entity rows do (ADR-0029 决定 2).
       onDragEnter={(event) => { event.stopPropagation() }}
       onDragOver={(event) => { event.stopPropagation() }}
       onDragLeave={(event) => { event.stopPropagation() }}
@@ -998,6 +1125,11 @@ export function WorkspaceRail(props: RailProps): ReactElement {
         onSelect={(path) => { onOpenFile(path, 'edit') }}
         onMenu={rowMenu.open}
         showHeading={false}
+        // ADR-0029 决定 2: every workspace entity row is a drop target — a
+        // resource (library drag or OS drop) starts the 归入 gesture.
+        drop={kind === undefined ? undefined : (file, event) => {
+          void dropOnEntity({ event, entity: file, entityType: kind, registerResource, onRefine, onError: setActionError })
+        }}
       />
       <NewEntityRow
         t={t}
@@ -1024,6 +1156,9 @@ export function WorkspaceRail(props: RailProps): ReactElement {
             ? undefined
             : matchCapabilities(capabilities, { kind: 'entity', path: rowMenu.menu.path, entityType: kind })}
           onRunCapability={onRunCapability}
+          onRefine={kind === undefined
+            ? undefined
+            : (path, name) => { onRefine({ mode: 'refine', entityPath: path, entityName: name, entityType: kind }) }}
           onDelete={(path) => { void rowMenu.remove(path) }}
           onClose={rowMenu.close}
         />
