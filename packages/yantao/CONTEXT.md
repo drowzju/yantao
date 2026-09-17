@@ -46,6 +46,10 @@ _Avoid_: Status、状态段
 
 _Avoid_: 日志、Log 区
 
+**归入 (Intake)**: 把资源文件拖到实体行上让 agent 分析相关性的手势；系统拖入先经 `registerResource` 落入 `resources/` 再分析，无关只 toast 不留痕。
+
+_Avoid_: 拖入整理、自动分类
+
 **提炼 (Refine)**: 人触发 → agent 提议（建议卡）→ 人批准 的合并流程；禁止无值守自动写入。
 
 _Avoid_: 整理、归纳

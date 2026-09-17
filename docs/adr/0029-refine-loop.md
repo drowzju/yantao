@@ -50,3 +50,5 @@ TODO 里挂了两条同源的功能：**把资源文件拖到实体上**触发�
 - 会话经 session Remote 直驱（mail 先例），会话命名「提炼 <实体名>」；`jsonRound`/`turn-answer.ts` 复用。
 - 文档同步：`docs/yantao/README.md` ADR 索引（本条）、`docs/yantao/TODO.md`（deferred 的「提炼闭环 v1」移入 next 并指向本 ADR）、`packages/yantao/CONTEXT.md` 增「归入 (Intake)」词条（随实现）；ADR-0026 台账 #6 加「已由 ADR-0029 重开（逐实体人工触发形态）」注记（随实现）。
 - 未做：批量归入、二进制资源内容分析、聊天侧 `/提炼`、提炼建议的 diff 并排视图（v1 用 before/after 文本块）、自动定时提炼。
+
+落地注记（2026-09-17）：全部落地。`proposal.ts` 增 `edit-section` 动作（缺区段补建、流水在 `proposal-apply` 拒绝），落盘语义按决定 4 实现——`applyProposal` 对 `edit-section` 落盘前重读文件、重新定位区段，锚点丢失/重复 → 该行动作失败并在卡上标红，其余照常；提炼模块 `refine.ts` 仿 `mail-analysis.ts`（专用会话「提炼 <实体名>」+ `jsonRound` JSON 裁决），`runRefine` 带 `siblings`（工作台树实体名集合）供双链建议；两个手势落在 `Workbench.tsx`——资源树行 dragStart 设 `application/x-yantao-resource`、实体行成为 drop 目标（`dropPayloadOf` 分流库内拖/系统拖入，系统拖入先 `registerResource` 再分析，多文件拒绝并提示），`RowMenu` 增「提炼」项（两栏实体行皆有）；`Frame.tsx` 挂提炼提议卡（与能力卡共用 `confirmProposal` 确认路径），无关裁决 → toast 显示理由，不弹卡。零新工具、零新 RPC——`kb_*` 保持十一、`yantaoKb` RPC 保持二十一。验证：ui-yantao 262 测试全绿（refine 14 + workbench 组件 11 个新增用例覆盖拖拽源/drop 目标/系统拖入登记链/多文件拒绝/两栏提炼菜单/卡片与 toast 语义），scoped oxlint 0/0，`tsc --noEmit` 干净。

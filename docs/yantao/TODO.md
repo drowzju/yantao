@@ -94,6 +94,8 @@
 
 | **KB 簿记目录合一(ADR-0024 修订 2026-09-17)** —— KB 根的 `.yantao/` 并入 `.dsh/yantao/`,KB 根从此只有 `.dsh/` 一个机器簿记目录(`skills/` 是上游约定、`yantao/` 是我们的),动机是降低"拷哪个目录才算备份全"的认知负担;`state.json`、`templates/`、`capability-backups/`、`capabilities/` 产物全部落新家,技能路径不动(上游发现机制钉死 `.dsh/skills/`);迁移是手动一次性搬 + 旧目录改名 `.yantao.bak` 留观,**不设代码内导入分支**(缺状态只多拉一次邮件);退役的 `extracts/` 抽取缓存不搬,随 `.bak` 入土 | `packages/yantao/kb/src/{root-store,core,templates,index}.ts`、`prompt/sections/{filesystem,skills}.md`、`packages/api/yantao-kb-controller/src/{index,types}.ts` + `capability/{run,builtin}.ts`、两包 README、`docs/adr/0024-*`、`docs/yantao/README.md`、`docs/subsystems/yantao.md`、`api-catalog.ts`(生成器重跑) |
 
+| **提炼闭环 v1(ADR-0029 2026-09-17)** —— 一条管线两个手势:**归入**(资源树行 dragStart 设 `application/x-yantao-resource`,实体行成为 drop 目标;`dropPayloadOf` 分流库内拖与系统拖入——系统拖入先 `registerResource` 落入 `resources/` 再分析,多文件拒绝并提示,无关裁决只 toast 不弹卡不留痕)+ **提炼**(实体行右键「提炼」,专用会话「提炼 <实体名>」经 `jsonRound` JSON 裁决,对照模板检查区段、追加新发现、建议 `[[双链]]`,`siblings` 由工作台树现算);提议卡第七类动作 `edit-section`(缺区段补建、流水拒绝),落盘重读文件重定位区段、锚点丢失/重复逐动作失败标红,与能力卡共用 `confirmProposal` 确认路径。零新工具、零新 RPC | `packages/client/ui-yantao/src/client/{refine,proposal,proposal-apply,Workbench}.ts*`、`{ProposalCard,frame/Frame}.tsx`、`index.ts`、`locales.ts`、`tests/{refine,workbench,proposal-apply,proposal-card}.client.spec.*`、`docs/adr/0029-*`、`packages/yantao/CONTEXT.md`、`docs/adr/0026-*`。验证:ui-yantao 262 测试全绿(新增 refine 14 + 组件 11 用例),scoped oxlint 0/0,`tsc --noEmit` 干净,client bundle 重建 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
@@ -103,9 +105,6 @@
 2. **拖入登记保留子路径?** —— 2026-09-16 资源子目录递归展示已完整落地(宿主 `resourceSection` 递归 + 前端
    `ResourceTree` 树状分组,ADR-0028)。剩余:`registerResource` 拖入登记是否保留子路径(目前仍登记到
    `resources/` 根)。
-3. **提炼闭环 v1(ADR-0029)** —— 资源归入(拖资源到实体行,系统拖入先 `registerResource` 再分析)+ 实体提炼
-   (右键:对照模板调整、追加新发现、内联 `[[双链]]`):UI 直驱专用会话(mail 分析先例),JSON 裁决解析为提议卡,
-   卡新增 `edit-section` 动作(缺区段补建、流水拒绝),落盘重读重定位逐动作失败标红。零新 RPC/工具。
 
 ## blocked(附原因)
 
@@ -116,7 +115,7 @@ _无。(曾在此的三项 —— 客户端 face 重建、`tsgolint`、`toThrowE
 
 | 项 | 为什么搁置 |
 |---|---|
-| ~~提炼闭环 v1(人触发 → agent 提议 → 人批准)~~ *(已移入 next,ADR-0029)* | 原因「需要先有编辑器面板与提议 UI」已消除:提议卡(ADR-0021)与 `kb_read_resource`(ADR-0028)相继落地 |
+| ~~提炼闭环 v1(人触发 → agent 提议 → 人批准)~~ *(已完成 2026-09-17,见 done 表;ADR-0029)* | 原因「需要先有编辑器面板与提议 UI」已消除:提议卡(ADR-0021)与 `kb_read_resource`(ADR-0028)相继落地 |
 | 会话转写落 `sessions/` | dsh 已经把每个会话事件溯源(`session.vN.jsonl`),这活儿应变成"投影"而非新机制 —— **且:会话功能已移除(ADR-0010),待重新设计后再启** |
 | FTS 与 backlinks 索引 | 等知识库有真实内容后再定存储(drift/sqlite 还是 dsh `session-query`) |
 | *(已移入 next)* Connector 实现 → 能力系统(ADR-0021) | 连接概念已被能力取代;邮件已实现,剩余工作排在 next 的「能力系统」小节 |
