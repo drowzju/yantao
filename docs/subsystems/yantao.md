@@ -285,7 +285,7 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * is kept as the minimum ever seen, so the UI can show the processed range
  * (e.g. 2025-12-31 到 2026-01-31) without re-deriving it.
  *
- * The cursor lives in the KB's `.yantao/state.json` (ADR-0024) — machine
+ * The cursor lives in the KB's `.dsh/yantao/state.json` (ADR-0024) — machine
  * state next to the KB it was read for, never in the KB's markdown.
  * @param args - the stamps to store; `lastReadAt` defaults to now.
  * @returns the processed range as it now stands.
@@ -303,9 +303,9 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * contract (`capability/run.ts`).
  *
  * The controller, not the script, owns every write: artifacts land under
- * `.yantao/capabilities/<name>/` at paths the script cannot choose, and the
+ * `.dsh/yantao/capabilities/<name>/` at paths the script cannot choose, and the
  * returned state is persisted under `capabilities.<name>.state` in the KB's
- * `.yantao/state.json` (ADR-0024) — machine state inside the KB, which stays
+ * `.dsh/yantao/state.json` (ADR-0024) — machine state inside the KB, which stays
  * markdown for humans. The agent has its own channel into the same seam:
  * `kb_run_capability` (ADR-0023), gated per capability by the sidecar's
  * `invocation` declaration.
@@ -325,7 +325,7 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * fresh KB answers with 邮件 on its very first open.
  *
  * Each row merges the skill's declaration with the persisted record
- * (`capabilities.<name>` in the KB's `.yantao/state.json`, ADR-0024): when it last ran and
+ * (`capabilities.<name>` in the KB's `.dsh/yantao/state.json`, ADR-0024): when it last ran and
  * the state that run left behind, so the panel can show a real 断点 without
  * running anything.
  *

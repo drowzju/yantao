@@ -1,14 +1,16 @@
 /**
  * The capability state store: one JSON file per KB at
- * `<kbRoot>/.yantao/state.json` holding
+ * `<kbRoot>/.dsh/yantao/state.json` holding
  * `{ "capabilities": { "<name>": { "state": …, "lastRunAt": … } } }`.
  * It carries each capability's machine state (ADR-0021: the generalized form
  * of ADR-0019's mail watermark), because a cursor belongs to the knowledge
  * base it was read for, and not to the KB itself — that is markdown for
  * humans, not a place for machine state. ADR-0024 puts the file *inside* the
- * KB (backup = copy the directory); the KB pointer itself moved to the
- * settings plane, and the retired `~/.dsh/yantao-kb.json` is read once by
- * {@link importLegacyRootState} and never written again.
+ * KB (backup = copy the directory), under the KB's single `.dsh/` bookkeeping
+ * directory (2026-09-17 revision: `.yantao/` was folded into `.dsh/yantao/`);
+ * the KB pointer itself moved to the settings plane, and the retired
+ * `~/.dsh/yantao-kb.json` is read once by {@link importLegacyRootState} and
+ * never written again.
  * @module @deepseek-ai/dsh-yantao-kb/root-store
  */
 
@@ -31,12 +33,12 @@ interface CapabilityStateFile {
   capabilities?: Record<string, CapabilityState>
 }
 
-/** The state file's path: `<kbRoot>/.yantao/state.json`.
+/** The state file's path: `<kbRoot>/.dsh/yantao/state.json`.
  * @param kbRoot - the knowledge-base root directory.
  * @returns the absolute path of the capability state file inside that KB.
  */
 export function capabilityStatePath(kbRoot: string): string {
-  return join(kbRoot, '.yantao', 'state.json')
+  return join(kbRoot, '.dsh', 'yantao', 'state.json')
 }
 
 /** Parse the state file's content; anything without a usable shape yields `undefined`. */
@@ -64,7 +66,7 @@ function readCapabilityStateFile(kbRoot: string): CapabilityStateFile | undefine
 }
 
 /**
- * Write the whole state file for one KB, creating `<kbRoot>/.yantao` when it
+ * Write the whole state file for one KB, creating `<kbRoot>/.dsh/yantao` when it
  * is absent. A failing write surfaces as a rejected promise and leaves any
  * previous state untouched.
  */
@@ -179,7 +181,7 @@ function legacyKbRootStatePath(): string {
 /**
  * One-time import of the retired `~/.dsh/yantao-kb.json` (ADR-0024 决定 2):
  * when the legacy file is readable and names a root whose
- * `<root>/.yantao/state.json` does not exist yet, the capability states move
+ * `<root>/.dsh/yantao/state.json` does not exist yet, the capability states move
  * into the KB and the legacy file is renamed `.bak` — explicitly recoverable,
  * never silently deleted. The legacy `root` itself is *returned* (the caller
  * seeds the settings-plane pointer with it) and the legacy `connectors.mail`

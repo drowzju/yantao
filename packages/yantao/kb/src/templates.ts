@@ -5,7 +5,7 @@
  *
  * ADR-0026 决定 1: the entity file = code-generated frontmatter + a body
  * skeleton + a mechanically guaranteed `## 流水` section. The skeleton comes
- * from the user's `<kbRoot>/.yantao/templates/<type>.md` when present (body
+ * from the user's `<kbRoot>/.dsh/yantao/templates/<type>.md` when present (body
  * only — the template's own frontmatter is ignored) and from the built-in
  * skeleton otherwise. 状态 is the template's call: whatever sections the body
  * carries are what the entity gets. 流水 is the mechanism's call: every entity
@@ -173,7 +173,7 @@ export const KB_README = `# yantao 知识库
 - \`resources/\` — 原始材料，原样存放、永不改写。
 - \`entities/projects/\`、\`entities/areas/\`、\`entities/people/\`、\`entities/meetings/\` — 实体笔记，每个实体一个 \`.md\` 文件。
 - \`entities/todos.md\` — 待办单例，Obsidian 复选框清单，没有区段结构；每行形如 \`- [ ] [due::YYYY-MM-DD] 标题\`，条目正文缩进两格写在下方。
-- \`.yantao/\` — 工作台的机器簿记与模板（\`.yantao/templates/<type>.md\` 可自定义新建实体的正文骨架），不进界面树。
+- \`.dsh/yantao/\` — 工作台的机器簿记与模板（\`.dsh/yantao/templates/<type>.md\` 可自定义新建实体的正文骨架），不进界面树。
 - \`sessions/\` — 会话归档。
 
 实体文件的「状态」区由人和 agent 共同维护（agent 通过 \`kb_write_state\` 写入）；「流水」区只追加、不改写。读写知识库请使用 \`kb_\` 系列工具。

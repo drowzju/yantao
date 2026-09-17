@@ -14,7 +14,7 @@
  * `kbRoot`, the caller's `input`, and the capability's previous `state`) and
  * answers with one JSON object on stdout: either
  * `{ ok: true, result?, state?, artifacts? }` — artifacts are name/base64
- * pairs the *controller* writes under `.yantao/capabilities/<name>/`, so a
+ * pairs the *controller* writes under `.dsh/yantao/capabilities/<name>/`, so a
  * downloaded script never picks its own write paths — or
  * `{ ok: false, kind?, message, hint? }`, which surfaces verbatim.
  *
@@ -318,7 +318,7 @@ export interface CapabilityRunOutput {
   readonly result?: unknown
   /** The capability's next persisted state; omitted leaves the old one. */
   readonly state?: unknown
-  /** Files to write under `.yantao/capabilities/<name>/`. */
+  /** Files to write under `.dsh/yantao/capabilities/<name>/`. */
   readonly artifacts?: readonly CapabilityArtifact[]
 }
 

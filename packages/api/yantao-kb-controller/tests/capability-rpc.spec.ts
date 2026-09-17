@@ -183,8 +183,8 @@ describe('yantaoKb.capabilityRun', () => {
     }))
     expect(result.name).toBe('mail')
     expect(result.result).toEqual({ messages: [] })
-    expect(result.artifacts).toEqual(['.yantao/capabilities/mail/summary.json'])
-    expect(await readFile(join(home, '.yantao', 'capabilities', 'mail', 'summary.json'), 'utf8')).toBe('{"mails":0}')
+    expect(result.artifacts).toEqual(['.dsh/yantao/capabilities/mail/summary.json'])
+    expect(await readFile(join(home, '.dsh', 'yantao', 'capabilities', 'mail', 'summary.json'), 'utf8')).toBe('{"mails":0}')
     expect(readCapabilityState(home, 'mail')).toEqual({ lastReadAt: '2026-09-12T00:00:00.000Z' })
   })
 

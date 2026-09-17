@@ -38,7 +38,7 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 | 工具 | 签名 | 作用 |
 |---|---|---|
 | `kb_init` | `()` | 创建知识库目录结构、根 README、库主实体与待办单例（幂等） |
-| `kb_create_entity` | `(type, name, relation?, date?)` | 按模板写入一个实体文件（优先读 `.yantao/templates/<type>.md` 自定义模板，缺失回落内置；会议文件名会冠以它自己的日期，`<YYYY-MM-DD> <name>`）；文件已存在时拒绝，`todo` 单例也拒绝 |
+| `kb_create_entity` | `(type, name, relation?, date?)` | 按模板写入一个实体文件（优先读 `.dsh/yantao/templates/<type>.md` 自定义模板，缺失回落内置；会议文件名会冠以它自己的日期，`<YYYY-MM-DD> <name>`）；文件已存在时拒绝，`todo` 单例也拒绝 |
 | `kb_append_log` | `(entity, text)` | 在实体的『流水』区末尾追加一条带日期的日志 |
 | `kb_write_state` | `(entity, text)` | 整体替换『状态』区正文；『流水』区与 frontmatter 原样保留 |
 | `kb_edit_section` | `(entity, section, text)` | 整体替换任意 `## ` 区段正文；『流水』区拒绝（只走 `kb_append_log`），锚点缺失或重复时报错不重建（ADR-0026） |

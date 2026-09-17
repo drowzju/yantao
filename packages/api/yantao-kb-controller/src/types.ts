@@ -331,7 +331,7 @@ export interface KbRegisterResourceResult {
  * in with it.
  */
 export interface KbCapabilityArtifact {
-  /** File name inside `.yantao/capabilities/<name>/`; a bare name, never a path. */
+  /** File name inside `.dsh/yantao/capabilities/<name>/`; a bare name, never a path. */
   readonly name: string
   /** The file's complete content, base64-encoded. */
   readonly contentBase64: string
@@ -359,7 +359,7 @@ export interface KbCapabilityRunResult {
    * with `result`.
    */
   readonly content?: string
-  /** KB-relative paths of the files the run wrote under `.yantao/capabilities/<name>/`. */
+  /** KB-relative paths of the files the run wrote under `.dsh/yantao/capabilities/<name>/`. */
   readonly artifacts: readonly string[]
 }
 

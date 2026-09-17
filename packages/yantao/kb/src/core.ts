@@ -143,7 +143,7 @@ function buildEntityFile(
   options: EntityTemplateOptions = {},
 ): { content: string; notice: string | undefined } {
   const frontmatter = entityFrontmatter(type, name, date, options)
-  const templatePath = join(root, '.yantao', 'templates', `${type}.md`)
+  const templatePath = join(root, '.dsh', 'yantao', 'templates', `${type}.md`)
   let body = builtinEntityBody(type)
   let notice: string | undefined
   if (existsSync(templatePath)) {
@@ -152,12 +152,12 @@ function buildEntityFile(
       text = readFileSync(templatePath, 'utf8')
     } catch (error) {
       text = ''
-      notice = `自定义模板 .yantao/templates/${type}.md 无法读取（${(error as Error).message}），已回落内置模板`
+      notice = `自定义模板 .dsh/yantao/templates/${type}.md 无法读取（${(error as Error).message}），已回落内置模板`
     }
     if (notice === undefined) {
       const parsed = templateBodyOf(text)
       if (parsed.kind === 'duplicate-log') {
-        notice = `自定义模板 .yantao/templates/${type}.md 含多个『## 流水』区段，锚点无法唯一定位，已回落内置模板`
+        notice = `自定义模板 .dsh/yantao/templates/${type}.md 含多个『## 流水』区段，锚点无法唯一定位，已回落内置模板`
       } else {
         body = parsed.body
       }

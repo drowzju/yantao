@@ -98,9 +98,9 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0021 | 能力系统:连接重构为能力(skill 目录 + 宿主入口 + appliesTo 声明),统一提议流,mail/extract 全量迁移;取舍台账独立成节 |
 | 0022 | 系统提示词分层:yantao 的系统指令以命名 section 叠加在 dsh 注册表上,源文件为仓库 Markdown;persona 保持薄身份声明 |
 | 0023 | 能力的模型侧调用:`kb_run_capability` 按 sidecar `invocation` 字段逐能力门控,动态目录注入,缺 entry 的指令型能力,播种覆盖前备份;重开 ADR-0021 台账第 1、2 条 |
-| 0024 | KB 自包含:yantao 自有数据只落 KB 根——能力状态迁至 `<kbRoot>/.yantao/state.json`(一次性导入,旧文件改名 `.bak`),KB 指针进 settings plane,技能只认 `<kbRoot>/.dsh/skills/` |
+| 0024 | KB 自包含:yantao 自有数据只落 KB 根——能力状态迁至 `<kbRoot>/.dsh/yantao/state.json`(原 `.yantao/`,2026-09-17 修订并入 `.dsh/yantao/`,KB 根只留一个机器簿记目录;一次性导入,旧文件改名 `.bak`),KB 指针进 settings plane,技能只认 `<kbRoot>/.dsh/skills/` |
 | 0025 | 三方技能接入:未注册分组 + 拷贝进 KB 的采纳动作,`/xxx` 手势(pre-step 双消息注入),资源右键对指令型能力发当前会话,选区右键 opt-in,`/` 自动补全源,注册 = 在中央路由文件 `.dsh/skills/yantao.json` 写路由条目(不移动、不改名) |
-| 0026 | 类型化模板与协作边界重划:实体模板文件 `<kbRoot>/.yantao/templates/<type>.md` + 内置回落(状态以模板为主——模板没写该区段就不补、不校验;流水由机制保证——缺失自动补齐、重复才回落),`kb_edit_section` 区段寻址编辑(流水仍只追加、frontmatter 封存),`kb_write_resource` 只新建不覆盖,右键/选区手势统一为合成 `/name @path` slash 消息走 pre-step 管线(客户端拼接退役) |
+| 0026 | 类型化模板与协作边界重划:实体模板文件 `<kbRoot>/.dsh/yantao/templates/<type>.md`(原 `.yantao/templates`,随 ADR-0024 修订迁移) + 内置回落(状态以模板为主——模板没写该区段就不补、不校验;流水由机制保证——缺失自动补齐、重复才回落),`kb_edit_section` 区段寻址编辑(流水仍只追加、frontmatter 封存),`kb_write_resource` 只新建不覆盖,右键/选区手势统一为合成 `/name @path` slash 消息走 pre-step 管线(客户端拼接退役) |
 | 0027 | 单人项目的门禁降级:yantao 自有文档与包 README 中文单语化(删 twins 与配对记录,豁免目录化),model-experience 门摘除 yantao 包,pre-push 全仓 typecheck 移除;staged lint、whitespace、vendor manifest、notices、生成目录检查与测试保留 |
 | 0028 | 资源读取与目录提及:`kb_read_resource` 第十一个工具(文件 UTF-8 全文/二进制拒绝报大小,目录递归清单封顶 100),`@` 目录提及展开为清单+内容(96k 预算、二进制占位行),资源栏树状展示(可折叠、零 wire 变更),`@` 菜单合成目录候选 + serialize 空格引号 |
 

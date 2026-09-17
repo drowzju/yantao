@@ -92,6 +92,8 @@
 
 | **web 入口退役(ADR-0016 修订 2026-09-17)** —— 浏览器路线砍掉,桌面壳成为唯一形态:`scripts/yantao-web-{start,stop}.ps1` 删除,启动命令改为 `pnpm --filter @deepseek-ai/dsh-yantao-desktop start`;砍的只是**浏览器入口**——`yantao-web` profile、loopback HTTP 与 `apps/yantao` 前端是桌面壳的底座(ADR-0016 第 2、3 条),原样保留,前端仍然只有一份 | `scripts/yantao-web-{start,stop}.ps1` 删除、`AGENTS.md`、`README.md`、`docs/yantao/{README,development}.md`、`docs/adr/0016-*` |
 
+| **KB 簿记目录合一(ADR-0024 修订 2026-09-17)** —— KB 根的 `.yantao/` 并入 `.dsh/yantao/`,KB 根从此只有 `.dsh/` 一个机器簿记目录(`skills/` 是上游约定、`yantao/` 是我们的),动机是降低"拷哪个目录才算备份全"的认知负担;`state.json`、`templates/`、`capability-backups/`、`capabilities/` 产物全部落新家,技能路径不动(上游发现机制钉死 `.dsh/skills/`);迁移是手动一次性搬 + 旧目录改名 `.yantao.bak` 留观,**不设代码内导入分支**(缺状态只多拉一次邮件);退役的 `extracts/` 抽取缓存不搬,随 `.bak` 入土 | `packages/yantao/kb/src/{root-store,core,templates,index}.ts`、`prompt/sections/{filesystem,skills}.md`、`packages/api/yantao-kb-controller/src/{index,types}.ts` + `capability/{run,builtin}.ts`、两包 README、`docs/adr/0024-*`、`docs/yantao/README.md`、`docs/subsystems/yantao.md`、`api-catalog.ts`(生成器重跑) |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)

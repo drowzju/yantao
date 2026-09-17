@@ -109,7 +109,7 @@ describe('entity template', () => {
 })
 
 describe('custom entity templates', () => {
-  const templateDir = () => join(kbRoot, '.yantao', 'templates')
+  const templateDir = () => join(kbRoot, '.dsh', 'yantao', 'templates')
 
   it('uses the custom body skeleton and strips the template frontmatter', async () => {
     await mkdir(templateDir(), { recursive: true })

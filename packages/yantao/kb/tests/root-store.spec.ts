@@ -35,7 +35,7 @@ afterEach(async () => {
 
 describe('capabilityStatePath', () => {
   it('is the one state file inside the KB (ADR-0024)', () => {
-    expect(capabilityStatePath(kbRoot)).toBe(join(kbRoot, '.yantao', 'state.json'))
+    expect(capabilityStatePath(kbRoot)).toBe(join(kbRoot, '.dsh', 'yantao', 'state.json'))
   })
 })
 
@@ -46,7 +46,7 @@ describe('readCapabilityState / writeCapabilityState', () => {
   })
 
   it('is undefined for a malformed state file', async () => {
-    await mkdir(join(kbRoot, '.yantao'), { recursive: true })
+    await mkdir(join(kbRoot, '.dsh', 'yantao'), { recursive: true })
     for (const broken of ['{ not json', 'null', '42', '[]']) {
       await writeFile(capabilityStatePath(kbRoot), broken, 'utf8')
       expect(readCapabilityState(kbRoot, 'mail')).toBeUndefined()
@@ -137,7 +137,7 @@ describe('importLegacyRootState', () => {
   })
 
   it('leaves an existing state file untouched and still retires the legacy file', async () => {
-    await mkdir(join(kbRoot, '.yantao'), { recursive: true })
+    await mkdir(join(kbRoot, '.dsh', 'yantao'), { recursive: true })
     await writeFile(capabilityStatePath(kbRoot), JSON.stringify({ capabilities: {} }), 'utf8')
     await mkdir(join(home, '.dsh'), { recursive: true })
     await writeFile(legacyPath(), JSON.stringify({

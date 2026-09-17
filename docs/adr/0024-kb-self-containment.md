@@ -4,6 +4,13 @@ status: accepted
 
 # KB 自包含（yantao 数据以 KB 根为唯一归宿）
 
+> **修订（2026-09-17）**：KB 根内的 yantao 记账目录从 `.yantao/` 并入 `.dsh/yantao/`——
+> KB 根从此只有 `.dsh/` 一个机器簿记目录（`skills/` 是上游约定，`yantao/` 是我们的），
+> 降低"拷哪个目录才算备份全"的认知负担。决定 2 的路径读作 `<kbRoot>/.dsh/yantao/state.json`；
+> templates（ADR-0026）、capability-backups、capabilities 产物同样落在 `.dsh/yantao/` 下。
+> 迁移是手动一次性搬（旧目录改名 `.yantao.bak` 留观），**不设代码内导入分支**——单人单机、
+> 缺状态的后果只是多拉一次邮件，为它写永久迁移代码不值。技能路径（决定 4）不变。
+
 ADR-0021 决定 5 把能力元数据放在 `~/.dsh/yantao-kb.json`——KB 外面。盘点后确认这是
 yantao **自有**的唯一的 KB 外文件（`packages/yantao/kb/src/root-store.ts`），里面装三样：
 KB 指针（`root`）、能力状态（`capabilities.<name>.{state, lastRunAt}`，含 mail 水印）、

@@ -232,7 +232,7 @@ export function apply(ctx: Context, config: Config): void {
     description:
       '创建一个实体笔记文件（type + name）。实体名会转换为安全文件名；同名实体已存在时拒绝——'
       + '之后的一切补充都通过 kb_append_log 追加或 kb_write_state 改写状态。'
-      + '正文骨架来自 .yantao/templates/<type>.md（无此文件时用内置模板）；「流水」区由机制保证必然存在，'
+      + '正文骨架来自 .dsh/yantao/templates/<type>.md（无此文件时用内置模板）；「流水」区由机制保证必然存在，'
       + '「状态」区以模板为准（模板没写该区段时 kb_write_state 不可用）。'
       + 'relation 与 email 仅对 person 有意义，relation 默认 subordinate；date 仅对 meeting 有意义，是该会议的日期，默认今天。'
       + 'todo 是单例，不能用此工具创建。',

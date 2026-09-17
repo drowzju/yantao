@@ -13,7 +13,7 @@
  *
  * A builtin that no longer ships (`ebook`, retired 2026-09-14 with the
  * reading-project flow) is *retired*: a seeded copy is moved under
- * `.yantao/capability-backups/` — losslessly, never hard-deleted — so it
+ * `.dsh/yantao/capability-backups/` — losslessly, never hard-deleted — so it
  * stops appearing in the capability list and the agent's catalog without
  * destroying anything the human may have customized.
  *
@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 
 /**
  * Builtin capabilities that no longer ship. A seeded copy found in the KB is
- * retired (moved under `.yantao/capability-backups/`) instead of updated, so
+ * retired (moved under `.dsh/yantao/capability-backups/`) instead of updated, so
  * it disappears from the capability list and the agent's catalog.
  */
 const RETIRED: readonly string[] = ['ebook']
@@ -108,7 +108,7 @@ function treesDiffer(target: string, master: string): boolean {
 /**
  * Back up a drifted KB copy before the versioned master overwrites it
  * (ADR-0023 决定 7): the human's hand edits survive the upgrade under
- * `<kbRoot>/.yantao/capability-backups/<name>/<timestamp>/`. Backup is loss
+ * `<kbRoot>/.dsh/yantao/capability-backups/<name>/<timestamp>/`. Backup is loss
  * insurance, not a merge — and never a gate: any failure here is swallowed,
  * because the version comparison has already decided the overwrite happens.
  * @param kbRoot - the live knowledge-base root.
@@ -122,7 +122,7 @@ export function backupIfDrifted(kbRoot: string, name: string, target: string, ma
     // Colons and dots are illegal or awkward in Windows paths; the stamp is
     // sortable and safe: 2026-09-14T09-15-33-123Z.
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    cpSync(target, join(kbRoot, '.yantao', 'capability-backups', name, stamp), { recursive: true })
+    cpSync(target, join(kbRoot, '.dsh', 'yantao', 'capability-backups', name, stamp), { recursive: true })
   } catch {
     // An unreadable copy or a locked file surfaces on the run that needs the
     // capability — seeding (and therefore backing up) is not a gate.
@@ -131,7 +131,7 @@ export function backupIfDrifted(kbRoot: string, name: string, target: string, ma
 
 /**
  * Retire a seeded copy of a builtin that no longer ships: move it under
- * `.yantao/capability-backups/<name>/<stamp>-retired/` — a copy-plus-delete
+ * `.dsh/yantao/capability-backups/<name>/<stamp>-retired/` — a copy-plus-delete
  * rather than a rename, because the KB root may sit on another drive. The
  * human's customizations survive; the copy just stops being a capability.
  * @param kbRoot - the live knowledge-base root.
@@ -142,7 +142,7 @@ function retireCapability(kbRoot: string, name: string, target: string): void {
   try {
     if (!existsSync(target)) return
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const dest = join(kbRoot, '.yantao', 'capability-backups', name, `${stamp}-retired`)
+    const dest = join(kbRoot, '.dsh', 'yantao', 'capability-backups', name, `${stamp}-retired`)
     mkdirSync(dirname(dest), { recursive: true })
     cpSync(target, dest, { recursive: true })
     rmSync(target, { recursive: true, force: true })

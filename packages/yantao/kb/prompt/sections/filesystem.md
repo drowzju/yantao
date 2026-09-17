@@ -5,7 +5,7 @@
 - `resources/` — Resource：不可变的原始输入材料。登记是纯复制，进入后**永不改写**；不读它当上下文，也不把它的路径当成果落库。
 - `entities/projects|areas|people|meetings/` — Entity：PARA+P 四类实体，一个实体一个 Markdown 文件。
 - `entities/todos.md` — 待办单例：整个知识库只有这一个待办文件，checkbox 列表，没有区段结构。
-- `.yantao/` — 机器簿记（能力产物缓存）。**不是知识**，不要读它当上下文，更不要把它的路径当成果落库。
+- `.dsh/yantao/` — 机器簿记（能力产物缓存）。**不是知识**，不要读它当上下文，更不要把它的路径当成果落库。
 
 每个实体文件的同构区段：
 
