@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { KbTodosResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { Proposal } from '../src/client/proposal.ts'
 import type { ProposalTarget } from '../src/client/proposal-apply.ts'
-import { applyProposal, insertIntoSection } from '../src/client/proposal-apply.ts'
+import { applyProposal, insertIntoSection, replaceSection } from '../src/client/proposal-apply.ts'
 
 const TODOS_PATH = 'entities/todos.md'
 const TEXT = '- [ ] 已有的待办\n'
@@ -166,5 +166,96 @@ describe('applyProposal', () => {
     const writeOrder = (t.write as unknown as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0] as number
     const createOrder = (t.createEntity as unknown as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0] as number
     expect(writeOrder).toBeLessThan(createOrder)
+  })
+})
+
+describe('replaceSection', () => {
+  it('replaces the section body and keeps the rest of the file', () => {
+    const content = '# 张三\n\n## 状态\n\n旧内容\n\n## 流水\n\n- 2026-01-01 创建\n'
+    const next = replaceSection(content, '## 状态', '新内容')
+    expect(next).toContain('新内容')
+    expect(next).not.toContain('旧内容')
+    expect(next).toContain('## 流水')
+    expect(next).toContain('- 2026-01-01 创建')
+    expect(next.indexOf('新内容')).toBeLessThan(next.indexOf('## 流水'))
+  })
+
+  it('creates a section the file does not carry at the end of the file', () => {
+    const content = '# 张三\n\n## 状态\n\n合作中\n'
+    const next = replaceSection(content, '## 目标', '年内跑通')
+    expect(next).toContain('## 目标')
+    expect(next).toContain('年内跑通')
+    expect(next.indexOf('## 目标')).toBeGreaterThan(next.indexOf('合作中'))
+  })
+
+  it('refuses a heading the file carries twice instead of picking one', () => {
+    const content = '## 状态\n\n一\n\n## 状态\n\n二\n'
+    expect(() => replaceSection(content, '## 状态', '三')).toThrow(/2 次/)
+  })
+})
+
+describe('edit-section actions', () => {
+  const ENTITY = 'entities/projects/飞书迁移.md'
+  const CONTENT = '# 飞书迁移\n\n## 目标\n\n旧目标\n\n## 流水\n\n- 2026-01-01 创建\n'
+
+  function targetWith(content: string): ProposalTarget {
+    return target({ read: vi.fn(async () => content) })
+  }
+
+  it('replaces the section body in the freshly read file', async () => {
+    const t = targetWith(CONTENT)
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'edit-section', path: ENTITY, section: '目标', before: '旧目标', after: '新目标', why: 'w' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(t.read).toHaveBeenCalledWith(ENTITY)
+    const [path, next] = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
+    expect(path).toBe(ENTITY)
+    expect(next).toContain('新目标')
+    expect(next).not.toContain('旧目标')
+    expect(result.written).toEqual([`章节 目标（${ENTITY}）`])
+  })
+
+  it('creates a missing section instead of failing the row', async () => {
+    const t = targetWith('# 飞书迁移\n\n## 状态\n\n进行中\n')
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'edit-section', path: ENTITY, section: '下一步', before: '', after: '迁移邮箱', why: 'w' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(result.skipped).toEqual([])
+    const [, next] = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
+    expect(next).toContain('## 下一步')
+    expect(next).toContain('迁移')
+  })
+
+  it('refuses a 流水 target: the append-only section has no UI bypass', async () => {
+    const t = targetWith(CONTENT)
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'edit-section', path: ENTITY, section: '流水', before: '', after: '改写', why: 'w' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(t.read).not.toHaveBeenCalled()
+    expect(t.write).not.toHaveBeenCalled()
+    expect(result.skipped).toEqual(['章节 流水（entities/projects/飞书迁移.md）：流水只增不改'])
+  })
+
+  it('marks one failed action red and still lands the rest', async () => {
+    // The file carries the section twice — the one pathology replaceSection
+    // refuses rather than guessing which body "the" section has.
+    const t = targetWith('# 飞书迁移\n\n## 状态\n\n一\n\n## 状态\n\n二\n')
+    const proposal: Proposal = {
+      title: 't',
+      actions: [
+        { kind: 'edit-section', path: ENTITY, section: '状态', before: '', after: '三', why: 'w' },
+        { kind: 'save-resource', path: 'resources/note.md', content: 'n', reason: 'r' },
+      ],
+    }
+    const result = await applyProposal({ proposal, ticked: [0, 1], target: t })
+    expect(result.skipped).toHaveLength(1)
+    expect(result.skipped[0]).toContain('出现 2 次')
+    expect(result.written).toEqual(['资源 resources/note.md'])
   })
 })

@@ -66,6 +66,24 @@ export type ProposalAction =
     readonly body: string
     readonly reason: string
   }
+  | {
+    /**
+     * Replace one `## ` section's body in an entity file (ADR-0029 决定 3).
+     * `before` is what the model saw (shown on the card); at apply time the
+     * file is re-read and the section re-located, so `after` always lands on
+     * the current body, never on a snapshot. A section the file does not
+     * carry is created (only the UI channel may create sections —
+     * `kb_edit_section` hard-errors on a missing anchor); `## 流水` is
+     * refused at apply time (append-only iron law).
+     */
+    readonly kind: 'edit-section'
+    readonly path: string
+    /** The section heading without the `## ` prefix, e.g. `状态`. */
+    readonly section: string
+    readonly before: string
+    readonly after: string
+    readonly why: string
+  }
 
 /** One mail the analysis flagged, shown on the card without a checkbox. */
 export interface ProposalHighlight {
@@ -102,6 +120,7 @@ export const GROUP_KEYS: Record<ProposalAction['kind'], WorkbenchLocaleKey> = {
   'save-resource': 'group.resource',
   'create-link': 'group.domainLink',
   'add-todo': 'group.todo',
+  'edit-section': 'group.editSection',
 }
 
 /** Today as a YYYY-MM-DD stamp, in the human's own timezone. */

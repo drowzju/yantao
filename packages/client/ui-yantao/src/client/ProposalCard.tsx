@@ -65,7 +65,7 @@ const footerStyle = {
 
 /** The kinds in the order the card lists their groups. */
 const GROUP_ORDER: readonly ProposalAction['kind'][] = [
-  'create-entity', 'add-todo', 'append-log', 'write-state', 'create-link', 'save-resource',
+  'create-entity', 'add-todo', 'append-log', 'write-state', 'edit-section', 'create-link', 'save-resource',
 ]
 
 /** One row's main text, as the human reads it. */
@@ -77,11 +77,13 @@ function labelOf(action: ProposalAction): string {
     case 'write-state': return action.entityName
     case 'create-link': return action.link
     case 'save-resource': return action.path
+    case 'edit-section': return action.section
   }
 }
 
 /** One row's explanation — why the agent proposes this. */
 function detailOf(action: ProposalAction): string {
+  if (action.kind === 'edit-section') return `${action.path}：${action.why}`
   return action.reason
 }
 

@@ -184,6 +184,7 @@ export const zh = {
   'group.resource': '资源',
   'group.domainLink': '领域关联',
   'group.todo': '待办',
+  'group.editSection': '章节改写',
 } satisfies Record<string, string>
 
 /** Workbench locale key union. */
@@ -354,4 +355,5 @@ export const en = {
   'group.resource': 'Resources',
   'group.domainLink': 'Domain links',
   'group.todo': 'Todos',
+  'group.editSection': 'Section edits',
 } satisfies Record<WorkbenchLocaleKey, string>
