@@ -24,6 +24,7 @@ yantao 是一个**个人知识工作台**:以纯 Markdown 存放 PARA+P 知识�
 | `packages/boot/app-boot/src/profile.ts` | 注册 profile 模板 `yantao` 与 `yantao-web` |
 | `apps/cli/package.json` | workspace 依赖,让 profile 树能解析我们的包 |
 | `packages/api/remotes/{package.json,src/client/index.ts,tsconfig.*.json}` | 在两个平面挂载 `yantaoKb` Remote 命名空间 |
+| `packages/client/ui-conversation/src/client/input/facade.ts` | 引用 chip 退格逐级展开为父目录提及(ADR-0028 决定 5):`KEY_BACKSPACE_COMMAND` CRITICAL 注册 |
 | `packages/extensions/tool-cordis/src/api-catalog.ts` | 我们 Remote 的生成式目录条目 |
 | `tsconfig.base.json`、`tsconfig.client.json`、`tsconfig.host.json` | 我们包的生成别名与项目引用 |
 | `docs/capability-seams.md`、`docs/config-catalog.md` | 重新生成的文档 |
@@ -58,7 +59,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 ```
 
 - **dsh 是后端。** 我们的 UI 通过 Typert RPC 与转发事件流消费它,而浏览器外壳归我们:工作台插件注册运行时内置的 `root` 槽位、自绘三栏外框(ADR-0011),`ui-layout` 已退出名单。中间一列是 tab 化的:常驻的「对话」tab 通过 `conversation` 座位承载宿主的会话面(ADR-0009),每个打开的 KB 文件各占一个可关闭 tab,自动保存并带冲突检查(ADR-0012)。
-- **信任边界在工具层。** agent 有八个 `kb_*` 工具、没有通用写能力;它现在可以通过 `kb_write_state` 写实体的「状态」区——这正是 ADR-0010 对 ADR-0004 的修订:边界是工具集,不是区段;它运行能力也只能通过 `kb_run_capability`,由 sidecar 的 `invocation` 字段逐能力把关(ADR-0023)。**UI 是人类通道**,可以编辑任何内容。
+- **信任边界在工具层。** agent 有十一个 `kb_*` 工具、没有通用写能力;它现在可以通过 `kb_write_state` 写实体的「状态」区——这正是 ADR-0010 对 ADR-0004 的修订:边界是工具集,不是区段;它读写 `resources/` 分别走 `kb_write_resource`(只新建)与 `kb_read_resource`(只读,ADR-0028);它运行能力也只能通过 `kb_run_capability`,由 sidecar 的 `invocation` 字段逐能力把关(ADR-0023)。**UI 是人类通道**,可以编辑任何内容。
 - **知识存在文件里**,不是数据库:KB 根下的 `resources/`、`entities/{projects,areas,people,meetings}/`、`entities/todos.md` 单例,以及暂不使用的 `sessions/`(ADR-0005,目录结构调整见 ADR-0010)。每个实体文件里的「状态」/「流水」两区就是人与 agent 的边界。
 - **知识库根目录由人选。** 首次进入会要求选一个目录并持久化到 `~/.dsh/yantao-kb.json`(`yantaoKb.root()` / `setRoot()`);两条侧栏通过 `yantaoKb.createEntity()` 就地新建实体(ADR-0012)。
 
@@ -101,6 +102,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0025 | 三方技能接入:未注册分组 + 拷贝进 KB 的采纳动作,`/xxx` 手势(pre-step 双消息注入),资源右键对指令型能力发当前会话,选区右键 opt-in,`/` 自动补全源,注册 = 在中央路由文件 `.dsh/skills/yantao.json` 写路由条目(不移动、不改名) |
 | 0026 | 类型化模板与协作边界重划:实体模板文件 `<kbRoot>/.yantao/templates/<type>.md` + 内置回落(状态以模板为主——模板没写该区段就不补、不校验;流水由机制保证——缺失自动补齐、重复才回落),`kb_edit_section` 区段寻址编辑(流水仍只追加、frontmatter 封存),`kb_write_resource` 只新建不覆盖,右键/选区手势统一为合成 `/name @path` slash 消息走 pre-step 管线(客户端拼接退役) |
 | 0027 | 单人项目的门禁降级:yantao 自有文档与包 README 中文单语化(删 twins 与配对记录,豁免目录化),model-experience 门摘除 yantao 包,pre-push 全仓 typecheck 移除;staged lint、whitespace、vendor manifest、notices、生成目录检查与测试保留 |
+| 0028 | 资源读取与目录提及:`kb_read_resource` 第十一个工具(文件 UTF-8 全文/二进制拒绝报大小,目录递归清单封顶 100),`@` 目录提及展开为清单+内容(96k 预算、二进制占位行),资源栏树状展示(可折叠、零 wire 变更),`@` 菜单合成目录候选 + serialize 空格引号 |
 
 ## 5. 快速上手
 
@@ -132,7 +134,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 |---|---|
 | [development.md](development.md) | 构建、运行、停止、测试、门禁、坑 |
 | [TODO.md](TODO.md) | 待办:done / next / deferred(每个搁置项都带原因) |
-| [../adr/](../adr/) | ADR 0001–0027(索引见第 4 节) |
+| [../adr/](../adr/) | ADR 0001–0028(索引见第 4 节) |
 | [../subsystems/yantao.md](../subsystems/yantao.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | 上下文地图:yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | 词汇表(规范用词) |

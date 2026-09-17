@@ -88,12 +88,17 @@
 
 | **类型化模板与协作边界重划(ADR-0026 2026-09-16)** —— 建实体前置读 `<kbRoot>/.yantao/templates/<type>.md`(只给正文骨架,frontmatter 仍由代码按类型生成,无占位符),**状态以模板为主**(模板写什么区段实体就有什么,缺失不补不校验),**流水由机制保证**(正文缺 `## 流水` 自动补末尾含创建行,仅流水重复才回落内置并提示);第九个工具 `kb_edit_section`:拼接器泛化为 `replaceSection` 改写任意 `## ` 区段(流水在拼接层拒绝 `log-append-only`,todo 单例与坏 frontmatter 照旧拒收,`kb_write_state` 保留为状态区语义糖),persona 的"状态区人类专属"按实际能力重写;第十个工具 `kb_write_resource`:resources/ 下只新建文本文件(KB 相对路径必须以 `resources/` 开头,逐段 `sanitizeFileName`,撞名拒绝——不覆盖、不静默改名,资源树经 ADR-0017 的 revision 轮询即时刷新);手势即 slash:三手势统一合成 `/name @path` / `/name <选中文字>`(多行包 `> ` 引用块)用户消息发当前会话(`capabilityGestureMessage`,无会话则新建),脚本型照旧 `capabilityRun` → 提案卡,UI 侧 SKILL.md 拼接退役 | `packages/yantao/kb/src/{templates,core,splice,index}.ts`、`packages/bundle/yantao/cordis.patch.yml`、`packages/client/ui-yantao/src/client/{capability-gesture,session-prompt,SelectionMenu,Workbench}.ts*` + `frame/Frame.tsx`、`AGENTS.md`、`docs/yantao/README.md`、`docs/adr/{0010,0025,0026}-*`、`packages/yantao/kb/README.md`。验证:kb 150 + controller 155 + ui-yantao 207 测试全绿,`tsc -b`、scoped oxlint、`gen-cordis-catalog` 通过 |
 
+| **资源读取与目录提及(ADR-0028 2026-09-16)** —— 第十一个工具 `kb_read_resource`:读 `resources/` 下的文件(UTF-8 全文;含 NUL 判二进制,拒绝并报大小)或目录(递归清单 path+size,封顶 100 带 truncated;清单不带内容也不探二进制);`@` 提及管线升级:提及路径 stat 分流,目录展开为"清单+内容"(每文件 32k 截断不变、每目录 96k 内容预算、条目封顶 100,二进制/超预算降为占位行),直接 `@` 二进制文件从灌乱码改为占位行(修 utf8 乱码洞);资源 tab 渲染可折叠 `ResourceTree`(按 `file.path` 目录前缀分组、默认全展开、行菜单/选中行为与平铺一致、零 wire 变更);`@` 菜单从资源路径中间段合成目录候选(icon folder、ref 尾斜杠),serialize 对含空格路径输出宿主正则的引号形态(修提及静默截断洞) | `packages/yantao/kb/src/{core,mentions,cited,index}.ts`(cited.ts 新增:提及读取的 stat 分流与预算遍历)、`packages/client/ui-yantao/src/client/{Workbench.tsx,kb-reference.ts}`、`AGENTS.md`、`docs/yantao/README.md`、`packages/yantao/kb/README.md`、`packages/bundle/yantao-web-app/README.md`、`docs/adr/0028-*`。验证:kb 167 + controller 156 + ui-yantao 215 测试全绿,scoped oxlint、`gen-cordis-catalog --check` 通过 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
 
 1. **阅读视图 v4 —— Mermaid 与本地图片** —— 两者都要付代价:客户端包是单文件 CJS,mermaid 会被内联成 ~3.5MB(或要改宿主模块表);
    本地图片需要新 RPC + 宿主路由,因为 `read()` 是 utf8,二进制会被解坏。等知识库里真出现一个再开工。
+2. **拖入登记保留子路径?** —— 2026-09-16 资源子目录递归展示已完整落地(宿主 `resourceSection` 递归 + 前端
+   `ResourceTree` 树状分组,ADR-0028)。剩余:`registerResource` 拖入登记是否保留子路径(目前仍登记到
+   `resources/` 根)。
 
 ## blocked(附原因)
 

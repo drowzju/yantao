@@ -18,6 +18,7 @@ import type { EntityTemplateOptions } from './templates.ts'
 import { assembleEntityFile, builtinEntityBody, entityFrontmatter, KB_README, templateBodyOf, todoFileContent } from './templates.ts'
 import type { EntityType } from './types.ts'
 import { ENTITY_DIRS, ENTITY_TYPES, KbError, SINGLETON_FILES } from './types.ts'
+import { MAX_DIR_ENTRIES } from './mentions.ts'
 
 /** KB-relative path with forward slashes, for model- and human-facing output. */
 function displayPath(kbRoot: string, absolute: string): string {
@@ -469,4 +470,86 @@ export async function writeResource(kbRoot: string, path: string, content: strin
   await mkdir(dirname(resourceTarget), { recursive: true })
   await writeFile(resourceTarget, content, 'utf8')
   return { resource: displayPath(root, resourceTarget) }
+}
+
+/** One listed resource row: KB-relative path and byte size. */
+export interface ListedResource {
+  path: string
+  size: number
+}
+
+/** The result of reading one resource: a file's full text, or a directory listing. */
+export type ReadResourceResult =
+  | { kind: 'file'; path: string; content: string }
+  | { kind: 'dir'; path: string; entries: ListedResource[]; truncated?: boolean }
+
+/**
+ * Read one entry under `resources/` — the read half of the resource plane
+ * (ADR-0028 决定 1), closing the write-only asymmetry ADR-0026 left behind.
+ * The path gate mirrors {@link writeResource} minus sanitization: a read
+ * must name the file exactly as it sits on disk, so segments are only
+ * checked (resources/ prefix, no `.`/`..`), never rewritten. A file answers
+ * its UTF-8 full text; NUL bytes mark it binary and the read is refused with
+ * the size rather than injecting mojibake. A directory answers a recursive
+ * listing of path + size, capped at {@link MAX_DIR_ENTRIES} with a
+ * `truncated` flag — the listing carries no content, and the agent reads
+ * files from it one call at a time.
+ * @param kbRoot - the knowledge-base root to read from.
+ * @param path - KB-relative resource path, e.g. `resources/报告/周报.md` or `resources/报告`.
+ * @returns the file's text, or the directory's recursive listing.
+ */
+export async function readResource(kbRoot: string, path: string): Promise<ReadResourceResult> {
+  const root = resolveWithinKb(kbRoot)
+  const segments = path.split(/[\\/]/).filter(segment => segment !== '')
+  if (segments[0] !== 'resources') {
+    throw new KbError('resource-outside-plane', `只能读取 resources/ 下的资源（形如 resources/报告/周报.md），收到的是「${path}」`)
+  }
+  const rest = segments.slice(1)
+  if (rest.length === 0) {
+    throw new KbError('resource-invalid-name', '资源路径不能为空；请给出形如 resources/周报.md 的路径')
+  }
+  for (const segment of rest) {
+    if (segment === '.' || segment === '..') {
+      throw new KbError('resource-invalid-name', `资源路径段「${segment}」不合法；不允许相对目录段`)
+    }
+  }
+  const target = resolveWithinKb(root, 'resources', ...rest)
+  const display = displayPath(root, target)
+  let info
+  try {
+    info = await stat(target)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new KbError('resource-not-found', `找不到资源「${display}」；目录路径会返回递归清单`)
+    }
+    throw error
+  }
+  if (info.isDirectory()) {
+    const entries: ListedResource[] = []
+    // Walk one directory level; answers whether the entry cap ended the listing.
+    const walk = async (dir: string, prefix: string): Promise<boolean> => {
+      const dirents = await readdir(dir, { withFileTypes: true })
+      dirents.sort((left, right) => left.name.localeCompare(right.name))
+      for (const dirent of dirents) {
+        if (entries.length >= MAX_DIR_ENTRIES) return true
+        if (dirent.isDirectory()) {
+          if (await walk(join(dir, dirent.name), `${prefix}${dirent.name}/`)) return true
+        } else if (dirent.isFile()) {
+          const fileStat = await stat(join(dir, dirent.name))
+          entries.push({ path: `${prefix}${dirent.name}`, size: fileStat.size })
+        }
+      }
+      return false
+    }
+    const truncated = await walk(target, '')
+    return { kind: 'dir', path: display, entries, ...(truncated ? { truncated: true } : {}) }
+  }
+  if (!info.isFile()) {
+    throw new KbError('resource-not-file', `「${display}」既不是普通文件也不是目录`)
+  }
+  const buffer = await readFile(target)
+  if (buffer.includes(0)) {
+    throw new KbError('resource-binary', `「${display}」是二进制文件（${buffer.length} 字节）；不注入二进制内容`)
+  }
+  return { kind: 'file', path: display, content: buffer.toString('utf8') }
 }

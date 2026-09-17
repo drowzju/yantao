@@ -1,5 +1,5 @@
 ---
-description: "yantao PARA+P 知识库插件：九个 kb_ 工具，是 agent 写入文件型个人知识库的唯一途径，面向 yantao profile 的使用者与维护者。"
+description: "yantao PARA+P 知识库插件：十个 kb_ 工具，是 agent 读写文件型个人知识库的唯一途径，面向 yantao profile 的使用者与维护者。"
 kind: "package-reference"
 ---
 
@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-yantao-kb` 是 yantao profile 的领域插件：建立在纯文件个人知识库（PARA+P）之上的九个模型侧工具。知识库是一个由 Markdown 实体笔记（`entities/projects|areas|people|meetings/*.md`，以及单例清单 `entities/todos.md`）、永不改写的原始材料（`resources/`）与会话归档（`sessions/`）组成的目录。每个实体文件都有只许追加的 `## 流水` 区（机制保证存在）；其余 `## ` 区段是否存在于模板的定性——agent 可经区段工具整体改写任意区段（『流水』除外），frontmatter 永不可写；`resources/` 只接受新建、拒绝覆盖。工具在结构上执行这条边界。yantao profile bundle 挂载本插件时会移除通用写入工具，使这组工具成为 agent 的唯一写入口。
+`dsh-yantao-kb` 是 yantao profile 的领域插件：建立在纯文件个人知识库（PARA+P）之上的十个模型侧工具。知识库是一个由 Markdown 实体笔记（`entities/projects|areas|people|meetings/*.md`，以及单例清单 `entities/todos.md`）、永不改写的原始材料（`resources/`）与会话归档（`sessions/`）组成的目录。每个实体文件都有只许追加的 `## 流水` 区（机制保证存在）；其余 `## ` 区段是否存在于模板的定性——agent 可经区段工具整体改写任意区段（『流水』除外），frontmatter 永不可写；`resources/` 只接受新建、拒绝覆盖，agent 可以读回其中的文件与目录清单。工具在结构上执行这条边界。yantao profile bundle 挂载本插件时会移除通用写入工具，使这组工具成为 agent 的唯一读写入口。
 
 ## 目录
 
@@ -33,7 +33,7 @@ yantao profile 会自动挂载本插件；随后用 `kb_init` 准备一个全新
 
 agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我自己」+ 待办单例）、`kb_create_entity`（按 canonical 模板写入项目文件）、`kb_append_log`（在『流水』区末尾追加 `- YYYY-MM-DD …` 条目）。除非 agent 调用 `kb_write_state`，新文件的『状态』区始终与模板逐字节一致。
 
-### 九个工具
+### 十个工具
 
 | 工具 | 签名 | 作用 |
 |---|---|---|
@@ -46,6 +46,7 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 | `kb_list_entities` | `(type?, includeArchived?)` | 列出实体名；frontmatter 含 `archive: true` 的默认隐藏 |
 | `kb_register_resource` | `(path)` | 把原始材料按原名（经安全文件名处理）原样复制进 `resources/`；同名重复时拒绝（ADR-0020） |
 | `kb_write_resource` | `(path, content)` | 在 `resources/` 下新建一个文本文件（可含子目录，路径以 `resources/` 开头）；目标已存在时拒绝——不覆盖、不静默改名（ADR-0026） |
+| `kb_read_resource` | `(path)` | 读取 `resources/` 下的文件（UTF-8 全文；二进制拒绝并报大小）或目录（递归清单：路径 + 字节大小，封顶 100 项，ADR-0028） |
 
 ### 配置
 
@@ -81,8 +82,10 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：Config（`kbRoot`）与九个 `defineTool` 注册 |
-| [`src/core.ts`](src/core.ts) | 工具背后的九个文件系统操作 |
+| [`src/index.ts`](src/index.ts) | 插件入口：Config（`kbRoot`）与十个 `defineTool` 注册 |
+| [`src/core.ts`](src/core.ts) | 工具背后的十个文件系统操作 |
+| [`src/cited.ts`](src/cited.ts) | `@` 提及的文件系统半边：stat 分流、目录预算遍历、NUL 二进制识别（ADR-0028） |
+| [`src/mentions.ts`](src/mentions.ts) | `@` 提及的解析与渲染（纯函数）：正则、预算常量、`<kb-file>`/`<kb-dir>` 上下文块 |
 | [`src/splice.ts`](src/splice.ts) | 区段拼接器（任意 `## ` 锚点，『流水』拒写）与日志条目构造 |
 | [`src/frontmatter.ts`](src/frontmatter.ts) | 只读的 frontmatter 信封解析（js-yaml） |
 | [`src/paths.ts`](src/paths.ts) | `sanitizeFileName`、日期戳、限制在 kbRoot 内的路径解析，以及带日期的会议定位 |
@@ -121,11 +124,11 @@ agent 会依次调用 `kb_init`（目录结构 + 根 README + 库主实体「我
 
 #### 模型看到什么
 
-九个 `kb_` 模式（`kb_init`、`kb_create_entity`、`kb_append_log`、`kb_write_state`、`kb_edit_section`、`kb_read_entity`、`kb_list_entities`、`kb_register_resource`、`kb_write_resource`）：中文描述会点名信任边界（`kb_append_log` 声明只向『流水』区追加，缺少锚点时报错而非重建；`kb_write_state` 声明只替换『状态』区、不碰『流水』区；`kb_edit_section` 声明任意区段可改写但『流水』除外、frontmatter 永不可写；`kb_write_resource` 声明只在 `resources/` 下新建、拒绝覆盖）。成功的结果是携带知识库相对路径的紧凑 JSON；`kb_read_entity` 返回实体文件全文。失败以中文 `KbError` 消息到达，指明具体问题（缺少锚点、实体已存在、frontmatter 不合法、路径越出知识库根目录、目标必须在 `resources/` 下）。
+十个 `kb_` 模式（`kb_init`、`kb_create_entity`、`kb_append_log`、`kb_write_state`、`kb_edit_section`、`kb_read_entity`、`kb_list_entities`、`kb_register_resource`、`kb_write_resource`、`kb_read_resource`）：中文描述会点名信任边界（`kb_append_log` 声明只向『流水』区追加，缺少锚点时报错而非重建；`kb_write_state` 声明只替换『状态』区、不碰『流水』区；`kb_edit_section` 声明任意区段可改写但『流水』除外、frontmatter 永不可写；`kb_write_resource` 声明只在 `resources/` 下新建、拒绝覆盖；`kb_read_resource` 声明只读 `resources/`、二进制拒绝并报大小）。成功的结果是携带知识库相对路径的紧凑 JSON；`kb_read_entity` 返回实体文件全文，`kb_read_resource` 返回文件全文或目录清单。失败以中文 `KbError` 消息到达，指明具体问题（缺少锚点、实体已存在、frontmatter 不合法、路径越出知识库根目录、目标必须在 `resources/` 下、二进制文件不注入内容）。
 
 #### Token 影响
 
-九个工具的固定模式开销，外加每次调用一条紧凑结果；`kb_read_entity` 的结果是数据相关的（实体文件全文），本包不设上限。
+十个工具的固定模式开销，外加每次调用一条紧凑结果；`kb_read_entity` 与 `kb_read_resource` 的结果是数据相关的（实体文件全文；资源文件全文或封顶 100 项的目录清单），本包不设上限。
 
 #### KV Cache 影响
 

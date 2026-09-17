@@ -29,7 +29,7 @@ kind: "package-reference"
 
 | 方法 | 签名 | 结果 |
 |---|---|---|
-| `yantaoKb.intakeTree` | `()` | 收集侧的小节（`resources`、`meetings`、`todos`）；资源按普通文件列出——原件保留文件名的后缀，因此 `周报.eml` 与 `周报.eml.md` 不会被看成同一个东西 |
+| `yantaoKb.intakeTree` | `()` | 收集侧的小节（`resources`、`meetings`、`todos`）；资源按普通文件列出——原件保留文件名的后缀，因此 `周报.eml` 与 `周报.eml.md` 不会被看成同一个东西；递归含子目录（`kb_write_resource` 写进子目录的文件也会出现），嵌套文件的显示名带相对 `resources/` 的目录前缀，伴生笔记配对仍在同一目录内 |
 | `yantaoKb.workspaceTree` | `()` | 工作侧的小节（`projects`、`areas`、`people`）；实体行额外携带 `archived`，人物行还有 `relation` 与 `email` |
 | `yantaoKb.read` | `(path)` | `{ path, content }`——文件完整 UTF-8 内容 |
 | `yantaoKb.write` | `(path, content)` | `{ path }`——整文件写入，自动创建缺失的父目录 |

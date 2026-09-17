@@ -9,8 +9,8 @@ import { describe, expect, it } from 'vitest'
 import { createHeadlessEditor } from '@lexical/headless'
 import type { LexicalEditor, NodeKey, ParagraphNode } from 'lexical'
 import {
-  $createLineBreakNode, $createParagraphNode, $createTextNode, $getRoot, $getSelection,
-  $isTextNode, $setSelection,
+  $createLineBreakNode, $createParagraphNode, $createRangeSelection, $createTextNode, $getRoot,
+  $getSelection, $isTextNode, $setSelection,
 } from 'lexical'
 import type { ReferenceInsert } from '../src/client/contract/input.ts'
 import {
@@ -23,8 +23,9 @@ import {
   $composerLayout, $detectOffsetOfPoint, $projectComposer, ATOMIC_CHAR,
 } from '../src/client/input/editor/projection.ts'
 import {
-  $replaceDetectSpanWithNodes, $replaceDetectSpanWithText,
+  $replaceDetectSpanWithNodes, $replaceDetectSpanWithText, $selectDetectSpan,
 } from '../src/client/input/editor/span-map.ts'
+import { chipBackspaceMention, $trimChipAtCaret } from '../src/client/input/facade.ts'
 
 const SESSION_REF: ReferenceInsert = {
   source: 'session-reference',
@@ -464,5 +465,101 @@ describe('claim precedence over text-ref entities', () => {
       if ($isTextNode(first)) first.markDirty()
     }, { discrete: true })
     expect(leaf()).toEqual({ type: 'text', style: TOKEN_STYLE, text: '/plan' })
+  })
+})
+
+describe('chipBackspaceMention', () => {
+  it('unpacks the parent directory, quoting paths with spaces', () => {
+    expect(chipBackspaceMention('resources/报告/周报.md')).toBe('@resources/报告/')
+    expect(chipBackspaceMention('resources/报告/')).toBe('@resources/')
+    expect(chipBackspaceMention('resources/周报.md')).toBe('@resources/')
+    expect(chipBackspaceMention('entities/projects/dsh 学习/周报.md')).toBe('@"entities/projects/dsh 学习/"')
+  })
+
+  it('answers undefined without a directory parent — whole-delete chips', () => {
+    expect(chipBackspaceMention('session-a')).toBeUndefined()
+    expect(chipBackspaceMention('commit-helper')).toBeUndefined()
+    expect(chipBackspaceMention('/leading')).toBeUndefined()
+    expect(chipBackspaceMention('resources/')).toBeUndefined()
+  })
+})
+
+describe('$trimChipAtCaret', () => {
+  const FILE_REF: ReferenceInsert = {
+    source: 'kb',
+    ref: 'resources/报告/周报.md',
+    label: '周报.md',
+    appearance: 'file',
+    clipboardText: 'resources/报告/周报.md',
+  }
+
+  /** Seed `看 ` + chip + ` ` and return the chip's detect span. */
+  function seedChip(editor: LexicalEditor, insert: ReferenceInsert): { start: number; end: number } {
+    let span = { start: 0, end: 0 }
+    editor.update(() => {
+      const p = $createParagraphNode()
+      p.append($createTextNode('看 '), $createReferenceChipNode(insert), $createTextNode(' '))
+      $getRoot().append(p)
+      const layout = $composerLayout()
+      const chipSegment = layout.segments.find(segment => segment.kind === 'chip')
+      expect(chipSegment).toBeDefined()
+      span = { start: chipSegment!.detectStart, end: chipSegment!.detectStart + chipSegment!.detectLength }
+    }, { discrete: true })
+    return span
+  }
+
+  it('unpacks a path-like chip at the text-caret chip edge', () => {
+    const editor = makeEditor()
+    const chipSpan = seedChip(editor, FILE_REF)
+    editor.update(() => {
+      // Caret collapsed at the chip's trailing edge (text anchor, offset 0).
+      expect($selectDetectSpan({ start: chipSpan.end, end: chipSpan.end })).toBe(true)
+      expect($trimChipAtCaret()).toBe(true)
+    }, { discrete: true })
+    editor.read(() => {
+      const projection = $projectComposer(idAssigner())
+      expect(projection.clipboardText).toBe('看 @resources/报告/ ')
+      expect(projection.occurrences).toEqual([])
+      expect(projection.caret).toBe(chipSpan.end + '@resources/报告/'.length - 1)
+    })
+  })
+
+  it('answers false away from a chip edge and for whole-delete chips', () => {
+    const editor = makeEditor()
+    const chipSpan = seedChip(editor, FILE_REF)
+    editor.update(() => {
+      // Caret after the separating space: native char deletion territory.
+      expect($selectDetectSpan({ start: chipSpan.end + 1, end: chipSpan.end + 1 })).toBe(true)
+      expect($trimChipAtCaret()).toBe(false)
+    }, { discrete: true })
+    const bare = makeEditor()
+    seedChip(bare, SESSION_REF)
+    bare.update(() => {
+      // Session chip at the edge but no directory parent: whole-delete stays native.
+      const layout = $composerLayout()
+      const chipSegment = layout.segments.find(segment => segment.kind === 'chip')!
+      expect($selectDetectSpan({ start: chipSegment.detectStart + 1, end: chipSegment.detectStart + 1 })).toBe(true)
+      expect($trimChipAtCaret()).toBe(false)
+    }, { discrete: true })
+    bare.read(() => {
+      expect($projectComposer(idAssigner()).occurrences).toHaveLength(1)
+    })
+  })
+
+  it('unpacks at the element-caret chip edge too', () => {
+    const editor = makeEditor()
+    seedChip(editor, FILE_REF)
+    editor.update(() => {
+      const p = $getRoot().getFirstChild() as ParagraphNode
+      const selection = $createRangeSelection()
+      // Element point between the chip (child 1) and the trailing space.
+      selection.anchor.set(p.getKey(), 2, 'element')
+      selection.focus.set(p.getKey(), 2, 'element')
+      $setSelection(selection)
+      expect($trimChipAtCaret()).toBe(true)
+    }, { discrete: true })
+    editor.read(() => {
+      expect($projectComposer(idAssigner()).clipboardText).toBe('看 @resources/报告/ ')
+    })
   })
 })

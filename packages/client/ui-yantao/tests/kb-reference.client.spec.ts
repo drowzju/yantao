@@ -88,3 +88,75 @@ describe('kb @ source', () => {
       .resolves.toBe('@entities/areas/健康.md')
   })
 })
+
+describe('kb @ source — directory candidates (ADR-0028)', () => {
+  /** Resource files with real nesting; the wire name of a nested file is its path below `resources/`. */
+  const nestedIntake: KbTreeSection[] = [
+    {
+      id: 'resources',
+      files: [
+        { name: '周报.eml', path: 'resources/周报.eml' },
+        { name: '报告/2026-09/周报.md', path: 'resources/报告/2026-09/周报.md' },
+      ],
+    },
+  ]
+  const nestedFaces: KbReferenceFaces = {
+    t,
+    intake: () => Promise.resolve(nestedIntake),
+    workspace: () => Promise.resolve([]),
+  }
+
+  it('synthesizes a folder candidate per intermediate directory, ahead of the files', async () => {
+    const rows = await kbReferenceSource(nestedFaces).candidates({} as ClientSessionContext, request(''))
+    expect(rows.map(row => [row.name, row.section])).toEqual([
+      ['报告', '资源'],
+      ['2026-09', '资源'],
+      ['周报.eml', '资源'],
+      ['报告/2026-09/周报.md', '资源'],
+    ])
+    expect(rows.map(row => row.description)).toEqual([
+      'resources/报告/',
+      'resources/报告/2026-09/',
+      'resources/周报.eml',
+      'resources/报告/2026-09/周报.md',
+    ])
+  })
+
+  it('never offers the resources root itself, however flat the section is', async () => {
+    const rows = await kbReferenceSource(faces).candidates({} as ClientSessionContext, request(''))
+    expect(rows.map(row => row.description)).not.toContain('resources/')
+  })
+
+  it('matches a directory candidate by its name or path', async () => {
+    const rows = await kbReferenceSource(nestedFaces).candidates({} as ClientSessionContext, request('报告'))
+    expect(rows.map(row => row.description)).toEqual([
+      'resources/报告/',
+      'resources/报告/2026-09/',
+      'resources/报告/2026-09/周报.md',
+    ])
+  })
+
+  it('picks a directory candidate as a folder chip carrying the trailing-slash ref', () => {
+    const source = kbReferenceSource(nestedFaces)
+    const outcome = source.onPick({
+      candidate: { name: '报告', value: JSON.stringify({ path: 'resources/报告/', name: '报告' }) },
+    } as InputTriggerPick)
+    expect(outcome).toEqual({
+      insert: {
+        source: 'kb',
+        ref: 'resources/报告/',
+        label: '报告',
+        appearance: 'folder',
+        clipboardText: 'resources/报告/',
+      },
+    })
+  })
+
+  it("serializes a path with spaces in the host regex's quoted form", async () => {
+    const codec = kbReferenceSource(faces).codec
+    await expect(codec?.serialize('entities/projects/dsh 学习.md', new AbortController().signal))
+      .resolves.toBe('@"entities/projects/dsh 学习.md"')
+    await expect(codec?.serialize('resources/报告/', new AbortController().signal))
+      .resolves.toBe('@resources/报告/')
+  })
+})

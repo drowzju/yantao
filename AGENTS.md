@@ -17,10 +17,11 @@ carrying the **yantao** personal knowledge workbench on a local branch `main`. U
    `packages/api/yantao-kb-controller/**`, `packages/bundle/yantao*/**`, `apps/yantao/**`). Upstream files receive only the
    registrations listed as the merge surface in [docs/yantao/README.md](docs/yantao/README.md#%E5%90%88%E5%B9%B6%E9%9D%A2%E6%88%91%E4%BB%AC%E6%94%B9%E5%8A%A8%E7%9A%84%E4%B8%8A%E6%B8%B8%E6%96%87%E4%BB%B6).
    That list is deliberately short — do not grow it without an ADR.
-2. **The trust boundary is the tool layer.** The agent gets the ten `kb_*` tools and no generic write capability; it may edit an
+2. **The trust boundary is the tool layer.** The agent gets the eleven `kb_*` tools and no generic write capability; it may edit an
    entity's `状态` (ADR-0010 overturned ADR-0004's human-only rule) through `kb_write_state`, or any `## ` section but `流水`
-   through `kb_edit_section` (ADR-0026), and it creates new text files under `resources/` only through `kb_write_resource`
-   (creation only, never overwrite); it runs a capability
+   through `kb_edit_section` (ADR-0026), and under `resources/` it creates new text files only through `kb_write_resource`
+   (creation only, never overwrite) and reads files or directory listings only through `kb_read_resource` (read-only, ADR-0028);
+   it runs a capability
    (ADR-0023) only through `kb_run_capability` and only when the capability's declaration — its `yantao.json` sidecar or its entry
    in the central routing file `.dsh/skills/yantao.json` (ADR-0025) — opened it to the agent. The UI is
    the human channel and may edit anything.

@@ -22,6 +22,7 @@
  */
 
 import { mkdir, readdir, readFile, rm, stat, unlink, writeFile, cp } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -146,8 +147,8 @@ function withFrontmatterField(content: string, displayPath: string, key: string,
   return next.join('\n')
 }
 
-/** Read a directory's file names, answering an empty list when the directory is absent. */
-async function readdirFiles(dir: string): Promise<string[]> {
+/** Read a directory's entries, answering an empty list when the directory is absent. */
+async function readEntries(dir: string): Promise<Dirent[]> {
   let entries
   try {
     entries = await readdir(dir, { withFileTypes: true })
@@ -155,7 +156,7 @@ async function readdirFiles(dir: string): Promise<string[]> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
     throw error
   }
-  return entries.filter(entry => entry.isFile()).map(entry => entry.name)
+  return entries
 }
 
 /**
@@ -338,26 +339,41 @@ export class YantaoKbController extends TypertRemoteService {
    * instead of being a row of its own.
    *
    * Every row keeps its file name's suffix, so `周报.eml` and `周报.eml.md`
-   * can never be mistaken for one another on screen.
+   * can never be mistaken for one another on screen. The walk is recursive —
+   * `kb_write_resource` may file resources into subdirectories — and a
+   * nested file's display name is its path relative to `resources/`, so the
+   * directory stays visible in the flat rail. Shadow-note pairing remains a
+   * same-directory affair: `报告/录音.m4a` pairs with `报告/录音.m4a.md`.
    */
   private async resourceSection(): Promise<KbTreeSection> {
-    const resourceNames = await readdirFiles(join(this.kbRoot, 'resources'))
-    const resourceSet = new Set(resourceNames)
-    const resources: KbTreeFile[] = []
-    for (const name of resourceNames) {
-      if (!name.endsWith('.md')) {
-        resources.push({
-          name,
-          path: `resources/${name}`,
-          ...resourceSet.has(`${name}.md`) ? { notePath: `resources/${name}.md` } : {},
-        })
-        continue
+    const files: KbTreeFile[] = []
+    const walk = async (relative: string): Promise<void> => {
+      const entries = await readEntries(join(this.kbRoot, 'resources', relative))
+      const prefix = relative === '' ? '' : `${relative}/`
+      const names = new Set(entries.map(entry => entry.name))
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          await walk(relative === '' ? entry.name : `${relative}/${entry.name}`)
+          continue
+        }
+        if (!entry.isFile()) continue
+        const name = entry.name
+        const display = `${prefix}${name}`
+        if (!name.endsWith('.md')) {
+          files.push({
+            name: display,
+            path: `resources/${display}`,
+            ...names.has(`${name}.md`) ? { notePath: `resources/${display}.md` } : {},
+          })
+          continue
+        }
+        // A note with its original beside it is that original's shadow, not a row.
+        if (names.has(name.slice(0, -'.md'.length))) continue
+        files.push({ name: display, path: `resources/${display}` })
       }
-      // A note with its original beside it is that original's shadow, not a row.
-      if (resourceSet.has(name.slice(0, -'.md'.length))) continue
-      resources.push({ name, path: `resources/${name}` })
     }
-    return { id: 'resources', files: resources }
+    await walk('')
+    return { id: 'resources', files }
   }
 
   /** The entity sections of one side of the KB, listed with archived entities included. */

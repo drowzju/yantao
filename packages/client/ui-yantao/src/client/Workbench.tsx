@@ -205,6 +205,47 @@ function useRail(load: TreeLoader, refreshKey: number): RailState {
   return { sections, error, refresh }
 }
 
+/** Render one file row: the selection-aware button both the flat sections and the resource tree share. */
+function FileRow({
+  t,
+  file,
+  selection,
+  onSelect,
+  onMenu,
+  indent = 0,
+}: {
+  t: WorkbenchT
+  file: KbTreeFile
+  selection: string | null
+  onSelect: (path: string) => void
+  onMenu?: ((file: KbTreeFile, x: number, y: number) => void) | undefined
+  /** Indentation level inside the resource tree; 0 for flat sections. */
+  indent?: number
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      style={{ ...(selection === file.path ? selectedRowStyle : rowStyle), paddingLeft: 6 + indent * 14 }}
+      data-selected={selection === file.path || undefined}
+      onClick={() => { onSelect(file.path) }}
+      onContextMenu={onMenu === undefined ? undefined : (event) => {
+        event.preventDefault()
+        onMenu(file, event.clientX, event.clientY)
+      }}
+      title={file.path}
+    >
+      {file.name}
+      {file.archived === true && <span style={{ color: '#9a9488' }}>{t('workbench.archived')}</span>}
+      {file.relation !== undefined && (
+        <span style={{ color: '#9a9488' }}>
+          {' · '}
+          {relationLabel(t, file.relation)}
+        </span>
+      )}
+    </button>
+  )
+}
+
 /** Render one rail section: a heading (unless the tab strip already labels it) and its file rows. */
 function Section({
   t,
@@ -229,30 +270,131 @@ function Section({
       {showHeading && <div style={titleStyle}>{t(SECTION_KEYS[id])}</div>}
       {section === undefined && <div style={{ color: '#9a9488', padding: '4px 6px' }}>{t('common.empty')}</div>}
       {section?.files.map(file => (
-        <button
-          key={file.path}
-          type="button"
-          style={selection === file.path ? selectedRowStyle : rowStyle}
-          data-selected={selection === file.path || undefined}
-          onClick={() => { onSelect(file.path) }}
-          onContextMenu={onMenu === undefined ? undefined : (event) => {
-            event.preventDefault()
-            onMenu(file, event.clientX, event.clientY)
-          }}
-          title={file.path}
-        >
-          {file.name}
-          {file.archived === true && <span style={{ color: '#9a9488' }}>{t('workbench.archived')}</span>}
-          {file.relation !== undefined && (
-            <span style={{ color: '#9a9488' }}>
-              {' · '}
-              {relationLabel(t, file.relation)}
-            </span>
-          )}
-        </button>
+        <FileRow key={file.path} t={t} file={file} selection={selection} onSelect={onSelect} onMenu={onMenu} />
       ))}
     </div>
   )
+}
+
+/** One directory node in the resource tree: its own files and its subdirectories. */
+interface ResourceDirNode {
+  /** Directory path relative to `resources/` — the root level is `''`. */
+  readonly dir: string
+  readonly files: readonly KbTreeFile[]
+  readonly children: readonly ResourceDirNode[]
+}
+
+/**
+ * Group the resource section's flat file list into a directory tree (ADR-0028
+ * 决定 3). Pure display: the wire already carries every file's full path, so
+ * the intermediate path segments are the directories — no second source of
+ * truth on the server. Directories sort by name at each level; files keep
+ * the wire's walk order.
+ * @param files - the resource section's files, paths under `resources/`.
+ * @returns the tree's root node (the `resources/` root itself is not a row).
+ */
+export function groupResourceFiles(files: readonly KbTreeFile[]): ResourceDirNode {
+  interface MutableDir {
+    files: KbTreeFile[]
+    children: Map<string, MutableDir>
+  }
+  const root: MutableDir = { files: [], children: new Map() }
+  for (const file of files) {
+    const parts = file.path.split('/')
+    let node = root
+    for (const segment of parts.slice(1, -1)) {
+      let child = node.children.get(segment)
+      if (child === undefined) {
+        child = { files: [], children: new Map() }
+        node.children.set(segment, child)
+      }
+      node = child
+    }
+    node.files.push(file)
+  }
+  const build = (dir: string, node: MutableDir): ResourceDirNode => ({
+    dir,
+    files: node.files,
+    children: [...node.children.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, child]) => build(dir === '' ? name : `${dir}/${name}`, child)),
+  })
+  return build('', root)
+}
+
+/**
+ * The 资源 tab as a collapsible tree (ADR-0028 决定 3): directory rows fold
+ * their subtree, files open exactly like the flat list did. Defaults to fully
+ * collapsed — directories expand on click, and a newly created directory
+ * starts folded too — and the展开 state is session-only.
+ * @param props - the section's files plus the shared row behaviour.
+ * @returns the tree element.
+ */
+function ResourceTree({
+  t,
+  section,
+  selection,
+  onSelect,
+  onMenu,
+}: {
+  t: WorkbenchT
+  section: KbTreeSection | undefined
+  selection: string | null
+  onSelect: (path: string) => void
+  onMenu: (file: KbTreeFile, x: number, y: number) => void
+}): ReactElement {
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  const toggle = useCallback((dir: string): void => {
+    setExpanded((previous) => {
+      const next = new Set(previous)
+      if (next.has(dir)) next.delete(dir)
+      else next.add(dir)
+      return next
+    })
+  }, [])
+  if (section === undefined) {
+    return <div style={{ color: '#9a9488', padding: '4px 6px' }}>{t('common.empty')}</div>
+  }
+  const renderNode = (node: ResourceDirNode, depth: number): ReactElement[] => {
+    const rows: ReactElement[] = []
+    for (const child of node.children) {
+      const folded = !expanded.has(child.dir)
+      rows.push(
+        <button
+          key={`dir:${child.dir}`}
+          type="button"
+          style={{ ...rowStyle, paddingLeft: 6 + depth * 14, color: '#6b6455' }}
+          data-resource-dir={child.dir}
+          aria-expanded={!folded}
+          onClick={() => { toggle(child.dir) }}
+        >
+          {folded ? '▸' : '▾'} {child.dir}
+        </button>,
+      )
+      if (!folded) rows.push(...renderNode(child, depth + 1))
+    }
+    for (const file of node.files) {
+      // Inside a directory the folder rows already give the path context, so
+      // the row shows the file's own name — the wire name for a nested file
+      // is its path below `resources/`, and the directory prefix repeats it.
+      const name = node.dir !== '' && file.name.startsWith(`${node.dir}/`)
+        ? file.name.slice(node.dir.length + 1)
+        : file.name
+      rows.push(
+        <FileRow
+          key={file.path}
+          t={t}
+          file={{ ...file, name }}
+          selection={selection}
+          onSelect={onSelect}
+          onMenu={onMenu}
+          indent={depth}
+        />,
+      )
+    }
+    return rows
+  }
+  return <div>{renderNode(groupResourceFiles(section.files), 0)}</div>
 }
 
 /** One row's right-click menu: the row it belongs to and where it opens. */
@@ -720,15 +862,24 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           )}
         />
       )}
-      {tab !== 'todos' && tab !== 'connector' && (
-        <Section
+      {tab === 'resources' && (
+        <ResourceTree
           t={t}
-          id={tab}
-          section={sections?.find(entry => entry.id === tab)}
+          section={sections?.find(entry => entry.id === 'resources')}
           selection={selection}
           // An original opens read-only; a `.md` note is ours to edit.
           onSelect={(path) => { onOpenFile(path, path.endsWith('.md') ? 'edit' : 'read') }}
-          onMenu={tab === 'meetings' || tab === 'resources' ? rowMenu.open : undefined}
+          onMenu={rowMenu.open}
+        />
+      )}
+      {tab === 'meetings' && (
+        <Section
+          t={t}
+          id="meetings"
+          section={sections?.find(entry => entry.id === 'meetings')}
+          selection={selection}
+          onSelect={(path) => { onOpenFile(path, path.endsWith('.md') ? 'edit' : 'read') }}
+          onMenu={rowMenu.open}
           showHeading={false}
         />
       )}

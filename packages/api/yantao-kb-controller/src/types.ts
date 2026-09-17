@@ -11,7 +11,10 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 
 /** One file row in a KB tree section. */
 export interface KbTreeFile {
-  /** Display name (file basename; entity notes drop the `.md` suffix). */
+  /**
+   * Display name (file basename; entity notes drop the `.md` suffix; a
+   * resource nested under `resources/` carries its directory prefix).
+   */
   readonly name: string
   /** KB-relative path with forward slashes. */
   readonly path: string

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { appendLog, createEntity, editSection, initKb, listEntities, readEntity, registerResource, registerResourceContent, writeResource, writeState } from '../src/core.ts'
+import { appendLog, createEntity, editSection, initKb, listEntities, readEntity, readResource, registerResource, registerResourceContent, writeResource, writeState } from '../src/core.ts'
 import { appendToLogSection, logBullet, replaceSection, replaceStateSection } from '../src/splice.ts'
 import { sanitizeFileName, todayStamp } from '../src/paths.ts'
 import { entityFileContent, todoFileContent } from '../src/templates.ts'
@@ -677,5 +677,54 @@ describe('kb_write_resource', () => {
     const result = await writeResource(kbRoot, 'resources/a<b>/周报?.md', 'x')
     expect(result.resource).toBe('resources/a_b_/周报_.md')
     expect(await read('resources/a_b_/周报_.md')).toBe('x')
+  })
+})
+
+describe('kb_read_resource', () => {
+  it('reads a file back as its UTF-8 full text', async () => {
+    await writeResource(kbRoot, 'resources/报告/周报.md', '# 周报\n\n正文。')
+    expect(await readResource(kbRoot, 'resources/报告/周报.md'))
+      .toEqual({ kind: 'file', path: 'resources/报告/周报.md', content: '# 周报\n\n正文。' })
+  })
+
+  it('refuses a binary file and reports its size', async () => {
+    await mkdir(join(kbRoot, 'resources'), { recursive: true })
+    await writeFile(join(kbRoot, 'resources', '照片.png'), new Uint8Array([0x50, 0x4b, 0x00, 0x03]))
+    await expect(readResource(kbRoot, 'resources/照片.png')).rejects.toThrow(/二进制文件（4 字节）/)
+  })
+
+  it('lists a directory recursively with byte sizes, relative to the listed directory', async () => {
+    await writeResource(kbRoot, 'resources/报告/2026-09/周报.md', '本周')
+    await writeResource(kbRoot, 'resources/报告/笔记.md', '笔记')
+    expect(await readResource(kbRoot, 'resources/报告')).toEqual({
+      kind: 'dir',
+      path: 'resources/报告',
+      entries: [
+        { path: '2026-09/周报.md', size: 6 },
+        { path: '笔记.md', size: 6 },
+      ],
+    })
+  })
+
+  it('caps a listing at one hundred entries and marks it truncated', async () => {
+    for (let index = 0; index < 101; index++) {
+      await writeResource(kbRoot, `resources/many/f${String(index).padStart(3, '0')}.txt`, 'x')
+    }
+    const listed = await readResource(kbRoot, 'resources/many')
+    if (listed.kind !== 'dir') throw new Error('预期目录清单')
+    expect(listed.entries).toHaveLength(100)
+    expect(listed.truncated).toBe(true)
+  })
+
+  it('refuses paths outside the resources plane and empty names', async () => {
+    await expect(readResource(kbRoot, 'entities/projects/dsh 学习.md')).rejects.toThrow(/只能读取 resources\/ 下/)
+    await expect(readResource(kbRoot, 'notes.md')).rejects.toThrow(/只能读取 resources\/ 下/)
+    await expect(readResource(kbRoot, 'resources/')).rejects.toThrow(/资源路径不能为空/)
+    await expect(readResource(kbRoot, 'resources/../secrets.md')).rejects.toThrow(/不合法/)
+    await expect(readResource(kbRoot, 'resources/a/./b.md')).rejects.toThrow(/不合法/)
+  })
+
+  it('refuses a path that does not exist, pointing at the directory form', async () => {
+    await expect(readResource(kbRoot, 'resources/不存在.md')).rejects.toThrow(/找不到资源/)
   })
 })

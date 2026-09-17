@@ -5,7 +5,7 @@ import type { ReactElement } from 'react'
 import type { KbTreeSection } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { KbLinksResult, KbTodosResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { TreeLoader } from '../src/client/Workbench.tsx'
-import { IntakeRail, WorkspaceRail, type IntakeRailProps } from '../src/client/Workbench.tsx'
+import { IntakeRail, WorkspaceRail, groupResourceFiles, type IntakeRailProps } from '../src/client/Workbench.tsx'
 import { Frame } from '../src/client/frame/Frame.tsx'
 import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveColumns } from '../src/client/frame/columns.ts'
 import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
@@ -394,6 +394,65 @@ describe('IntakeRail', () => {
     })
     expect(within(group).getByText('meeting-minutes')).toBeTruthy()
     expect(within(group).queryByText('eml-digest')).toBeNull()
+  })
+})
+
+describe('ResourceTree', () => {
+  /** A resource section with a root file and two nested levels (ADR-0028 决定 3). */
+  const nestedResources: KbTreeSection[] = [{
+    id: 'resources',
+    files: [
+      { name: '周报.eml', path: 'resources/周报.eml' },
+      { name: '报告/笔记.md', path: 'resources/报告/笔记.md' },
+      { name: '报告/2026-09/周报.md', path: 'resources/报告/2026-09/周报.md' },
+    ],
+  }]
+
+  it('groups the flat wire list into a tree whose root keeps the top-level files', () => {
+    const tree = groupResourceFiles(nestedResources[0].files)
+    expect(tree.dir).toBe('')
+    expect(tree.files.map(file => file.path)).toEqual(['resources/周报.eml'])
+    expect(tree.children.map(child => child.dir)).toEqual(['报告'])
+    expect(tree.children[0].files.map(file => file.path)).toEqual(['resources/报告/笔记.md'])
+    expect(tree.children[0].children.map(child => child.dir)).toEqual(['报告/2026-09'])
+    expect(tree.children[0].children[0].files.map(file => file.path))
+      .toEqual(['resources/报告/2026-09/周报.md'])
+  })
+
+  it('renders directories collapsed by default; a click expands level by level', async () => {
+    render(<IntakeRail {...railProps({ load: loader(nestedResources) })} />)
+    // Default folded: only the directory rows and the root-level file show.
+    const 报告 = await screen.findByText('▸ 报告')
+    expect(报告.getAttribute('data-resource-dir')).toBe('报告')
+    expect(报告.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('▾ 报告/2026-09')).toBeNull()
+    expect(screen.queryByText('笔记.md')).toBeNull()
+    expect(screen.queryByText('周报.md')).toBeNull()
+    expect(screen.getByText('周报.eml')).toBeTruthy()
+    // Expanding one level reveals the nested directory, itself still folded.
+    fireEvent.click(报告)
+    expect(screen.getByText('▾ 报告').getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('▸ 报告/2026-09')).toBeTruthy()
+    expect(screen.getByText('笔记.md')).toBeTruthy()
+    expect(screen.queryByText('周报.md')).toBeNull()
+    // The second level unfolds the same way.
+    fireEvent.click(screen.getByText('▸ 报告/2026-09'))
+    expect(screen.getByText('▾ 报告/2026-09').getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('周报.md')).toBeTruthy()
+  })
+
+  it('folds a directory again on the second click', async () => {
+    render(<IntakeRail {...railProps({ load: loader(nestedResources) })} />)
+    const 报告 = await screen.findByText('▸ 报告')
+    fireEvent.click(报告)
+    const opened = screen.getByText('▾ 报告')
+    expect(opened.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('笔记.md')).toBeTruthy()
+    fireEvent.click(opened)
+    const folded = screen.getByText('▸ 报告')
+    expect(folded.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('笔记.md')).toBeNull()
+    expect(screen.getByText('周报.eml')).toBeTruthy()
   })
 })
 

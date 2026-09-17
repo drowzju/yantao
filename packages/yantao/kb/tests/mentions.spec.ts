@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_MENTIONS, MAX_MENTION_CHARS, kbMentions, renderKbMentions,
+  MAX_DIR_ENTRIES, MAX_MENTIONS, MAX_MENTION_CHARS, kbMentions, renderKbMentions,
 } from '../src/mentions.ts'
 
 describe('kbMentions', () => {
@@ -32,6 +32,11 @@ describe('kbMentions', () => {
   it('reads a resource original too', () => {
     expect(kbMentions('@resources/周报.eml')).toEqual(['resources/周报.eml'])
   })
+
+  it('reads a directory mention with or without the trailing slash', () => {
+    expect(kbMentions('@resources/报告/ 里的周报')).toEqual(['resources/报告/'])
+    expect(kbMentions('@resources/报告 里的周报')).toEqual(['resources/报告'])
+  })
 })
 
 describe('renderKbMentions', () => {
@@ -49,5 +54,37 @@ describe('renderKbMentions', () => {
     const text = renderKbMentions([{ path: 'entities/areas/健康.md', content: 'x'.repeat(MAX_MENTION_CHARS + 10) }])
     expect(text).toContain('已截断')
     expect(text.length).toBeLessThan(MAX_MENTION_CHARS + 200)
+  })
+
+  it('renders a cited binary file as a placeholder carrying its size', () => {
+    const text = renderKbMentions([{ kind: 'binary', path: 'resources/照片.png', size: 2048 }])
+    expect(text).toContain('<kb-file path="resources/照片.png">')
+    expect(text).toContain('（二进制文件，未注入内容；大小 2048 字节）')
+    expect(text).not.toContain('PNG')
+  })
+
+  it('renders a cited directory as a kb-dir block with inline text files', () => {
+    const text = renderKbMentions([{
+      kind: 'dir',
+      path: 'resources/报告',
+      files: [
+        { path: 'resources/报告/笔记.md', content: '目录里的笔记' },
+        { path: 'resources/报告/照片.png', content: null, reason: 'binary', size: 3 },
+        { path: 'resources/报告/大.txt', content: null, reason: 'budget' },
+      ],
+    }])
+    expect(text).toContain('<kb-dir path="resources/报告" files="3">')
+    expect(text).toContain('<kb-file path="resources/报告/笔记.md">\n目录里的笔记\n</kb-file>')
+    expect(text).toContain('（二进制文件，未注入内容；大小 3 字节）')
+    expect(text).toContain('（超出目录内容预算，未注入内容）')
+    expect(text).not.toContain('已截断')
+  })
+
+  it('notes the truncation on a directory past the entry cap', () => {
+    const files = Array.from({ length: MAX_DIR_ENTRIES + 1 }, (_unused, index) => ({
+      path: `resources/many/f${index}.txt`, content: null as string | null, reason: 'budget' as const,
+    }))
+    const text = renderKbMentions([{ kind: 'dir', path: 'resources/many', files, truncated: true }])
+    expect(text).toContain(`（目录条目超过 ${MAX_DIR_ENTRIES} 个，已截断）`)
   })
 })

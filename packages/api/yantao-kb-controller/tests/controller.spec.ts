@@ -98,6 +98,23 @@ describe('yantaoKb.intakeTree', () => {
     expect(resources.files).not.toContainEqual({ name: '周报.eml.md', path: 'resources/周报.eml.md' })
     expect(resources.files.length).toBe(3)
   })
+
+  it('walks subdirectories: nested resources surface with their directory prefix', async () => {
+    await seedKb()
+    await seedFile('resources/报告/2026-09/周报.md', '---\ntype: resource\n---\n')
+    await seedFile('resources/报告/会议记录.txt', 'text bytes')
+    await seedFile('resources/报告/录音.m4a', 'audio bytes')
+    await seedFile('resources/报告/录音.m4a.md', '---\ntype: resource\n---\n')
+    const [resources] = (await ctx.yantaoKbController.intakeTree()).sections as [KbTreeSection]
+    // A nested file's display name is its path relative to resources/.
+    expect(resources.files).toContainEqual({ name: '报告/2026-09/周报.md', path: 'resources/报告/2026-09/周报.md' })
+    expect(resources.files).toContainEqual({ name: '报告/会议记录.txt', path: 'resources/报告/会议记录.txt' })
+    // Shadow-note pairing stays a same-directory affair, prefix and all.
+    expect(resources.files).toContainEqual({
+      name: '报告/录音.m4a', path: 'resources/报告/录音.m4a', notePath: 'resources/报告/录音.m4a.md',
+    })
+    expect(resources.files).not.toContainEqual({ name: '报告/录音.m4a.md', path: 'resources/报告/录音.m4a.md' })
+  })
 })
 
 describe('yantaoKb.workspaceTree', () => {

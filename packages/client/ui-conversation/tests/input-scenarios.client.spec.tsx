@@ -10,6 +10,10 @@
  */
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { KEY_BACKSPACE_COMMAND } from 'lexical'
+import {
+  $selectDetectSpan,
+} from '../src/client/input/editor/span-map.ts'
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { InputTriggerService } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
@@ -310,6 +314,69 @@ describe('scenario H: backspace breaks the token', () => {
     b.type('/goa ')
     expect(b.shell.snapshot.phase).toBe('plain')
     expect(b.view.container.querySelector('[data-lexical-text][style*="warn-label"]')).toBeNull()
+  })
+})
+
+describe('scenario: backspace over a path chip unpacks one directory level', () => {
+  it('a resource file chip becomes the live parent-directory mention', async () => {
+    const b = await bench()
+    act(() => { b.shell.setDraft('看 ') })
+    const snapshot = b.shell.snapshot
+    act(() => {
+      b.shell.insertReference(
+        {
+          source: 'kb', ref: 'resources/报告/周报.md', label: '周报.md', appearance: 'file',
+          clipboardText: 'resources/报告/周报.md',
+        },
+        { start: 2, end: 2, draftRev: snapshot.draftRev },
+      )
+    })
+    expect(b.shell.snapshot.draft).toBe('看 resources/报告/周报.md ')
+    // jsdom performs no native Backspace deletion, so the caret is placed at
+    // the chip edge and the command dispatched directly. The command's update
+    // commits in a microtask (only `discrete` updates commit synchronously),
+    // so the act must be async to flush the projection → publish round-trip.
+    await act(async () => {
+      b.shell.editor.update(() => {
+        expect($selectDetectSpan({ start: 3, end: 3 })).toBe(true)
+      }, { discrete: true })
+      expect(b.shell.editor.dispatchCommand(
+        KEY_BACKSPACE_COMMAND,
+        new KeyboardEvent('keydown', { key: 'Backspace' }),
+      )).toBe(true)
+    })
+    // The separating space stays; the chip unpacked to the live parent mention.
+    expect(b.shell.snapshot.draft).toBe('看 @resources/报告/ ')
+  })
+
+  it('a chip without a directory parent deletes whole through the native path', async () => {
+    const b = await bench()
+    act(() => { b.shell.setDraft('') })
+    const snapshot = b.shell.snapshot
+    act(() => {
+      b.shell.insertReference(
+        {
+          source: 'session-reference', ref: 'session-a', label: '随意回复不调用工具', appearance: 'session',
+          clipboardText: '@session:随意回复不调用工具',
+        },
+        { start: 0, end: 0, draftRev: snapshot.draftRev },
+      )
+    })
+    expect(b.shell.snapshot.draft).toBe('@session:随意回复不调用工具 ')
+    // Same microtask-commit caveat as above: the native DELETE_CHARACTER path
+    // also lands in the dispatch's non-discrete update.
+    await act(async () => {
+      b.shell.editor.update(() => {
+        expect($selectDetectSpan({ start: 1, end: 1 })).toBe(true)
+      }, { discrete: true })
+      // Declined by the trim, consumed by plain-text's DELETE_CHARACTER: the
+      // placeholder semantics — the chip goes in one keystroke.
+      expect(b.shell.editor.dispatchCommand(
+        KEY_BACKSPACE_COMMAND,
+        new KeyboardEvent('keydown', { key: 'Backspace' }),
+      )).toBe(true)
+    })
+    expect(b.shell.snapshot.draft).toBe(' ')
   })
 })
 

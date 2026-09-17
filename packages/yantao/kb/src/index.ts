@@ -9,9 +9,8 @@
  * @module @deepseek-ai/dsh-yantao-kb
  */
 
-import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, relative } from 'node:path'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -20,7 +19,8 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { appendLog, createEntity, editSection, initKb, listEntities, readEntity, registerResource, writeResource, writeState } from './core.ts'
+import { readCitedEntries } from './cited.ts'
+import { appendLog, createEntity, editSection, initKb, listEntities, readEntity, readResource, registerResource, writeResource, writeState } from './core.ts'
 import { kbMentions, renderKbMentions } from './mentions.ts'
 import { importLegacyRootState } from './root-store.ts'
 import { registerPromptSections } from './sections.ts'
@@ -128,38 +128,6 @@ const CREATABLE_ENTITY_TYPE_PARAM = {
   description: '实体类型：project（项目）/ area（领域）/ person（人物）/ meeting（会议）；todo 是单例，由 kb_init 创建',
 } as const
 
-/** One cited file that read successfully. */
-interface CitedFile {
-  /** KB-relative path. */
-  readonly path: string
-  /** The file's content. */
-  readonly content: string
-}
-
-/**
- * Read the KB files a turn cited, skipping anything that is not a readable
- * file inside the root. A cited file that vanished costs the citation, not
- * the turn.
- * @param root - the live KB root.
- * @param paths - KB-relative paths from {@link kbMentions}.
- * @returns the files that read, in citation order.
- */
-async function readCitedFiles(root: string, paths: readonly string[]): Promise<CitedFile[]> {
-  const cited: CitedFile[] = []
-  for (const path of paths) {
-    const absolute = join(root, path)
-    // Defense in depth: kbMentions already refuses escaping paths, and this
-    // keeps the read inside the root even if that check ever loosens.
-    if (relative(root, absolute).startsWith('..')) continue
-    try {
-      cited.push({ path, content: await readFile(absolute, 'utf8') })
-    } catch {
-      continue
-    }
-  }
-  return cited
-}
-
 /** Register the kb_ tools and publish the resolved KB root; disposal unregisters both. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = config as ResolvedConfig
@@ -221,7 +189,7 @@ export function apply(ctx: Context, config: Config): void {
       .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
       .map(block => block.text)
       .join('\n')
-    const cited = await readCitedFiles(liveRoot.root, kbMentions(text))
+    const cited = await readCitedEntries(liveRoot.root, kbMentions(text))
     if (cited.length === 0) return decision
     return {
       ...decision,
@@ -494,13 +462,58 @@ export function apply(ctx: Context, config: Config): void {
     },
     execute: args => writeResource(liveRoot.root, args.path, args.content),
   }))
+
+  ctx.tools.register(defineTool({
+    name: 'kb_read_resource',
+    description:
+      '读取 resources/ 下的资源。path 是知识库内路径，必须以 resources/ 开头（如 resources/报告/2026-09/周报.md）。'
+      + 'path 指向文件时返回其 UTF-8 全文；二进制文件（含 NUL 字节）会拒绝并报大小，不注入乱码。'
+      + 'path 指向目录时返回递归清单（每项路径与字节大小，最多 100 项，超出标注 truncated）——'
+      + '清单不带内容，看中哪个文件再逐个读取。',
+    parameters: {
+      path: { type: 'string', required: true, description: '知识库内资源路径，以 resources/ 开头（文件或目录）' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          kind: { type: 'string', enum: ['file', 'dir'], required: true },
+          path: { type: 'string', required: true },
+          content: { type: 'string' },
+          entries: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                path: { type: 'string', required: true },
+                size: { type: 'number', required: true },
+              },
+            },
+          },
+          truncated: { type: 'boolean' },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.kind === 'dir'
+          ? [
+            `目录 ${value.path} 共 ${value.entries?.length ?? 0} 项${value.truncated === true ? '（已截断，仅显示前 100 项）' : ''}：`,
+            ...(value.entries ?? []).map(entry => `- ${entry.path}（${entry.size} 字节）`),
+          ].join('\n')
+          : value.content ?? '',
+      }],
+    },
+    execute: args => readResource(liveRoot.root, args.path),
+  }))
 }
 
 // Host-side consumers (the yantao-kb-controller Remote) reuse the filesystem
 // operations and path confinement through these public re-exports; the
 // plugin above remains the model-facing shell over the same operations.
-export { appendLog, createEntity, editSection, initKb, listEntities, readEntity, registerResource, registerResourceContent, writeResource, writeState } from './core.ts'
-export type { InitKbResult, ListedEntity } from './core.ts'
+export { appendLog, createEntity, editSection, initKb, listEntities, readEntity, readResource, registerResource, registerResourceContent, writeResource, writeState } from './core.ts'
+export type { InitKbResult, ListedEntity, ListedResource, ReadResourceResult } from './core.ts'
 export { entityDisplayPath, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
 export {
   capabilityStatePath, importLegacyRootState, readCapabilityRecord, readCapabilityState,

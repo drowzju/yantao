@@ -15,7 +15,8 @@ import {
 import type { LexicalEditor, NodeKey } from 'lexical'
 import {
   $addUpdateTag, $createParagraphNode, $createTextNode, $getRoot, $getSelection, $isRangeSelection,
-  CLEAR_HISTORY_COMMAND, createEditor, HISTORY_MERGE_TAG, PASTE_TAG,
+  CLEAR_HISTORY_COMMAND, COMMAND_PRIORITY_CRITICAL, createEditor, HISTORY_MERGE_TAG,
+  KEY_BACKSPACE_COMMAND, PASTE_TAG,
 } from 'lexical'
 import { registerPlainText } from '@lexical/plain-text'
 import { createEmptyHistoryState, registerHistory } from '@lexical/history'
@@ -28,7 +29,7 @@ import type {
 } from '../contract/input.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import { SubmitMachine } from './machine.ts'
-import { ReferenceChipNode, $createReferenceChipNode } from './editor/chip-node.tsx'
+import { ReferenceChipNode, $createReferenceChipNode, $isReferenceChipNode } from './editor/chip-node.tsx'
 import { refreshClaimDecoration, registerClaimDecoration } from './editor/claim-decor.ts'
 import { registerTextRefDecoration, rescanTextRefs, TextRefNode } from './editor/text-ref.ts'
 import type { EditorProjection } from './editor/projection.ts'
@@ -85,6 +86,58 @@ function guardOf(phase: InputState['phase']): 'plain' | 'claimed' | 'frozen' {
     case 'claimed': return 'claimed'
     default: return 'frozen' // adjudicating / submitting
   }
+}
+
+/**
+ * The live mention text one Backspace over a path-like chip unpacks to: the
+ * ref's parent directory (`resources/报告/周报.md` → `@resources/报告/`), so
+ * deletion walks the path level by level instead of removing the whole chip.
+ * The trailing slash keeps the token open so the trigger menu reopens on the
+ * directory; a path with spaces serializes in the shared grammar's quoted
+ * form. `undefined` when the ref has no directory parent (a bare name or id)
+ * — such a chip deletes whole, the placeholder semantics.
+ * @param ref - the chip's owner-scoped reference.
+ * @returns the replacement mention text, or undefined for whole-delete.
+ */
+export function chipBackspaceMention(ref: string): string | undefined {
+  const trimmed = ref.endsWith('/') ? ref.slice(0, -1) : ref
+  const cut = trimmed.lastIndexOf('/')
+  if (cut <= 0) return undefined
+  const parent = trimmed.slice(0, cut + 1)
+  return parent.includes(' ') ? `@"${parent}"` : `@${parent}`
+}
+
+/**
+ * Backspace over a chip edge (must run inside the editor): with a collapsed
+ * caret immediately after a chip whose ref has a directory parent, replace
+ * the chip with the live parent mention ({@link chipBackspaceMention}) — the
+ * update listener re-projects and re-tracks, so the menu reopens on the
+ * directory without an explicit re-track. Any other caret geometry answers
+ * false and the keystroke falls through to the native deletion.
+ * @returns whether the trim applied (caller preventDefaults).
+ */
+export function $trimChipAtCaret(): boolean {
+  const selection = $getSelection()
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false
+  const anchor = selection.anchor
+  let chip: ReferenceChipNode | null = null
+  if (anchor.type === 'text') {
+    if (anchor.offset !== 0) return false
+    const previous = anchor.getNode().getPreviousSibling()
+    if ($isReferenceChipNode(previous)) chip = previous
+  } else {
+    const kid = anchor.getNode().getChildAtIndex(anchor.offset - 1)
+    if ($isReferenceChipNode(kid)) chip = kid
+  }
+  if (chip === null) return false
+  const text = chipBackspaceMention(chip.getReference())
+  if (text === undefined) return false
+  const segment = $composerLayout().byKey.get(chip.getKey())
+  if (segment === undefined || segment.kind !== 'chip') return false
+  return $replaceDetectSpanWithText(
+    { start: segment.detectStart, end: segment.detectStart + segment.detectLength },
+    text,
+  )
 }
 
 /** Whether two projections differ in content (selection and caret excluded). */
@@ -182,6 +235,19 @@ export class SessionInputShell implements SessionInput {
       this.editor.registerUpdateListener(() => { this.onEditorUpdate() }),
       registerClaimDecoration(this.editor, () => this.activeClaimToken()),
       registerTextRefDecoration(this.editor, () => this.lexicon.getSnapshot(), () => this.activeClaimToken()),
+      // Backspace over a path-like chip unpacks one directory level into live
+      // mention text (the menu reopens through the ordinary re-track); every
+      // other Backspace falls through to the native deletion.
+      this.editor.registerCommand(KEY_BACKSPACE_COMMAND, (event) => {
+        // A composition-closing Backspace edits IME text, never a chip edge.
+        // oxlint-disable-next-line typescript/no-deprecated
+        if (event.isComposing || event.keyCode === 229) return false
+        let applied = false as boolean
+        this.applyEdit(() => { applied = $trimChipAtCaret() })
+        if (!applied) return false
+        event.preventDefault()
+        return true
+      }, COMMAND_PRIORITY_CRITICAL),
       () => { this.lexiconOff?.() },
     )
     this.state = createSnapshotStore<InputState>(this.compose())
