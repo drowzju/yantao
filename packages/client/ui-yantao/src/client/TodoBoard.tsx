@@ -71,7 +71,11 @@ const dueStyle = {
   padding: '0 5px',
 } as const
 
-const overdueStyle = { ...dueStyle, color: '#b4453a', borderColor: '#e8c4bf' } as const
+/** 鲜红 for a deadline due today or tomorrow — and one already overdue. */
+const dueUrgentStyle = { ...dueStyle, color: '#e02020', borderColor: '#f3b9b9' } as const
+
+/** 亮黄 for a deadline within five days. */
+const dueSoonStyle = { ...dueStyle, color: '#eab308', borderColor: '#f0e2ac' } as const
 
 const doneTitleStyle = { color: '#9a9488', textDecoration: 'line-through', cursor: 'pointer', flex: 1, minWidth: 0 } as const
 
@@ -152,21 +156,38 @@ function patched(item: KbTodoItem, draft: Draft): KbTodoItem {
 }
 
 /**
+ * The badge style one deadline earns: 鲜红 once overdue or due within a day,
+ * 亮黄 within five days, the plain grey beyond. Both stamps are plain
+ * YYYY-MM-DD, so parsing them as UTC midnights makes the difference an exact
+ * day count.
+ * @param due - the deadline as YYYY-MM-DD.
+ * @param now - today as YYYY-MM-DD.
+ * @returns the badge style.
+ */
+function dueBadgeStyle(due: string, now: string): React.CSSProperties {
+  const days = Math.round((Date.parse(due) - Date.parse(now)) / 86_400_000)
+  if (days <= 1) return dueUrgentStyle
+  if (days <= 5) return dueSoonStyle
+  return dueStyle
+}
+
+/**
  * One collapsed row: a checkbox, the title, the deadline badge, and the
  * affordances that expand and drop it.
- * @param props - the row's item, its deadline state, and its actions.
+ * @param props - the row's item, today's stamp, and its actions.
  * @returns the row element.
  */
 function TodoRow(props: {
   readonly t: WorkbenchT
   readonly entry: Entry
-  readonly overdue: boolean
+  readonly now: string
   readonly disabled: boolean
   readonly onToggle: () => void
   readonly onEdit: () => void
   readonly onRemove: () => void
 }): ReactElement {
   const { item, index } = props.entry
+  const overdue = !item.done && item.due !== undefined && item.due < props.now
   return (
     <div style={rowStyle} data-todo-row={index}>
       <input
@@ -184,7 +205,10 @@ function TodoRow(props: {
         {item.title === '' ? props.t('todo.unnamed') : item.title}
       </span>
       {item.due !== undefined && (
-        <span style={props.overdue ? overdueStyle : dueStyle} data-overdue={props.overdue || undefined}>
+        <span
+          style={item.done ? dueStyle : dueBadgeStyle(item.due, props.now)}
+          data-overdue={overdue || undefined}
+        >
           {item.due}
         </span>
       )}
@@ -354,7 +378,7 @@ export function TodoBoard({ t, load, write, refreshKey, onOpenFile }: TodoBoardP
         <TodoRow
           t={t}
           entry={entry}
-          overdue={!entry.item.done && entry.item.due !== undefined && entry.item.due < now}
+          now={now}
           disabled={busy}
           onToggle={() => { replace(entry.index, flipped(entry.item, !entry.item.done)) }}
           onEdit={() => { openEditor(entry.index) }}

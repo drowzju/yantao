@@ -90,6 +90,31 @@ describe('TodoBoard', () => {
     expect(dated.querySelector('[data-overdue="true"]')).toBeNull()
   })
 
+  it('colours a deadline by how close it is — bright red overdue or within a day, bright yellow within five days, grey beyond', async () => {
+    const { container } = render(<TodoBoard {...props({
+      load: () => Promise.resolve({
+        path: PATH,
+        text: TEXT,
+        items: [
+          { done: false, title: '已过期', due: day(-1), body: '', extra: [] },
+          { done: false, title: '就是今天', due: day(0), body: '', extra: [] },
+          { done: false, title: '一天内', due: day(1), body: '', extra: [] },
+          { done: false, title: '五天内', due: day(5), body: '', extra: [] },
+          { done: false, title: '还早', due: day(6), body: '', extra: [] },
+        ],
+      }),
+    })} />)
+    await screen.findByText('已过期')
+    const colorOf = (index: number, label: string): string =>
+      within(container.querySelector(`[data-todo-row="${index}"]`) as HTMLElement)
+        .getByText(label).style.color
+    expect(colorOf(0, day(-1))).toBe('rgb(224, 32, 32)')
+    expect(colorOf(1, day(0))).toBe('rgb(224, 32, 32)')
+    expect(colorOf(2, day(1))).toBe('rgb(224, 32, 32)')
+    expect(colorOf(3, day(5))).toBe('rgb(234, 179, 8)')
+    expect(colorOf(4, day(6))).toBe('rgb(107, 100, 85)')
+  })
+
   it('moves an item into DONE when its box is checked, stamping today', async () => {
     const write: WriteSpy = vi.fn(() => Promise.resolve({ path: PATH, text: TEXT }))
     const { container } = render(<TodoBoard {...props({ write })} />)
