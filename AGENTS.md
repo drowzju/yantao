@@ -39,8 +39,7 @@ carrying the **yantao** personal knowledge workbench on a local branch `main`. U
 
 ```bash
 pnpm dsh --profile yantao "…"                 # one-shot headless run through the model gateway
-.\scripts\yantao-web-start.ps1                # start the workbench (background, prints URL)
-.\scripts\yantao-web-stop.ps1                 # stop it
+pnpm --filter @deepseek-ai/dsh-yantao-desktop start          # start the workbench (Electron window + tray; ADR-0016)
 
 pnpm --filter @deepseek-ai/dsh-client-ui-yantao run bundle   # after changing the client plugin
 pnpm --filter @deepseek-ai/dsh-yantao-frontend run build     # after changing the frontend

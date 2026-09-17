@@ -10,7 +10,7 @@
 | npm registry | 内网镜像,已写入 `.npmrc`(`registry`、`disturl`) |
 | 原生重建(如 `fs-ext`) | 生命周期脚本需要显式指定头文件镜像:<br>`npm_config_disturl=https://mirrors.dahuatech.com/nodejs-release/ pnpm install` |
 | 模型密钥 | `.env`(复制 `.env.example`)或凭据存储;`apiKeyEnv` 只是引用名,绝不内联密钥 |
-| 端口 | 用 **8080**。本机 8081/8082 会被拒绝(`EACCES`,Windows 保留区段)。 |
+| 端口 | 桌面壳用 `--port 0` 由系统分配;手动前台跑宿主用 **8080**。本机 8081/8082 会被拒绝(`EACCES`,Windows 保留区段)。 |
 
 ## 构建 —— 只构建你动过的部分
 
@@ -25,9 +25,8 @@
 ## 启动与停止
 
 ```bash
-.\scripts\yantao-web-start.ps1   # background server, waits for and prints the URL
-.\scripts\yantao-web-stop.ps1    # stop by PID, then clears anything left on 8080
-pnpm dsh --profile yantao-web --port 8080        # foreground; Ctrl+C stops it
+pnpm --filter @deepseek-ai/dsh-yantao-desktop start   # Electron window + tray; spawns the host child process (ADR-0016)
+pnpm dsh --profile yantao-web --port 8080             # foreground host only (what the shell spawns); Ctrl+C stops it
 ```
 
 冒烟测试:
@@ -60,7 +59,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"     # headless:
 6. **yantao 自有文档是中文单语(ADR-0027)**:直接用中文写 `README.md` 与 docs,不要 `.zh.md` twin、不要 `.i18n.yaml`、
    不需要重录配对;双语配对门仍全量管辖上游文档,改了上游文件才需要 `--write` 重录。
 7. **模型 id 拼写。** 网关接受 `GLM5.1`、`GLM`、`glm52` 三种,我们都已声明,选哪个都能工作;新增模型要连拼写一起加。
-8. **别用 `taskkill //IM node.exe` 清进程** —— 会连你的 agent 运行时一起杀掉。用停止脚本。
+8. **别用 `taskkill //IM node.exe` 清进程** —— 会连你的 agent 运行时一起杀掉。桌面壳用托盘「退出」/「重启宿主」;残留的前台宿主用 Ctrl+C 或按 PID 结束。
 9. **构建残留**:`tsc -b` 会在 `packages/client/*/src` 内留下 `.js`/`.d.ts`/`.map`(未跟踪,不需要)。清理前先问;
    `git clean -n packages/client/<pkg>/src` 可预览。
 10. **构建版 CLI(`apps/cli/lib/bin.js`)在本机跑不通**(profile 目录解析不到 `@deepseek-ai/dsh-storage-json`)。用源码入口

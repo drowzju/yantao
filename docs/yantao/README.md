@@ -45,15 +45,15 @@ yantao 是一个**个人知识工作台**:以纯 Markdown 存放 PARA+P 知识�
 ## 2. 架构
 
 ```
-apps/yantao (React + Vite)  ──served by──►  dsh profile yantao-web
-   own three-pane UI                          = dsh-base + dsh-yantao + dsh-yantao-web-app
-   talks to ctx.remote only                        │
-                                                   ├─ agent loop, kb_* tools, session log
-                                                   ├─ packages/yantao/kb ....... PARA+P domain + the kb_* tool set
-                                                   ├─ packages/api/yantao-kb-controller ... yantaoKb Remote
-                                                   │    (intakeTree / workspaceTree / read / write
-                                                   │     root / setRoot / createEntity)
-                                                   └─ llm-pi-ai route `model-gateway` ..... intranet LLM gateway (ADR-0007)
+apps/yantao-desktop (Electron)  ──spawns & loads──►  dsh profile yantao-web
+                                                     = dsh-base + dsh-yantao + dsh-yantao-web-app
+apps/yantao (React + Vite)  ──served by──►                │
+   own three-pane UI                                      ├─ agent loop, kb_* tools, session log
+   talks to ctx.remote only                               ├─ packages/yantao/kb ....... PARA+P domain + the kb_* tool set
+                                                          ├─ packages/api/yantao-kb-controller ... yantaoKb Remote
+                                                          │    (intakeTree / workspaceTree / read / write
+                                                          │     root / setRoot / createEntity)
+                                                          └─ llm-pi-ai route `model-gateway` ..... intranet LLM gateway (ADR-0007)
 
 profile `yantao` = the same stack without the web surface (one-shot headless runs)
 ```
@@ -110,9 +110,8 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 cp .env.example .env          # then fill in MODEL_GATEWAY_API_KEY
 pnpm install
 
-# workbench (persistent; starts in the background and prints the URL)
-.\scripts\yantao-web-start.ps1
-.\scripts\yantao-web-stop.ps1
+# workbench (Electron window + tray; spawns the dsh host as a child process, ADR-0016)
+pnpm --filter @deepseek-ai/dsh-yantao-desktop start
 
 # headless smoke test: one prompt through the GLM gateway
 pnpm dsh --profile yantao "用一句话回答：1+1等于几？"

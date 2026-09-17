@@ -25,8 +25,7 @@
 cp .env.example .env            # then fill in MODEL_GATEWAY_API_KEY
 pnpm install
 
-.\scripts\yantao-web-start.ps1  # workbench: background server, prints the URL
-.\scripts\yantao-web-stop.ps1   # stop it
+pnpm --filter @deepseek-ai/dsh-yantao-desktop start   # workbench: Electron window + tray (ADR-0016)
 
 pnpm dsh --profile yantao "用一句话回答：1+1等于几？"   # headless smoke test
 ```
@@ -41,7 +40,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"   # headless sm
 | `packages/client/ui-yantao/` | 我们的客户端插件:基于 `ctx.remote` 的工作台 React 树 |
 | `packages/bundle/yantao/`、`packages/bundle/yantao-web-app/` | profile 层:模型网关、KB 工具、工作台名单 |
 | `packages/preset/agent-presets/presets/yantao/` | 默认 agent 预设(不含写工具) |
-| `scripts/yantao-web-{start,stop}.ps1` | 启动/停止工作台 |
+| `apps/yantao-desktop/` | Electron 桌面外壳:拉起 dsh 宿主子进程,窗口 + 托盘(ADR-0016) |
 | `docs/yantao/`、`docs/adr/`、`CONTEXT-MAP.md`、`.env.example` | 我们的文档、决策与环境模板 |
 
 其余一切属于上游 dsh。我们改动的上游文件清单(合并面)见

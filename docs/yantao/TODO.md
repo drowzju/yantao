@@ -90,6 +90,8 @@
 
 | **资源读取与目录提及(ADR-0028 2026-09-16)** —— 第十一个工具 `kb_read_resource`:读 `resources/` 下的文件(UTF-8 全文;含 NUL 判二进制,拒绝并报大小)或目录(递归清单 path+size,封顶 100 带 truncated;清单不带内容也不探二进制);`@` 提及管线升级:提及路径 stat 分流,目录展开为"清单+内容"(每文件 32k 截断不变、每目录 96k 内容预算、条目封顶 100,二进制/超预算降为占位行),直接 `@` 二进制文件从灌乱码改为占位行(修 utf8 乱码洞);资源 tab 渲染可折叠 `ResourceTree`(按 `file.path` 目录前缀分组、默认全展开、行菜单/选中行为与平铺一致、零 wire 变更);`@` 菜单从资源路径中间段合成目录候选(icon folder、ref 尾斜杠),serialize 对含空格路径输出宿主正则的引号形态(修提及静默截断洞) | `packages/yantao/kb/src/{core,mentions,cited,index}.ts`(cited.ts 新增:提及读取的 stat 分流与预算遍历)、`packages/client/ui-yantao/src/client/{Workbench.tsx,kb-reference.ts}`、`AGENTS.md`、`docs/yantao/README.md`、`packages/yantao/kb/README.md`、`packages/bundle/yantao-web-app/README.md`、`docs/adr/0028-*`。验证:kb 167 + controller 156 + ui-yantao 215 测试全绿,scoped oxlint、`gen-cordis-catalog --check` 通过 |
 
+| **web 入口退役(ADR-0016 修订 2026-09-17)** —— 浏览器路线砍掉,桌面壳成为唯一形态:`scripts/yantao-web-{start,stop}.ps1` 删除,启动命令改为 `pnpm --filter @deepseek-ai/dsh-yantao-desktop start`;砍的只是**浏览器入口**——`yantao-web` profile、loopback HTTP 与 `apps/yantao` 前端是桌面壳的底座(ADR-0016 第 2、3 条),原样保留,前端仍然只有一份 | `scripts/yantao-web-{start,stop}.ps1` 删除、`AGENTS.md`、`README.md`、`docs/yantao/{README,development}.md`、`docs/adr/0016-*` |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
