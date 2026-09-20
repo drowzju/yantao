@@ -169,6 +169,74 @@ describe('applyProposal', () => {
   })
 })
 
+describe('create-follows-create (ADR-0030)', () => {
+  it('lands a create\'s own edits in the freshly created entity', async () => {
+    const t = target()
+    const proposal: Proposal = {
+      title: 't',
+      actions: [
+        { kind: 'create-entity', entityType: 'project', name: '邮箱迁移', reason: 'r' },
+        { kind: 'edit-section', path: '', afterCreate: '邮箱迁移', section: '目标', before: '', after: '迁完', why: 'w' },
+        { kind: 'append-log', entityPath: '', entityName: '邮箱迁移', afterCreate: '邮箱迁移', text: '新建', reason: 'r' },
+      ],
+    }
+    const result = await applyProposal({ proposal, ticked: [0, 1, 2], target: t })
+    expect(t.createEntity).toHaveBeenCalledWith('project', '邮箱迁移', undefined)
+    const editCall = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
+    expect(editCall[0]).toBe('entities/people/张三.md') // the path the create seam resolved
+    expect(editCall[1]).toContain('迁完')
+    const logCall = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[1] as [string, string]
+    expect(logCall[0]).toBe('entities/people/张三.md')
+    expect(logCall[1]).toMatch(/- \d{4}-\d{2}-\d{2} 新建/)
+    expect(result.skipped).toEqual([])
+  })
+
+  it('skips a follower when its create was not ticked', async () => {
+    const t = target()
+    const proposal: Proposal = {
+      title: 't',
+      actions: [
+        { kind: 'create-entity', entityType: 'project', name: '邮箱迁移', reason: 'r' },
+        { kind: 'edit-section', path: '', afterCreate: '邮箱迁移', section: '目标', before: '', after: '迁完', why: 'w' },
+      ],
+    }
+    const result = await applyProposal({ proposal, ticked: [1], target: t })
+    expect(t.createEntity).not.toHaveBeenCalled()
+    expect(t.read).not.toHaveBeenCalled()
+    expect(result.skipped).toEqual(['章节 目标（邮箱迁移）：前置的新建「邮箱迁移」没有落地'])
+  })
+
+  it('skips a follower when its create failed, and still lands the rest', async () => {
+    const t = target({ createEntity: vi.fn(async () => { throw new Error('已存在') }) })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [
+        { kind: 'create-entity', entityType: 'project', name: '邮箱迁移', reason: 'r' },
+        { kind: 'edit-section', path: '', afterCreate: '邮箱迁移', section: '目标', before: '', after: '迁完', why: 'w' },
+        { kind: 'save-resource', path: 'resources/note.md', content: 'n', reason: 'r' },
+      ],
+    }
+    const result = await applyProposal({ proposal, ticked: [0, 1, 2], target: t })
+    expect(result.skipped).toHaveLength(2)
+    expect(result.written).toEqual(['资源 resources/note.md'])
+  })
+
+  it('resolves a create-linked backlink into the new entity', async () => {
+    const t = target()
+    const proposal: Proposal = {
+      title: 't',
+      actions: [
+        { kind: 'create-entity', entityType: 'person', name: '李四', reason: 'r' },
+        { kind: 'create-link', entityPath: '', entityName: '李四', afterCreate: '李四', link: '[[飞书迁移]]', reason: 'r' },
+      ],
+    }
+    const result = await applyProposal({ proposal, ticked: [0, 1], target: t })
+    expect(result.skipped).toEqual([])
+    const [, content] = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
+    expect(content).toContain('[[飞书迁移]]')
+  })
+})
+
 describe('replaceSection', () => {
   it('replaces the section body and keeps the rest of the file', () => {
     const content = '# 张三\n\n## 状态\n\n旧内容\n\n## 流水\n\n- 2026-01-01 创建\n'

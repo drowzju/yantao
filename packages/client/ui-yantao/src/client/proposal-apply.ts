@@ -129,7 +129,9 @@ function writtenLine(action: ProposalAction): string {
     case 'save-resource': return `资源 ${action.path}`
     case 'create-link': return `关联 ${action.entityName} → ${action.link}`
     case 'add-todo': return `待办 ${action.title}`
-    case 'edit-section': return `章节 ${action.section}（${action.path}）`
+    // A create-following section edit carries no path until the applier
+    // resolves it; the create's name is what the human ticked.
+    case 'edit-section': return `章节 ${action.section}（${action.path !== '' ? action.path : action.afterCreate ?? ''}）`
   }
 }
 
@@ -167,16 +169,23 @@ export async function applyProposal(options: {
     action.kind === 'add-todo')
   const rest = picked.filter(action => action.kind !== 'add-todo')
 
+  // The paths of the entities this very card created, by name: a create's own
+  // edits, links, and log follow it (ADR-0030). A create that was not ticked
+  // or that failed leaves no entry, and its followers are skipped, not guessed.
+  const created = new Map<string, string>()
+  const resolveAfterCreate = (name: string): string | undefined => created.get(name)
+
   for (const action of rest) {
     try {
       if (action.kind === 'create-entity') {
         // Only the mail path names a person's address.
-        await target.createEntity(
+        const path = await target.createEntity(
           action.entityType,
           action.name,
           undefined,
           ...action.email !== undefined ? [action.email] : [],
         )
+        created.set(action.name, path)
         written.push(writtenLine(action))
         continue
       }
@@ -197,27 +206,47 @@ export async function applyProposal(options: {
           skipped.push(`${writtenLine(action)}：流水只增不改`)
           continue
         }
+        // A create-following edit lands in the freshly created entity; an
+        // unticked or failed create leaves nothing to edit.
+        let path = action.path
+        if (path === '' && action.afterCreate !== undefined) {
+          const fresh = resolveAfterCreate(action.afterCreate)
+          if (fresh === undefined) {
+            skipped.push(`${writtenLine(action)}：前置的新建「${action.afterCreate}」没有落地`)
+            continue
+          }
+          path = fresh
+        }
         // Re-read at apply time: the proposal's `before` may be stale — the
         // section is re-located in the current file, never snapshot-written.
-        const content = await target.read(action.path)
-        await target.write(action.path, replaceSection(content, heading, action.after))
+        const content = await target.read(path)
+        await target.write(path, replaceSection(content, heading, action.after))
         written.push(writtenLine(action))
         continue
       }
       // The entity-bodied kinds: an unresolved path is reported, not written.
-      if (action.entityPath === '') {
+      let entityPath = action.entityPath
+      if (entityPath === '' && 'afterCreate' in action && typeof action.afterCreate === 'string') {
+        const fresh = resolveAfterCreate(action.afterCreate)
+        if (fresh === undefined) {
+          skipped.push(`${writtenLine(action)}：前置的新建「${action.afterCreate}」没有落地`)
+          continue
+        }
+        entityPath = fresh
+      }
+      if (entityPath === '') {
         skipped.push(`实体 ${action.entityName}：知识库里没有这个实体`)
         continue
       }
-      const content = await target.read(action.entityPath)
+      const content = await target.read(entityPath)
       if (action.kind === 'append-log') {
-        await target.write(action.entityPath, appendLog(content, action.text))
+        await target.write(entityPath, appendLog(content, action.text))
       } else {
         // Domain data, not UI copy: `## 状态` is the KB's own section heading
         // (the glossary's 状态), independent of the workbench locale.
         const stateSection = '## 状态'
         const line = action.kind === 'create-link' ? action.link : action.text
-        await target.write(action.entityPath, insertIntoSection(content, stateSection, line))
+        await target.write(entityPath, insertIntoSection(content, stateSection, line))
       }
       written.push(writtenLine(action))
     } catch (error) {

@@ -3,31 +3,39 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { KbFileContent } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { SessionRemote } from '../src/client/remote.ts'
 import {
-  RESOURCE_DRAG_TYPE, dropPayloadOf, parseRefineVerdict, refinePrompt, runRefine, templateBodyOf, verdictToProposal,
+  RESOURCE_DRAG_TYPE, answersPrompt, dropPayloadOf, parseRefineVerdict, refinePrompt, runRefine, templateBodyOf,
+  verdictToProposal,
 } from '../src/client/refine.ts'
 
 const SESSION = 'session-1'
 const ENTITY_PATH = 'entities/projects/飞书迁移.md'
 const ENTITY = '# 飞书迁移\n\n## 目标\n\n年内跑通\n\n## 流水\n\n- 2026-01-01 创建\n'
 
-/** The verdict the fake session answers with, as fenced JSON. */
+/** The verdict the fake session answers with, as fenced JSON (protocol v2). */
 function verdictJson(overrides: Record<string, unknown> = {}): string {
   return `\`\`\`json\n${JSON.stringify({
     relevant: true,
     reason: '资源与项目直接相关',
-    edits: [{ section: '目标', after: '年内跑通，含邮箱', why: '资源补充了范围' }],
-    log: '归入了资源 会议纪要',
+    targets: [{
+      entity: '飞书迁移',
+      edits: [{ section: '目标', after: '年内跑通，含邮箱', why: '资源补充了范围' }],
+      links: [],
+      log: '归入了资源 会议纪要',
+    }],
+    creates: [],
+    questions: [],
     ...overrides,
   })}\n\`\`\``
 }
 
 /** A session namespace that answers `answer` and records every prompt it was asked. */
-function fakeSession(answer: string): {
+function fakeSession(answers: readonly string[]): {
   session: SessionRemote
   asked: { titles: readonly string[]; prompts: readonly string[] }
 } {
   const titles: string[] = []
   const prompts: string[] = []
+  let turn = 0
   const session = {
     create: async () => ({ ok: true, value: { sessionId: SESSION } }),
     rename: async (args: { title: string }) => {
@@ -39,18 +47,20 @@ function fakeSession(answer: string): {
       return { ok: true, value: { accepted: true } }
     },
     follow: () => (async function* () {
+      const answer = answers[Math.min(turn, answers.length - 1)] ?? ''
+      turn += 1
       yield {
         type: 'event',
         event: {
           type: 'assistant/message',
-          seq: 1,
+          seq: turn,
           time: 0,
           data: { message: { content: [{ type: 'text', text: answer }] } },
         },
       }
       yield {
         type: 'event',
-        event: { type: 'turn/end', seq: 2, time: 0, data: { turn: 1, reason: { kind: 'completed' } } },
+        event: { type: 'turn/end', seq: turn + 100, time: 0, data: { turn, reason: { kind: 'completed' } } },
       }
     })(),
   }
@@ -84,6 +94,13 @@ describe('templateBodyOf', () => {
     expect(body).toContain('## 目标')
     expect(body).toContain('## 下一步')
     expect(body).toContain('## 状态')
+  })
+
+  it('mirrors the meeting skeleton of the kb package, 决议 and 待办 included', async () => {
+    const body = await templateBodyOf(async () => { throw new Error('找不到') }, 'meeting')
+    expect(body).toContain('## 状态')
+    expect(body).toContain('## 决议')
+    expect(body).toContain('## 待办')
   })
 
   it('falls back when the user template carries 流水 twice — the anchor must be unique', async () => {
@@ -125,47 +142,99 @@ describe('refinePrompt', () => {
     expect(text).not.toContain('【资源：')
   })
 
-  it('carries the insight-placement criteria and the 流水 ban', () => {
+  it('pins the intake and refine targets to the gesture\'s own entity', () => {
+    const text = refinePrompt({ ...base, resource: { name: 'r', content: 'c' } })
+    expect(text).toContain('targets 至多一条')
+  })
+
+  it('shows the whole distill roster and asks for a many-to-many mapping', () => {
+    const text = refinePrompt({
+      mode: 'distill',
+      resource: { name: '会议纪要', content: '纪要正文' },
+      roster: [
+        { name: '飞书迁移', type: 'project', content: '年内跑通' },
+        { name: '李四', type: 'person', content: '## 状态' },
+      ],
+    })
+    expect(text).toContain('【资源：会议纪要】')
+    expect(text).toContain('【实体：飞书迁移（project）】')
+    expect(text).toContain('【实体：李四（person）】')
+    expect(text).toContain('每个相关实体各给一个 targets 条目')
+    expect(text).not.toContain('【资源：会议纪要】\n【实体：飞书迁移') // the roster never doubles as the resource
+  })
+
+  it('carries the insight-placement criteria, the 流水 ban, and the question rule', () => {
     const text = refinePrompt({ ...base, resource: { name: 'r', content: 'c' } })
     expect(text).toContain('目标')
     expect(text).toContain('下一步')
     expect(text).toContain('只增不改')
     expect(text).toContain('frontmatter')
     expect(text).toContain('[[实体名]]')
-  })
-
-  it('tells the model what a whole-body replacement means', () => {
-    const text = refinePrompt({ ...base, resource: { name: 'r', content: 'c' } })
-    expect(text).toContain('完整正文')
-    expect(text).toContain('原样带上')
+    expect(text).toContain('questions')
+    expect(text).toContain('creates')
   })
 })
 
 describe('parseRefineVerdict', () => {
-  it('reads a fenced JSON block', () => {
-    const verdict = parseRefineVerdict('看完了。\n\n```json\n{"relevant": true, "reason": "r", "edits": [{"section": "目标", "after": "a", "why": "w"}], "log": "l"}\n```\n')
+  it('reads a fenced JSON block with targets', () => {
+    const verdict = parseRefineVerdict('看完了。\n\n```json\n{"relevant": true, "reason": "r", "targets": [{"entity": "飞书迁移", "edits": [{"section": "目标", "after": "a", "why": "w"}], "links": [{"to": "李四", "why": "对接人"}], "log": "l"}], "creates": [], "questions": []}\n```\n')
     expect(verdict).toEqual({
-      relevant: true, reason: 'r', edits: [{ section: '目标', after: 'a', why: 'w' }], log: 'l',
+      relevant: true,
+      reason: 'r',
+      targets: [{
+        entity: '飞书迁移',
+        edits: [{ section: '目标', after: 'a', why: 'w' }],
+        links: [{ to: '李四', why: '对接人' }],
+        log: 'l',
+      }],
+      creates: [],
+      questions: [],
     })
   })
 
+  it('binds the legacy single-entity shape (top-level edits/log) to the unnamed target', () => {
+    const verdict = parseRefineVerdict('{"relevant": true, "reason": "r", "edits": [{"section": "目标", "after": "a", "why": "w"}], "log": "l"}')
+    expect(verdict.targets).toEqual([{
+      entity: '',
+      edits: [{ section: '目标', after: 'a', why: 'w' }],
+      links: [],
+      log: 'l',
+    }])
+  })
+
   it('reads bare JSON when the model skips the fence', () => {
-    const verdict = parseRefineVerdict('{"relevant": false, "reason": "无关", "edits": [], "log": ""}')
+    const verdict = parseRefineVerdict('{"relevant": false, "reason": "无关", "targets": [], "creates": [], "questions": []}')
     expect(verdict.relevant).toBe(false)
     expect(verdict.reason).toBe('无关')
   })
 
   it('treats relevance as false unless the model said true', () => {
-    expect(parseRefineVerdict('{"reason": "r", "edits": [], "log": ""}').relevant).toBe(false)
-    expect(parseRefineVerdict('{"relevant": "yes", "edits": [], "log": ""}').relevant).toBe(false)
+    expect(parseRefineVerdict('{"reason": "r", "targets": [], "creates": [], "questions": []}').relevant).toBe(false)
+    expect(parseRefineVerdict('{"relevant": "yes", "targets": [], "creates": [], "questions": []}').relevant).toBe(false)
   })
 
   it('drops edits without a section or with an empty body rather than writing junk', () => {
     const verdict = parseRefineVerdict(JSON.stringify({
-      relevant: true, reason: '', log: '',
-      edits: [{ section: '', after: 'a' }, { section: '目标', after: '' }, { section: '目标', after: 'a', why: 'w' }],
+      relevant: true, reason: '', questions: [],
+      targets: [{ entity: '甲', edits: [{ section: '', after: 'a' }, { section: '目标', after: '' }, { section: '目标', after: 'a', why: 'w' }], log: '' }],
     }))
-    expect(verdict.edits).toEqual([{ section: '目标', after: 'a', why: 'w' }])
+    expect(verdict.targets[0]?.edits).toEqual([{ section: '目标', after: 'a', why: 'w' }])
+  })
+
+  it('drops a target with nothing to do, an unknown create type, and a link with no destination', () => {
+    const verdict = parseRefineVerdict(JSON.stringify({
+      relevant: true, reason: 'r',
+      targets: [{ entity: '甲', edits: [], links: [], log: '' }],
+      creates: [
+        { entityType: 'widget', name: '坏' },
+        { entityType: 'area', name: '' },
+        { entityType: 'person', name: '李四', why: 'w' },
+      ],
+      questions: [{ question: '', why: 'w' }, { question: '时间?', why: 'w' }],
+    }))
+    expect(verdict.targets).toEqual([])
+    expect(verdict.creates.map(create => create.name)).toEqual(['李四'])
+    expect(verdict.questions.map(question => question.question)).toEqual(['时间?'])
   })
 
   it('says the model did not answer rather than returning an empty verdict', () => {
@@ -173,12 +242,33 @@ describe('parseRefineVerdict', () => {
   })
 })
 
+describe('answersPrompt', () => {
+  it('pairs each question with the human\'s answer and forbids a second question round', () => {
+    const text = answersPrompt(
+      [{ question: '负责人是谁?', why: 'w' }, { question: '截止日期?', why: 'w' }],
+      ['李四'],
+    )
+    expect(text).toContain('问题：负责人是谁?')
+    expect(text).toContain('回答：李四')
+    expect(text).toContain('回答：')
+    expect(text).not.toContain('undefined')
+    expect(text).toContain('不要再提问')
+  })
+})
+
 describe('verdictToProposal', () => {
+  const VIEWS = {
+    primary: { name: '飞书迁移', path: ENTITY_PATH, content: ENTITY },
+  }
+
   it('maps edits to edit-section actions carrying the current body as before', () => {
     const proposal = verdictToProposal(
-      { relevant: true, reason: 'r', edits: [{ section: '目标', after: '新目标', why: 'w' }], log: 'l' },
-      { path: ENTITY_PATH, name: '飞书迁移' },
-      ENTITY,
+      {
+        relevant: true, reason: 'r',
+        targets: [{ entity: '飞书迁移', edits: [{ section: '目标', after: '新目标', why: 'w' }], links: [], log: 'l' }],
+        creates: [], questions: [],
+      },
+      VIEWS,
       '提炼 飞书迁移',
     )
     expect(proposal.title).toBe('提炼 飞书迁移')
@@ -189,9 +279,12 @@ describe('verdictToProposal', () => {
 
   it('carries an empty before for a section the entity does not have yet', () => {
     const proposal = verdictToProposal(
-      { relevant: true, reason: 'r', edits: [{ section: '下一步', after: '迁移邮箱', why: 'w' }], log: 'l' },
-      { path: ENTITY_PATH, name: '飞书迁移' },
-      ENTITY,
+      {
+        relevant: true, reason: 'r',
+        targets: [{ entity: '', edits: [{ section: '下一步', after: '迁移邮箱', why: 'w' }], links: [], log: 'l' }],
+        creates: [], questions: [],
+      },
+      VIEWS,
       't',
     )
     expect(proposal.actions[0]).toMatchObject({ section: '下一步', before: '', after: '迁移邮箱' })
@@ -199,19 +292,75 @@ describe('verdictToProposal', () => {
 
   it('always appends the fixed log row, with a fallback text when the model left it empty', () => {
     const withLog = verdictToProposal(
-      { relevant: true, reason: 'r', edits: [], log: '归入了资源 纪要' },
-      { path: ENTITY_PATH, name: '飞书迁移' }, ENTITY, 't',
+      { relevant: true, reason: 'r', targets: [{ entity: '', edits: [], links: [], log: '归入了资源 纪要' }], creates: [], questions: [] },
+      VIEWS, 't',
     )
     expect(withLog.actions).toEqual([{
       kind: 'append-log', entityPath: ENTITY_PATH, entityName: '飞书迁移', text: '归入了资源 纪要', reason: '提炼记录',
     }])
     const withoutLog = verdictToProposal(
-      { relevant: true, reason: 'r', edits: [], log: '' },
-      { path: ENTITY_PATH, name: '飞书迁移' }, ENTITY, 't',
+      { relevant: true, reason: 'r', targets: [{ entity: '', edits: [], links: [], log: '' }], creates: [], questions: [] },
+      VIEWS, 't',
     )
     const last = withoutLog.actions[0]
     if (last?.kind !== 'append-log') throw new Error('expected an append-log action')
     expect(last.text).toContain('提炼')
+  })
+
+  it('resolves distill targets from the roster and turns links into create-link rows', () => {
+    const proposal = verdictToProposal(
+      {
+        relevant: true, reason: 'r',
+        targets: [
+          {
+            entity: '飞书迁移',
+            edits: [{ section: '下一步', after: '迁移邮箱', why: 'w' }],
+            links: [{ to: '李四', why: '项目负责人' }],
+            log: 'l1',
+          },
+          { entity: '李四', edits: [], links: [], log: 'l2' },
+          { entity: '不在名单', edits: [{ section: '状态', after: 'x', why: 'w' }], links: [], log: 'l3' },
+        ],
+        creates: [], questions: [],
+      },
+      {
+        roster: [
+          { name: '飞书迁移', path: ENTITY_PATH, content: ENTITY },
+          { name: '李四', path: 'entities/people/李四.md', content: '# 李四' },
+        ],
+      },
+      '提炼 会议纪要',
+    )
+    expect(proposal.actions.map(action => action.kind)).toEqual(['edit-section', 'create-link', 'append-log', 'append-log'])
+    expect(proposal.actions.some(action => action.kind === 'edit-section' && action.path === ENTITY_PATH)).toBe(true)
+    expect(proposal.actions[1]).toEqual({
+      kind: 'create-link', entityPath: ENTITY_PATH, entityName: '飞书迁移', link: '[[李四]]', reason: '项目负责人',
+    })
+    // The unresolvable third target is dropped, not guessed.
+    expect(proposal.actions.filter(action => action.kind === 'append-log')).toHaveLength(2)
+  })
+
+  it('puts creates first and lets their edits, links, and log follow by name', () => {
+    const proposal = verdictToProposal(
+      {
+        relevant: true, reason: 'r',
+        targets: [],
+        creates: [{
+          entityType: 'project', name: '邮箱迁移', why: '没有承接的项目',
+          edits: [{ section: '目标', after: '迁完', why: 'w' }],
+          links: [{ to: '飞书迁移', why: '前身' }],
+          log: '新建',
+        }],
+        questions: [],
+      },
+      VIEWS,
+      '提炼 会议纪要',
+    )
+    expect(proposal.actions.map(action => action.kind)).toEqual(['create-entity', 'edit-section', 'create-link', 'append-log'])
+    expect(proposal.actions[0]).toEqual({ kind: 'create-entity', entityType: 'project', name: '邮箱迁移', reason: '没有承接的项目' })
+    expect(proposal.actions[1]).toMatchObject({ kind: 'edit-section', path: '', afterCreate: '邮箱迁移', section: '目标', after: '迁完' })
+    expect(proposal.actions[2]).toMatchObject({ entityPath: '', entityName: '邮箱迁移', afterCreate: '邮箱迁移', link: '[[飞书迁移]]' })
+    expect(proposal.actions[3]).toMatchObject({ entityPath: '', entityName: '邮箱迁移', afterCreate: '邮箱迁移', text: '新建' })
   })
 })
 
@@ -222,7 +371,7 @@ describe('runRefine', () => {
   }
 
   it('names the session 「提炼 <实体名>」 and sends the entity and resource in the prompt', async () => {
-    const { session, asked } = fakeSession(verdictJson())
+    const { session, asked } = fakeSession([verdictJson()])
     const run = await runRefine({
       ctx: ctxWith(session, FILES),
       mode: 'intake',
@@ -239,7 +388,7 @@ describe('runRefine', () => {
   })
 
   it('returns no proposal when the intake verdict judges the resource irrelevant', async () => {
-    const { session } = fakeSession(verdictJson({ relevant: false, reason: '资源讲的是别的项目', edits: [], log: '' }))
+    const { session } = fakeSession([verdictJson({ relevant: false, reason: '资源讲的是别的项目', targets: [] })])
     const run = await runRefine({
       ctx: ctxWith(session, FILES),
       mode: 'intake',
@@ -253,8 +402,68 @@ describe('runRefine', () => {
     expect(run.proposal).toBeUndefined()
   })
 
+  it('pauses on questions and continues in the same session with the answers', async () => {
+    const asked = fakeSession([
+      verdictJson({
+        reason: '需要先弄清楚归属',
+        targets: [],
+        questions: [{ question: '这是哪个项目的资源?', why: '影响归类' }],
+      }),
+      verdictJson({ reason: '清楚了', targets: [{ entity: '飞书迁移', edits: [], links: [], log: '第二轮' }] }),
+    ])
+    const run = await runRefine({
+      ctx: ctxWith(asked.session, FILES),
+      mode: 'intake',
+      entityPath: ENTITY_PATH,
+      entityName: '飞书迁移',
+      entityType: 'project',
+      resource: { path: 'resources/会议纪要.md', name: '会议纪要' },
+    })
+    expect(run.questions).toEqual([{ question: '这是哪个项目的资源?', why: '影响归类' }])
+    expect(run.proposal).toBeUndefined()
+    expect(asked.asked.prompts).toHaveLength(1)
+
+    const final = await run.continueWithAnswers?.(['飞书迁移'])
+    expect(final?.relevant).toBe(true)
+    expect(final?.proposal?.actions.map(action => action.kind)).toEqual(['append-log'])
+    expect(asked.asked.prompts).toHaveLength(2)
+    expect(asked.asked.prompts[1]).toContain('问题：这是哪个项目的资源?')
+    expect(asked.asked.prompts[1]).toContain('回答：飞书迁移')
+  })
+
+  it('runs the distill gesture against the whole roster, clipped per entity', async () => {
+    const big = '长'.repeat(12 * 1024)
+    const { session, asked } = fakeSession([verdictJson({
+      reason: '两个实体相关',
+      targets: [
+        { entity: '飞书迁移', edits: [], links: [], log: '相关' },
+        { entity: '小项目', edits: [], links: [], log: '也相关' },
+      ],
+    })])
+    const run = await runRefine({
+      ctx: ctxWith(session, {
+        'resources/会议纪要.md': '纪要正文',
+        [ENTITY_PATH]: ENTITY,
+        'entities/projects/大项目.md': big,
+      }),
+      mode: 'distill',
+      resource: { path: 'resources/会议纪要.md', name: '会议纪要' },
+      roster: [
+        { name: '飞书迁移', type: 'project', path: ENTITY_PATH },
+        { name: '大项目', type: 'project', path: 'entities/projects/大项目.md' },
+      ],
+    })
+    expect(asked.titles).toEqual(['提炼 会议纪要'])
+    const prompt = asked.prompts[0] ?? ''
+    expect(prompt).toContain('【实体：飞书迁移（project）】')
+    expect(prompt).toContain('【实体：大项目（project）】')
+    expect(prompt).toContain('（内容过长，已截断）')
+    expect(prompt.length).toBeLessThan(big.length + 40 * 1024)
+    expect(run.proposal?.actions.every(action => action.kind === 'append-log')).toBe(true)
+  })
+
   it('injects a placeholder for a binary resource instead of failing the run', async () => {
-    const { session, asked } = fakeSession(verdictJson())
+    const { session, asked } = fakeSession([verdictJson()])
     await runRefine({
       ctx: ctxWith(session, FILES, ['resources/扫描件.pdf']),
       mode: 'intake',
@@ -268,7 +477,7 @@ describe('runRefine', () => {
   })
 
   it('clips an oversized resource at the 32k line', async () => {
-    const { session, asked } = fakeSession(verdictJson())
+    const { session, asked } = fakeSession([verdictJson()])
     const big = '长'.repeat(40 * 1024)
     await runRefine({
       ctx: ctxWith(session, { ...FILES, 'resources/长文.md': big }),
@@ -284,7 +493,7 @@ describe('runRefine', () => {
   })
 
   it('reads the user template for the entity type into the prompt', async () => {
-    const { session, asked } = fakeSession(verdictJson())
+    const { session, asked } = fakeSession([verdictJson()])
     await runRefine({
       ctx: ctxWith(session, { ...FILES, '.dsh/yantao/templates/project.md': '## 目标\n\n\n## 里程碑' }),
       mode: 'refine',
@@ -306,7 +515,7 @@ describe('runRefine', () => {
   })
 
   it('reports a missing yantaoKb namespace instead of throwing on undefined', async () => {
-    const { session } = fakeSession(verdictJson())
+    const { session } = fakeSession([verdictJson()])
     await expect(runRefine({
       ctx: { remote: { session } } as unknown as Context,
       mode: 'refine',
@@ -317,7 +526,7 @@ describe('runRefine', () => {
   })
 
   it('reports the host\'s refusal to create a session', async () => {
-    const { session } = fakeSession(verdictJson())
+    const { session } = fakeSession([verdictJson()])
     const failing = {
       ...session,
       create: async () => ({ ok: false, error: new Error('没有可用的 agent') }),

@@ -34,6 +34,12 @@ export type ProposalAction =
     readonly entityName: string
     readonly text: string
     readonly reason: string
+    /**
+     * When the action targets an entity this same card creates: the create's
+     * name. The applier resolves the path as the create runs (ADR-0030) —
+     * the create must be ticked and succeed, or the row is skipped.
+     */
+    readonly afterCreate?: string
   }
   | {
     /** Append one line to an entity's `## 状态`. */
@@ -57,6 +63,8 @@ export type ProposalAction =
     readonly entityName: string
     readonly link: string
     readonly reason: string
+    /** Same create-follows-create resolution as `append-log`'s (ADR-0030). */
+    readonly afterCreate?: string
   }
   | {
     /** Join one line of work into the todo singleton, under optimistic concurrency. */
@@ -83,6 +91,13 @@ export type ProposalAction =
     readonly before: string
     readonly after: string
     readonly why: string
+    /**
+     * When the section lives in an entity this same card creates: the
+     * create's name. The applier resolves the path as the create runs
+     * (ADR-0030) — the create must be ticked and succeed, or the row is
+     * skipped.
+     */
+    readonly afterCreate?: string
   }
 
 /** One mail the analysis flagged, shown on the card without a checkbox. */
