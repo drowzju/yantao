@@ -37,15 +37,16 @@ export interface EntityTemplateOptions {
  * appends it, so built-in and user templates travel one code path. project
  * gains `## 目标` + `## 下一步` (a project has an end: north star, then next
  * action); area gains `## 标准` + `## 检视` (an area is a maintained standard,
- * the PARA sense); person and meeting carry only `## 状态` — their differences
- * live in frontmatter.
+ * the PARA sense); person carries only `## 状态`; meeting carries `## 状态` +
+ * `## 决议` + `## 待办` (a meeting is concluded, decided, and leaves action
+ * items — 状态 stays first so `kb_write_state` keeps its anchor).
  */
 export function builtinEntityBody(type: EntityType): string {
   switch (type) {
     case 'project': return '## 目标\n\n\n## 下一步\n\n\n## 状态'
     case 'area': return '## 标准\n\n\n## 检视\n\n\n## 状态'
-    case 'person':
-    case 'meeting': return '## 状态'
+    case 'person': return '## 状态'
+    case 'meeting': return '## 状态\n\n\n## 决议\n\n\n## 待办'
     case 'todo': return ''
   }
 }

@@ -136,7 +136,7 @@ const BUILTIN_BODIES: Record<string, string> = {
   project: '## 目标\n\n\n## 下一步\n\n\n## 状态',
   area: '## 标准\n\n\n## 检视\n\n\n## 状态',
   person: '## 状态',
-  meeting: '## 状态',
+  meeting: '## 状态\n\n\n## 决议\n\n\n## 待办',
 }
 
 /** Where a user template for one entity type lives, KB-relative (ADR-0026 决定 1). */
