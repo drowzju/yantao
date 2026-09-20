@@ -8,26 +8,22 @@
  * the verdict comes back into {@link ProposalCard}, where nothing is written
  * until the human confirms. The cursor only moves once a verdict has been
  * dealt with, so a failed analysis leaves the mails unread rather than lost.
+ *
+ * The panel is a pure view: the run's state lives in a {@link MailRunStore},
+ * handed down by the workbench so it survives the panel's unmount (switching
+ * tab, another capability, a collapsed rail). Without one, the panel makes its
+ * own and behaves as it always did.
  */
-import { useEffect, useState, type CSSProperties, type ReactElement } from 'react'
-import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 import type { MailFetcher, MailMarker } from './remote.ts'
-import type { AnalysisProgress, AnalysisStage, MailAnalyser, MailImportance, MailVerdict } from './mail-analysis.ts'
+import type { AnalysisStage, MailAnalyser, MailImportance } from './mail-analysis.ts'
+import { createMailRun, useMailRun, type MailProcessedRange, type MailRunStore } from './mail-run.ts'
 import type { MailEntities } from './mail-apply.ts'
 import type { ProposalTarget } from './proposal-apply.ts'
-import { applyProposal } from './proposal-apply.ts'
-import type { Proposal } from './proposal.ts'
-import { analysisToProposal } from './proposal.ts'
 import { ProposalCard } from './ProposalCard.tsx'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 
-/** The processed-mail range the capability's persisted state carries, as the panel shows it. */
-export interface MailProcessedRange {
-  /** The oldest mail ever processed, when known. */
-  readonly firstReadAt?: string
-  /** The newest mail processed so far (the watermark), when known. */
-  readonly lastReadAt?: string
-}
+export type { MailProcessedRange } from './mail-run.ts'
 
 /** What the panel does with the Remote surface and the KB. */
 export interface MailPanelProps {
@@ -45,6 +41,11 @@ export interface MailPanelProps {
   readonly entities: () => Promise<MailEntities>
   /** The processed range so far, from the capability's persisted state. */
   readonly processed?: MailProcessedRange
+  /**
+   * The run state to render, when the workbench owns one that outlives this
+   * panel; absent, the panel keeps its own (which dies with it).
+   */
+  readonly store?: MailRunStore
 }
 
 /**
@@ -62,15 +63,7 @@ export function mailRangeOf(state: unknown): { firstReadAt?: string; lastReadAt?
   }
 }
 
-type Phase = 'idle' | 'fetching' | 'analysing' | 'applying'
-
-/** Which way a read steps the window: back into older mail, or forward into newer. */
-type Direction = 'older' | 'newer'
-
-/** How far back one 往前 step reaches. */
-const STEP_DAYS = 30
-
-/** What each stage of an analysis run says on screen — dictionary keys, translated at render. */
+/** Which each stage of an analysis run says on screen — dictionary keys, translated at render. */
 const STAGE_KEYS: Record<AnalysisStage, WorkbenchLocaleKey> = {
   session: 'mail.stage.creatingSession',
   prompt: 'mail.stage.askingModel',
@@ -121,41 +114,9 @@ const mailTextMutedStyle = { color: '#9a9488', whiteSpace: 'nowrap' } as const
 
 const mailSubjectStyle = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as const
 
-/**
- * An ISO stamp `days` before `from` — the 往前 bound.
- * @param from - the stamp to move back from, when there is one.
- * @param days - how far back to go.
- * @returns the earlier bound.
- */
-function earlier(from: string | undefined, days: number): string {
-  const parsed = from === undefined ? Number.NaN : Date.parse(from)
-  const then = new Date(Number.isNaN(parsed) ? Date.now() : parsed)
-  then.setDate(then.getDate() - days)
-  return then.toISOString()
-}
-
 /** The date of one ISO stamp, for the line that names the batch on screen. */
 function day(iso: string): string {
   return iso.slice(0, 10)
-}
-
-/**
- * The bounds of the batch one direction button asks for.
- *
- * 往后 is everything newer than the newest mail on screen (the host fills the
- * lower bound from its watermark when nothing is loaded yet); 往前 is the
- * `STEP_DAYS` window that ends where the oldest mail on screen begins, so each
- * press steps one window back instead of re-reading the newest page.
- * @param direction - which way to step.
- * @param mails - the batch on screen, newest first.
- * @returns the `since` / `until` bounds for the read.
- */
-function boundsFor(direction: Direction, mails: readonly KbMailMessage[]): { since?: string; until?: string } {
-  const newest = mails[0]?.receivedAt
-  const oldest = mails[mails.length - 1]?.receivedAt
-  if (direction === 'newer') return newest === undefined ? {} : { since: newest }
-  const until = oldest ?? new Date().toISOString()
-  return { since: earlier(until, STEP_DAYS), until }
 }
 
 /**
@@ -163,134 +124,30 @@ function boundsFor(direction: Direction, mails: readonly KbMailMessage[]): { sin
  * @param props - see {@link MailPanelProps}.
  * @returns the panel element.
  */
-export function MailPanel({ t, fetch, mark, analyse, target, entities, processed = {} }: MailPanelProps): ReactElement {
-  const [mails, setMails] = useState<readonly KbMailMessage[]>([])
-  const [stale, setStale] = useState(false)
-  const [hasMore, setHasMore] = useState(false)
-  const [lastReadAt, setLastReadAt] = useState<string | undefined>(undefined)
-  // The processed range: seeded from the capability's persisted state, then
-  // kept current with what each 批准/忽略 answers.
-  const [range, setRange] = useState<MailProcessedRange>(processed)
-  const [phase, setPhase] = useState<Phase>('idle')
-  const [error, setError] = useState<string | null>(null)
-  const [hint, setHint] = useState<string | null>(null)
-  const [review, setReview] = useState<Proposal | null>(null)
-  const [summary, setSummary] = useState<readonly string[]>([])
-  const [progress, setProgress] = useState<AnalysisProgress | null>(null)
-  // Per-mail verdicts as the chunks land: mail number (1-based) → its judgement.
-  const [verdicts, setVerdicts] = useState<ReadonlyMap<number, MailVerdict>>(new Map())
-  const [elapsed, setElapsed] = useState(0)
+export function MailPanel({ t, fetch, mark, analyse, target, entities, processed = {}, store }: MailPanelProps): ReactElement {
+  // The store is the workbench's when it hands one down; otherwise this panel
+  // keeps its own, exactly as ephemeral as the component state used to be.
+  const local = useRef<MailRunStore | null>(null)
+  if (local.current === null) local.current = createMailRun()
+  const run = store ?? local.current
+  run.bind({ fetch, mark, analyse, target, entities })
+
+  const { mails, stale, hasMore, range: movedRange, phase, error, hint, review, summary, progress, verdicts, startedAt } = useMailRun(run)
+  // Until the run itself advances the cursor, the capability's persisted
+  // state is the fresher authority on the processed range.
+  const range = movedRange ?? processed
 
   // A slow judgement with no feedback reads as a hung one: count the seconds
-  // the analysis has been running, next to the stage it has reached.
+  // the analysis has been running, next to the stage it has reached. Counting
+  // from the run's own start keeps the number honest across remounts.
+  const [, setTick] = useState(0)
   useEffect(() => {
-    if (phase !== 'analysing') return
-    setElapsed(0)
-    const timer = setInterval(() => { setElapsed(value => value + 1) }, 1000)
+    if (phase !== 'analysing' || startedAt === null) return
+    setTick(0)
+    const timer = setInterval(() => { setTick(value => value + 1) }, 1000)
     return () => { clearInterval(timer) }
-  }, [phase])
-
-  /**
-   * Read one batch in one direction. A failure keeps its message *and* its
-   * remedy: the useful answer to "Outlook is not answering" is what to start,
-   * not that it failed.
-   * @param direction - 往前 into older mail, or 往后 into newer.
-   */
-  const read = async (direction: Direction): Promise<void> => {
-    setPhase('fetching')
-    setError(null)
-    setHint(null)
-    setSummary([])
-    setVerdicts(new Map())
-    try {
-      const result = await fetch(boundsFor(direction, mails))
-      setMails(result.messages)
-      setStale(result.stale)
-      setHasMore(result.hasMore)
-      setLastReadAt(result.lastReadAt ?? result.since)
-    } catch (failure: unknown) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-      setHint((failure as { details?: { hint?: string } }).details?.hint ?? null)
-    } finally {
-      setPhase('idle')
-    }
-  }
-
-  /** Hand the batch to a session and open the confirmation window. */
-  const run = async (): Promise<void> => {
-    setPhase('analysing')
-    setError(null)
-    setHint(null)
-    setProgress({ stage: 'session' })
-    setVerdicts(new Map())
-    try {
-      const known = await entities()
-      const result = await analyse(mails, known, (update) => {
-        setProgress(update)
-        if (update.verdicts !== undefined) {
-          setVerdicts(new Map(update.verdicts.map(verdict => [verdict.mail, verdict])))
-        }
-      })
-      setVerdicts(new Map(result.analysis.verdicts.map(verdict => [verdict.mail, verdict])))
-      setReview(analysisToProposal(result.analysis, known, result.title, mails))
-    } catch (failure: unknown) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setPhase('idle')
-      setProgress(null)
-    }
-  }
-
-  /**
-   * Write what was ticked, then move the cursor: the mails have been read and
-   * judged, whether the human took anything from them or not.
-   * @param ticked - the indexes of the ticked actions.
-   */
-  const confirm = async (ticked: readonly number[]): Promise<void> => {
-    if (review === null) return
-    setPhase('applying')
-    try {
-      const result = await applyProposal({ proposal: review, ticked, target })
-      setSummary([...result.written, ...result.skipped])
-      setReview(null)
-      setMails([])
-    } catch (failure: unknown) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setPhase('idle')
-    }
-    await moveCursor()
-  }
-
-  /** Close the window without writing; the mails still count as read. */
-  const dismiss = async (): Promise<void> => {
-    setReview(null)
-    await moveCursor()
-  }
-
-  /**
-   * Move the cursor past the batch on screen: the newest mail becomes the
-   * watermark, the oldest extends the processed range's start backward.
-   */
-  const moveCursor = async (): Promise<void> => {
-    const oldest = mails[mails.length - 1]?.receivedAt
-    try {
-      const answer = await mark({
-        lastReadAt: mails[0]?.receivedAt ?? new Date().toISOString(),
-        ...(oldest !== undefined ? { firstReadAt: oldest } : {}),
-      })
-      setRange((previous) => {
-        const firstReadAt = answer.firstReadAt !== undefined ? answer.firstReadAt : previous.firstReadAt
-        return {
-          ...(firstReadAt !== undefined ? { firstReadAt } : {}),
-          lastReadAt: answer.lastReadAt,
-        }
-      })
-    } catch {
-      // The verdict is already dealt with; a failed cursor move surfaces on
-      // the next read (the host answers from its watermark), not here.
-    }
-  }
+  }, [phase, startedAt])
+  const elapsed = startedAt === null ? 0 : Math.max(Math.floor((Date.now() - startedAt) / 1000), 0)
 
   const busy = phase !== 'idle'
 
@@ -301,7 +158,7 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
           type="button"
           style={buttonStyle}
           disabled={busy}
-          onClick={() => { void read('older') }}
+          onClick={() => { void run.read('older') }}
         >
           {t('mail.prev')}
         </button>
@@ -309,7 +166,7 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
           type="button"
           style={buttonStyle}
           disabled={busy}
-          onClick={() => { void read('newer') }}
+          onClick={() => { void run.read('newer') }}
         >
           {phase === 'fetching' ? t('mail.loading') : t('mail.next')}
         </button>
@@ -358,11 +215,9 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
             : day(range.lastReadAt ?? '')}
         </div>
       )}
-      {stale && lastReadAt !== undefined && (
-        <div style={hintStyle}>{t('mail.longGap')}</div>
-      )}
+      {stale && <div style={hintStyle}>{t('mail.longGap')}</div>}
       {mails.length > 0 && (
-        <button type="button" style={buttonStyle} disabled={busy} onClick={() => { void run() }}>
+        <button type="button" style={buttonStyle} disabled={busy} onClick={() => { void run.run() }}>
           {phase === 'analysing' ? t('mail.analysing') : t('mail.analyseBatch', { count: mails.length })}
         </button>
       )}
@@ -387,8 +242,8 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
           t={t}
           proposal={review}
           busy={phase === 'applying'}
-          onConfirm={(ticked) => { void confirm(ticked) }}
-          onDismiss={() => { void dismiss() }}
+          onConfirm={(ticked) => { void run.confirm(ticked) }}
+          onDismiss={() => { void run.dismiss() }}
         />
       )}
     </div>

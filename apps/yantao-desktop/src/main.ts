@@ -10,6 +10,9 @@
  *    for that line and loads it.
  * 4. **A restart affordance.** The host can be relaunched without tearing the
  *    window down, which is what makes editing the host bearable.
+ * 5. **A notify bridge.** The renderer's one channel out (`preload.cjs`):
+ *    while the window sits hidden in the tray, a finished background run (the
+ *    mail analysis) can still reach the human as a system notification.
  *
  * The window appears immediately with a "启动中" page rather than after boot:
  * the boot is slow (see ADR-0016) and a blank desktop reads as a crash.
@@ -22,7 +25,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow, Menu, nativeImage, Tray } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, Tray } from 'electron'
 
 /**
  * Repository root. This file is `apps/yantao-desktop/src/main.ts`, so the
@@ -30,6 +33,9 @@ import { app, BrowserWindow, Menu, nativeImage, Tray } from 'electron'
  * levels up — `../..` lands on `apps/`, which is one short.
  */
 const REPO = fileURLToPath(new URL('../../..', import.meta.url))
+
+/** This file's own directory (`…/apps/yantao-desktop/src/`) — ESM has no `__dirname`. */
+const HERE = fileURLToPath(new URL('.', import.meta.url))
 
 /** The dsh launcher the shell spawns. */
 const CLI = join(REPO, 'apps', 'cli', 'src', 'bin.ts')
@@ -173,8 +179,14 @@ function ensureWindow(): BrowserWindow {
     show: false,
     // The host is loopback-only and hands out its own launch token; nothing here
     // needs Node in the renderer, and keeping it out is the point of the trust
-    // boundary.
-    webPreferences: { nodeIntegration: false, contextIsolation: true },
+    // boundary. The preload adds exactly one channel back out: `yantao.notify`.
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      // Plain JavaScript: the preload loads in the renderer directly, outside
+      // the tsx loader that runs this file.
+      preload: join(HERE, 'preload.cjs'),
+    },
   })
   window.on('closed', () => {
     window = undefined
@@ -207,6 +219,23 @@ async function restartHost(): Promise<void> {
 
 async function main(): Promise<void> {
   await app.whenReady()
+
+  // The notify bridge's other half. Only a hidden window earns a system
+  // notification — a visible one shows the run in place, and doubling it up
+  // would train the human to ignore the pop-ups. Clicking brings the window
+  // back, which is the whole point: something is waiting there.
+  ipcMain.on('yantao:notify', (_event, message: unknown) => {
+    if (window === undefined || window.isVisible()) return
+    const title = (message as { title?: unknown } | null)?.title
+    const body = (message as { body?: unknown } | null)?.body
+    if (typeof title !== 'string' || typeof body !== 'string' || title === '') return
+    const notice = new Notification({ title, body })
+    notice.on('click', () => {
+      window?.show()
+      window?.focus()
+    })
+    notice.show()
+  })
 
   // Electron 默认挂一条 File/Edit/View/Window/Help 菜单栏，工作台用不上（顺带
   // 也失去了 F12 调试入口）；托盘已经够用。

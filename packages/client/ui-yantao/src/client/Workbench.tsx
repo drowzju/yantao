@@ -5,7 +5,7 @@
  * frame collapses them. Pure presentation over plain data: every fact arrives
  * as a prop and every action as a callback.
  */
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type {
   KbCapabilitySummary, KbPersonRelation, KbTreeFile, KbTreeSection, KbTreeSectionId,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
@@ -22,6 +22,7 @@ import type { ProposalTarget } from './proposal-apply.ts'
 import { entitiesOfTree } from './mail-apply.ts'
 import { CapabilityPanel } from './CapabilityPanel.tsx'
 import { MailPanel, mailRangeOf } from './MailPanel.tsx'
+import { createMailRun, useMailRun } from './mail-run.ts'
 import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { remoteMessage } from './remote.ts'
 import type { TabMode } from './tabs.ts'
@@ -861,6 +862,11 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const { sections, error, refresh } = useRail(load, refreshKey)
   const capabilities = useCapabilities(capabilityList, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector'>('resources')
+  // The mail run outlives the panel: tab switches, capability switches and a
+  // collapsed rail all unmount MailPanel, and an analysis (or the proposal
+  // card waiting on the human) must still be there when they come back.
+  const mailRun = useMemo(() => createMailRun(), [])
+  const mailState = useMailRun(mailRun)
   const [actionError, setActionError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [dropping, setDropping] = useState(false)
@@ -954,6 +960,16 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
             onClick={() => { setTab(id) }}
           >
             {t(SECTION_KEYS[id])}
+            {/* The recall hook: an analysis running (or a proposal card
+                waiting) somewhere the human cannot currently see. */}
+            {id === 'connector' && (mailState.review !== null || mailState.phase === 'analysing') && (
+              <span
+                style={{ marginLeft: 4, color: mailState.review !== null ? '#b4453a' : '#9a9488' }}
+                title={t(mailState.review !== null ? 'mail.tab.awaiting' : 'mail.tab.running')}
+              >
+                ●
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -983,6 +999,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
               target={mailTarget}
               entities={async () => entitiesOfTree(await workspace())}
               processed={mailRangeOf(state)}
+              store={mailRun}
             />
           )}
         />

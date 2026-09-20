@@ -103,6 +103,8 @@ export const zh = {
   'mail.analyseBatch': '分析这 {count} 封',
   'mail.analysedProgress': '（已分析 {done}/{total}）',
   'mail.waited': '（已等待 {seconds} 秒）',
+  'mail.tab.running': '邮件分析进行中',
+  'mail.tab.awaiting': '有待确认的邮件提议',
 
   // Todo board
   'todo.newAria': '新待办',
@@ -275,6 +277,8 @@ export const en = {
   'mail.analyseBatch': 'Analyse these {count} messages',
   'mail.analysedProgress': '({done}/{total} analysed)',
   'mail.waited': '(waited {seconds}s)',
+  'mail.tab.running': 'Mail analysis running',
+  'mail.tab.awaiting': 'Mail proposals awaiting confirmation',
 
   // Todo board
   'todo.newAria': 'New todo',
