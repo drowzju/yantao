@@ -44,3 +44,8 @@ status: accepted
 - 文档同步：`docs/yantao/README.md` ADR 索引（本条）、`docs/yantao/TODO.md` done 行、`packages/yantao/CONTEXT.md` 增「任务 tab」词条。
 
 落地注记（2026-09-21）：全部落地，分五批提交。批次 1 提炼可取消（17576f33ad）：中止信号触发 `session/cancel`，队列随取消清空，问题对话框可放弃。批次 2 邮件分析可取消（4abf5e552b）：跑完当前 chunk 即停，已落地判定保留，水位线不动，state 增 `cancelled` 见证位。批次 3 能力可取消（edd01fddec）：`capabilityRun` 增 AbortSignal 尾参，中止杀子进程并以 `cancelled` 类失败拒绝。批次 4 任务 tab（fd339af99c）：`task-view.ts` 纯模型 + `TasksPane.tsx` 纯展示 + CenterPane 常驻 tab 与徽标 + Frame 三类上报与跳转/取消路由 + mailRun 上移 Frame。批次 5 文档（本 ADR 与索引同步）。验证：ui-yantao 298 测试全绿（15 文件，含 task-view 6 例与「任务 tab 列出运行中的能力并就地取消」端到端 1 例），scoped oxlint 0/0，client bundle 重建。
+
+落地注记二（2026-09-21，试用反馈两则）：
+
+1. **邮件读取也是一行**。首用发现读取阶段在任务 tab 里不可见——只有点了「分析」才出行，而读取同样是工作台发起的执行。修正：Frame 把面板传入的 `mailFetch` 包成 `bookedMailFetch`，读取以「读取邮件」一行呈现（读取中 → 已读 N 封 / 已取消 / 失败），`MailFetcher` 与 `fetchMail` 同样吃 AbortSignal 尾参，行上的取消中止的是读取自己的 signal——与分析行的 `mailRun.cancel()` 按 id 区分，两个生命周期不重叠（分析从读取的结果起步）。
+2. **「待确认」不是行的终点**。首用发现确认写入后行永远停在「提议待确认」：镜像 effect 在提议卡打开时清掉了行 id，后续 applying/idle 两拍拿不到 id 就返回。修正：打开卡片只把行挂起（`waiting`），id 留着，确认写入走「正在写入 → 已写入 N 项」、关掉卡片走「已忽略」，仍是同一行。

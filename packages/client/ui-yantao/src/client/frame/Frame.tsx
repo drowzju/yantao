@@ -31,7 +31,7 @@ import { ProposalCard } from '../ProposalCard.tsx'
 import { QuestionDialog } from '../QuestionDialog.tsx'
 import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage } from '../remote.ts'
-import type { KbCapabilitySummary, KbLinksResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
@@ -691,19 +691,53 @@ export function Frame({
       })
       return
     }
-    if (mailState.phase === 'applying' && mailTaskId.current !== null) {
-      taskPatch(mailTaskId.current, { status: 'running', stage: '正在写入' })
+    if (mailState.phase === 'applying') {
+      if (mailTaskId.current !== null) taskPatch(mailTaskId.current, { status: 'running', stage: '正在写入' })
       return
     }
     if (mailTaskId.current === null) return
     const id = mailTaskId.current
+    if (mailState.review !== null) {
+      // 待确认不是这条行的终点：确认后的写入、或关掉卡片，都是同一行的
+      // 后续阶段 —— 所以这里只挂起行，id 必须留着（清了它，确认写入后
+      // 的 applying/idle 两拍都会因拿不到 id 而 return，行永远停在待确认）。
+      taskPatch(id, { status: 'waiting', stage: '提议待确认' })
+      return
+    }
     mailTaskId.current = null
-    if (mailState.review !== null) taskPatch(id, { status: 'waiting', stage: '提议待确认' })
-    else if (mailState.cancelled) taskEnd(id, 'cancelled', '已取消，已完成的判定保留')
+    if (mailState.cancelled) taskEnd(id, 'cancelled', '已取消，已完成的判定保留')
     else if (mailState.error !== null) taskEnd(id, 'failed', mailState.error)
     else if (mailState.summary.length > 0) taskEnd(id, 'done', `已写入 ${mailState.summary.length} 项`)
     else taskEnd(id, 'done', '已忽略')
   }, [mailState, taskBegin, taskPatch, taskEnd])
+
+  // The fetch is an execution the workbench started too (ADR-0031 落地注记二):
+  // the panel's 读取 buttons go through this wrapper, so the read shows as a
+  // row of its own — 「读取邮件」 — with the same cancel line as any
+  // capability run: the signal rides the RPC and an abort kills the reader
+  // subprocess server-side. Its row is watched by id, not by the analysis's
+  // store — the two lifecycles never overlap (the analysis starts from the
+  // fetch's result).
+  const mailFetchTaskId = useRef<string | null>(null)
+  const mailFetchAbort = useRef<AbortController | null>(null)
+  const bookedMailFetch = useCallback(async (args: KbMailFetchArgs): Promise<KbMailFetchResult> => {
+    const taskId = taskBegin('mail', '读取邮件', '读取中')
+    mailFetchTaskId.current = taskId
+    const aborter = new AbortController()
+    mailFetchAbort.current = aborter
+    try {
+      const result = await mailFetch(args, aborter.signal)
+      taskEnd(taskId, 'done', `已读 ${result.messages.length} 封`)
+      return result
+    } catch (failure: unknown) {
+      if (aborter.signal.aborted) taskEnd(taskId, 'cancelled', '已取消')
+      else taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
+      throw failure
+    } finally {
+      mailFetchTaskId.current = null
+      mailFetchAbort.current = null
+    }
+  }, [mailFetch, taskBegin, taskEnd])
 
   // ADR-0031: the 任务 row's two verbs. 查看 goes to where the outcome
   // lives — refine speaks through the conversation's cards and notices, the
@@ -719,6 +753,7 @@ export function Frame({
   }, [])
   const cancelTask = useCallback((row: TaskRow): void => {
     if (row.kind === 'refine') cancelRefine()
+    else if (row.kind === 'mail' && row.id === mailFetchTaskId.current) mailFetchAbort.current?.abort()
     else if (row.kind === 'mail') mailRun.cancel()
     else cancelCapability()
   }, [cancelRefine, cancelCapability, mailRun])
@@ -950,7 +985,7 @@ export function Frame({
           deleteFile={deleteFile}
           setRelation={setRelation}
           workspace={workspace}
-          mailFetch={mailFetch}
+          mailFetch={bookedMailFetch}
           mailMarkRead={mailMarkRead}
           analyseMail={analyseMail}
           registerResource={registerResource}
@@ -1042,7 +1077,7 @@ export function Frame({
           deleteFile={deleteFile}
           setRelation={setRelation}
           workspace={workspace}
-          mailFetch={mailFetch}
+          mailFetch={bookedMailFetch}
           mailMarkRead={mailMarkRead}
           analyseMail={analyseMail}
           registerResource={registerResource}

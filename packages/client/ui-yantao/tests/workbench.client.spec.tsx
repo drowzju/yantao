@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import type { KbTreeSection } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { KbCapabilityRunResult, KbLinksResult, KbTodosResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilityRunResult, KbCapabilitySummary, KbLinksResult, KbMailFetchResult, KbTodosResult, KbUnregisteredSkill } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { TreeLoader } from '../src/client/Workbench.tsx'
 import { IntakeRail, WorkspaceRail, groupResourceFiles, type IntakeRailProps } from '../src/client/Workbench.tsx'
 import { Frame } from '../src/client/frame/Frame.tsx'
@@ -11,11 +11,11 @@ import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveCol
 import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
 import type {
   CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader,
-  FileWriter, LinksLoader, RelationSetter, RevisionLoader, RootLoader, RootSetter, SessionPrompter, TodoLoader,
-  TodoWriter,
+  FileWriter, LinksLoader, MailFetcher, MailMarker, RelationSetter, RevisionLoader, RootLoader, RootSetter,
+  SessionPrompter, TodoLoader, TodoWriter,
 } from '../src/client/remote.ts'
+import type { MailAnalyser } from '../src/client/mail-analysis.ts'
 import type { RefineRunner } from '../src/client/refine.ts'
-import type { KbCapabilitySummary, KbUnregisteredSkill } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { CapabilityPanel } from '../src/client/CapabilityPanel.tsx'
 import { RESOURCE_DRAG_TYPE } from '../src/client/refine.ts'
 import type { Proposal } from '../src/client/proposal.ts'
@@ -1041,6 +1041,9 @@ interface FrameFaces {
   readonly promptSession: SessionPrompter
   readonly capabilityList: CapabilityLoader
   readonly capabilityRun: CapabilityRunner
+  readonly mailFetch: MailFetcher
+  readonly mailMarkRead: MailMarker
+  readonly analyseMail: MailAnalyser
   readonly refine: RefineRunner
 }
 
@@ -1063,6 +1066,9 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     promptSession: () => Promise.resolve(),
     capabilityList: () => Promise.resolve({ capabilities: [], unregistered: [] }),
     capabilityRun: () => Promise.resolve({ name: '', runAt: '', artifacts: [] }),
+    mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
+    mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
+    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } }),
     refine: () => Promise.resolve({ sessionId: '', title: '', relevant: true, reason: '' }),
     ...overrides,
   }
@@ -1090,9 +1096,9 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       revision={kb.revision}
       openExternal={kb.openExternal}
       todos={kb.todos}
-      mailFetch={() => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] })}
-      mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
-      analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } })}
+      mailFetch={kb.mailFetch}
+      mailMarkRead={kb.mailMarkRead}
+      analyseMail={kb.analyseMail}
       refine={kb.refine}
       registerResource={() => Promise.resolve('resources/新资源.pdf')}
       capabilityList={kb.capabilityList}
@@ -1437,6 +1443,99 @@ describe('Frame', () => {
     fireEvent.click(within(line).getByText('取消'))
     await waitFor(() => { expect(line.getAttribute('data-task-status')).toBe('cancelled') })
     expect((capabilityRun.mock.calls[0]?.[1] as AbortSignal).aborted).toBe(true)
+  })
+
+  it('lists the mail fetch as a task row and cancels it from there (ADR-0031 落地注记二)', async () => {
+    const mailFetch = vi.fn((_args: unknown, signal?: AbortSignal): Promise<KbMailFetchResult> =>
+      new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
+      }))
+    render(renderFrame({
+      capabilityList: () => Promise.resolve({
+        capabilities: [{
+          name: 'mail', description: '读 Outlook 邮件', source: 'project',
+          entry: 'scripts/entry.py', runtime: 'python', invocation: ['human', 'agent'],
+        }],
+        unregistered: [],
+      }),
+      mailFetch,
+    }))
+    fireEvent.click(screen.getByText('能力'))
+    fireEvent.click(await screen.findByText('mail'))
+    fireEvent.click(await screen.findByText('往后 →'))
+
+    // The fetch is an execution the workbench started, so it is a row of its
+    // own — 「读取邮件」 — visible while the reader subprocess works.
+    fireEvent.click(screen.getByText('任务'))
+    const pane = await waitFor(() => {
+      const found = document.querySelector('[data-tasks-pane="true"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    const line = Array.from(pane.querySelectorAll('[data-task-row]'))
+      .find(row => row.textContent?.includes('读取邮件')) as HTMLElement
+    expect(line.getAttribute('data-task-status')).toBe('running')
+
+    // 取消 on the row aborts the fetch's own signal, not the analysis's.
+    fireEvent.click(within(line).getByText('取消'))
+    await waitFor(() => { expect(line.getAttribute('data-task-status')).toBe('cancelled') })
+    expect((mailFetch.mock.calls[0]?.[1] as AbortSignal).aborted).toBe(true)
+  })
+
+  it('carries the mail analysis row from 待确认 through the write to 已写入 (ADR-0031 落地注记二)', async () => {
+    render(renderFrame({
+      capabilityList: () => Promise.resolve({
+        capabilities: [{
+          name: 'mail', description: '读 Outlook 邮件', source: 'project',
+          entry: 'scripts/entry.py', runtime: 'python', invocation: ['human', 'agent'],
+        }],
+        unregistered: [],
+      }),
+      mailFetch: () => Promise.resolve({
+        since: '', stale: false, hasMore: false,
+        messages: [{
+          id: 'a', entryId: 'a', receivedAt: '2026-09-09T10:00:00+00:00',
+          senderName: '张三', senderAddress: 'zhangsan@example.com',
+          subject: '季度汇报', body: '正文', truncated: false, toMe: 'to',
+        }],
+      }),
+      analyseMail: () => Promise.resolve({
+        sessionId: 'session-1',
+        title: '邮件分析 2026-09-21',
+        analysis: {
+          verdicts: [{ mail: 1, importance: 'focus', why: '上级主送' }],
+          people: [{ name: '张三', relation: '合作方', reason: '一起做汇报' }],
+          todos: [{ title: '发汇报', due: '2026-09-12', body: '' }],
+          projects: [{ name: '飞书迁移', note: '对方确认了时间' }],
+          resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
+        },
+      }),
+    }))
+    fireEvent.click(screen.getByText('能力'))
+    fireEvent.click(await screen.findByText('mail'))
+    fireEvent.click(await screen.findByText('往后 →'))
+    await screen.findByText(/1 封 · /)
+    fireEvent.click(screen.getByText('分析这 1 封'))
+    await screen.findByText('邮件分析 2026-09-21')
+
+    // The review card parks the row at 待确认…
+    fireEvent.click(screen.getByText('任务'))
+    const pane = await waitFor(() => {
+      const found = document.querySelector('[data-tasks-pane="true"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    const line = Array.from(pane.querySelectorAll('[data-task-row]'))
+      .find(row => row.textContent?.includes('邮件分析')) as HTMLElement
+    expect(line.getAttribute('data-task-status')).toBe('waiting')
+    expect(line.textContent).toContain('提议待确认')
+
+    // …and confirming the writes must carry the SAME row on to 已写入 —
+    // not strand it at 待确认 (the regression this test pins).
+    fireEvent.click(screen.getByText('全部接受'))
+    fireEvent.click(screen.getByText('确认写入（4）'))
+    await waitFor(() => { expect(line.getAttribute('data-task-status')).toBe('done') })
+    expect(line.textContent).toContain('已写入 4 项')
   })
 
   it('runs the 提炼 gesture into a proposal card and applies the confirmed writes (ADR-0029)', async () => {

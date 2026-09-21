@@ -128,8 +128,12 @@ export type TodoLoader = () => Promise<KbTodosResult>
 /** Write the todo singleton's whole item list, optimistic-concurrency and all (ADR-0018). */
 export type TodoWriter = (args: KbWriteTodosArgs) => Promise<KbWriteTodosResult>
 
-/** Read the newest mails through the `mail` capability (ADR-0019, ADR-0021). */
-export type MailFetcher = (args: KbMailFetchArgs) => Promise<KbMailFetchResult>
+/**
+ * Read the newest mails through the `mail` capability (ADR-0019, ADR-0021).
+ * The signal is the run's cancel line (ADR-0031 落地注记二): an abort kills
+ * the reader subprocess server-side, same as any capability run.
+ */
+export type MailFetcher = (args: KbMailFetchArgs, signal?: AbortSignal) => Promise<KbMailFetchResult>
 
 /** Move the mail connector's cursor forward (ADR-0019). */
 export type MailMarker = (args: KbMailMarkReadArgs) => Promise<KbMailMarkReadResult>
@@ -412,10 +416,11 @@ export async function writeTodos(ctx: Context, args: KbWriteTodosArgs): Promise<
  * keeps its shape; only the transport changed.
  * @param ctx - client root context.
  * @param args - an explicit `since` and cap; both are optional.
+ * @param signal - the human channel's cancel line (ADR-0031 落地注记二).
  * @returns the bound used, the mails, and the two flags the panel reports.
  */
-export async function fetchMail(ctx: Context, args: KbMailFetchArgs): Promise<KbMailFetchResult> {
-  const run = await runCapability(ctx, { name: 'mail', input: args } as unknown as KbCapabilityRunArgs)
+export async function fetchMail(ctx: Context, args: KbMailFetchArgs, signal?: AbortSignal): Promise<KbMailFetchResult> {
+  const run = await runCapability(ctx, { name: 'mail', input: args } as unknown as KbCapabilityRunArgs, signal)
   return run.result as unknown as KbMailFetchResult
 }
 
