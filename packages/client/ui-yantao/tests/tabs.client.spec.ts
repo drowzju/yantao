@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  CONVERSATION_TAB,
-  TAB_STORAGE_KEY,
+  CONVERSATION_TAB, TAB_STORAGE_KEY, TASKS_TAB,
   activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath, restoreTabs, tabFor, tabTitle,
   type TabMode, type TabState, type TabStorage,
 } from '../src/client/tabs.ts'
@@ -121,5 +120,20 @@ describe('persistence', () => {
 describe('tabFor', () => {
   it('derives the label and keeps the given mode', () => {
     expect(tabFor('resources/周报.eml', 'read')).toEqual({ path: 'resources/周报.eml', title: '周报.eml', mode: 'read' })
+  })
+})
+
+describe('TASKS_TAB', () => {
+  it('is a permanent key the free-form active slot carries without special cases', () => {
+    expect(TASKS_TAB).not.toBe(CONVERSATION_TAB)
+    expect(activateTab(emptyTabs(), TASKS_TAB).active).toBe(TASKS_TAB)
+    expect(activeFile(activateTab(emptyTabs(), TASKS_TAB))).toBeUndefined()
+  })
+
+  it('is never persisted — only file paths are', () => {
+    const state = activateTab(openTab(emptyTabs(), 'a.md', 'edit'), TASKS_TAB)
+    const store = memory()
+    persistTabs(state, store)
+    expect(restoreTabs(store)).toEqual(['a.md'])
   })
 })

@@ -22,6 +22,9 @@ export interface FileTab {
 /** Tab key of the permanent conversation tab — never closeable, never unmounted. */
 export const CONVERSATION_TAB = 'conversation'
 
+/** Tab key of the permanent 任务 tab (ADR-0031) — never closeable, never persisted. */
+export const TASKS_TAB = 'tasks'
+
 /** The centre pane's tab state. */
 export interface TabState {
   /** Open file tabs in open order. */

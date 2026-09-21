@@ -22,7 +22,7 @@ import type { ProposalTarget } from './proposal-apply.ts'
 import { entitiesOfTree } from './mail-apply.ts'
 import { CapabilityPanel } from './CapabilityPanel.tsx'
 import { MailPanel, mailRangeOf } from './MailPanel.tsx'
-import { createMailRun, useMailRun } from './mail-run.ts'
+import { createMailRun, useMailRun, type MailRunStore } from './mail-run.ts'
 import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { remoteMessage } from './remote.ts'
 import type { TabMode } from './tabs.ts'
@@ -850,6 +850,17 @@ export interface IntakeRailProps extends RailProps {
   readonly capabilityAdopt: CapabilityAdopter
   /** Register one in-KB skill by writing its sidecar in place (ADR-0025 决定 1). */
   readonly capabilityRegister: CapabilityRegistrar
+  /**
+   * The frame-owned mail run store (ADR-0031): the analysis must be visible
+   * to the 任务 tab, so the store outlives the rail the same way it already
+   * outlived the panel. Absent (tests, other embedders) the rail makes its own.
+   */
+  readonly mailRun?: MailRunStore
+  /**
+   * Bumped by the frame when a 任务 row's 查看 asks for the connector tab:
+   * any change brings 能力 to the front.
+   */
+  readonly revealConnector?: number
 }
 
 /** The rail's error marker: it is the only thing left above the tab strip. */
@@ -929,7 +940,10 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   // The mail run outlives the panel: tab switches, capability switches and a
   // collapsed rail all unmount MailPanel, and an analysis (or the proposal
   // card waiting on the human) must still be there when they come back.
-  const mailRun = useMemo(() => createMailRun(), [])
+  // ADR-0031: the store is the frame's when the frame supplies one — the
+  // 任务 tab watches the same object — and the rail's own otherwise.
+  const ownMailRun = useMemo(() => createMailRun(), [])
+  const mailRun = props.mailRun ?? ownMailRun
   const mailState = useMailRun(mailRun)
   const [actionError, setActionError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -938,6 +952,11 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   // ADR-0030: the resource directory's right-click menu — one distill gesture
   // per file under the directory, however nested, handed to the frame's queue.
   const [dirMenu, setDirMenu] = useState<{ dir: string; x: number; y: number } | null>(null)
+  // ADR-0031: a 任务 row's 查看 lands here — the connector tab comes to the
+  // front (the frame has already re-expanded the rail).
+  useEffect(() => {
+    if (props.revealConnector !== undefined && props.revealConnector > 0) setTab('connector')
+  }, [props.revealConnector])
   // Reveal a selection this rail owns: the tab carrying the file comes to the
   // front, so the highlighted row is a visible one. A selection owned by the
   // other rail leaves the human's own tab choice alone. Only a *new*

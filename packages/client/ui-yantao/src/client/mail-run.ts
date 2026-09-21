@@ -73,6 +73,11 @@ export interface MailRunState {
   readonly verdicts: ReadonlyMap<number, MailVerdict>
   /** When the current analysis began, for the seconds counter across remounts. */
   readonly startedAt: number | null
+  /**
+   * Whether the last analysis ended because the human cancelled it (ADR-0031)
+   * — the task view's witness, distinct from an error.
+   */
+  readonly cancelled: boolean
 }
 
 /** The seams a run needs — exactly the panel's RPC props, captured once. */
@@ -111,6 +116,7 @@ const EMPTY_STATE: MailRunState = {
   progress: null,
   verdicts: new Map(),
   startedAt: null,
+  cancelled: false,
 }
 
 /** How far back one 往前 step reaches. */
@@ -230,6 +236,7 @@ export function createMailRun(): MailRunStore {
       phase: 'analysing',
       error: null,
       hint: null,
+      cancelled: false,
       progress: { stage: 'session' },
       verdicts: new Map(),
       startedAt: Date.now(),
@@ -251,7 +258,7 @@ export function createMailRun(): MailRunStore {
       // stopped it — not a failure. What landed stays on screen; the cursor
       // is untouched, so a later read re-offers the batch.
       if (analyseCancel.controller.signal.aborted) {
-        set({ error: null, hint: null, summary: ['已取消，已完成的判定保留。'] })
+        set({ error: null, hint: null, cancelled: true, summary: ['已取消，已完成的判定保留。'] })
       } else {
         const body = failure instanceof Error ? failure.message : String(failure)
         set({ error: body })

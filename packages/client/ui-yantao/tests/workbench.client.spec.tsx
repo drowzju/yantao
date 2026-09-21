@@ -1393,6 +1393,49 @@ describe('Frame', () => {
     expect(await screen.findByText('发送失败：会话通道不可用，无法发送。')).toBeTruthy()
   })
 
+  it('lists a running capability in the 任务 tab and cancels it from there (ADR-0031)', async () => {
+    let kill: (() => void) | null = null
+    const capabilityRun = vi.fn((_args: unknown, signal?: AbortSignal) => new Promise((_resolve, reject) => {
+      kill = () => { reject(new Error('aborted')) }
+      signal?.addEventListener('abort', () => { kill?.() }, { once: true })
+    }))
+    const { container } = render(renderFrame({
+      capabilityList: () => Promise.resolve({
+        capabilities: [{
+          name: 'slow-report', description: '慢慢跑', source: 'project', invocation: ['human'],
+          appliesTo: { resource: ['.eml'] }, entry: 'run.py', runtime: 'python',
+        }],
+        unregistered: [],
+      }),
+      capabilityRun,
+    }))
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    const group = await waitFor(() => {
+      const found = container.querySelector('[data-row-capabilities="true"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    fireEvent.click(within(group).getByText('slow-report'))
+    expect(await screen.findByText('能力「slow-report」执行中…')).toBeTruthy()
+
+    // The 任务 tab shows the run with a badge, running on top.
+    fireEvent.click(screen.getByText('任务'))
+    const pane = await waitFor(() => {
+      const found = document.querySelector('[data-tasks-pane="true"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    expect(document.querySelector('[data-tasks-badge="true"]')?.textContent).toBe('1')
+    const line = pane.querySelector('[data-task-row]') as HTMLElement
+    expect(line.getAttribute('data-task-status')).toBe('running')
+    expect(line.textContent).toContain('能力「slow-report」')
+
+    // 取消 on the row reaches the runner's abort signal and ends the row.
+    fireEvent.click(within(line).getByText('取消'))
+    await waitFor(() => { expect(line.getAttribute('data-task-status')).toBe('cancelled') })
+    expect((capabilityRun.mock.calls[0]?.[1] as AbortSignal).aborted).toBe(true)
+  })
+
   it('runs the 提炼 gesture into a proposal card and applies the confirmed writes (ADR-0029)', async () => {
     const write = vi.fn((_path: string, _content: string) => Promise.resolve())
     const refine = vi.fn(() => Promise.resolve({
@@ -1562,8 +1605,10 @@ describe('Frame', () => {
     fireEvent.click(screen.getByText('提炼到实体'))
     await act(async () => {})
     expect(refine).toHaveBeenCalledTimes(1)
-    // Closing the card releases the gate and the queued run starts.
-    fireEvent.click(screen.getByText('取消'))
+    // Closing the card releases the gate and the queued run starts. (Scoped:
+    // the queued gesture's own 取消 also exists in the hidden 任务 pane.)
+    const card = document.querySelector('[data-proposal-card="true"]') as HTMLElement
+    fireEvent.click(within(card).getByText('取消'))
     await waitFor(() => { expect(refine).toHaveBeenCalledTimes(2) })
     expect(await screen.findByText('提炼')).toBeTruthy()
   })

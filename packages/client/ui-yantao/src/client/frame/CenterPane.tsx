@@ -1,6 +1,7 @@
 /**
- * The centre pane: one permanent 对话 tab plus one closeable tab per open KB
- * file. The conversation is never unmounted — an inactive tab's column is only
+ * The centre pane: two permanent tabs — 对话 and 任务 (ADR-0031) — plus one
+ * closeable tab per open KB file. The conversation is never unmounted — an
+ * inactive tab's column is only
  * hidden — because it is the host's surface (scroll position and the composer
  * draft are its own) and remounting it would cost the human their place. File
  * panes stay mounted for the same reason: a draft survives a tab switch.
@@ -9,9 +10,11 @@
  */
 import type { ReactElement, ReactNode } from 'react'
 import {
-  CONVERSATION_TAB,
+  CONVERSATION_TAB, TASKS_TAB,
   type FileTab, type TabState,
 } from '../tabs.ts'
+import { runningCount, type TaskRow } from '../task-view.ts'
+import { TasksPane } from './TasksPane.tsx'
 import { STATUS_KEYS, type SaveStatus } from '../editor/FileEditor.tsx'
 import type { WorkbenchT } from '../locales.ts'
 
@@ -36,6 +39,12 @@ export interface CenterPaneProps {
   readonly renderConversation: () => ReactNode
   /** Render one file tab's pane. */
   readonly renderFile: (tab: FileTab) => ReactNode
+  /** The frame's task rows (ADR-0031): the 任务 tab's list and its badge. */
+  readonly taskRows: readonly TaskRow[]
+  /** Stop one running task. */
+  readonly onTaskCancel: (row: TaskRow) => void
+  /** Jump to where one task's outcome lives. */
+  readonly onTaskJump: (row: TaskRow) => void
   readonly t: WorkbenchT
 }
 
@@ -151,14 +160,19 @@ export function CenterPane({
   onClose,
   renderConversation,
   renderFile,
+  taskRows,
+  onTaskCancel,
+  onTaskJump,
   t,
 }: CenterPaneProps): ReactElement {
   // The conversation is rendered unconditionally and only hidden: remounting
   // it would drop the host's scroll position and composer draft.
   const conversationActive = tabs.active === CONVERSATION_TAB
+  const tasksActive = tabs.active === TASKS_TAB
   // Only an editable file has two views; a read-only original is one <pre>.
   const activeFile = tabs.files.find(tab => tab.path === tabs.active)
   const toggleable = activeFile?.mode === 'edit'
+  const running = runningCount(taskRows)
   return (
     <div style={paneStyle}>
       <div style={stripStyle}>
@@ -166,6 +180,26 @@ export function CenterPane({
           <button type="button" style={labelButtonStyle} onClick={() => { onActivate(CONVERSATION_TAB) }}>
             {t('center.conversation')}
           </button>
+        </div>
+        <div style={tasksActive ? activeTabStyle : tabStyle}>
+          <button type="button" style={labelButtonStyle} onClick={() => { onActivate(TASKS_TAB) }}>
+            {t('center.tasks')}
+          </button>
+          {running > 0 && (
+            <span
+              data-tasks-badge="true"
+              style={{
+                background: '#4a7fd4',
+                borderRadius: 8,
+                color: '#fff',
+                fontSize: 11,
+                lineHeight: '16px',
+                padding: '0 6px',
+              }}
+            >
+              {running}
+            </span>
+          )}
         </div>
         {tabs.files.map((tab) => {
           const status = statuses[tab.path]
@@ -214,6 +248,9 @@ export function CenterPane({
       <div style={bodyStyle}>
         <div style={{ ...pageStyle, display: conversationActive ? 'flex' : 'none' }} data-tab={CONVERSATION_TAB}>
           {renderConversation()}
+        </div>
+        <div style={{ ...pageStyle, display: tasksActive ? 'flex' : 'none' }} data-tab={TASKS_TAB}>
+          <TasksPane rows={taskRows} onCancel={onTaskCancel} onJump={onTaskJump} />
         </div>
         {tabs.files.map(tab => (
           <div

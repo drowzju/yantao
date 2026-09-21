@@ -162,6 +162,7 @@ export const zh = {
 
   // Center pane
   'center.conversation': '对话',
+  'center.tasks': '任务',
   'center.close': '关闭',
   'center.read': '阅读',
   'center.source': '源码',
@@ -342,6 +343,7 @@ export const en = {
 
   // Center pane
   'center.conversation': 'Conversation',
+  'center.tasks': 'Tasks',
   'center.close': 'Close',
   'center.read': 'Read',
   'center.source': 'Source',

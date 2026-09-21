@@ -8,7 +8,7 @@
  * Panel actions reach `ctx.layout` through the `panels` seat: the frame owns
  * the state, the service face is a thin forwarder.
  */
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
@@ -19,8 +19,10 @@ import type {
   MailFetcher, MailMarker, RelationSetter, ResourceRegistrar, RevisionLoader, RootLoader, RootSetter,
   SessionPrompter, TodoLoader, TodoWriter,
 } from '../remote.ts'
-import type { MailAnalyser } from '../mail-analysis.ts'
+import type { AnalysisStage, MailAnalyser } from '../mail-analysis.ts'
+import { createMailRun, useMailRun } from '../mail-run.ts'
 import type { RefineGesture, RefineRosterEntry, RefineRunner, RefineRun } from '../refine.ts'
+import type { TaskKind, TaskRow, TaskStatus } from '../task-view.ts'
 import type { Proposal } from '../proposal.ts'
 import { applyProposal, type ProposalApplyResult } from '../proposal-apply.ts'
 import { proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
@@ -197,6 +199,25 @@ function rosterOfTrees(
     if (type === undefined) return []
     return section.files.map(file => ({ name: file.name, type, path: file.path }))
   })
+}
+
+/** One queued gesture plus its 任务 row (ADR-0031). */
+interface RefineQueued {
+  readonly gesture: RefineGesture
+  readonly taskId: string
+}
+
+/**
+ * A refine gesture's 「动作＋对象」 line: the resource for 归入 and 提炼到实
+ * 体, the entity for the row menu's 提炼.
+ * @param gesture - the queued gesture.
+ * @returns the 任务 row's title.
+ */
+function refineTitle(gesture: RefineGesture): string {
+  const what = gesture.mode === 'refine'
+    ? gesture.entityName ?? ''
+    : gesture.resource?.name ?? '资源'
+  return gesture.mode === 'intake' ? `归入「${what}」` : `提炼「${what}」`
 }
 
 /**
@@ -432,6 +453,32 @@ export function Frame({
     })
   }, [applyConfirmed])
 
+  // ── the 任务 tab's rows (ADR-0031) ────────────────────────────────────────
+  // One row per execution the workbench itself started — refine gestures,
+  // mail analyses, script capability runs — this session only, frontend
+  // memory only. The three run owners report their transitions here; the
+  // running-on-top ordering happens at render time in sortTaskRows.
+  const [taskRows, setTaskRows] = useState<readonly TaskRow[]>([])
+  const taskSeq = useRef(0)
+  const taskBegin = useCallback((kind: TaskKind, title: string, stage: string): string => {
+    taskSeq.current += 1
+    const id = `task-${taskSeq.current}`
+    setTaskRows(rows => [
+      { id, kind, title, stage, detail: null, status: 'running', startedAt: Date.now(), endedAt: null },
+      ...rows,
+    ])
+    return id
+  }, [])
+  const taskPatch = useCallback((
+    id: string,
+    patch: Partial<Pick<TaskRow, 'stage' | 'detail' | 'status' | 'endedAt'>>,
+  ): void => {
+    setTaskRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row))
+  }, [])
+  const taskEnd = useCallback((id: string, status: TaskStatus, stage: string): void => {
+    taskPatch(id, { status, stage, endedAt: Date.now() })
+  }, [taskPatch])
+
   // ADR-0021 决定 7 + ADR-0026 决定 4: a row menu's capability run. A
   // script capability still runs through `capabilityRun` — a run that
   // answers with a proposal (`{ actions: [...] }`) opens the shared card,
@@ -460,19 +507,31 @@ export function Frame({
     capabilityAbort.current = aborter
     setCapabilityRunning(true)
     setCapabilityNotice(`能力「${capability.name}」执行中…`)
+    // The run is a task row too (ADR-0031); its 取消 drives the same aborter.
+    const taskId = taskBegin('capability', `能力「${capability.name}」`, '执行中')
     void capabilityRun({ name: capability.name, input: { path } }, aborter.signal).then((result) => {
       capabilityAbort.current = null
       setCapabilityRunning(false)
       const proposal = proposalOfRunResult(result)
-      if (proposal !== null) setCapabilityProposal(proposal)
-      else setCapabilityNotice(runNoticeOf(result))
+      if (proposal !== null) {
+        setCapabilityProposal(proposal)
+        taskEnd(taskId, 'done', '提议已出，待确认')
+      } else {
+        setCapabilityNotice(runNoticeOf(result))
+        taskEnd(taskId, 'done', runNoticeOf(result))
+      }
     }, (failure: unknown) => {
       capabilityAbort.current = null
       setCapabilityRunning(false)
-      if (aborter.signal.aborted) setCapabilityNotice(`能力「${capability.name}」已取消。`)
-      else setCapabilityNotice(`能力「${capability.name}」失败：${remoteMessage(failure)}`)
+      if (aborter.signal.aborted) {
+        setCapabilityNotice(`能力「${capability.name}」已取消。`)
+        taskEnd(taskId, 'cancelled', '已取消')
+      } else {
+        setCapabilityNotice(`能力「${capability.name}」失败：${remoteMessage(failure)}`)
+        taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
+      }
     })
-  }, [capabilityRun, promptSession])
+  }, [capabilityRun, promptSession, taskBegin, taskEnd])
 
   /** Stop the running script capability (ADR-0031): the subprocess is killed server-side. */
   const cancelCapability = useCallback((): void => {
@@ -493,9 +552,13 @@ export function Frame({
   const [refineProposal, setRefineProposal] = useState<Proposal | null>(null)
   // The paused run: its verdict asked questions, and the dialog holds the
   // human's answers until they continue the same session.
-  const [refineQuestion, setRefineQuestion] = useState<{ run: RefineRun; gesture: RefineGesture } | null>(null)
+  const [refineQuestion, setRefineQuestion] = useState<{
+    run: RefineRun
+    gesture: RefineGesture
+    taskId: string
+  } | null>(null)
   const [refineContinuing, setRefineContinuing] = useState(false)
-  const refineQueue = useRef<RefineGesture[]>([])
+  const refineQueue = useRef<RefineQueued[]>([])
   const refineDraining = useRef(false)
   const drainRefineRef = useRef<() => void>(() => {})
   // Cancellation (ADR-0031): the running gesture's abort controller, and the
@@ -515,79 +578,150 @@ export function Frame({
 
   /** Stop everything the refine pipeline is doing: drop the queue, kill the run. */
   const cancelRefine = useCallback((): void => {
+    for (const queued of refineQueue.current) taskEnd(queued.taskId, 'cancelled', '已取消')
     refineQueue.current = []
     if (refineQuestion !== null) {
       setRefineQuestion(null)
+      taskEnd(refineQuestion.taskId, 'cancelled', '已取消')
       settleRefine()
     }
     if (refineDraining.current) {
       refineCancelled.current = true
       refineAbort.current?.abort()
     }
-  }, [refineQuestion, settleRefine])
+  }, [refineQuestion, settleRefine, taskEnd])
 
   /** One run's end: a toast for an irrelevant intake, a card for the rest. */
-  const showRefineRun = useCallback((run: RefineRun, gesture: RefineGesture): void => {
+  const showRefineRun = useCallback((run: RefineRun, gesture: RefineGesture, taskId: string): void => {
     if (run.skippedEmpty === true) {
       const what = gesture.resource?.name ?? gesture.entityName
       setCapabilityNotice(`「${what}」是空文件（只有标题），已跳过。`)
+      taskEnd(taskId, 'done', '空文件，已跳过')
       settleRefine()
       return
     }
     if (!run.relevant) {
       const what = gesture.resource?.name ?? gesture.entityName
       setCapabilityNotice(`「${what}」与「${gesture.entityName ?? '知识库'}」无关：${run.reason}`)
+      taskEnd(taskId, 'done', `无关：${run.reason}`)
       settleRefine()
       return
     }
     setCapabilityNotice(null)
-    if (run.proposal !== undefined) setRefineProposal(run.proposal)
-    else settleRefine()
-  }, [settleRefine])
+    if (run.proposal !== undefined) {
+      setRefineProposal(run.proposal)
+      taskEnd(taskId, 'done', '提议已出，待确认')
+    } else {
+      taskEnd(taskId, 'done', '无需改动')
+      settleRefine()
+    }
+  }, [settleRefine, taskEnd])
 
   const drainRefine = useCallback((): void => {
     if (refineDraining.current) return
-    const gesture = refineQueue.current.shift()
-    if (gesture === undefined) return
+    const queued = refineQueue.current.shift()
+    if (queued === undefined) return
     refineDraining.current = true
     refineCancelled.current = false
     const aborter = new AbortController()
     refineAbort.current = aborter
     setRefineActive(true)
-    const label = gesture.mode === 'distill' ? gesture.resource?.name ?? '资源' : gesture.entityName ?? ''
+    taskPatch(queued.taskId, { stage: '分析中' })
+    const label = queued.gesture.mode === 'distill' ? queued.gesture.resource?.name ?? '资源' : queued.gesture.entityName ?? ''
     setCapabilityNotice(`提炼「${label}」中…`)
     void (async () => {
-      if (gesture.mode === 'distill') {
+      if (queued.gesture.mode === 'distill') {
         const [intakeTree, workspaceTree] = await Promise.all([intake(), workspace()])
-        return refine({ ...gesture, roster: rosterOfTrees(intakeTree, workspaceTree), signal: aborter.signal })
+        return refine({ ...queued.gesture, roster: rosterOfTrees(intakeTree, workspaceTree), signal: aborter.signal })
       }
       const tree = await workspace()
       const siblings = [...new Set(tree.flatMap(section => section.files.map(file => file.name)))]
-      return refine({ ...gesture, siblings, signal: aborter.signal })
+      return refine({ ...queued.gesture, siblings, signal: aborter.signal })
     })().then((run) => {
       setRefineActive(false)
       // Questions take precedence: the dialog pauses the queue until the
       // human answers (the same session continues) or abandons the run.
       if (run.questions !== undefined && run.questions.length > 0) {
         setCapabilityNotice(null)
-        setRefineQuestion({ run, gesture })
+        taskPatch(queued.taskId, { status: 'waiting', stage: '有问题等你回答' })
+        setRefineQuestion({ run, gesture: queued.gesture, taskId: queued.taskId })
         return
       }
-      showRefineRun(run, gesture)
+      showRefineRun(run, queued.gesture, queued.taskId)
     }, (failure: unknown) => {
       setRefineActive(false)
       setCapabilityNotice(refineCancelled.current
         ? '提炼已取消。'
         : `提炼失败：${remoteMessage(failure)}`)
+      taskEnd(queued.taskId, refineCancelled.current ? 'cancelled' : 'failed',
+        refineCancelled.current ? '已取消' : `失败：${remoteMessage(failure)}`)
       settleRefine()
     })
-  }, [refine, intake, workspace, showRefineRun, settleRefine])
+  }, [refine, intake, workspace, showRefineRun, settleRefine, taskPatch, taskEnd])
   drainRefineRef.current = drainRefine
 
   const runRefineGesture = useCallback((gesture: RefineGesture): void => {
-    refineQueue.current.push(gesture)
+    const taskId = taskBegin('refine', refineTitle(gesture), '排队中')
+    refineQueue.current.push({ gesture, taskId })
     drainRefine()
-  }, [drainRefine])
+  }, [drainRefine, taskBegin])
+
+  // ── the mail run (ADR-0031) ──────────────────────────────────────────────
+  // The frame owns the mail run store now: the 任务 tab mirrors every
+  // analysis as a row, so the store must live where the frame can watch it.
+  // It already outlived the panel; now it outlives the rail's tab strip too.
+  const mailRun = useMemo(() => createMailRun(), [])
+  const mailState = useMailRun(mailRun)
+  // The analysis's row, from `analysing` through the proposal card to the
+  // write (or the dismiss) — the store's phase transitions drive it.
+  const mailTaskId = useRef<string | null>(null)
+  useEffect(() => {
+    const stageOf = (stage: AnalysisStage): string =>
+      stage === 'session' ? '创建会话' : stage === 'prompt' ? '准备分析' : '分批判定'
+    if (mailState.phase === 'analysing') {
+      const id = mailTaskId.current ?? taskBegin('mail', `邮件分析（${mailState.mails.length} 封）`, '创建会话')
+      mailTaskId.current = id
+      const progress = mailState.progress
+      const detail = progress !== null && progress.done !== undefined && progress.total !== undefined
+        ? `已判 ${progress.done}/${progress.total} 封`
+        : null
+      taskPatch(id, {
+        stage: progress === null ? '创建会话' : stageOf(progress.stage),
+        ...(detail !== null ? { detail } : {}),
+      })
+      return
+    }
+    if (mailState.phase === 'applying' && mailTaskId.current !== null) {
+      taskPatch(mailTaskId.current, { status: 'running', stage: '正在写入' })
+      return
+    }
+    if (mailTaskId.current === null) return
+    const id = mailTaskId.current
+    mailTaskId.current = null
+    if (mailState.review !== null) taskPatch(id, { status: 'waiting', stage: '提议待确认' })
+    else if (mailState.cancelled) taskEnd(id, 'cancelled', '已取消，已完成的判定保留')
+    else if (mailState.error !== null) taskEnd(id, 'failed', mailState.error)
+    else if (mailState.summary.length > 0) taskEnd(id, 'done', `已写入 ${mailState.summary.length} 项`)
+    else taskEnd(id, 'done', '已忽略')
+  }, [mailState, taskBegin, taskPatch, taskEnd])
+
+  // ADR-0031: the 任务 row's two verbs. 查看 goes to where the outcome
+  // lives — refine speaks through the conversation's cards and notices, the
+  // other two through the intake rail's 能力 tab; 取消 reuses the exact
+  // cancel path each runner already owns.
+  const [connectorNonce, setConnectorNonce] = useState(0)
+  const jumpTask = useCallback((row: TaskRow): void => {
+    if (row.kind === 'refine') setTabs(state => activateTab(state, CONVERSATION_TAB))
+    else {
+      setIntakeOpen(true)
+      setConnectorNonce(nonce => nonce + 1)
+    }
+  }, [])
+  const cancelTask = useCallback((row: TaskRow): void => {
+    if (row.kind === 'refine') cancelRefine()
+    else if (row.kind === 'mail') mailRun.cancel()
+    else cancelCapability()
+  }, [cancelRefine, cancelCapability, mailRun])
 
   // ADR-0017: editing belongs to Obsidian, so this only hands the file over.
   // Without a root we still open the KB-relative path and let the host resolve
@@ -824,6 +958,8 @@ export function Frame({
           capabilityCreate={capabilityCreate}
           capabilityAdopt={capabilityAdopt}
           capabilityRegister={capabilityRegister}
+          mailRun={mailRun}
+          revealConnector={connectorNonce}
           onRunCapability={runRowCapability}
           onRefine={runRefineGesture}
           t={t}
@@ -832,6 +968,9 @@ export function Frame({
       <CenterPane
         tabs={tabs}
         statuses={statuses}
+        taskRows={taskRows}
+        onTaskCancel={cancelTask}
+        onTaskJump={jumpTask}
         onActivate={(key) => { setTabs(state => activateTab(state, key)) }}
         onClose={closeFile}
         viewMode={viewMode}
@@ -949,20 +1088,26 @@ export function Frame({
           run={refineQuestion.run}
           busy={refineContinuing}
           onSubmit={(answers) => {
-            const { run, gesture } = refineQuestion
+            const { run, gesture, taskId } = refineQuestion
             setRefineContinuing(true)
+            taskPatch(taskId, { status: 'running', stage: '继续分析' })
             void run.continueWithAnswers?.(answers).then((final) => {
               setRefineQuestion(null)
               setRefineContinuing(false)
-              showRefineRun(final, gesture)
+              showRefineRun(final, gesture, taskId)
             }, (failure: unknown) => {
               setRefineQuestion(null)
               setRefineContinuing(false)
               setCapabilityNotice(`提炼失败：${remoteMessage(failure)}`)
+              taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
               settleRefine()
             })
           }}
-          onAbort={() => { setRefineQuestion(null); settleRefine() }}
+          onAbort={() => {
+            setRefineQuestion(null)
+            taskEnd(refineQuestion.taskId, 'cancelled', '已放弃')
+            settleRefine()
+          }}
           t={t}
         />
       )}
