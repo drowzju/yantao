@@ -178,11 +178,13 @@ export async function applyProposal(options: {
   for (const action of rest) {
     try {
       if (action.kind === 'create-entity') {
-        // Only the mail path names a person's address.
+        // Only the mail path names a person's address; its analysis also
+        // judges the relation, which must ride along or the template's
+        // `subordinate` default records every person as a 下属.
         const path = await target.createEntity(
           action.entityType,
           action.name,
-          undefined,
+          action.relation,
           ...action.email !== undefined ? [action.email] : [],
         )
         created.set(action.name, path)

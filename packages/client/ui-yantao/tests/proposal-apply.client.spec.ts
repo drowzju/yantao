@@ -48,6 +48,16 @@ describe('applyProposal', () => {
     expect(result.written).toEqual(['实体 张三'])
   })
 
+  it('hands a person action\'s relation to the create seam instead of the template default', async () => {
+    const t = target()
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'create-entity', entityType: 'person', name: '张三', reason: 'r', relation: 'superior' }],
+    }
+    await applyProposal({ proposal, ticked: [0], target: t })
+    expect(t.createEntity).toHaveBeenCalledWith('person', '张三', 'superior')
+  })
+
   it('appends a dated bullet to the 流水 and never rewrites it', async () => {
     const t = target()
     const proposal: Proposal = {

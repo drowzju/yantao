@@ -11,7 +11,7 @@
 import { useState, type ReactElement } from 'react'
 import type { Proposal, ProposalAction } from './proposal.ts'
 import { GROUP_KEYS } from './proposal.ts'
-import type { WorkbenchT } from './locales.ts'
+import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 
 const panelStyle = {
   position: 'absolute',
@@ -68,6 +68,14 @@ const GROUP_ORDER: readonly ProposalAction['kind'][] = [
   'create-entity', 'add-todo', 'append-log', 'write-state', 'edit-section', 'create-link', 'save-resource',
 ]
 
+/** A person action's relation, as the row's detail names it (self is never proposed). */
+const RELATION_KEYS: Partial<Record<NonNullable<Extract<ProposalAction, { kind: 'create-entity' }>['relation']>, WorkbenchLocaleKey>> = {
+  superior: 'relation.superior',
+  peer: 'relation.peer',
+  subordinate: 'relation.subordinate',
+  external: 'relation.external',
+}
+
 /** One row's main text, as the human reads it. */
 function labelOf(action: ProposalAction): string {
   switch (action.kind) {
@@ -82,8 +90,12 @@ function labelOf(action: ProposalAction): string {
 }
 
 /** One row's explanation — why the agent proposes this. */
-function detailOf(action: ProposalAction): string {
+function detailOf(action: ProposalAction, t: WorkbenchT): string {
   if (action.kind === 'edit-section') return `${action.path}：${action.why}`
+  if (action.kind === 'create-entity' && action.relation !== undefined) {
+    const key = RELATION_KEYS[action.relation]
+    return key === undefined ? action.reason : `${t(key)}：${action.reason}`
+  }
   return action.reason
 }
 
@@ -164,7 +176,7 @@ export function ProposalCard(props: {
                   />
                   <div style={{ minWidth: 0 }}>
                     <div>{labelOf(action)}</div>
-                    {detailOf(action) !== '' && <div style={detailStyle}>{detailOf(action)}</div>}
+                    {detailOf(action, t) !== '' && <div style={detailStyle}>{detailOf(action, t)}</div>}
                   </div>
                 </div>
               ))}

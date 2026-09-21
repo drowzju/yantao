@@ -8,7 +8,7 @@
  * human has ticked rows in {@link ProposalCard}.
  * @module @deepseek-ai/dsh-client-ui-yantao/proposal
  */
-import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbMailMessage, KbPersonRelation } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { MailAnalysis } from './mail-analysis.ts'
 import type { MailEntities } from './mail-apply.ts'
 import type { WorkbenchLocaleKey } from './locales.ts'
@@ -24,6 +24,12 @@ export type ProposalAction =
     readonly entityType: ProposalEntityType
     readonly name: string
     readonly reason: string
+    /**
+     * The person's relation to the owner, handed to `createEntity` so the
+     * frontmatter records what the analysis judged instead of the template's
+     * `subordinate` default. Only meaningful for a `person`.
+     */
+    readonly relation?: KbPersonRelation
     /** The person's e-mail address, written into the frontmatter `email:` field. */
     readonly email?: string
   }
@@ -216,7 +222,8 @@ export function analysisToProposal(
       kind: 'create-entity',
       entityType: 'person',
       name: person.name,
-      reason: person.relation !== '' ? `${person.relation}：${person.reason}` : person.reason,
+      reason: person.reason,
+      ...person.relation !== undefined ? { relation: person.relation } : {},
       ...person.email !== undefined && person.email !== '' ? { email: person.email } : {},
     })
   }

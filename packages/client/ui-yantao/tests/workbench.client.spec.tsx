@@ -1504,7 +1504,7 @@ describe('Frame', () => {
         title: '邮件分析 2026-09-21',
         analysis: {
           verdicts: [{ mail: 1, importance: 'focus', why: '上级主送' }],
-          people: [{ name: '张三', relation: '合作方', reason: '一起做汇报' }],
+          people: [{ name: '张三', relation: 'peer', reason: '一起做汇报' }],
           todos: [{ title: '发汇报', due: '2026-09-12', body: '' }],
           projects: [{ name: '飞书迁移', note: '对方确认了时间' }],
           resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],

@@ -114,7 +114,10 @@ describe('parseAnalysis', () => {
       { mail: 2, importance: '催办提醒', why: '系统邮催' },
       { mail: 'x', importance: 'normal', why: '没有编号' },
     ],
-    people: [{ name: '张三', relation: '合作方', reason: '一起做汇报', email: 'zhangsan@example.com' }],
+    people: [
+      { name: '张三', relation: 'peer', reason: '一起做汇报', email: 'zhangsan@example.com' },
+      { name: '钱七', relation: '亲戚', reason: '不在四选一里' },
+    ],
     todos: [{ title: '发汇报', due: '2026-09-12', body: '给张三' }, { title: '没期限的', due: null, body: '' }],
     projects: [{ name: '飞书迁移', note: '对方确认了时间' }],
     resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
@@ -126,9 +129,10 @@ describe('parseAnalysis', () => {
       { mail: 1, importance: 'focus', why: '上级主送，要求周五前答复' },
       { mail: 2, importance: 'normal', why: '系统邮催' },
     ])
-    expect(analysis.people).toEqual([{
-      name: '张三', relation: '合作方', reason: '一起做汇报', email: 'zhangsan@example.com',
-    }])
+    expect(analysis.people).toEqual([
+      { name: '张三', reason: '一起做汇报', relation: 'peer', email: 'zhangsan@example.com' },
+      { name: '钱七', reason: '不在四选一里' },
+    ])
     expect(analysis.todos[0]?.due).toBe('2026-09-12')
     expect(analysis.todos[1]?.due).toBeUndefined()
     expect(analysis.projects[0]?.name).toBe('飞书迁移')
@@ -248,7 +252,7 @@ describe('analysisToProposal', () => {
       { mail: 1, importance: 'focus', why: '上级主送，有截止' },
       { mail: 2, importance: 'digest', why: '系统自动邮催' },
     ],
-    people: [{ name: '张三', relation: '合作方', reason: '一起做汇报', email: 'zhangsan@example.com' }],
+    people: [{ name: '张三', relation: 'peer', reason: '一起做汇报', email: 'zhangsan@example.com' }],
     todos: [{ title: '发汇报', due: '2026-09-12', body: '给张三' }],
     projects: [{ name: '飞书迁移', note: '对方确认了时间' }, { name: '不存在的项目', note: '没有这个项目' }],
     resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
@@ -264,8 +268,8 @@ describe('analysisToProposal', () => {
   it('carries the relation and the sender address into the person action', () => {
     const proposal = analysisToProposal(ANALYSIS, ENTITIES, 't', MAILS)
     expect(proposal.actions[0]).toMatchObject({
-      kind: 'create-entity', entityType: 'person', name: '张三', reason: '合作方：一起做汇报',
-      email: 'zhangsan@example.com',
+      kind: 'create-entity', entityType: 'person', name: '张三', relation: 'peer',
+      reason: '一起做汇报', email: 'zhangsan@example.com',
     })
   })
 

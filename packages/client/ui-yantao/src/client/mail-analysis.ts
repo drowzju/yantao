@@ -17,7 +17,7 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/mail-analysis
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbMailMessage, KbPersonRelation } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { cancelSessionTurnOnAbort, sessionRemoteOf, type SessionRemote } from './remote.ts'
 import { jsonRound } from './turn-answer.ts'
 
@@ -28,8 +28,12 @@ const CHUNK_SIZE = 10
 export interface MailPerson {
   /** The person's display name; becomes the entity file's name. */
   readonly name: string
-  /** The relation the model infers — shown so the human can judge it. */
-  readonly relation: string
+  /**
+   * The relation the model picked from the prompt's fixed set — it lands in
+   * the entity's frontmatter `relation:` field verbatim. Absent when the
+   * model did not dare pick one.
+   */
+  readonly relation?: KbPersonRelation
   /** Why the model thinks this person is worth remembering. */
   readonly reason: string
   /** The sender's address, carried into the entity's frontmatter `email:` field. */
@@ -201,7 +205,7 @@ export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities
     '```json',
     '{',
     '  "verdicts": [{ "mail": 1, "importance": "focus | digest | normal", "why": "一句话理由" }],',
-    '  "people": [{ "name": "张三", "relation": "此人和我的关系（一句话）", "reason": "为什么值得记住", "email": "发件人邮箱或 null" }],',
+    '  "people": [{ "name": "张三", "relation": "superior | peer | subordinate | external 或 null", "reason": "为什么值得记住", "email": "发件人邮箱或 null" }],',
     '  "todos": [{ "title": "要做的事", "due": "YYYY-MM-DD 或 null", "body": "可选的补充正文" }],',
     '  "projects": [{ "name": "已存在的项目名", "note": "这封邮件对它意味着什么（一句话）" }],',
     '  "resources": [{ "name": "值得留存的材料标题", "summary": "两三句话的摘要", "mail": 来自哪封邮件的编号或 null }]',
@@ -219,6 +223,7 @@ export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities
     '- `projects[].name` 必须来自上面给出的项目名列表；对不上就留空数组，不要新建项目。',
     '- `todos[].due` 只在邮件里明确写了时间才填，否则填 null。',
     '- `people[].email` 只在这批邮件里能拿到该人地址时填，否则填 null。',
+    '- `people[].relation` 四选一：superior＝我的上级或领导，peer＝同事或平级协作者，subordinate＝我的下属，external＝公司外部的人；拿不准就填 null。',
     '- 拿不准的不要输出：宁可少，不可错。',
     '- 邮件本身默认不是资源，只有确实值得长期留存的材料才进 `resources`，并注明来自哪封邮件。',
     '',
@@ -263,6 +268,9 @@ function mailNumber(value: unknown): number | undefined {
 /** The importance words the prompt offers, anything else reading as `normal`. */
 const IMPORTANCES: readonly MailImportance[] = ['focus', 'digest', 'normal']
 
+/** The relation words the prompt offers (self is the KB owner's own, never proposed). */
+const RELATIONS: readonly KbPersonRelation[] = ['superior', 'peer', 'subordinate', 'external']
+
 /**
  * Read the model's answer. It is asked for a fenced JSON object and usually
  * answers with one; a model that answers prose-then-JSON is still readable, so
@@ -294,10 +302,11 @@ export function parseAnalysis(text: string): MailAnalysis {
     const name = field(row, 'name')
     if (name === '') return undefined
     const email = field(row, 'email')
+    const relation = RELATIONS.find(entry => entry === field(row, 'relation'))
     return {
       name,
-      relation: field(row, 'relation'),
       reason: field(row, 'reason'),
+      ...relation !== undefined ? { relation } : {},
       ...email !== '' ? { email } : {},
     }
   })

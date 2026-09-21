@@ -36,7 +36,7 @@ const ENTITIES: MailEntities = {
 
 const VERDICT: MailAnalysis = {
   verdicts: [{ mail: 1, importance: 'focus', why: '上级主送' }],
-  people: [{ name: '张三', relation: '合作方', reason: '一起做汇报' }],
+  people: [{ name: '张三', relation: 'peer', reason: '一起做汇报' }],
   todos: [{ title: '发汇报', due: '2026-09-12', body: '' }],
   projects: [{ name: '飞书迁移', note: '对方确认了时间' }],
   resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
@@ -207,7 +207,7 @@ describe('MailPanel', () => {
       fireEvent.click(screen.getByText('确认写入（4）'))
     })
     await waitFor(() => {
-      expect(target.createEntity as unknown as ReturnType<typeof vi.fn>).toHaveBeenCalledWith('person', '张三', undefined)
+      expect(target.createEntity as unknown as ReturnType<typeof vi.fn>).toHaveBeenCalledWith('person', '张三', 'peer')
     })
 
     const written = (target.write as unknown as ReturnType<typeof vi.fn>).mock.calls
