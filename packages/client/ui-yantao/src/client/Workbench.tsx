@@ -388,6 +388,7 @@ function ResourceTree({
   selection,
   onSelect,
   onMenu,
+  onDirMenu,
   drag,
 }: {
   t: WorkbenchT
@@ -395,6 +396,8 @@ function ResourceTree({
   selection: string | null
   onSelect: (path: string) => void
   onMenu: (file: KbTreeFile, x: number, y: number) => void
+  /** Open the directory row's right-click menu (ADR-0030's 目录级提炼到实体). */
+  onDirMenu: (dir: string, x: number, y: number) => void
   /** Make every resource row a drag source (ADR-0029 决定 2's 归入). */
   drag: (file: KbTreeFile, event: React.DragEvent<HTMLButtonElement>) => void
 }): ReactElement {
@@ -422,6 +425,10 @@ function ResourceTree({
           data-resource-dir={child.dir}
           aria-expanded={!folded}
           onClick={() => { toggle(child.dir) }}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            onDirMenu(child.dir, event.clientX, event.clientY)
+          }}
         >
           {folded ? '▸' : '▾'} {child.dir}
         </button>,
@@ -495,6 +502,30 @@ interface RelationOption {
 }
 
 /**
+ * Dismiss-on-Escape/outside-click, shared by every floating menu. The
+ * `mousedown` that opened the menu has already been dispatched, so it cannot
+ * close itself the moment it appears.
+ * @param ref - the menu's root element.
+ * @param onClose - the close callback.
+ */
+function useMenuDismiss(ref: React.RefObject<HTMLDivElement | null>, onClose: () => void): void {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    const onPointerDown = (event: MouseEvent): void => {
+      if (ref.current !== null && !ref.current.contains(event.target as Node)) onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('mousedown', onPointerDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('mousedown', onPointerDown)
+    }
+  }, [ref, onClose])
+}
+
+/**
  * The row menu: a person's relations, each set the moment it is picked, and
  * 删除 below, which asks once before the file goes. Escape or a click anywhere
  * else dismisses it; the `mousedown` that opened it has already been
@@ -520,26 +551,15 @@ function RowMenu(props: {
   onRunCapability?: ((capability: KbCapabilitySummary, path: string) => void) | undefined
   /** Start the 提炼 gesture on this entity row (ADR-0029 决定 2); absent for non-entity rows. */
   onRefine?: ((path: string, name: string) => void) | undefined
+  /** Start the 提炼到实体 gesture on this resource row (ADR-0030); absent for non-resource rows. */
+  onDistill?: ((path: string, name: string) => void) | undefined
   onDelete: (path: string) => void
   onClose: () => void
 }): ReactElement {
-  const { t, target, busy, relations, onRelate, capabilities, onRunCapability, onRefine, onDelete, onClose } = props
+  const { t, target, busy, relations, onRelate, capabilities, onRunCapability, onRefine, onDistill, onDelete, onClose } = props
   const [confirming, setConfirming] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
-    }
-    const onPointerDown = (event: MouseEvent): void => {
-      if (ref.current !== null && !ref.current.contains(event.target as Node)) onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    document.addEventListener('mousedown', onPointerDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      document.removeEventListener('mousedown', onPointerDown)
-    }
-  }, [onClose])
+  useMenuDismiss(ref, onClose)
 
   return (
     <div ref={ref} style={{ ...menuStyle, left: target.x, top: target.y }} data-row-menu={target.path}>
@@ -591,6 +611,17 @@ function RowMenu(props: {
           {t('workbench.refine')}
         </button>
       )}
+      {onDistill !== undefined && (
+        <button
+          type="button"
+          style={menuItemStyle}
+          disabled={busy}
+          data-row-distill="true"
+          onClick={() => { onClose(); onDistill(target.path, target.name) }}
+        >
+          {t('workbench.distill')}
+        </button>
+      )}
       {!confirming && (
         <button type="button" style={menuItemStyle} disabled={busy} onClick={() => { setConfirming(true) }}>
           {t('workbench.deleteConfirm', { name: target.name })}
@@ -605,6 +636,39 @@ function RowMenu(props: {
           <button type="button" style={menuItemStyle} onClick={onClose}>{t('common.cancel')}</button>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * The resource directory's right-click menu (ADR-0030): one item, 提炼到实体,
+ * which turns the whole directory — every file under it, however nested —
+ * into one distill gesture each, queued in the frame. Escape or a click
+ * anywhere else dismisses it, like the row menu.
+ * @param props - the targeted directory, the busy flag, and the actions.
+ * @returns the menu element.
+ */
+function DirMenu(props: {
+  t: WorkbenchT
+  target: { readonly dir: string; readonly x: number; readonly y: number }
+  busy: boolean
+  onDistill: (dir: string) => void
+  onClose: () => void
+}): ReactElement {
+  const { t, target, busy, onDistill, onClose } = props
+  const ref = useRef<HTMLDivElement | null>(null)
+  useMenuDismiss(ref, onClose)
+  return (
+    <div ref={ref} style={{ ...menuStyle, left: target.x, top: target.y }} data-dir-menu={target.dir}>
+      <button
+        type="button"
+        style={menuItemStyle}
+        disabled={busy}
+        data-dir-distill="true"
+        onClick={() => { onClose(); onDistill(target.dir) }}
+      >
+        {t('workbench.distill')}
+      </button>
     </div>
   )
 }
@@ -871,6 +935,9 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const [dragOver, setDragOver] = useState(false)
   const [dropping, setDropping] = useState(false)
   const rowMenu = useRowMenu({ deleteFile, setRelation, refresh, onCloseFile, onError: setActionError })
+  // ADR-0030: the resource directory's right-click menu — one distill gesture
+  // per file under the directory, however nested, handed to the frame's queue.
+  const [dirMenu, setDirMenu] = useState<{ dir: string; x: number; y: number } | null>(null)
   // Reveal a selection this rail owns: the tab carrying the file comes to the
   // front, so the highlighted row is a visible one. A selection owned by the
   // other rail leaves the human's own tab choice alone. Only a *new*
@@ -897,6 +964,20 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     const path = await createEntity(kind, name)
     await refresh()
     onOpenFile(path, 'edit')
+  }
+
+  // ADR-0030: 提炼到实体 for a whole directory — every file under it,
+  // however nested, becomes one distill gesture each; the frame queues them.
+  const distillDir = (dir: string): void => {
+    const files = sections?.find(entry => entry.id === 'resources')?.files
+      .filter(file => file.path.startsWith(`resources/${dir}/`)) ?? []
+    if (files.length === 0) {
+      setActionError('该目录下没有资源。')
+      return
+    }
+    for (const file of files) {
+      onRefine({ mode: 'distill', resource: { path: file.path, name: file.path.split('/').pop() ?? file.name } })
+    }
   }
 
   // ADR-0019: the writes a confirmed proposal lands on (mail's share of it).
@@ -1012,6 +1093,8 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           // An original opens read-only; a `.md` note is ours to edit.
           onSelect={(path) => { onOpenFile(path, path.endsWith('.md') ? 'edit' : 'read') }}
           onMenu={rowMenu.open}
+          // ADR-0030: a directory row's right-click opens the directory menu.
+          onDirMenu={(dir, x, y) => { setDirMenu({ dir, x, y }) }}
           // ADR-0029 决定 2: a resource row is a drag source — dropping it on
           // an entity row starts the 归入 gesture.
           drag={(file, event) => { event.dataTransfer.setData(RESOURCE_DRAG_TYPE, file.path) }}
@@ -1056,8 +1139,20 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           onRefine={tab === 'meetings'
             ? (path, name) => { onRefine({ mode: 'refine', entityPath: path, entityName: name, entityType: 'meeting' }) }
             : undefined}
+          onDistill={tab === 'resources'
+            ? (path) => { onRefine({ mode: 'distill', resource: { path, name: path.split('/').pop() ?? path } }) }
+            : undefined}
           onDelete={(path) => { void rowMenu.remove(path) }}
           onClose={rowMenu.close}
+        />
+      )}
+      {dirMenu !== null && (
+        <DirMenu
+          t={t}
+          target={dirMenu}
+          busy={dropping}
+          onDistill={distillDir}
+          onClose={() => { setDirMenu(null) }}
         />
       )}
     </div>

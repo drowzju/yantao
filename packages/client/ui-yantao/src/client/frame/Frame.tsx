@@ -20,15 +20,16 @@ import type {
   SessionPrompter, TodoLoader, TodoWriter,
 } from '../remote.ts'
 import type { MailAnalyser } from '../mail-analysis.ts'
-import type { RefineGesture, RefineRunner } from '../refine.ts'
+import type { RefineGesture, RefineRosterEntry, RefineRunner, RefineRun } from '../refine.ts'
 import type { Proposal } from '../proposal.ts'
 import { applyProposal, type ProposalApplyResult } from '../proposal-apply.ts'
 import { proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
 import { capabilityGestureMessage } from '../capability-gesture.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
+import { QuestionDialog } from '../QuestionDialog.tsx'
 import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage } from '../remote.ts'
-import type { KbCapabilitySummary, KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary, KbLinksResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
@@ -171,6 +172,32 @@ const noticeStyle = {
   zIndex: 45,
   cursor: 'pointer',
 } as const
+
+/** The tree sections that carry entities, and the entity kind each one is. */
+const ROSTER_SECTIONS: Partial<Record<KbTreeSectionId, string>> = {
+  meetings: 'meeting',
+  areas: 'area',
+  people: 'person',
+  projects: 'project',
+}
+
+/**
+ * Every entity in the KB, from both trees, as the distill roster (ADR-0030):
+ * name, type, path — the resources and todo sections contribute nothing.
+ * @param left - the intake tree.
+ * @param right - the workspace tree.
+ * @returns the roster entries.
+ */
+function rosterOfTrees(
+  left: readonly KbTreeSection[],
+  right: readonly KbTreeSection[],
+): RefineRosterEntry[] {
+  return [...left, ...right].flatMap((section) => {
+    const type = ROSTER_SECTIONS[section.id]
+    if (type === undefined) return []
+    return section.files.map(file => ({ name: file.name, type, path: file.path }))
+  })
+}
 
 /**
  * One rail drag handle: pointer capture plus rAF-throttled dx reports against
@@ -433,32 +460,80 @@ export function Frame({
     })
   }, [capabilityRun, promptSession])
 
-  // ADR-0029: the refine gestures — 归入 (a resource dropped on an entity
-  // row) and 提炼 (the row menu's item) — both land here. The frame gathers
-  // the sibling entity names for `[[双链]]` suggestions from the workspace
-  // tree and hands the gesture to the inject face, which roots the dedicated
-  // session at the KB root. An irrelevant intake verdict is a toast with the
-  // reason — no card, no log, no trace (决定 2); anything else opens the same
-  // proposal card the capability runs use.
+  // ADR-0029 + ADR-0030: the refine gestures — 归入 (a resource dropped on an
+  // entity row), 提炼 (an entity row's menu item) and 提炼到实体 (a resource
+  // row's or a directory's menu item) — all land here. Gestures queue and run
+  // strictly one at a time: a directory's distill enqueues one gesture per
+  // file, and the next run starts only after the previous one's card or
+  // question dialog has been dealt with. The frame gathers the sibling entity
+  // names for `[[双链]]` suggestions from the workspace tree, and the distill
+  // roster — every entity in the KB, with its type — from both trees. An
+  // irrelevant intake verdict is a toast with the reason — no card, no log,
+  // no trace (决定 2); anything else opens the same proposal card the
+  // capability runs use.
   const [refineProposal, setRefineProposal] = useState<Proposal | null>(null)
-  const runRefineGesture = useCallback((gesture: RefineGesture): void => {
-    setCapabilityNotice(`提炼「${gesture.entityName}」中…`)
+  // The paused run: its verdict asked questions, and the dialog holds the
+  // human's answers until they continue the same session.
+  const [refineQuestion, setRefineQuestion] = useState<{ run: RefineRun; gesture: RefineGesture } | null>(null)
+  const [refineContinuing, setRefineContinuing] = useState(false)
+  const refineQueue = useRef<RefineGesture[]>([])
+  const refineDraining = useRef(false)
+  const drainRefineRef = useRef<() => void>(() => {})
+
+  /** Release the drain gate and start the next queued gesture, if any. */
+  const settleRefine = useCallback((): void => {
+    refineDraining.current = false
+    drainRefineRef.current()
+  }, [])
+
+  /** One run's end: a toast for an irrelevant intake, a card for the rest. */
+  const showRefineRun = useCallback((run: RefineRun, gesture: RefineGesture): void => {
+    if (!run.relevant) {
+      const what = gesture.resource?.name ?? gesture.entityName
+      setCapabilityNotice(`「${what}」与「${gesture.entityName ?? '知识库'}」无关：${run.reason}`)
+      settleRefine()
+      return
+    }
+    setCapabilityNotice(null)
+    if (run.proposal !== undefined) setRefineProposal(run.proposal)
+    else settleRefine()
+  }, [settleRefine])
+
+  const drainRefine = useCallback((): void => {
+    if (refineDraining.current) return
+    const gesture = refineQueue.current.shift()
+    if (gesture === undefined) return
+    refineDraining.current = true
+    const label = gesture.mode === 'distill' ? gesture.resource?.name ?? '资源' : gesture.entityName ?? ''
+    setCapabilityNotice(`提炼「${label}」中…`)
     void (async () => {
+      if (gesture.mode === 'distill') {
+        const [intakeTree, workspaceTree] = await Promise.all([intake(), workspace()])
+        return refine({ ...gesture, roster: rosterOfTrees(intakeTree, workspaceTree) })
+      }
       const tree = await workspace()
       const siblings = [...new Set(tree.flatMap(section => section.files.map(file => file.name)))]
       return refine({ ...gesture, siblings })
     })().then((run) => {
-      if (!run.relevant) {
-        const what = gesture.resource?.name ?? gesture.entityName
-        setCapabilityNotice(`「${what}」与「${gesture.entityName}」无关：${run.reason}`)
+      // Questions take precedence: the dialog pauses the queue until the
+      // human answers (the same session continues) or abandons the run.
+      if (run.questions !== undefined && run.questions.length > 0) {
+        setCapabilityNotice(null)
+        setRefineQuestion({ run, gesture })
         return
       }
-      setCapabilityNotice(null)
-      if (run.proposal !== undefined) setRefineProposal(run.proposal)
+      showRefineRun(run, gesture)
     }, (failure: unknown) => {
       setCapabilityNotice(`提炼失败：${remoteMessage(failure)}`)
+      settleRefine()
     })
-  }, [refine, workspace])
+  }, [refine, intake, workspace, showRefineRun, settleRefine])
+  drainRefineRef.current = drainRefine
+
+  const runRefineGesture = useCallback((gesture: RefineGesture): void => {
+    refineQueue.current.push(gesture)
+    drainRefine()
+  }, [drainRefine])
 
   // ADR-0017: editing belongs to Obsidian, so this only hands the file over.
   // Without a root we still open the KB-relative path and let the host resolve
@@ -807,8 +882,33 @@ export function Frame({
             const proposal = refineProposal
             setRefineProposal(null)
             confirmProposal(proposal, ticked)
+            // The card was this run's gate: closing it starts the next
+            // queued gesture (ADR-0030's one-at-a-time queue).
+            settleRefine()
           }}
-          onDismiss={() => { setRefineProposal(null) }}
+          onDismiss={() => { setRefineProposal(null); settleRefine() }}
+          t={t}
+        />
+      )}
+      {refineQuestion !== null && (
+        <QuestionDialog
+          run={refineQuestion.run}
+          busy={refineContinuing}
+          onSubmit={(answers) => {
+            const { run, gesture } = refineQuestion
+            setRefineContinuing(true)
+            void run.continueWithAnswers?.(answers).then((final) => {
+              setRefineQuestion(null)
+              setRefineContinuing(false)
+              showRefineRun(final, gesture)
+            }, (failure: unknown) => {
+              setRefineQuestion(null)
+              setRefineContinuing(false)
+              setCapabilityNotice(`提炼失败：${remoteMessage(failure)}`)
+              settleRefine()
+            })
+          }}
+          onAbort={() => { setRefineQuestion(null); settleRefine() }}
           t={t}
         />
       )}

@@ -414,11 +414,18 @@ describe('IntakeRail', () => {
     })
   })
 
-  it('offers no 提炼 on a resource row\'s menu', async () => {
-    render(<IntakeRail {...railProps()} />)
+  it('offers no 提炼 on a resource row\'s menu, but 提炼到实体 starts the distill gesture (ADR-0030)', async () => {
+    const onRefine = vi.fn()
+    render(<IntakeRail {...railProps({ onRefine })} />)
     fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
     expect(await screen.findByText('删除「周报.eml」')).toBeTruthy()
     expect(screen.queryByText('提炼')).toBeNull()
+    fireEvent.click(screen.getByText('提炼到实体'))
+    // The name comes from the path's tail, not the row's (stripped) label.
+    expect(onRefine).toHaveBeenCalledWith({
+      mode: 'distill',
+      resource: { path: 'resources/周报.eml', name: '周报.eml' },
+    })
   })
 
   it('hands a resource row\'s KB path to the drag payload (ADR-0029 决定 2)', async () => {
@@ -542,6 +549,24 @@ describe('ResourceTree', () => {
     expect(folded.getAttribute('aria-expanded')).toBe('false')
     expect(screen.queryByText('笔记.md')).toBeNull()
     expect(screen.getByText('周报.eml')).toBeTruthy()
+  })
+
+  it('distills every file under a directory from its right-click menu, however nested (ADR-0030)', async () => {
+    const onRefine = vi.fn()
+    render(<IntakeRail {...railProps({ load: loader(nestedResources), onRefine })} />)
+    // The directory stays folded: the gestures are gathered from the wire
+    // list, not from what the tree happens to render.
+    fireEvent.contextMenu(await screen.findByText('▸ 报告'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('提炼到实体'))
+    expect(onRefine).toHaveBeenCalledTimes(2)
+    expect(onRefine).toHaveBeenCalledWith({
+      mode: 'distill',
+      resource: { path: 'resources/报告/笔记.md', name: '笔记.md' },
+    })
+    expect(onRefine).toHaveBeenCalledWith({
+      mode: 'distill',
+      resource: { path: 'resources/报告/2026-09/周报.md', name: '周报.md' },
+    })
   })
 })
 
@@ -1435,6 +1460,112 @@ describe('Frame', () => {
     })
     expect(await screen.findByText('「周报.eml」与「dsh 学习」无关：内容与项目无关')).toBeTruthy()
     expect(container.querySelector('[data-proposal-card="true"]')).toBeNull()
+  })
+
+  it('hands the distill gesture the whole roster from both trees (ADR-0030)', async () => {
+    const refine = vi.fn(() => Promise.resolve({
+      sessionId: 's1',
+      title: '提炼 周报.eml',
+      relevant: true,
+      reason: '',
+      proposal: { title: '提炼 周报.eml', actions: [] },
+    }))
+    render(renderFrame({ refine }))
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('提炼到实体'))
+    await waitFor(() => {
+      expect(refine).toHaveBeenCalledWith(expect.objectContaining({
+        mode: 'distill',
+        resource: { path: 'resources/周报.eml', name: '周报.eml' },
+        // Meetings, then the workspace's projects / areas / people — the
+        // resources and todo sections contribute nothing.
+        roster: [
+          { name: '周会', type: 'meeting', path: 'entities/meetings/周会.md' },
+          { name: 'dsh 学习', type: 'project', path: 'entities/projects/dsh 学习.md' },
+          { name: '健康', type: 'area', path: 'entities/areas/健康.md' },
+          { name: '我自己', type: 'person', path: 'entities/people/我自己.md' },
+          { name: '张三', type: 'person', path: 'entities/people/张三.md' },
+        ],
+      }))
+    })
+  })
+
+  it('pauses on the verdict\'s questions, and the answers continue the same run (ADR-0030)', async () => {
+    const continueWithAnswers = vi.fn(() => Promise.resolve({
+      sessionId: 's1',
+      title: '提炼 周报.eml',
+      relevant: true,
+      reason: '',
+      proposal: { title: '提炼 周报.eml', actions: [] },
+    }))
+    const refine = vi.fn(() => Promise.resolve({
+      sessionId: 's1',
+      title: '提炼 周报.eml',
+      relevant: true,
+      reason: '需要一点背景',
+      questions: [{ question: '这份纪要属于哪个项目？', why: '决定落到哪个实体' }],
+      continueWithAnswers,
+    }))
+    render(renderFrame({ refine }))
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('提炼到实体'))
+    // The verdict came back with questions: the dialog opens, no card yet.
+    expect(await screen.findByText('这份纪要属于哪个项目？')).toBeTruthy()
+    expect(document.querySelector('[data-proposal-card="true"]')).toBeNull()
+    fireEvent.change(document.querySelector('[data-question-input="0"]') as HTMLInputElement, {
+      target: { value: '飞书迁移' },
+    })
+    fireEvent.click(screen.getByText('提交回答'))
+    await waitFor(() => { expect(continueWithAnswers).toHaveBeenCalledWith(['飞书迁移']) })
+    // The continued run's proposal opens the card; the dialog is gone.
+    expect(await screen.findByText('提炼 周报.eml')).toBeTruthy()
+    expect(document.querySelector('[data-proposal-card="true"]')).not.toBeNull()
+    expect(document.querySelector('[data-question-dialog="true"]')).toBeNull()
+  })
+
+  it('abandons the question dialog and the run ends without a card (ADR-0030)', async () => {
+    const continueWithAnswers = vi.fn()
+    const refine = vi.fn(() => Promise.resolve({
+      sessionId: 's1',
+      title: '提炼 周报.eml',
+      relevant: true,
+      reason: '',
+      questions: [{ question: '这份纪要属于哪个项目？', why: '' }],
+      continueWithAnswers,
+    }))
+    const { container } = render(renderFrame({ refine }))
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('提炼到实体'))
+    fireEvent.click(await screen.findByText('放弃本次提炼'))
+    expect(document.querySelector('[data-question-dialog="true"]')).toBeNull()
+    expect(container.querySelector('[data-proposal-card="true"]')).toBeNull()
+    expect(continueWithAnswers).not.toHaveBeenCalled()
+  })
+
+  it('runs queued distill gestures one at a time — the next starts when the card closes (ADR-0030)', async () => {
+    const refine = vi.fn(() => Promise.resolve({
+      sessionId: 's1',
+      title: '提炼',
+      relevant: true,
+      reason: '',
+      proposal: {
+        title: '提炼',
+        actions: [{ kind: 'append-log', entityPath: 'entities/meetings/周会.md', entityName: '周会', text: 'x', reason: 'y' }],
+      },
+    }))
+    render(renderFrame({ refine }))
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('提炼到实体'))
+    await waitFor(() => { expect(refine).toHaveBeenCalledTimes(1) })
+    // The second gesture lands while the first card is still open: queued.
+    fireEvent.contextMenu(screen.getByText('周报.eml'), { clientX: 40, clientY: 60 })
+    fireEvent.click(screen.getByText('提炼到实体'))
+    await act(async () => {})
+    expect(refine).toHaveBeenCalledTimes(1)
+    // Closing the card releases the gate and the queued run starts.
+    fireEvent.click(screen.getByText('取消'))
+    await waitFor(() => { expect(refine).toHaveBeenCalledTimes(2) })
+    expect(await screen.findByText('提炼')).toBeTruthy()
   })
 
   it('opens the selection menu in the reading view and sends the raw text (ADR-0025 决定 5)', async () => {
