@@ -479,12 +479,33 @@ export function Frame({
   const refineQueue = useRef<RefineGesture[]>([])
   const refineDraining = useRef(false)
   const drainRefineRef = useRef<() => void>(() => {})
+  // Cancellation (ADR-0031): the running gesture's abort controller, and the
+  // flag that tells the failure path apart from a real failure. The queue is
+  // the truth of 「还有没有在跑」, mirrored into state only for the cancel
+  // button's visibility.
+  const refineAbort = useRef<AbortController | null>(null)
+  const refineCancelled = useRef(false)
+  const [refineActive, setRefineActive] = useState(false)
 
   /** Release the drain gate and start the next queued gesture, if any. */
   const settleRefine = useCallback((): void => {
     refineDraining.current = false
+    setRefineActive(false)
     drainRefineRef.current()
   }, [])
+
+  /** Stop everything the refine pipeline is doing: drop the queue, kill the run. */
+  const cancelRefine = useCallback((): void => {
+    refineQueue.current = []
+    if (refineQuestion !== null) {
+      setRefineQuestion(null)
+      settleRefine()
+    }
+    if (refineDraining.current) {
+      refineCancelled.current = true
+      refineAbort.current?.abort()
+    }
+  }, [refineQuestion, settleRefine])
 
   /** One run's end: a toast for an irrelevant intake, a card for the rest. */
   const showRefineRun = useCallback((run: RefineRun, gesture: RefineGesture): void => {
@@ -510,17 +531,22 @@ export function Frame({
     const gesture = refineQueue.current.shift()
     if (gesture === undefined) return
     refineDraining.current = true
+    refineCancelled.current = false
+    const aborter = new AbortController()
+    refineAbort.current = aborter
+    setRefineActive(true)
     const label = gesture.mode === 'distill' ? gesture.resource?.name ?? '资源' : gesture.entityName ?? ''
     setCapabilityNotice(`提炼「${label}」中…`)
     void (async () => {
       if (gesture.mode === 'distill') {
         const [intakeTree, workspaceTree] = await Promise.all([intake(), workspace()])
-        return refine({ ...gesture, roster: rosterOfTrees(intakeTree, workspaceTree) })
+        return refine({ ...gesture, roster: rosterOfTrees(intakeTree, workspaceTree), signal: aborter.signal })
       }
       const tree = await workspace()
       const siblings = [...new Set(tree.flatMap(section => section.files.map(file => file.name)))]
-      return refine({ ...gesture, siblings })
+      return refine({ ...gesture, siblings, signal: aborter.signal })
     })().then((run) => {
+      setRefineActive(false)
       // Questions take precedence: the dialog pauses the queue until the
       // human answers (the same session continues) or abandons the run.
       if (run.questions !== undefined && run.questions.length > 0) {
@@ -530,7 +556,10 @@ export function Frame({
       }
       showRefineRun(run, gesture)
     }, (failure: unknown) => {
-      setCapabilityNotice(`提炼失败：${remoteMessage(failure)}`)
+      setRefineActive(false)
+      setCapabilityNotice(refineCancelled.current
+        ? '提炼已取消。'
+        : `提炼失败：${remoteMessage(failure)}`)
       settleRefine()
     })
   }, [refine, intake, workspace, showRefineRun, settleRefine])
@@ -926,6 +955,28 @@ export function Frame({
           onClick={() => { setCapabilityNotice(null) }}
         >
           {capabilityNotice}
+          {/* A running refine is cancellable right where it announces itself
+              (ADR-0031): the chip stops the run and drops the queue. */}
+          {refineActive && (
+            <button
+              type="button"
+              style={{
+                marginLeft: 10,
+                padding: '1px 8px',
+                border: '1px solid #c9c2b2',
+                borderRadius: 4,
+                background: '#fff',
+                cursor: 'pointer',
+                fontSize: 12,
+              }}
+              onClick={(event) => {
+                event.stopPropagation()
+                cancelRefine()
+              }}
+            >
+              取消
+            </button>
+          )}
         </div>
       )}
       {selectionMenu !== null && (

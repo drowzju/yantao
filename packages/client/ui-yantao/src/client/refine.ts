@@ -167,12 +167,14 @@ export interface RefineRosterEntry {
 }
 
 /** The frame's refine face: one run, with the sibling names for `[[双链]]` and the distill roster. */
-export type RefineRunner = (
-  args: RefineGesture & {
-    readonly siblings?: readonly string[]
-    readonly roster?: readonly RefineRosterEntry[]
-  },
-) => Promise<RefineRun>
+export type RefineRunnerArgs = RefineGesture & {
+  readonly siblings?: readonly string[]
+  readonly roster?: readonly RefineRosterEntry[]
+  /** Aborting cancels the run: the in-flight turn is cancelled server-side, and the caller drops the queue. */
+  readonly signal?: AbortSignal
+}
+
+export type RefineRunner = (args: RefineRunnerArgs) => Promise<RefineRun>
 
 /** The MIME type a dragged resource row carries its KB path under (ADR-0029 决定 2). */
 export const RESOURCE_DRAG_TYPE = 'application/x-yantao-resource'
@@ -722,6 +724,17 @@ export async function runRefine(options: {
     : `提炼 ${options.entityName ?? ''}`
   const named = await session.rename({ sessionId, title: sessionName })
   if (!named.ok) throw named.error
+
+  // A cancelled run must not leave the server rounding on: aborting the
+  // signal tears down the local wait (the prompt's fetch and the follow
+  // stream), and `session/cancel` — already in the generated client face,
+  // only now declared — ends the turn itself. Fire-and-forget: the run is
+  // dying either way, and a cancel refusal changes nothing.
+  if (signal !== undefined) {
+    const stop = (): void => { void session.cancel({ sessionId }).catch(() => {}) }
+    if (signal.aborted) stop()
+    else signal.addEventListener('abort', stop, { once: true })
+  }
 
   const verdict = await jsonRound({
     session,

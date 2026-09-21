@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { KbFileContent } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { SessionRemote } from '../src/client/remote.ts'
@@ -31,10 +31,11 @@ function verdictJson(overrides: Record<string, unknown> = {}): string {
 /** A session namespace that answers `answer` and records every prompt it was asked. */
 function fakeSession(answers: readonly string[]): {
   session: SessionRemote
-  asked: { titles: readonly string[]; prompts: readonly string[] }
+  asked: { titles: readonly string[]; prompts: readonly string[]; cancels: readonly string[] }
 } {
   const titles: string[] = []
   const prompts: string[] = []
+  const cancels: string[] = []
   let turn = 0
   const session = {
     create: async () => ({ ok: true, value: { sessionId: SESSION } }),
@@ -63,8 +64,12 @@ function fakeSession(answers: readonly string[]): {
         event: { type: 'turn/end', seq: turn + 100, time: 0, data: { turn, reason: { kind: 'completed' } } },
       }
     })(),
+    cancel: async (args: { sessionId: string }) => {
+      cancels.push(args.sessionId)
+      return { ok: true as const, value: { accepted: true } }
+    },
   }
-  return { session: session as unknown as SessionRemote, asked: { titles, prompts } }
+  return { session: session as unknown as SessionRemote, asked: { titles, prompts, cancels } }
 }
 
 /** A context carrying the session namespace and a KB whose files answer from `files`. */
@@ -418,6 +423,52 @@ describe('runRefine', () => {
     expect(run.relevant).toBe(false)
     expect(run.reason).toBe('资源讲的是别的项目')
     expect(run.proposal).toBeUndefined()
+  })
+
+  it('cancels the server turn when the signal aborts mid-run (ADR-0031)', async () => {
+    const controller = new AbortController()
+    const { session, asked } = fakeSession([verdictJson()])
+    // The fake prompt hangs until the signal fires, so the abort lands while
+    // the round is genuinely in flight — the listener path, not the
+    // already-aborted one.
+    const hanging = {
+      ...session,
+      prompt: (_args: unknown, signal?: AbortSignal) => new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          reject(new Error('aborted'))
+        }, { once: true })
+      }),
+    } as unknown as SessionRemote
+    const pending = runRefine({
+      ctx: ctxWith(hanging, FILES),
+      mode: 'refine',
+      entityPath: ENTITY_PATH,
+      entityName: '飞书迁移',
+      entityType: 'project',
+      signal: controller.signal,
+    })
+    await vi.waitFor(() => { if (asked.titles.length === 0) throw new Error('尚未命名会话') })
+    controller.abort()
+    await expect(pending).rejects.toThrow()
+    expect(asked.cancels).toEqual([SESSION])
+  })
+
+  it('cancels the server turn when the signal was already aborted (ADR-0031)', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const { session, asked } = fakeSession([verdictJson()])
+    // The fake session ignores the signal, so the run itself may still
+    // complete — the contract under test is only that `session/cancel` fires
+    // for the created session.
+    await runRefine({
+      ctx: ctxWith(session, FILES),
+      mode: 'refine',
+      entityPath: ENTITY_PATH,
+      entityName: '飞书迁移',
+      entityType: 'project',
+      signal: controller.signal,
+    })
+    expect(asked.cancels).toEqual([SESSION])
   })
 
   it('pauses on questions and continues in the same session with the answers', async () => {

@@ -16,8 +16,8 @@ import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
 import type {
-  SessionCreateRequest, SessionCreateValue, SessionFollowFrame, SessionFollowRequest, SessionPromptRequest,
-  SessionPromptValue, SessionRenameRequest, SessionRenameValue,
+  SessionCancelRequest, SessionCancelValue, SessionCreateRequest, SessionCreateValue, SessionFollowFrame,
+  SessionFollowRequest, SessionPromptRequest, SessionPromptValue, SessionRenameRequest, SessionRenameValue,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {
   KbCapabilityAdoptArgs, KbCapabilityAdoptResult, KbCapabilityCreateArgs, KbCapabilityCreateResult,
@@ -73,6 +73,13 @@ export interface SessionRemote {
   rename(args: SessionRenameRequest): Promise<RemoteResult<SessionRenameValue>>
   prompt(args: SessionPromptRequest, signal?: AbortSignal): Promise<RemoteResult<SessionPromptValue>>
   follow(args: SessionFollowRequest, signal?: AbortSignal): AsyncIterable<SessionFollowFrame>
+  /**
+   * Cancel the session's in-flight turn (the controller's `session/cancel`,
+   * already in the generated client face): the turn ends `aborted` instead of
+   * running to completion nobody consumes. A refinement run aborts its signal
+   * and calls this together.
+   */
+  cancel(args: SessionCancelRequest): Promise<RemoteResult<SessionCancelValue>>
 }
 
 /** Read one KB file's content; rejects with the Remote's own message. */
