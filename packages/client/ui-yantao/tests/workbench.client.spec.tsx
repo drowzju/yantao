@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import type { KbTreeSection } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { KbLinksResult, KbTodosResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilityRunResult, KbLinksResult, KbTodosResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { TreeLoader } from '../src/client/Workbench.tsx'
 import { IntakeRail, WorkspaceRail, groupResourceFiles, type IntakeRailProps } from '../src/client/Workbench.tsx'
 import { Frame } from '../src/client/frame/Frame.tsx'
@@ -505,13 +505,15 @@ describe('ResourceTree', () => {
   }]
 
   it('groups the flat wire list into a tree whose root keeps the top-level files', () => {
-    const tree = groupResourceFiles(nestedResources[0].files)
-    expect(tree.dir).toBe('')
-    expect(tree.files.map(file => file.path)).toEqual(['resources/周报.eml'])
-    expect(tree.children.map(child => child.dir)).toEqual(['报告'])
-    expect(tree.children[0].files.map(file => file.path)).toEqual(['resources/报告/笔记.md'])
-    expect(tree.children[0].children.map(child => child.dir)).toEqual(['报告/2026-09'])
-    expect(tree.children[0].children[0].files.map(file => file.path))
+    const root = groupResourceFiles(nestedResources[0]!.files)
+    expect(root.dir).toBe('')
+    expect(root.files.map(file => file.path)).toEqual(['resources/周报.eml'])
+    const 报告 = root.children[0]!
+    expect(root.children.map(child => child.dir)).toEqual(['报告'])
+    expect(报告.files.map(file => file.path)).toEqual(['resources/报告/笔记.md'])
+    const 九月 = 报告.children[0]!
+    expect(报告.children.map(child => child.dir)).toEqual(['报告/2026-09'])
+    expect(九月.files.map(file => file.path))
       .toEqual(['resources/报告/2026-09/周报.md'])
   })
 
@@ -1395,10 +1397,11 @@ describe('Frame', () => {
 
   it('lists a running capability in the 任务 tab and cancels it from there (ADR-0031)', async () => {
     let kill: (() => void) | null = null
-    const capabilityRun = vi.fn((_args: unknown, signal?: AbortSignal) => new Promise((_resolve, reject) => {
-      kill = () => { reject(new Error('aborted')) }
-      signal?.addEventListener('abort', () => { kill?.() }, { once: true })
-    }))
+    const capabilityRun = vi.fn((_args: unknown, signal?: AbortSignal): Promise<KbCapabilityRunResult> =>
+      new Promise((_resolve, reject) => {
+        kill = () => { reject(new Error('aborted')) }
+        signal?.addEventListener('abort', () => { kill?.() }, { once: true })
+      }))
     const { container } = render(renderFrame({
       capabilityList: () => Promise.resolve({
         capabilities: [{
@@ -1593,7 +1596,7 @@ describe('Frame', () => {
       reason: '',
       proposal: {
         title: '提炼',
-        actions: [{ kind: 'append-log', entityPath: 'entities/meetings/周会.md', entityName: '周会', text: 'x', reason: 'y' }],
+        actions: [{ kind: 'append-log' as const, entityPath: 'entities/meetings/周会.md', entityName: '周会', text: 'x', reason: 'y' }],
       },
     }))
     render(renderFrame({ refine }))
@@ -1629,7 +1632,7 @@ describe('Frame', () => {
         reason: '',
         proposal: {
           title: '提炼',
-          actions: [{ kind: 'append-log', entityPath: 'entities/meetings/周会.md', entityName: '周会', text: 'x', reason: 'y' }],
+          actions: [{ kind: 'append-log' as const, entityPath: 'entities/meetings/周会.md', entityName: '周会', text: 'x', reason: 'y' }],
         },
       })
     render(renderFrame({ refine }))

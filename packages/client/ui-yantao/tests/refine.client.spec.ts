@@ -78,8 +78,9 @@ function ctxWith(session: SessionRemote, files: Record<string, string>, failing:
     if (failing.includes(path)) {
       throw Object.assign(new Error(`「${path}」是二进制文件`), { code: 'yantao-kb/binary' })
     }
-    if (!(path in files)) throw new Error(`找不到知识库文件：${path}`)
-    return { ok: true as const, value: { path, content: files[path] } satisfies KbFileContent }
+    const content = files[path]
+    if (content === undefined) throw new Error(`找不到知识库文件：${path}`)
+    return { ok: true as const, value: { path, content } satisfies KbFileContent }
   }
   return { remote: { session, yantaoKb: { read } } } as unknown as Context
 }

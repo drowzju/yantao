@@ -15,6 +15,7 @@
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   SessionCancelRequest, SessionCancelValue, SessionCreateRequest, SessionCreateValue, SessionFollowFrame,
   SessionFollowRequest, SessionPromptRequest, SessionPromptValue, SessionRenameRequest, SessionRenameValue,
@@ -543,7 +544,9 @@ export function sessionRemoteOf(ctx: Context): SessionRemote | undefined {
  * @param sessionId - the session whose current turn should stop.
  */
 export function cancelSessionTurn(session: SessionRemote, sessionId: string): void {
-  void session.cancel({ sessionId }).catch(() => {})
+  // The generated face brands the id; the workbench carries it as a plain
+  // string everywhere (same cast as turn-answer.ts).
+  void session.cancel({ sessionId: sessionId as SessionId }).catch(() => {})
 }
 
 /**
