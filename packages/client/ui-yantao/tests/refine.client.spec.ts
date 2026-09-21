@@ -160,6 +160,7 @@ describe('refinePrompt', () => {
     expect(text).toContain('【实体：飞书迁移（project）】')
     expect(text).toContain('【实体：李四（person）】')
     expect(text).toContain('每个相关实体各给一个 targets 条目')
+    expect(text).toContain('「近期工作动态」小节追加一行带日期的简述') // person progress lands in 近期工作动态
     expect(text).not.toContain('【资源：会议纪要】\n【实体：飞书迁移') // the roster never doubles as the resource
   })
 
@@ -167,6 +168,8 @@ describe('refinePrompt', () => {
     const text = refinePrompt({ ...base, resource: { name: 'r', content: 'c' } })
     expect(text).toContain('目标')
     expect(text).toContain('下一步')
+    expect(text).toContain('person 的近况用 `近期工作动态`')
+    expect(text).not.toContain('进展涉及其中的「人」') // the person-progress rule is distill-only
     expect(text).toContain('只增不改')
     expect(text).toContain('frontmatter')
     expect(text).toContain('[[实体名]]')
