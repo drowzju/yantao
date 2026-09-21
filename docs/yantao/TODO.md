@@ -96,6 +96,8 @@
 
 | **提炼闭环 v1(ADR-0029 2026-09-17)** —— 一条管线两个手势:**归入**(资源树行 dragStart 设 `application/x-yantao-resource`,实体行成为 drop 目标;`dropPayloadOf` 分流库内拖与系统拖入——系统拖入先 `registerResource` 落入 `resources/` 再分析,多文件拒绝并提示,无关裁决只 toast 不弹卡不留痕)+ **提炼**(实体行右键「提炼」,专用会话「提炼 <实体名>」经 `jsonRound` JSON 裁决,对照模板检查区段、追加新发现、建议 `[[双链]]`,`siblings` 由工作台树现算);提议卡第七类动作 `edit-section`(缺区段补建、流水拒绝),落盘重读文件重定位区段、锚点丢失/重复逐动作失败标红,与能力卡共用 `confirmProposal` 确认路径。零新工具、零新 RPC | `packages/client/ui-yantao/src/client/{refine,proposal,proposal-apply,Workbench}.ts*`、`{ProposalCard,frame/Frame}.tsx`、`index.ts`、`locales.ts`、`tests/{refine,workbench,proposal-apply,proposal-card}.client.spec.*`、`docs/adr/0029-*`、`packages/yantao/CONTEXT.md`、`docs/adr/0026-*`。验证:ui-yantao 262 测试全绿(新增 refine 14 + 组件 11 用例),scoped oxlint 0/0,`tsc --noEmit` 干净,client bundle 重建 |
 
+| **提炼闭环 v2(ADR-0030 2026-09-21)** —— 第三手势**提炼到实体**(资源行/目录行右键,一份资源对整个实体花名册的碰撞;目录逐文件独立会话、UI 串行手势队列一次一卡);裁决协议 v2 `targets[]/creates[]/questions[]`(旧单实体形状兼容绑定为无名 target,空行一律丢弃,宁少勿错);creates 先行 + create-follows-create(`afterCreate` 字段 + applier 的 `created` 映射,create 未勾选/失败则追随行跳过);双链成结构化 `create-link` 行(独立分组单独勾选);questions 两段式(QuestionDialog 逐题作答,答案送回同一会话续一轮,至多一轮提问);花名册整体注入(两树并集 × 四区段映射,实体 8k/资源 32k 截断、二进制占位);会议内置骨架补 `## 决议`/`## 待办`。零新工具、零新 RPC | `packages/client/ui-yantao/src/client/{refine,proposal,proposal-apply,Workbench}.ts*`、`QuestionDialog.tsx`、`frame/Frame.tsx`、`locales.ts`、`packages/yantao/kb/src/templates.ts`、`docs/adr/0030-*`。验证:ui-yantao 280 测试全绿(14 文件;refine 36 + proposal-apply 22 + workbench 86),`tsc --noEmit` 干净,scoped oxlint 0/0;提交 56c2b1ca41/bfe162f679/a5ffc4c122 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)

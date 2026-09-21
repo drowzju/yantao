@@ -104,6 +104,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0027 | 单人项目的门禁降级:yantao 自有文档与包 README 中文单语化(删 twins 与配对记录,豁免目录化),model-experience 门摘除 yantao 包,pre-push 全仓 typecheck 移除;staged lint、whitespace、vendor manifest、notices、生成目录检查与测试保留 |
 | 0028 | 资源读取与目录提及:`kb_read_resource` 第十一个工具(文件 UTF-8 全文/二进制拒绝报大小,目录递归清单封顶 100),`@` 目录提及展开为清单+内容(96k 预算、二进制占位行),资源栏树状展示(可折叠、零 wire 变更),`@` 菜单合成目录候选 + serialize 空格引号 |
 | 0029 | 提炼闭环 v1:资源归入(拖资源到实体行,系统拖入先登记再分析)与实体提炼(右键)共用一条管线——UI 直驱专用会话(mail 分析先例,非 pre-step、不声明能力、零新 RPC/工具),JSON 裁决解析为提议卡;卡新增 `edit-section` 动作(缺区段补建、流水拒绝、frontmatter 不碰),落盘重读重定位逐动作失败标红;无关 toast 不留痕,逐实体 opt-in 不批量迁移(ADR-0026 台账 #6 的兑现形态) |
+| 0030 | 提炼闭环 v2:第三手势「提炼到实体」(资源行/目录行右键,一份资源对整个实体花名册的碰撞,目录逐文件独立会话串行排队);裁决协议 v2(targets[]/creates[]/questions[],旧单实体形状兼容,空行丢弃);creates 先行 + create-follows-create(`afterCreate` + applier `created` 映射);双链成结构化 `create-link` 行;questions 两段式(同会话续答,至多一轮);花名册整体注入(实体 8k/资源 32k 截断、二进制占位);UI 串行手势队列 + QuestionDialog;会议内置骨架补 `## 决议`/`## 待办` |
 
 ## 5. 快速上手
 
@@ -134,7 +135,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 |---|---|
 | [development.md](development.md) | 构建、运行、停止、测试、门禁、坑 |
 | [TODO.md](TODO.md) | 待办:done / next / deferred(每个搁置项都带原因) |
-| [../adr/](../adr/) | ADR 0001–0028(索引见第 4 节) |
+| [../adr/](../adr/) | ADR 0001–0030(索引见第 4 节) |
 | [../subsystems/yantao.md](../subsystems/yantao.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | 上下文地图:yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | 词汇表(规范用词) |
