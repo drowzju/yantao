@@ -31,6 +31,7 @@ ADR-0029 落地了一条管线两个手势，但拿它真正整理知识库时�
 | 4 | 名字解析不到的 target 行丢弃，不猜文件名 | 模型拿到了名字原文，猜路径比漏一行更危险 | 无——这是立场不是缺陷 |
 | 5 | 目录提炼 = 每文件一个独立会话串行排队 | 一文件一卡一裁决，人逐个确认，失败互不牵连 | 「一批文件合并成一次裁决」成为真实需求时再设计 |
 | 6 | 会议模板修在内置骨架而非用户模板文件 | 版本化、可测、立即生效；用户模板优先级不破 | 想自定义会议骨架时写 `<kbRoot>/.dsh/yantao/templates/meeting.md` 即可 |
+| 7 | 空文件（剥掉 frontmatter 与标题行后无正文）直接跳过，不进裁决 | 扫目录时不为一个空壳文件烧一次模型轮；队列照常前进 | 「标题本身也是信息」的场景出现时改为照常送审 |
 
 原因：
 
@@ -50,3 +51,5 @@ ADR-0029 落地了一条管线两个手势，但拿它真正整理知识库时�
 - 未做：合并裁决的目录提炼、多轮澄清、双链的反向建议（backlink 面板已有展示）、distill 的预筛、资源行单向「提炼」。
 
 落地注记（2026-09-21）：全部落地，分四批提交。批次 1 会议模板（56c2b1ca41）：`templates.ts` 的 meeting 骨架改为 `## 状态` + `## 决议` + `## 待办`，客户端 `BUILTIN_BODIES` 镜像同步，同步由既有镜像测试看住。批次 2 协议 v2（bfe162f679）：`refine.ts` 全量重写（`RefineVerdict` v2、旧形状兼容绑定无名 target、空行丢弃、distill 提示词与花名册注入、`continueWithAnswers` 同会话续答且第二轮问题丢弃），`verdictToProposal` creates 先行 + `afterCreate`，`proposal-apply.ts` 增 `created` 映射与追随行跳过——refine 36 测试 + proposal-apply 22 测试。批次 3 UI（a5ffc4c122）：`QuestionDialog.tsx` 新增，`Workbench.tsx` 增 `useMenuDismiss`/`DirMenu`/资源行「提炼到实体」（目录手势对其下每个文件各发一个 distill），`Frame.tsx` 增串行手势队列（闸门只在人类终点释放）与花名册现算（`rosterOfTrees`，两树并集 × 四区段映射）——workbench 86 测试。验证：ui-yantao 280 测试全绿（14 文件），`tsc --noEmit` 干净，scoped oxlint 0/0。零新工具、零新 RPC。
+
+落地注记二（2026-09-21，用户验收反馈）：**空文件跳过（台账 #7）**。distill 手势读到资源正文为空——剥掉 frontmatter 与标题行（`isEmptyBody`）后什么都不剩——时在建会话之前直接返回 `skippedEmpty: true` 的 run，不烧模型轮；Frame 收到后 toast「是空文件（只有标题），已跳过。」并放行队列。二进制占位不算空（照常送审，凭文件名判断）。动机：扫目录提炼时一个只有标题的空壳笔记不该花一次会话裁决。验证：ui-yantao 285 测试全绿（refine 40 + workbench 87，新增 isEmptyBody 2 + runRefine 2 + Frame 队列跳过 1），`tsc --noEmit` 干净，scoped oxlint 0/0，client bundle 重建。

@@ -1568,6 +1568,37 @@ describe('Frame', () => {
     expect(await screen.findByText('提炼')).toBeTruthy()
   })
 
+  it('skips an empty distill resource with a toast and keeps the queue moving (ADR-0030 修订)', async () => {
+    const refine = vi.fn()
+      .mockResolvedValueOnce({
+        sessionId: '',
+        title: '提炼 空笔记.md',
+        relevant: true,
+        reason: '内容为空（只有标题）',
+        skippedEmpty: true,
+      })
+      .mockResolvedValueOnce({
+        sessionId: 's1',
+        title: '提炼',
+        relevant: true,
+        reason: '',
+        proposal: {
+          title: '提炼',
+          actions: [{ kind: 'append-log', entityPath: 'entities/meetings/周会.md', entityName: '周会', text: 'x', reason: 'y' }],
+        },
+      })
+    render(renderFrame({ refine }))
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('提炼到实体'))
+    await waitFor(() => { expect(refine).toHaveBeenCalledTimes(1) })
+    expect(await screen.findByText('「周报.eml」是空文件（只有标题），已跳过。')).toBeTruthy()
+    // The gate was released by the skip: the next gesture needs no dismissal.
+    fireEvent.contextMenu(screen.getByText('周报.eml'), { clientX: 40, clientY: 60 })
+    fireEvent.click(screen.getByText('提炼到实体'))
+    await waitFor(() => { expect(refine).toHaveBeenCalledTimes(2) })
+    expect(await screen.findByText('提炼')).toBeTruthy()
+  })
+
   it('opens the selection menu in the reading view and sends the raw text (ADR-0025 决定 5)', async () => {
     const promptSession = vi.fn(() => Promise.resolve())
     const { container } = render(renderFrame({ promptSession }))

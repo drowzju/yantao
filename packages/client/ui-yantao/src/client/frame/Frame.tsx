@@ -488,6 +488,12 @@ export function Frame({
 
   /** One run's end: a toast for an irrelevant intake, a card for the rest. */
   const showRefineRun = useCallback((run: RefineRun, gesture: RefineGesture): void => {
+    if (run.skippedEmpty === true) {
+      const what = gesture.resource?.name ?? gesture.entityName
+      setCapabilityNotice(`「${what}」是空文件（只有标题），已跳过。`)
+      settleRefine()
+      return
+    }
     if (!run.relevant) {
       const what = gesture.resource?.name ?? gesture.entityName
       setCapabilityNotice(`「${what}」与「${gesture.entityName ?? '知识库'}」无关：${run.reason}`)

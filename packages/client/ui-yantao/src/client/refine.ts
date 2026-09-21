@@ -118,6 +118,12 @@ export interface RefineRun {
   /** The proposal — absent when the resource was judged irrelevant (no card, no trace). */
   readonly proposal?: Proposal
   /**
+   * True when a distill gesture's resource turned out to have no body
+   * (frontmatter and headings only): no session was created and nothing is
+   * proposed — the caller toasts the skip and moves on (ADR-0030 修订).
+   */
+  readonly skippedEmpty?: boolean
+  /**
    * The verdict's questions, when the model asked before proposing. The frame
    * shows them; the human's answers feed {@link continueWithAnswers}.
    */
@@ -597,27 +603,43 @@ export function verdictToProposal(verdict: RefineVerdict, views: RefineViews, ti
 }
 
 /**
+ * Whether a text body is empty for distill's purposes: after stripping the
+ * frontmatter and every heading line, nothing readable remains — a file that
+ * is only a title (or only an envelope) has nothing to distill (ADR-0030 修订).
+ * @param text - the file's full text.
+ * @returns true when the body carries no content.
+ */
+export function isEmptyBody(text: string): boolean {
+  const stripped = /^---\n[\s\S]*?\n---\n?/.test(text) ? text.replace(/^---\n[\s\S]*?\n---\n?/, '') : text
+  return stripped.replace(/^#{1,6} .*$/gm, '').trim() === ''
+}
+
+/**
  * One file as the prompt sees it: text content clipped at `clip`, or an
  * explicit placeholder when the controller refuses the file as binary — the
  * model is told the content is unreadable so it judges by name alone,
- * honestly.
+ * honestly. `isEmpty` reports the emptiness of the raw body (before the
+ * clip), so a distill gesture can skip a title-only file outright.
  */
 async function contentViewOf(
   read: (path: string) => Promise<string>,
   path: string,
   name: string,
   clip: number,
-): Promise<string> {
+): Promise<{ content: string; isEmpty: boolean }> {
   let text: string
   try {
     text = await read(path)
   } catch (error) {
     if ((error as { code?: string }).code === 'yantao-kb/binary') {
-      return `（二进制文件，内容不可读。请只凭文件名「${name}」与路径判断。）`
+      return { content: `（二进制文件，内容不可读。请只凭文件名「${name}」与路径判断。）`, isEmpty: false }
     }
     throw error
   }
-  return text.length > clip ? `${text.slice(0, clip)}\n（内容过长，已截断）` : text
+  return {
+    content: text.length > clip ? `${text.slice(0, clip)}\n（内容过长，已截断）` : text,
+    isEmpty: isEmptyBody(text),
+  }
 }
 
 /**
@@ -664,19 +686,26 @@ export async function runRefine(options: {
   }
   let resource: ResourceView | undefined
   if (options.resource !== undefined) {
-    resource = {
-      name: options.resource.name,
-      content: await contentViewOf(read, options.resource.path, options.resource.name, RESOURCE_CLIP),
+    const view = await contentViewOf(read, options.resource.path, options.resource.name, RESOURCE_CLIP)
+    // A distill gesture on a title-only file has nothing to judge: skip
+    // before any session is created — one stub in a swept directory must not
+    // cost a model round (ADR-0030 修订).
+    if (mode === 'distill' && view.isEmpty) {
+      return {
+        sessionId: '',
+        title: `提炼 ${options.resource.name}`,
+        relevant: true,
+        reason: '内容为空（只有标题）',
+        skippedEmpty: true,
+      }
     }
+    resource = { name: options.resource.name, content: view.content }
   }
   const roster: RefineEntityView[] = []
   if (mode === 'distill') {
     for (const entry of options.roster ?? []) {
-      roster.push({
-        name: entry.name,
-        path: entry.path,
-        content: await contentViewOf(read, entry.path, entry.name, ENTITY_CLIP),
-      })
+      const view = await contentViewOf(read, entry.path, entry.name, ENTITY_CLIP)
+      roster.push({ name: entry.name, path: entry.path, content: view.content })
     }
   }
 

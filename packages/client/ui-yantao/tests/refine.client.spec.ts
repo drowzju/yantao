@@ -3,8 +3,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { KbFileContent } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { SessionRemote } from '../src/client/remote.ts'
 import {
-  RESOURCE_DRAG_TYPE, answersPrompt, dropPayloadOf, parseRefineVerdict, refinePrompt, runRefine, templateBodyOf,
-  verdictToProposal,
+  RESOURCE_DRAG_TYPE, answersPrompt, dropPayloadOf, isEmptyBody, parseRefineVerdict, refinePrompt, runRefine,
+  templateBodyOf, verdictToProposal,
 } from '../src/client/refine.ts'
 
 const SESSION = 'session-1'
@@ -364,6 +364,21 @@ describe('verdictToProposal', () => {
   })
 })
 
+describe('isEmptyBody', () => {
+  it('calls a file empty when only its frontmatter and headings remain', () => {
+    expect(isEmptyBody('---\ntype: resource\n---\n# 只有标题\n')).toBe(true)
+    expect(isEmptyBody('# 标题\n\n## 小节\n')).toBe(true)
+    expect(isEmptyBody('   \n\t\n')).toBe(true)
+    expect(isEmptyBody('')).toBe(true)
+  })
+
+  it('keeps a file with any body text, a list line, or a link', () => {
+    expect(isEmptyBody('# 标题\n\n正文一句话。\n')).toBe(false)
+    expect(isEmptyBody('- 一条待办\n')).toBe(false)
+    expect(isEmptyBody('[[某实体]]\n')).toBe(false)
+  })
+})
+
 describe('runRefine', () => {
   const FILES: Record<string, string> = {
     [ENTITY_PATH]: ENTITY,
@@ -460,6 +475,38 @@ describe('runRefine', () => {
     expect(prompt).toContain('（内容过长，已截断）')
     expect(prompt.length).toBeLessThan(big.length + 40 * 1024)
     expect(run.proposal?.actions.every(action => action.kind === 'append-log')).toBe(true)
+  })
+
+  it('skips a title-only distill resource without creating a session', async () => {
+    const { session, asked } = fakeSession([verdictJson()])
+    const run = await runRefine({
+      ctx: ctxWith(session, {
+        'resources/空笔记.md': '---\ntype: resource\n---\n# 空笔记\n',
+        [ENTITY_PATH]: ENTITY,
+      }),
+      mode: 'distill',
+      resource: { path: 'resources/空笔记.md', name: '空笔记' },
+      roster: [{ name: '飞书迁移', type: 'project', path: ENTITY_PATH }],
+    })
+    expect(run.skippedEmpty).toBe(true)
+    expect(run.sessionId).toBe('')
+    expect(run.proposal).toBeUndefined()
+    expect(asked.titles).toEqual([])
+  })
+
+  it('keeps a distill resource whose body has text beyond the headings', async () => {
+    const { session, asked } = fakeSession([verdictJson()])
+    const run = await runRefine({
+      ctx: ctxWith(session, {
+        'resources/有内容.md': '# 有内容\n\n正文在这里。\n',
+        [ENTITY_PATH]: ENTITY,
+      }),
+      mode: 'distill',
+      resource: { path: 'resources/有内容.md', name: '有内容' },
+      roster: [{ name: '飞书迁移', type: 'project', path: ENTITY_PATH }],
+    })
+    expect(run.skippedEmpty).toBeUndefined()
+    expect(asked.titles).toEqual(['提炼 有内容'])
   })
 
   it('injects a placeholder for a binary resource instead of failing the run', async () => {
