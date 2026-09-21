@@ -32,7 +32,7 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/refine
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { sessionRemoteOf, kbRemoteOf, unwrapRemote } from './remote.ts'
+import { cancelSessionTurnOnAbort, kbRemoteOf, sessionRemoteOf, unwrapRemote } from './remote.ts'
 import { jsonRound } from './turn-answer.ts'
 import type { Proposal, ProposalAction, ProposalEntityType } from './proposal.ts'
 
@@ -728,13 +728,8 @@ export async function runRefine(options: {
   // A cancelled run must not leave the server rounding on: aborting the
   // signal tears down the local wait (the prompt's fetch and the follow
   // stream), and `session/cancel` — already in the generated client face,
-  // only now declared — ends the turn itself. Fire-and-forget: the run is
-  // dying either way, and a cancel refusal changes nothing.
-  if (signal !== undefined) {
-    const stop = (): void => { void session.cancel({ sessionId }).catch(() => {}) }
-    if (signal.aborted) stop()
-    else signal.addEventListener('abort', stop, { once: true })
-  }
+  // only now declared — ends the turn itself.
+  if (signal !== undefined) cancelSessionTurnOnAbort(signal, session, sessionId)
 
   const verdict = await jsonRound({
     session,

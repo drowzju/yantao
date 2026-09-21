@@ -221,6 +221,11 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
           {phase === 'analysing' ? t('mail.analysing') : t('mail.analyseBatch', { count: mails.length })}
         </button>
       )}
+      {phase === 'analysing' && (
+        <button type="button" style={buttonStyle} data-mail-cancel="true" onClick={() => { run.cancel() }}>
+          {t('common.cancel')}
+        </button>
+      )}
       {phase === 'analysing' && progress !== null && (
         <div style={hintStyle} data-mail-progress={progress.stage}>
           {t(STAGE_KEYS[progress.stage])}

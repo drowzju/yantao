@@ -253,3 +253,38 @@ describe('MailPanel', () => {
     expect(await screen.findByText(/实体 飞书迁移：知识库里没有这个实体/)).toBeTruthy()
   })
 })
+
+describe('MailPanel cancellation', () => {
+  it('stops the analysis on 取消, keeping the landed verdicts (ADR-0031)', async () => {
+    const panel = props({
+      analyse: async (_mails, _known, onProgress, signal) => {
+        onProgress?.({ stage: 'answer', done: 1, total: 2, verdicts: [{ mail: 1, importance: 'focus', why: '上级主送' }] })
+        return new Promise<AnalysisRun>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => {
+            reject(new Error('aborted'))
+          }, { once: true })
+        })
+      },
+    })
+    render(<MailPanel {...panel} />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('往后 →'))
+    })
+    await screen.findByText(/1 封 · /)
+    await act(async () => {
+      fireEvent.click(screen.getByText('分析这 1 封'))
+    })
+    // The landed verdict is lit while the run is still going.
+    await screen.findByText('重点')
+    expect(screen.getByText('取消')).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('取消'))
+    })
+    // Back to idle: no error raised, the verdict stays, the run says it stopped.
+    await waitFor(() => { expect(screen.queryByText('取消')).toBeNull() })
+    expect(screen.getByText('重点')).toBeTruthy()
+    expect(screen.getByText('已取消，已完成的判定保留。')).toBeTruthy()
+    expect(screen.queryByText(/失败/)).toBeNull()
+  })
+})

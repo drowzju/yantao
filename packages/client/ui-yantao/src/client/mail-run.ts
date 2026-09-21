@@ -92,6 +92,8 @@ export interface MailRunStore {
   readonly bind: (deps: MailRunDeps) => void
   readonly read: (direction: MailDirection) => Promise<void>
   readonly run: () => Promise<void>
+  /** Stop a running analysis: later chunks never start, landed verdicts stay (ADR-0031). */
+  readonly cancel: () => void
   readonly confirm: (ticked: readonly number[]) => Promise<void>
   readonly dismiss: () => Promise<void>
 }
@@ -186,6 +188,10 @@ export function createMailRun(): MailRunStore {
   let state = EMPTY_STATE
   const listeners = new Set<() => void>()
   let deps: MailRunDeps | undefined
+  // The running analysis's abort controller (ADR-0031): a catch that sees its
+  // signal tripped knows the run was cancelled, not failed — the verdicts
+  // already landed stay in the map, and the watermark never moved.
+  const analyseCancel: { controller: AbortController | null } = { controller: null }
 
   const set = (patch: Partial<MailRunState>): void => {
     state = { ...state, ...patch }
@@ -219,6 +225,7 @@ export function createMailRun(): MailRunStore {
   /** Hand the batch to a session, announce the outcome, and open the review. */
   const run = async (): Promise<void> => {
     if (deps === undefined || state.mails.length === 0) return
+    analyseCancel.controller = new AbortController()
     set({
       phase: 'analysing',
       error: null,
@@ -233,18 +240,33 @@ export function createMailRun(): MailRunStore {
         set(update.verdicts !== undefined
           ? { progress: update, verdicts: new Map(update.verdicts.map(verdict => [verdict.mail, verdict])) }
           : { progress: update })
-      })
+      }, analyseCancel.controller.signal)
       set({ verdicts: new Map(result.analysis.verdicts.map(verdict => [verdict.mail, verdict])) })
       const review = analysisToProposal(result.analysis, known, result.title, state.mails)
       set({ review })
       notify({ title: '邮件分析完成', body: `${result.title}：${review.actions.length} 条提议等你确认` })
     } catch (failure: unknown) {
-      const body = failure instanceof Error ? failure.message : String(failure)
-      set({ error: body })
-      notify({ title: '邮件分析失败', body })
+      // The abort signal is the cancellation witness: only `cancel` trips it,
+      // and the finally below has not cleared the controller yet. The human
+      // stopped it — not a failure. What landed stays on screen; the cursor
+      // is untouched, so a later read re-offers the batch.
+      if (analyseCancel.controller.signal.aborted) {
+        set({ error: null, hint: null, summary: ['已取消，已完成的判定保留。'] })
+      } else {
+        const body = failure instanceof Error ? failure.message : String(failure)
+        set({ error: body })
+        notify({ title: '邮件分析失败', body })
+      }
     } finally {
+      analyseCancel.controller = null
       set({ phase: 'idle', progress: null, startedAt: null })
     }
+  }
+
+  /** Stop the running analysis (ADR-0031): the in-flight chunk dies, the rest never start. */
+  const cancel = (): void => {
+    if (state.phase !== 'analysing' || analyseCancel.controller === null) return
+    analyseCancel.controller.abort()
   }
 
   /**
@@ -302,6 +324,7 @@ export function createMailRun(): MailRunStore {
     bind: (next) => { deps = next },
     read,
     run,
+    cancel,
     confirm,
     dismiss,
   }

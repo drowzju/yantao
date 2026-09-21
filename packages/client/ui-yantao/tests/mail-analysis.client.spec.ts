@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { SessionRemote } from '../src/client/remote.ts'
@@ -28,13 +28,18 @@ function mail(overrides: Partial<KbMailMessage> = {}): KbMailMessage {
 /** A session namespace that answers `answer` and records every prompt it was asked. */
 function fakeSession(answer: string | ((turn: number) => string)): {
   session: SessionRemote
-  asked: { title?: string; prompts: readonly string[] }
+  asked: { titles: readonly string[]; prompts: readonly string[]; cancels: readonly string[] }
 } {
   const prompts: string[] = []
+  const cancels: string[] = []
+  const titles: string[] = []
   let turn = 0
   const session = {
     create: async () => ({ ok: true, value: { sessionId: SESSION } }),
-    rename: async (args: { title: string }) => ({ ok: true, value: { title: args.title, seq: 1 } }),
+    rename: async (args: { title: string }) => {
+      titles.push(args.title)
+      return { ok: true, value: { title: args.title, seq: 1 } }
+    },
     prompt: async (args: { content: readonly { text?: string }[] }) => {
       prompts.push(args.content.map(part => part.text ?? '').join(''))
       turn += 1
@@ -55,8 +60,12 @@ function fakeSession(answer: string | ((turn: number) => string)): {
         event: { type: 'turn/end', seq: 2, time: 0, data: { turn: 1, reason: { kind: 'completed' } } },
       }
     })(),
+    cancel: async (args: { sessionId: string }) => {
+      cancels.push(args.sessionId)
+      return { ok: true as const, value: { accepted: true } }
+    },
   }
-  return { session: session as unknown as SessionRemote, asked: { prompts } }
+  return { session: session as unknown as SessionRemote, asked: { titles, prompts, cancels } }
 }
 
 /** A context carrying just the session namespace. */
@@ -303,5 +312,30 @@ describe('analysisToProposal', () => {
     )
     expect(proposal.highlights).toBeUndefined()
     expect(proposal.digest).toBeUndefined()
+  })
+})
+
+describe('runMailAnalysis cancellation', () => {
+  it('cancels the server turn when the signal aborts mid-run (ADR-0031)', async () => {
+    const controller = new AbortController()
+    const { session, asked } = fakeSession(JSON.stringify({
+      verdicts: [{ mail: 1, importance: 'normal', why: '' }],
+      people: [], todos: [], projects: [], resources: [],
+    }))
+    // The fake prompt hangs until the signal fires, so the abort lands while
+    // the first chunk's round is genuinely in flight.
+    const hanging = {
+      ...session,
+      prompt: (_args: unknown, signal?: AbortSignal) => new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          reject(new Error('aborted'))
+        }, { once: true })
+      }),
+    } as unknown as SessionRemote
+    const pending = runMailAnalysis({ ctx: ctxWith(hanging), mails: [mail()], known: KNOWN, signal: controller.signal })
+    await vi.waitFor(() => { if (asked.titles.length === 0) throw new Error('尚未命名会话') })
+    controller.abort()
+    await expect(pending).rejects.toThrow()
+    expect(asked.cancels).toEqual([SESSION])
   })
 })

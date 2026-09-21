@@ -532,6 +532,31 @@ export function sessionRemoteOf(ctx: Context): SessionRemote | undefined {
 }
 
 /**
+ * End the session's in-flight turn server-side (ADR-0031): fire-and-forget,
+ * because the caller is on the way out either way and a cancel refusal
+ * changes nothing. The browser-driven runs (refine, mail analysis) wire this
+ * to their abort signal, so an aborted run does not leave the model rounding
+ * on to completion nobody consumes.
+ * @param session - the session namespace.
+ * @param sessionId - the session whose current turn should stop.
+ */
+export function cancelSessionTurn(session: SessionRemote, sessionId: string): void {
+  void session.cancel({ sessionId }).catch(() => {})
+}
+
+/**
+ * Wire one run's abort signal to {@link cancelSessionTurn}: registering after
+ * the session exists, firing immediately when the signal has already fired.
+ * @param signal - the run's signal.
+ * @param session - the session namespace.
+ * @param sessionId - the run's session.
+ */
+export function cancelSessionTurnOnAbort(signal: AbortSignal, session: SessionRemote, sessionId: string): void {
+  if (signal.aborted) cancelSessionTurn(session, sessionId)
+  else signal.addEventListener('abort', () => { cancelSessionTurn(session, sessionId) }, { once: true })
+}
+
+/**
  * Send one prompt to the conversation the human is looking at (ADR-0025
  * 决定 4) — the frame's instruction-capability runs go through this.
  */

@@ -169,12 +169,14 @@ export function apply(ctx: Context): void {
         mails: readonly MailMessage[],
         known: KnownEntities,
         onProgress?: (progress: AnalysisProgress) => void,
+        signal?: AbortSignal,
       ) => {
         const cwd = await kbCwd()
         return runMailAnalysis({
           ctx, mails, known,
           ...cwd !== undefined ? { cwd } : {},
           ...onProgress !== undefined ? { onProgress } : {},
+          ...signal !== undefined ? { signal } : {},
         })
       },
       // ADR-0029: the refine loop — both gestures run their dedicated session

@@ -18,7 +18,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import { sessionRemoteOf, type SessionRemote } from './remote.ts'
+import { cancelSessionTurnOnAbort, sessionRemoteOf, type SessionRemote } from './remote.ts'
 import { jsonRound } from './turn-answer.ts'
 
 /** How many mails one analysis turn sees; the batch is walked in these chunks. */
@@ -114,11 +114,15 @@ export interface KnownPerson {
  * Run one analysis over a batch — the panel's seam to the session Remote, so
  * a test can hand back a verdict without a session ever existing.
  * @param onProgress - called as the run moves between its stages and chunks.
+ * @param signal - aborting cancels the run: the in-flight chunk's turn is
+ *   cancelled server-side, later chunks never start, and the verdicts already
+ *   reported stay reported.
  */
 export type MailAnalyser = (
   mails: readonly KbMailMessage[],
   known: KnownEntities,
   onProgress?: (progress: AnalysisProgress) => void,
+  signal?: AbortSignal,
 ) => Promise<AnalysisRun>
 
 /** What the KB already holds, so the model matches against it instead of inventing. */
@@ -398,6 +402,10 @@ export async function runMailAnalysis(options: {
   const sessionName = `邮件分析 ${stamp()}`
   const named = await session.rename({ sessionId, title: sessionName })
   if (!named.ok) throw named.error
+
+  // A cancelled run must not leave the server rounding on (ADR-0031): the
+  // signal already tears down the local wait; this ends the turn itself.
+  if (options.signal !== undefined) cancelSessionTurnOnAbort(options.signal, session, sessionId)
 
   onProgress?.({ stage: 'prompt' })
   const verdicts: MailVerdict[] = []
