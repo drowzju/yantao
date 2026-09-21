@@ -3057,9 +3057,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the processed range as it now stands.',
       },
       {
-        signature: '@Remote(\'capabilityRun\') async capabilityRun(args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult>',
+        signature: '@Remote(\'capabilityRun\') async capabilityRun(args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<KbCapabilityRunResult>',
         description: 'Run one capability\'s host entry (ADR-0021) — the human channel\'s execution seam, the mail connector\'s and the extractor\'s subprocess pattern generalized. The capability is resolved through `ctx.skills` (the skill-filesystem provider discovers the directories; this controller only consumes the winner), its `yantao.json` declaration (legacy `metadata.yantao` frontmatter accepted) picks the entry script, and the run is one Python subprocess with a JSON stdin/stdout contract (`capability/run.ts`).\n\nThe controller, not the script, owns every write: artifacts land under `.dsh/yantao/capabilities/<name>/` at paths the script cannot choose, and the returned state is persisted under `capabilities.<name>.state` in the KB\'s `.dsh/yantao/state.json` (ADR-0024) — machine state inside the KB, which stays markdown for humans. The agent has its own channel into the same seam: `kb_run_capability` (ADR-0023), gated per capability by the sidecar\'s `invocation` declaration.',
-        parameters: [{ name: 'args', description: 'the capability\'s skill name and the caller\'s input, handed to the entry script verbatim.' }],
+        parameters: [{ name: 'args', description: 'the capability\'s skill name and the caller\'s input, handed to the entry script verbatim.' }, { name: 'signal', description: 'the human channel\'s cancel line (ADR-0031): an abort kills the entry script\'s subprocess and rejects with the `cancelled` kind. The agent channel has no cancel — its runs answer or time out.' }],
         returns: 'what the run answered, when it ran, and which artifact paths were written.',
       },
       {

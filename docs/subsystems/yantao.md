@@ -311,9 +311,12 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * `invocation` declaration.
  * @param args - the capability's skill name and the caller's input, handed
  *   to the entry script verbatim.
+ * @param signal - the human channel's cancel line (ADR-0031): an abort
+ *   kills the entry script's subprocess and rejects with the `cancelled`
+ *   kind. The agent channel has no cancel — its runs answer or time out.
  * @returns what the run answered, when it ran, and which artifact paths were written.
  */
-@Remote('capabilityRun') async capabilityRun(args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult>
+@Remote('capabilityRun') async capabilityRun(args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<KbCapabilityRunResult>
 
 /**
  * The capabilities the workbench's 能力 tab shows (ADR-0021 决定 8):

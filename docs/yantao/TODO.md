@@ -98,6 +98,8 @@
 
 | **提炼闭环 v2(ADR-0030 2026-09-21)** —— 第三手势**提炼到实体**(资源行/目录行右键,一份资源对整个实体花名册的碰撞;目录逐文件独立会话、UI 串行手势队列一次一卡);裁决协议 v2 `targets[]/creates[]/questions[]`(旧单实体形状兼容绑定为无名 target,空行一律丢弃,宁少勿错);creates 先行 + create-follows-create(`afterCreate` 字段 + applier 的 `created` 映射,create 未勾选/失败则追随行跳过);双链成结构化 `create-link` 行(独立分组单独勾选);questions 两段式(QuestionDialog 逐题作答,答案送回同一会话续一轮,至多一轮提问);花名册整体注入(两树并集 × 四区段映射,实体 8k/资源 32k 截断、二进制占位);会议内置骨架补 `## 决议`/`## 待办`。零新工具、零新 RPC | `packages/client/ui-yantao/src/client/{refine,proposal,proposal-apply,Workbench}.ts*`、`QuestionDialog.tsx`、`frame/Frame.tsx`、`locales.ts`、`packages/yantao/kb/src/templates.ts`、`docs/adr/0030-*`。验证:ui-yantao 280 测试全绿(14 文件;refine 36 + proposal-apply 22 + workbench 86),`tsc --noEmit` 干净,scoped oxlint 0/0;提交 56c2b1ca41/bfe162f679/a5ffc4c122 |
 
+| **任务统一视图与取消(ADR-0031 2026-09-21)** —— 五批落地:**提炼可取消**(中止信号触发 `session/cancel`,队列随取消清空,问题对话框可放弃,已出的提议卡保留);**邮件分析可取消**(跑完当前 chunk 即停,已落地判定保留,水位线不动,`mail-run` state 增 `cancelled` 见证位);**能力可取消**(`capabilityRun` 增 AbortSignal 尾参——typert 兼容的宿主方法约定,中止杀子进程并以 `cancelled` 类失败拒绝,刷新=杀任务);**中央栏常驻「任务」tab**(运行数徽标;`task-view.ts` 纯模型——运行中置顶/待确认次之/已结束按结束倒序的扁平单列、时长格式化;`TasksPane.tsx` 纯展示,行=动作+对象/阶段/进展/耗时/取消/查看;Frame 持有 `taskRows` 并以 `taskBegin/taskPatch/taskEnd` 收三类 Owner 上报,mailRun store 上移 Frame 持有并下发 IntakeRail,查看=提炼去会话、其余展开左栏切能力页签);**文档**(本 ADR)。仅前端记忆,零新工具、零新 RPC | `packages/client/ui-yantao/src/client/{task-view,mail-run,refine,locales,tabs}.ts`、`Workbench.tsx`、`frame/{Frame,CenterPane,TasksPane}.tsx`、`tests/{task-view,tabs,workbench}.client.spec.*`、`packages/api/yantao-kb-controller/src/{index,capability/run}.ts`、`docs/adr/0031-*`。验证:ui-yantao 298 测试全绿(15 文件),scoped oxlint 0/0,client bundle 重建;提交 17576f33ad/4abf5e552b/edd01fddec/fd339af99c |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
