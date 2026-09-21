@@ -16,8 +16,8 @@ afterEach(async () => {
 })
 
 /** Narrow a cited entry to its directory form, failing the test otherwise. */
-function dirOf(entry: CitedEntry): Extract<CitedEntry, { kind: 'dir' }> {
-  if (entry.kind !== 'dir') throw new Error('预期目录引用')
+function dirOf(entry: CitedEntry | undefined): Extract<CitedEntry, { kind: 'dir' }> {
+  if (entry === undefined || entry.kind !== 'dir') throw new Error('预期目录引用')
   return entry
 }
 
@@ -70,7 +70,7 @@ describe('readCitedEntries', () => {
       ['resources/大目录/mid.txt', false, 'budget'],
       ['resources/大目录/small.txt', true, null],
     ])
-    expect(dir.files[0].content).toHaveLength(95_000)
+    expect(dir.files[0]?.content).toHaveLength(95_000)
   })
 
   it('caps a directory at the entry cap and marks the listing truncated', async () => {

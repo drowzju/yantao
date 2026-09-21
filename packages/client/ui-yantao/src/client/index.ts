@@ -189,7 +189,7 @@ export function apply(ctx: Context): void {
       registerResource: (name: string, contentBase64: string) => registerResource(ctx, name, contentBase64),
       // ADR-0021: the capability surface the 能力 tab reads.
       capabilityList: () => loadCapabilities(ctx),
-      capabilityRun: (args: KbCapabilityRunArgs) => runCapability(ctx, args),
+      capabilityRun: (args: KbCapabilityRunArgs, signal?: AbortSignal) => runCapability(ctx, args, signal),
       capabilityCreate: (name: string) => createCapability(ctx, name),
       // ADR-0025 决定 1: adopt an out-of-KB skill into `.dsh/skills/`.
       capabilityAdopt: (name: string) => adoptCapability(ctx, name),

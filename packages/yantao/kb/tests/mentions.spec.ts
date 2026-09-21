@@ -45,13 +45,13 @@ describe('renderKbMentions', () => {
   })
 
   it('renders one tagged block per cited file', () => {
-    const text = renderKbMentions([{ path: 'entities/people/张三.md', content: '张三的内容' }])
+    const text = renderKbMentions([{ kind: 'file', path: 'entities/people/张三.md', content: '张三的内容' }])
     expect(text).toContain('<kb-file path="entities/people/张三.md">')
     expect(text).toContain('张三的内容')
   })
 
   it('truncates a file past the character budget', () => {
-    const text = renderKbMentions([{ path: 'entities/areas/健康.md', content: 'x'.repeat(MAX_MENTION_CHARS + 10) }])
+    const text = renderKbMentions([{ kind: 'file', path: 'entities/areas/健康.md', content: 'x'.repeat(MAX_MENTION_CHARS + 10) }])
     expect(text).toContain('已截断')
     expect(text.length).toBeLessThan(MAX_MENTION_CHARS + 200)
   })

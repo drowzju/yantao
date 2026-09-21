@@ -442,6 +442,11 @@ export function Frame({
   // message lands in the transcript exactly as if the human had typed it.
   const [capabilityProposal, setCapabilityProposal] = useState<Proposal | null>(null)
   const [capabilityNotice, setCapabilityNotice] = useState<string | null>(null)
+  // Cancellation (ADR-0031): the running script capability's abort controller.
+  // The signal is both the RPC's cancel line and the witness that separates
+  // 「人停的」 from a real failure in the rejection path.
+  const capabilityAbort = useRef<AbortController | null>(null)
+  const [capabilityRunning, setCapabilityRunning] = useState(false)
   const runRowCapability = useCallback((capability: KbCapabilitySummary, path: string): void => {
     setCapabilityNotice(null)
     if (capability.entry === undefined) {
@@ -451,14 +456,28 @@ export function Frame({
       )
       return
     }
-    void capabilityRun({ name: capability.name, input: { path } }).then((result) => {
+    const aborter = new AbortController()
+    capabilityAbort.current = aborter
+    setCapabilityRunning(true)
+    setCapabilityNotice(`能力「${capability.name}」执行中…`)
+    void capabilityRun({ name: capability.name, input: { path } }, aborter.signal).then((result) => {
+      capabilityAbort.current = null
+      setCapabilityRunning(false)
       const proposal = proposalOfRunResult(result)
       if (proposal !== null) setCapabilityProposal(proposal)
       else setCapabilityNotice(runNoticeOf(result))
     }, (failure: unknown) => {
-      setCapabilityNotice(`能力「${capability.name}」失败：${remoteMessage(failure)}`)
+      capabilityAbort.current = null
+      setCapabilityRunning(false)
+      if (aborter.signal.aborted) setCapabilityNotice(`能力「${capability.name}」已取消。`)
+      else setCapabilityNotice(`能力「${capability.name}」失败：${remoteMessage(failure)}`)
     })
   }, [capabilityRun, promptSession])
+
+  /** Stop the running script capability (ADR-0031): the subprocess is killed server-side. */
+  const cancelCapability = useCallback((): void => {
+    capabilityAbort.current?.abort()
+  }, [])
 
   // ADR-0029 + ADR-0030: the refine gestures — 归入 (a resource dropped on an
   // entity row), 提炼 (an entity row's menu item) and 提炼到实体 (a resource
@@ -957,7 +976,7 @@ export function Frame({
           {capabilityNotice}
           {/* A running refine is cancellable right where it announces itself
               (ADR-0031): the chip stops the run and drops the queue. */}
-          {refineActive && (
+          {(refineActive || capabilityRunning) && (
             <button
               type="button"
               style={{
@@ -971,7 +990,8 @@ export function Frame({
               }}
               onClick={(event) => {
                 event.stopPropagation()
-                cancelRefine()
+                if (refineActive) cancelRefine()
+                if (capabilityRunning) cancelCapability()
               }}
             >
               取消

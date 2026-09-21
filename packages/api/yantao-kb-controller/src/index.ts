@@ -855,11 +855,14 @@ export class YantaoKbController extends TypertRemoteService {
    * `invocation` declaration.
    * @param args - the capability's skill name and the caller's input, handed
    *   to the entry script verbatim.
+   * @param signal - the human channel's cancel line (ADR-0031): an abort
+   *   kills the entry script's subprocess and rejects with the `cancelled`
+   *   kind. The agent channel has no cancel — its runs answer or time out.
    * @returns what the run answered, when it ran, and which artifact paths were written.
    */
   @Remote('capabilityRun')
-  async capabilityRun(args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult> {
-    return await this.runByName(args.name, args.input, 'human')
+  async capabilityRun(args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<KbCapabilityRunResult> {
+    return await this.runByName(args.name, args.input, 'human', signal)
   }
 
   /**
@@ -878,9 +881,16 @@ export class YantaoKbController extends TypertRemoteService {
    * @param name - the capability's skill name.
    * @param input - the caller's input, handed to the entry script verbatim.
    * @param invoker - which channel is calling; only `'agent'` is gated.
+   * @param signal - the human channel's cancel line, threaded to the
+   *   subprocess run; undefined for the agent channel.
    * @returns what the run answered, when it ran, and which artifact paths were written.
    */
-  private async runByName(name: string, input: unknown, invoker: CapabilityInvoker): Promise<KbCapabilityRunResult> {
+  private async runByName(
+    name: string,
+    input: unknown,
+    invoker: CapabilityInvoker,
+    signal?: AbortSignal,
+  ): Promise<KbCapabilityRunResult> {
     if (!this.ctx.yantaoKb.configured) {
       throw new RemoteError(
         'yantao-kb/capability',
@@ -904,7 +914,7 @@ export class YantaoKbController extends TypertRemoteService {
         if (route === undefined) throw badManifestError(error)
         return this.runRouted(name, route, invoker)
       }
-      return this.runDeclared(name, definition, manifest, input, invoker)
+      return this.runDeclared(name, definition, manifest, input, invoker, signal)
     }
     // A definition resolved from outside the KB (a `~/.dsh/skills` or project
     // skill shadowing the name) is not a yantao capability: single source
@@ -970,6 +980,7 @@ export class YantaoKbController extends TypertRemoteService {
     manifest: CapabilityManifest,
     input: unknown,
     invoker: CapabilityInvoker,
+    signal?: AbortSignal,
   ): Promise<KbCapabilityRunResult> {
     // The invocation gate (ADR-0023 决定 2): the agent only reaches what the
     // declaration declared `"agent"`; the human channel is ungated.
@@ -1009,6 +1020,7 @@ export class YantaoKbController extends TypertRemoteService {
         kbRoot,
         input,
         state: readCapabilityState(kbRoot, name),
+        ...(signal !== undefined ? { signal } : {}),
       })
     } catch (error: unknown) {
       const failure = error instanceof CapabilityError ? error : undefined

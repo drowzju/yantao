@@ -52,8 +52,8 @@ export interface KbRemote {
   mailMarkRead(args: KbMailMarkReadArgs): Promise<RemoteResult<KbMailMarkReadResult>>
   /** List the registered capabilities (ADR-0021). */
   capabilityList(): Promise<RemoteResult<KbCapabilityListResult>>
-  /** Run one capability's entry script (ADR-0021). */
-  capabilityRun(args: KbCapabilityRunArgs): Promise<RemoteResult<KbCapabilityRunResult>>
+  /** Run one capability's entry script (ADR-0021); the signal is the human channel's cancel line (ADR-0031). */
+  capabilityRun(args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<RemoteResult<KbCapabilityRunResult>>
   /** Scaffold one new capability under `.dsh/skills/` (ADR-0021 决定 8's 「新建能力」). */
   capabilityCreate(args: KbCapabilityCreateArgs): Promise<RemoteResult<KbCapabilityCreateResult>>
   /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
@@ -139,8 +139,8 @@ export type ResourceRegistrar = (name: string, contentBase64: string) => Promise
 /** List the registered capabilities (ADR-0021). */
 export type CapabilityLoader = () => Promise<KbCapabilityListResult>
 
-/** Run one capability with the caller's input (ADR-0021; agent channel ADR-0023). */
-export type CapabilityRunner = (args: KbCapabilityRunArgs) => Promise<KbCapabilityRunResult>
+/** Run one capability with the caller's input (ADR-0021; agent channel ADR-0023); the signal cancels the subprocess (ADR-0031). */
+export type CapabilityRunner = (args: KbCapabilityRunArgs, signal?: AbortSignal) => Promise<KbCapabilityRunResult>
 
 /** Scaffold one new capability under `.dsh/skills/` (ADR-0021 决定 8's 「新建能力」). */
 export type CapabilityCreator = (name: string) => Promise<KbCapabilityCreateResult>
@@ -460,12 +460,14 @@ export async function loadCapabilities(ctx: Context): Promise<KbCapabilityListRe
  * Run one capability's entry script (ADR-0021).
  * @param ctx - client root context.
  * @param args - the capability's name and its input.
+ * @param signal - the human channel's cancel line (ADR-0031); an abort kills
+ *   the entry script's subprocess server-side.
  * @returns the run record, or a rejected promise carrying the reason.
  */
-export async function runCapability(ctx: Context, args: KbCapabilityRunArgs): Promise<KbCapabilityRunResult> {
+export async function runCapability(ctx: Context, args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<KbCapabilityRunResult> {
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
-  return unwrapRemote(await kb.capabilityRun(args))
+  return unwrapRemote(await kb.capabilityRun(args, signal))
 }
 
 /**

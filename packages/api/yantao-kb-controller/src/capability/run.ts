@@ -93,6 +93,7 @@ export type CapabilityErrorKind =
   | 'not-invocable'
   | 'python-missing'
   | 'timeout'
+  | 'cancelled'
   | 'bad-output'
   | 'capability-failed'
   | 'other'
@@ -128,6 +129,7 @@ const CAPABILITY_ERROR_MESSAGES: Readonly<Record<CapabilityErrorKind, string>> =
   'not-invocable': '这个能力没有对 agent 开放。',
   'python-missing': '无法启动 Python：找不到解释器。',
   timeout: '能力执行超时。',
+  cancelled: '能力执行已取消。',
   'bad-output': '能力脚本返回的不是预期的 JSON。',
   'capability-failed': '能力执行失败。',
   other: '能力执行失败。',
@@ -140,6 +142,7 @@ export const CAPABILITY_HINTS: Readonly<Record<CapabilityErrorKind, string>> = {
   'not-invocable': '请在能力的 yantao.json 里声明 "invocation": ["human", "agent"]，再由人确认后使用。',
   'python-missing': '请安装 Python 3（安装时勾选 Add to PATH）。',
   timeout: '任务可能过大，请重试一次。',
+  cancelled: '本次执行已按要求停止；已经落地的部分不受影响。',
   'bad-output': '请检查能力的入口脚本：stdout 必须是一个 JSON 对象。',
   'capability-failed': '请按提示处理；问题出在能力本身，不是工作台。',
   other: '请查看服务端日志了解详情。',
@@ -342,6 +345,12 @@ export interface RunCapabilityOptions {
   readonly spawn?: SpawnLike
   /** How long the script may run before it is killed; defaults to 300s. */
   readonly timeoutMs?: number
+  /**
+   * Abort the run from outside (ADR-0031): the human's cancel trips the
+   * signal, the child is killed, and the run rejects with the `cancelled`
+   * kind — the caller's own signal is the witness that it asked for this.
+   */
+  readonly signal?: AbortSignal
 }
 
 /** How long a capability may run before it is killed. */
@@ -392,6 +401,21 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
       settled = true
       clearTimeout(timer)
       action()
+    }
+
+    // Cancellation (ADR-0031): an aborted signal kills the child and rejects
+    // with the `cancelled` kind. The listener stays for the run's lifetime;
+    // after settle it is inert (kill on an exited child, reject on a settled
+    // promise are both no-ops), and the signal dies with the run.
+    const onAbort = (): void => {
+      settle(() => {
+        child.kill()
+        reject(fail('cancelled'))
+      })
+    }
+    if (options.signal !== undefined) {
+      if (options.signal.aborted) onAbort()
+      else options.signal.addEventListener('abort', onAbort, { once: true })
     }
 
     child.stdin.on('error', () => {

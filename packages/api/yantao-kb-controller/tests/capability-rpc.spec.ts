@@ -199,6 +199,14 @@ describe('yantaoKb.capabilityRun', () => {
     }))
   })
 
+  it('threads the human channel\'s abort signal into the subprocess run (ADR-0031)', async () => {
+    skillGet.mockResolvedValue(definition())
+    runCapability.mockResolvedValue({ result: 'ok' })
+    const controller = new AbortController()
+    await ctx.yantaoKbController.capabilityRun({ name: 'mail' }, controller.signal)
+    expect(runCapability).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }))
+  })
+
   it('surfaces the script\'s own failure kind, message, and remedy', async () => {
     const { CapabilityError } = await import('../src/capability/run.ts')
     skillGet.mockResolvedValue(definition())
