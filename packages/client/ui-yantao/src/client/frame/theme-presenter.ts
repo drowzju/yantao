@@ -3,11 +3,13 @@
  * boot script owns the pre-plugin interval; after the plugin tree activates,
  * whoever owns the frame owns these DOM fields — `html { color-scheme }` for
  * native UA chrome, `body[data-ds-dark-theme]` for the token palette, the
- * content font-size axis, the active theme's alias-token overrides, and one
+ * content font-size axis, the active theme's alias-token overrides, the
+ * `--yt-*` design-token family (docs/yantao/design.md §2–4), and one
  * presenter-owned `meta[name="theme-color"]`. Pure DOM writes: the presenter
  * only ever retracts what it wrote itself.
  */
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
+import { ytTokensFor } from './yt-tokens.ts'
 
 /** Body attribute selecting the dark base palette in the token stylesheets. */
 export const DARK_ATTRIBUTE = 'data-ds-dark-theme'
@@ -40,6 +42,12 @@ export class ThemePresenter {
     for (const name of this.#appliedTokens) body.style.removeProperty(name)
     this.#appliedTokens = []
     for (const [name, value] of Object.entries(snapshot.active.tokens)) {
+      body.style.setProperty(name, value)
+      this.#appliedTokens.push(name)
+    }
+    // Our own `--yt-*` family (docs/yantao/design.md §2–4): the same write
+    // and retraction discipline as the alias tokens, keyed on the scheme.
+    for (const [name, value] of Object.entries(ytTokensFor(scheme))) {
       body.style.setProperty(name, value)
       this.#appliedTokens.push(name)
     }
