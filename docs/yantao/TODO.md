@@ -100,6 +100,12 @@
 
 | **任务统一视图与取消(ADR-0031 2026-09-21)** —— 五批落地:**提炼可取消**(中止信号触发 `session/cancel`,队列随取消清空,问题对话框可放弃,已出的提议卡保留);**邮件分析可取消**(跑完当前 chunk 即停,已落地判定保留,水位线不动,`mail-run` state 增 `cancelled` 见证位);**能力可取消**(`capabilityRun` 增 AbortSignal 尾参——typert 兼容的宿主方法约定,中止杀子进程并以 `cancelled` 类失败拒绝,刷新=杀任务);**中央栏常驻「任务」tab**(运行数徽标;`task-view.ts` 纯模型——运行中置顶/待确认次之/已结束按结束倒序的扁平单列、时长格式化;`TasksPane.tsx` 纯展示,行=动作+对象/阶段/进展/耗时/取消/查看;Frame 持有 `taskRows` 并以 `taskBegin/taskPatch/taskEnd` 收三类 Owner 上报,mailRun store 上移 Frame 持有并下发 IntakeRail,查看=提炼去会话、其余展开左栏切能力页签);**文档**(本 ADR)。仅前端记忆,零新工具、零新 RPC | `packages/client/ui-yantao/src/client/{task-view,mail-run,refine,locales,tabs}.ts`、`Workbench.tsx`、`frame/{Frame,CenterPane,TasksPane}.tsx`、`tests/{task-view,tabs,workbench}.client.spec.*`、`packages/api/yantao-kb-controller/src/{index,capability/run}.ts`、`docs/adr/0031-*`。验证:ui-yantao 298 测试全绿(15 文件),scoped oxlint 0/0,client bundle 重建;提交 17576f33ad/4abf5e552b/edd01fddec/fd339af99c |
 
+| **UI 设计规则成文(design.md 2026-09-22)** —— 单色纪律 + 暖纸身份:五族 `--yt-*` token(浅/暗基准值)、排版五档、间距六档(每 gap 单 owner)、表面与构图纪律、反模式清单、迁移三步(theme-presenter 增发 → 逐 pane → lint 门禁);灵感来自 Vercel 品牌报告规范,只借原则不引资产 | `docs/yantao/design.md`、`docs/yantao/README.md`、`docs/yantao/TODO.md` |
+
+| **阅读视图空区段塌缩 + 标题回梯(design.md §1/§3)** —— `collapseEmptySections`:二级以下空区段塌缩为 `**名字**（空）` 一行占位(h1 永不塌、围栏算内容、非空逐字节原样),大纲从塌缩后文本计算保持序号映射成立;`MarkdownView.module.css` 把 h1–h6 拉回阶梯(16/14/13),`.body div h2` 特异性稳赢上游 chat 样式表,上游零改动 | `packages/client/ui-yantao/src/client/{markdown.ts,editor/MarkdownView.tsx,editor/MarkdownView.module.css}`、`tests/markdown*.client.spec.*`。验证:ui-yantao 327 测试全绿,oxlint 0/0,client bundle 重建 |
+
+| **待办面板去胶囊去噪(design.md §2.5/§5/§7)** —— 日期从描边胶囊改为语义着色文字(逾期/当日红 `#b4453a`、五日内琥珀 `#8a6d3a`、其余 muted,弃 `#e02020`/`#eab308` 阶梯外色);行尾 `…`/`×` 从常驻描边按钮改为悬停显现的无边框文字按钮(`TodoBoard.module.css`,opacity 保持在可达性树内、focus-within 兜键盘);checkbox 与日期随 `alignItems: baseline` 骑行首基线;面板标题升到 14 档;`TODO`/`DONE` 改中文「待办/已完成」(en 副本同步) | `packages/client/ui-yantao/src/client/{TodoBoard.tsx,TodoBoard.module.css,locales.ts}`、`tests/{todo-board,workbench}.client.spec.*`。验证:ui-yantao 327 测试全绿,oxlint 0/0,client bundle 重建 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
@@ -112,20 +118,13 @@
 
 ### 设计规则落地(design.md,2026-09-22 截图审视)
 
-规则全文见 [design.md](design.md);以下差距按优先级排,改的是现有组件,不动架构,无需 ADR。
+规则全文见 [design.md](design.md);以下是余项,改的是现有组件,不动架构,无需 ADR。
 
-1. **阅读视图的标题尺度与空区段策略** —— 「状态/决议/待办/流水」区段标题现为 ~24px+ 粗黑,超出阶梯上限
-   (`--yt-type-display: 20px`,且 display 限一处);应降到 `--yt-type-section`(14) 或 `--yt-type-title`(16)。
-   同时空区段以最高视觉权重占据首屏(design.md §1 留白构图、§6 焦点关系):空区段应收起或降级为一行占位提示。
-   这是构图级问题,决定打开实体文档的第一眼,**优先做**。
-2. **待办面板的密度与控件噪声** —— 日期改为着色文字或左侧色标,去掉每行一个的描边胶囊(design.md §7 反模式);
-   行尾 `…`/`×` 描边按钮改悬停显现或无边框文字按钮(§5 边界克制);重排列宽,正文列不再被挤到 4 字一行,
-   checkbox 对齐行首基线。`TODO`/`DONE` 全大写标签可顺手改中文「待办/已完成」。
-3. **`--yt-*` token 落地与逐 pane 迁移** —— 按 design.md §8 三步:`theme-presenter.ts` 增发 `--yt-*` 浅/暗两组值
+1. **`--yt-*` token 落地与逐 pane 迁移** —— 按 design.md §8 三步:`theme-presenter.ts` 增发 `--yt-*` 浅/暗两组值
    → 逐 pane 把内联硬编码改为 token 引用(顺带清理阶梯外字号/间距)→ 迁移完成后上 lint 门禁(禁裸 hex)。
    做完这步暗色模式才覆盖自绘 pane。
-4. **标识符等宽** —— 能力名、路径(`scripts/entry.py` 等)按 design.md §3 用 mono(只设标识符本身);
-   可并入第 3 条逐 pane 迁移顺手做。
+2. **标识符等宽** —— 能力名、路径(`scripts/entry.py` 等)按 design.md §3 用 mono(只设标识符本身);
+   可并入第 1 条逐 pane 迁移顺手做。
 
 ## blocked(附原因)
 

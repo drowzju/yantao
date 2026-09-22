@@ -123,8 +123,8 @@ export const zh = {
   'todo.body': '正文',
   'todo.save': '保存',
   'todo.loading': '载入中…',
-  'todo.todoColumn': 'TODO',
-  'todo.doneColumn': 'DONE',
+  'todo.todoColumn': '待办',
+  'todo.doneColumn': '已完成',
   'todo.addTitle': '新增待办',
   'todo.openFull': '打开全文',
 
@@ -304,8 +304,8 @@ export const en = {
   'todo.body': 'Body',
   'todo.save': 'Save',
   'todo.loading': 'Loading…',
-  'todo.todoColumn': 'TODO',
-  'todo.doneColumn': 'DONE',
+  'todo.todoColumn': 'To-do',
+  'todo.doneColumn': 'Done',
   'todo.addTitle': 'Add a todo',
   'todo.openFull': 'Open full text',
 

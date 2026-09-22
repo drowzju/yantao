@@ -63,7 +63,7 @@ describe('TodoBoard', () => {
     expect(screen.getByText('载入中…')).toBeTruthy()
     expect(await screen.findByText('有期限')).toBeTruthy()
     expect([...container.querySelectorAll('[data-todo-block]')].map(node => node.textContent))
-      .toEqual(['TODO', 'DONE'])
+      .toEqual(['待办', '已完成'])
     expect(within(container.querySelector('[data-todo-pane="todo"]') as HTMLElement).getByText('有期限')).toBeTruthy()
     expect(within(container.querySelector('[data-todo-pane="done"]') as HTMLElement).getByText('已完成')).toBeTruthy()
   })
@@ -90,7 +90,7 @@ describe('TodoBoard', () => {
     expect(dated.querySelector('[data-overdue="true"]')).toBeNull()
   })
 
-  it('colours a deadline by how close it is — bright red overdue or within a day, bright yellow within five days, grey beyond', async () => {
+  it('colours a deadline by how close it is — semantic red overdue or within a day, semantic amber within five days, muted grey beyond', async () => {
     const { container } = render(<TodoBoard {...props({
       load: () => Promise.resolve({
         path: PATH,
@@ -108,11 +108,11 @@ describe('TodoBoard', () => {
     const colorOf = (index: number, label: string): string =>
       within(container.querySelector(`[data-todo-row="${index}"]`) as HTMLElement)
         .getByText(label).style.color
-    expect(colorOf(0, day(-1))).toBe('rgb(224, 32, 32)')
-    expect(colorOf(1, day(0))).toBe('rgb(224, 32, 32)')
-    expect(colorOf(2, day(1))).toBe('rgb(224, 32, 32)')
-    expect(colorOf(3, day(5))).toBe('rgb(234, 179, 8)')
-    expect(colorOf(4, day(6))).toBe('rgb(107, 100, 85)')
+    expect(colorOf(0, day(-1))).toBe('rgb(180, 69, 58)')
+    expect(colorOf(1, day(0))).toBe('rgb(180, 69, 58)')
+    expect(colorOf(2, day(1))).toBe('rgb(180, 69, 58)')
+    expect(colorOf(3, day(5))).toBe('rgb(138, 109, 58)')
+    expect(colorOf(4, day(6))).toBe('rgb(154, 148, 136)')
   })
 
   it('moves an item into DONE when its box is checked, stamping today', async () => {

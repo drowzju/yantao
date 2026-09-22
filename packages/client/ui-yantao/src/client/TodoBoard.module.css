@@ -1,0 +1,35 @@
+/*
+ * TodoBoard row chrome (docs/yantao/design.md §5).
+ *
+ * The row's secondary affordances (edit, remove) stay invisible until the row
+ * is hovered or keyboard-focused: five rows of boxed buttons outweighed the
+ * content they served. Opacity — not display — keeps them focusable and in
+ * the accessibility tree; the fade explains the reveal, it does not decorate.
+ */
+
+.actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--ds-transition-duration, 120ms) ease;
+}
+
+.row:hover .actions,
+.actions:focus-within {
+  opacity: 1;
+}
+
+.action {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  color: #9a9488;
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.action:hover {
+  color: #6b6455;
+}

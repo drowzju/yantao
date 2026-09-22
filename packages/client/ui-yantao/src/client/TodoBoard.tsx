@@ -12,6 +12,7 @@ import type { KbTodoItem, KbWriteTodosArgs } from '@deepseek-ai/dsh-api-yantao-k
 import type { TodoLoader, TodoWriter } from './remote.ts'
 import { remoteMessage } from './remote.ts'
 import type { WorkbenchT } from './locales.ts'
+import css from './TodoBoard.module.css'
 
 /** Board props. */
 export interface TodoBoardProps {
@@ -59,23 +60,19 @@ const errorStyle = { color: '#b4453a', padding: '4px 6px' } as const
 
 const mutedStyle = { color: '#9a9488', padding: '4px 6px' } as const
 
-const titleStyle = { margin: '8px 0 2px', fontSize: 12, fontWeight: 600, color: '#6b6455' } as const
+const titleStyle = { margin: '8px 0 2px', fontSize: 14, fontWeight: 600, color: '#6b6455' } as const
 
-const rowStyle = { display: 'flex', gap: 6, alignItems: 'center', padding: '2px 6px' } as const
+/** Baseline alignment: the checkbox and the date ride the title's first text baseline. */
+const rowStyle = { display: 'flex', gap: 6, alignItems: 'baseline', padding: '2px 6px' } as const
 
-const dueStyle = {
-  fontSize: 11,
-  color: '#6b6455',
-  border: '1px solid #e6e2d8',
-  borderRadius: 8,
-  padding: '0 5px',
-} as const
+/** A deadline is plain coloured text — urgency is colour, not chrome (design.md §2.5, §7). */
+const dueStyle = { fontSize: 12, color: '#9a9488', whiteSpace: 'nowrap' } as const
 
-/** 鲜红 for a deadline due today or tomorrow — and one already overdue. */
-const dueUrgentStyle = { ...dueStyle, color: '#e02020', borderColor: '#f3b9b9' } as const
+/** 语义红 (design.md `--yt-error`) for a deadline due today or tomorrow — and one already overdue. */
+const dueUrgentStyle = { ...dueStyle, color: '#b4453a' } as const
 
-/** 亮黄 for a deadline within five days. */
-const dueSoonStyle = { ...dueStyle, color: '#eab308', borderColor: '#f0e2ac' } as const
+/** 语义琥珀 (design.md `--yt-warning-text`) for a deadline within five days. */
+const dueSoonStyle = { ...dueStyle, color: '#8a6d3a' } as const
 
 const doneTitleStyle = { color: '#9a9488', textDecoration: 'line-through', cursor: 'pointer', flex: 1, minWidth: 0 } as const
 
@@ -156,15 +153,15 @@ function patched(item: KbTodoItem, draft: Draft): KbTodoItem {
 }
 
 /**
- * The badge style one deadline earns: 鲜红 once overdue or due within a day,
- * 亮黄 within five days, the plain grey beyond. Both stamps are plain
+ * The text colour one deadline earns: 语义红 once overdue or due within a day,
+ * 语义琥珀 within five days, the muted grey beyond. Both stamps are plain
  * YYYY-MM-DD, so parsing them as UTC midnights makes the difference an exact
  * day count.
  * @param due - the deadline as YYYY-MM-DD.
  * @param now - today as YYYY-MM-DD.
- * @returns the badge style.
+ * @returns the date style.
  */
-function dueBadgeStyle(due: string, now: string): React.CSSProperties {
+function dueTextStyle(due: string, now: string): React.CSSProperties {
   const days = Math.round((Date.parse(due) - Date.parse(now)) / 86_400_000)
   if (days <= 1) return dueUrgentStyle
   if (days <= 5) return dueSoonStyle
@@ -172,8 +169,8 @@ function dueBadgeStyle(due: string, now: string): React.CSSProperties {
 }
 
 /**
- * One collapsed row: a checkbox, the title, the deadline badge, and the
- * affordances that expand and drop it.
+ * One collapsed row: a checkbox, the title, the deadline, and the affordances
+ * that expand and drop it — the latter two revealed on hover only.
  * @param props - the row's item, today's stamp, and its actions.
  * @returns the row element.
  */
@@ -189,7 +186,7 @@ function TodoRow(props: {
   const { item, index } = props.entry
   const overdue = !item.done && item.due !== undefined && item.due < props.now
   return (
-    <div style={rowStyle} data-todo-row={index}>
+    <div style={rowStyle} className={css.row} data-todo-row={index}>
       <input
         type="checkbox"
         checked={item.done}
@@ -206,14 +203,16 @@ function TodoRow(props: {
       </span>
       {item.due !== undefined && (
         <span
-          style={item.done ? dueStyle : dueBadgeStyle(item.due, props.now)}
+          style={item.done ? dueStyle : dueTextStyle(item.due, props.now)}
           data-overdue={overdue || undefined}
         >
           {item.due}
         </span>
       )}
-      <button type="button" style={buttonStyle} title={props.t('todo.edit')} disabled={props.disabled} onClick={props.onEdit}>…</button>
-      <button type="button" style={buttonStyle} title={props.t('todo.delete')} disabled={props.disabled} onClick={props.onRemove}>×</button>
+      <span className={css.actions}>
+        <button type="button" className={css.action} title={props.t('todo.edit')} disabled={props.disabled} onClick={props.onEdit}>…</button>
+        <button type="button" className={css.action} title={props.t('todo.delete')} disabled={props.disabled} onClick={props.onRemove}>×</button>
+      </span>
     </div>
   )
 }
