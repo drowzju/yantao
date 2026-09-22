@@ -108,11 +108,13 @@ describe('TodoBoard', () => {
     const colorOf = (index: number, label: string): string =>
       within(container.querySelector(`[data-todo-row="${index}"]`) as HTMLElement)
         .getByText(label).style.color
-    expect(colorOf(0, day(-1))).toBe('rgb(180, 69, 58)')
-    expect(colorOf(1, day(0))).toBe('rgb(180, 69, 58)')
-    expect(colorOf(2, day(1))).toBe('rgb(180, 69, 58)')
-    expect(colorOf(3, day(5))).toBe('rgb(138, 109, 58)')
-    expect(colorOf(4, day(6))).toBe('rgb(154, 148, 136)')
+    // Colours are `--yt-*` token references since the pane migration — the
+    // declared var() string is what the inline style carries.
+    expect(colorOf(0, day(-1))).toBe('var(--yt-error)')
+    expect(colorOf(1, day(0))).toBe('var(--yt-error)')
+    expect(colorOf(2, day(1))).toBe('var(--yt-error)')
+    expect(colorOf(3, day(5))).toBe('var(--yt-warning-text)')
+    expect(colorOf(4, day(6))).toBe('var(--yt-text-muted)')
   })
 
   it('moves an item into DONE when its box is checked, stamping today', async () => {

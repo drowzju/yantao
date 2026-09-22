@@ -57,7 +57,7 @@ const paneStyle = {
   minHeight: 0,
   height: '100%',
   fontFamily: FONT,
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
 } as const
 
 const stripStyle = {
@@ -65,8 +65,8 @@ const stripStyle = {
   alignItems: 'stretch',
   gap: 2,
   padding: '4px 4px 0',
-  borderBottom: '1px solid #e6e2d8',
-  background: '#fbfaf7',
+  borderBottom: '1px solid var(--yt-border-subtle)',
+  background: 'var(--yt-surface-primary)',
 } as const
 
 const tabStyle = {
@@ -82,7 +82,7 @@ const tabStyle = {
   background: 'transparent',
 } as const
 
-const activeTabStyle = { ...tabStyle, background: '#fff', borderColor: '#e6e2d8' } as const
+const activeTabStyle = { ...tabStyle, background: 'var(--yt-surface-raised)', borderColor: 'var(--yt-border-subtle)' } as const
 
 const labelButtonStyle = {
   borderWidth: 0,
@@ -96,7 +96,7 @@ const labelButtonStyle = {
   whiteSpace: 'nowrap',
 } as const
 
-const closeButtonStyle = { borderWidth: 0, background: 'transparent', cursor: 'pointer', color: '#9a9488' } as const
+const closeButtonStyle = { borderWidth: 0, background: 'transparent', cursor: 'pointer', color: 'var(--yt-text-muted)' } as const
 
 /** The 阅读 / 源码 switch: pushed to the end of the strip. */
 const modeSwitchStyle = { display: 'flex', alignItems: 'center', gap: 2, marginLeft: 'auto', padding: '0 4px' } as const
@@ -109,11 +109,11 @@ const modeButtonStyle = {
   background: 'transparent',
   cursor: 'pointer',
   fontFamily: FONT,
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
   padding: '1px 6px',
 } as const
 
-const activeModeStyle = { ...modeButtonStyle, background: '#eef3ff', borderColor: '#c7d7ff' } as const
+const activeModeStyle = { ...modeButtonStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } as const
 
 const bodyStyle = { position: 'relative', flex: 1, minHeight: 0, display: 'flex' } as const
 
@@ -121,12 +121,12 @@ const pageStyle = { flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDir
 
 /** Dot colour per save status. */
 const DOT_COLORS: Record<SaveStatus, string> = {
-  loading: '#c9c3b4',
-  saved: '#4f9d5d',
-  dirty: '#d8a13a',
-  saving: '#4a7fd4',
-  failed: '#b4453a',
-  conflict: '#b4453a',
+  loading: 'var(--yt-text-muted)',
+  saved: 'var(--yt-success)',
+  dirty: 'var(--yt-warning)',
+  saving: 'var(--yt-accent)',
+  failed: 'var(--yt-error)',
+  conflict: 'var(--yt-error)',
 }
 
 /** The status dot beside a file tab's title. */
@@ -189,10 +189,10 @@ export function CenterPane({
             <span
               data-tasks-badge="true"
               style={{
-                background: '#4a7fd4',
+                background: 'var(--yt-accent)',
                 borderRadius: 8,
                 color: '#fff',
-                fontSize: 11,
+                fontSize: 'var(--yt-type-label)',
                 lineHeight: '16px',
                 padding: '0 6px',
               }}

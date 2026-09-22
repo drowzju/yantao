@@ -56,25 +56,25 @@ function blank(): KbTodoItem {
 
 const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 2 } as const
 
-const errorStyle = { color: '#b4453a', padding: '4px 6px' } as const
+const errorStyle = { color: 'var(--yt-error)', padding: '4px 6px' } as const
 
-const mutedStyle = { color: '#9a9488', padding: '4px 6px' } as const
+const mutedStyle = { color: 'var(--yt-text-muted)', padding: '4px 6px' } as const
 
-const titleStyle = { margin: '8px 0 2px', fontSize: 14, fontWeight: 600, color: '#6b6455' } as const
+const titleStyle = { margin: '8px 0 2px', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
 
 /** Baseline alignment: the checkbox and the date ride the title's first text baseline. */
 const rowStyle = { display: 'flex', gap: 6, alignItems: 'baseline', padding: '2px 6px' } as const
 
 /** A deadline is plain coloured text — urgency is colour, not chrome (design.md §2.5, §7). */
-const dueStyle = { fontSize: 12, color: '#9a9488', whiteSpace: 'nowrap' } as const
+const dueStyle = { fontSize: 'var(--yt-type-label)', color: 'var(--yt-text-muted)', whiteSpace: 'nowrap' } as const
 
 /** 语义红 (design.md `--yt-error`) for a deadline due today or tomorrow — and one already overdue. */
-const dueUrgentStyle = { ...dueStyle, color: '#b4453a' } as const
+const dueUrgentStyle = { ...dueStyle, color: 'var(--yt-error)' } as const
 
 /** 语义琥珀 (design.md `--yt-warning-text`) for a deadline within five days. */
-const dueSoonStyle = { ...dueStyle, color: '#8a6d3a' } as const
+const dueSoonStyle = { ...dueStyle, color: 'var(--yt-warning-text)' } as const
 
-const doneTitleStyle = { color: '#9a9488', textDecoration: 'line-through', cursor: 'pointer', flex: 1, minWidth: 0 } as const
+const doneTitleStyle = { color: 'var(--yt-text-muted)', textDecoration: 'line-through', cursor: 'pointer', flex: 1, minWidth: 0 } as const
 
 const titleButtonStyle = { cursor: 'pointer', flex: 1, minWidth: 0, textAlign: 'left' } as const
 

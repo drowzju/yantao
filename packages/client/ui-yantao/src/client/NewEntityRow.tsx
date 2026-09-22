@@ -37,7 +37,7 @@ export interface NewEntityRowProps {
 
 const rowStyle = { display: 'flex', gap: 4, margin: '4px 0' } as const
 
-const errorStyle = { color: '#b4453a', padding: '0 6px' } as const
+const errorStyle = { color: 'var(--yt-error)', padding: '0 6px' } as const
 
 /**
  * Render the inline creation row.

@@ -15,12 +15,12 @@ const menuStyle = {
   position: 'fixed',
   zIndex: 40,
   padding: 4,
-  background: '#fff',
-  border: '1px solid #e6e2d8',
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
   boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
   fontFamily: FONT,
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
 } as const
 
 const itemStyle = {
@@ -37,7 +37,7 @@ const itemStyle = {
   whiteSpace: 'nowrap',
 } as const
 
-const noteStyle = { padding: '2px 8px', color: '#9a9488', fontSize: 12 } as const
+const noteStyle = { padding: '2px 8px', color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)' } as const
 
 /**
  * The selection menu, fixed-positioned at the mouseup point.

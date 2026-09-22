@@ -54,13 +54,13 @@ const buttonStyle = { padding: '3px 8px', alignSelf: 'flex-start' } as const
 
 const nameStyle = { fontWeight: 600 } as const
 
-const mutedStyle = { color: '#9a9488', fontSize: 12 } as const
+const mutedStyle = { color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)' } as const
 
-const errorStyle = { color: '#b4453a', fontSize: 12 } as const
+const errorStyle = { color: 'var(--yt-error)', fontSize: 'var(--yt-type-label)' } as const
 
-const titleStyle = { margin: '4px 0 2px', fontSize: 13, fontWeight: 600, color: '#6b6455' } as const
+const titleStyle = { margin: '4px 0 2px', fontSize: 'var(--yt-type-body)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
 
-const greyedNameStyle = { fontWeight: 600, color: '#9a9488' } as const
+const greyedNameStyle = { fontWeight: 600, color: 'var(--yt-text-muted)' } as const
 
 const confirmStyle = {
   display: 'flex',
@@ -69,21 +69,21 @@ const confirmStyle = {
   padding: 8,
   borderWidth: 1,
   borderStyle: 'solid',
-  borderColor: '#d8d2c4',
+  borderColor: 'var(--yt-border-strong)',
   borderRadius: 4,
-  background: '#faf8f3',
+  background: 'var(--yt-surface-secondary)',
 } as const
 
 const codeStyle = {
   fontFamily: 'monospace',
-  fontSize: 12,
-  background: '#f0ede5',
+  fontSize: 'var(--yt-type-label)',
+  background: 'var(--yt-surface-secondary)',
   padding: '2px 4px',
   borderRadius: 3,
   wordBreak: 'break-all',
 } as const
 
-const warnStyle = { color: '#8a6d3b', fontSize: 12 } as const
+const warnStyle = { color: 'var(--yt-warning-text)', fontSize: 'var(--yt-type-label)' } as const
 
 const confirmButtonRowStyle = { display: 'flex', gap: 8 } as const
 

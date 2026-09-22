@@ -24,12 +24,12 @@
   background: transparent;
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
-  color: #9a9488;
+  font-size: var(--yt-type-label);
+  color: var(--yt-text-muted);
   padding: 0 3px;
   border-radius: 3px;
 }
 
 .action:hover {
-  color: #6b6455;
+  color: var(--yt-text-secondary);
 }

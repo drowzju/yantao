@@ -21,8 +21,8 @@ const panelStyle = {
 } as const
 
 const cardStyle = {
-  background: '#fffdf7',
-  border: '1px solid #e6e2d8',
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-border-subtle)',
   borderRadius: 10,
   padding: 16,
   width: 'min(560px, 92vw)',
@@ -30,22 +30,22 @@ const cardStyle = {
   overflow: 'auto',
   boxShadow: '0 12px 32px rgba(28, 26, 22, 0.25)',
   fontFamily: 'system-ui, "Microsoft YaHei", sans-serif',
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
 } as const
 
 const questionStyle = { margin: '12px 0 2px', fontWeight: 600 } as const
 
-const whyStyle = { color: '#6b6455', fontSize: 12, marginBottom: 4 } as const
+const whyStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)', marginBottom: 4 } as const
 
 const inputStyle = {
   display: 'block',
   width: '100%',
   boxSizing: 'border-box',
   padding: '4px 8px',
-  border: '1px solid #e6e2d8',
+  border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
   fontFamily: 'inherit',
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
 } as const
 
 const footerStyle = {
@@ -54,7 +54,7 @@ const footerStyle = {
   alignItems: 'center',
   marginTop: 14,
   paddingTop: 10,
-  borderTop: '1px solid #efeade',
+  borderTop: '1px solid var(--yt-border-subtle)',
 } as const
 
 const buttonStyle = { padding: '4px 10px' } as const
@@ -103,7 +103,7 @@ export function QuestionDialog(props: {
             {t('workbench.questionAbort')}
           </button>
           <span style={{ flex: 1 }} />
-          {settled && <span style={{ color: '#6b6455', fontSize: 12 }}>{t('workbench.questionBusy')}</span>}
+          {settled && <span style={{ color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' }}>{t('workbench.questionBusy')}</span>}
           <button
             type="button"
             style={buttonStyle}

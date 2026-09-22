@@ -23,16 +23,16 @@ const wrapStyle = {
   minHeight: 0,
   height: '100%',
   fontFamily: 'system-ui, "Microsoft YaHei", sans-serif',
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
 } as const
 
 const bannerStyle = {
   padding: '4px 8px',
-  background: '#f1f0ec',
-  color: '#6b6455',
+  background: 'var(--yt-surface-secondary)',
+  color: 'var(--yt-text-secondary)',
 } as const
 
-const errorStyle = { padding: '4px 8px', background: '#fbe9e7', color: '#b4453a' } as const
+const errorStyle = { padding: '4px 8px', background: 'var(--yt-error-bg)', color: 'var(--yt-error)' } as const
 
 const preStyle = {
   flex: 1,
@@ -42,7 +42,7 @@ const preStyle = {
   overflow: 'auto',
   whiteSpace: 'pre-wrap',
   fontFamily: 'ui-monospace, Consolas, monospace',
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
 } as const
 
 /**

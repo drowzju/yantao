@@ -28,55 +28,55 @@ const paneStyle = {
   overflowY: 'auto',
   padding: '8px 12px',
   fontFamily: FONT,
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
   display: 'flex',
   flexDirection: 'column',
   gap: 6,
 } as const
 
-const emptyStyle = { color: '#9a9488', padding: '24px 0', textAlign: 'center' } as const
+const emptyStyle = { color: 'var(--yt-text-muted)', padding: '24px 0', textAlign: 'center' } as const
 
 const rowStyle = {
   display: 'flex',
   alignItems: 'baseline',
   gap: 8,
   padding: '6px 10px',
-  border: '1px solid #e6e2d8',
+  border: '1px solid var(--yt-border-subtle)',
   borderRadius: 6,
-  background: '#fff',
+  background: 'var(--yt-surface-raised)',
 } as const
 
 const titleStyle = { fontWeight: 600, whiteSpace: 'nowrap' } as const
 
-const stageStyle = { color: '#5c574c', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 } as const
+const stageStyle = { color: 'var(--yt-text-secondary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 } as const
 
-const elapsedStyle = { color: '#9a9488', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } as const
+const elapsedStyle = { color: 'var(--yt-text-muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } as const
 
 const chipStyle = {
   borderRadius: 8,
   padding: '0 8px',
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
   whiteSpace: 'nowrap',
 } as const
 
 /** Chip text and tint per status — the row's one glanceable verdict. */
 const STATUS_CHIPS: Record<TaskStatus, { label: string; color: string }> = {
-  running: { label: '运行中', color: '#4a7fd4' },
-  waiting: { label: '待确认', color: '#d8a13a' },
-  done: { label: '已完成', color: '#4f9d5d' },
-  cancelled: { label: '已取消', color: '#9a9488' },
-  failed: { label: '失败', color: '#b4453a' },
+  running: { label: '运行中', color: 'var(--yt-accent)' },
+  waiting: { label: '待确认', color: 'var(--yt-warning)' },
+  done: { label: '已完成', color: 'var(--yt-success)' },
+  cancelled: { label: '已取消', color: 'var(--yt-text-muted)' },
+  failed: { label: '失败', color: 'var(--yt-error)' },
 }
 
 const actionButtonStyle = {
   borderWidth: 1,
   borderStyle: 'solid',
-  borderColor: '#c9c2b2',
+  borderColor: 'var(--yt-border-strong)',
   borderRadius: 4,
-  background: '#fff',
+  background: 'var(--yt-surface-raised)',
   cursor: 'pointer',
   fontFamily: FONT,
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
   padding: '1px 8px',
   whiteSpace: 'nowrap',
 } as const

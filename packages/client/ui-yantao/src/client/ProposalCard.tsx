@@ -24,8 +24,8 @@ const panelStyle = {
 } as const
 
 const cardStyle = {
-  background: '#fffdf7',
-  border: '1px solid #e6e2d8',
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-border-subtle)',
   borderRadius: 10,
   padding: 16,
   width: 'min(560px, 92vw)',
@@ -34,23 +34,23 @@ const cardStyle = {
   boxShadow: '0 12px 32px rgba(28, 26, 22, 0.25)',
 } as const
 
-const groupTitleStyle = { margin: '12px 0 4px', fontSize: 12, fontWeight: 600, color: '#6b6455' } as const
+const groupTitleStyle = { margin: '12px 0 4px', fontSize: 'var(--yt-type-label)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
 
-const focusTitleStyle = { margin: '12px 0 4px', fontSize: 12, fontWeight: 700, color: '#b4453a' } as const
+const focusTitleStyle = { margin: '12px 0 4px', fontSize: 'var(--yt-type-label)', fontWeight: 700, color: 'var(--yt-error)' } as const
 
 const focusRowStyle = {
   display: 'flex',
   gap: 8,
   alignItems: 'baseline',
   padding: '4px 6px',
-  background: 'rgba(180, 69, 58, 0.08)',
+  background: 'var(--yt-error-bg)',
   borderRadius: 6,
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
 } as const
 
 const rowStyle = { display: 'flex', gap: 8, alignItems: 'flex-start', padding: '3px 0' } as const
 
-const detailStyle = { color: '#6b6455', fontSize: 12 } as const
+const detailStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
 
 const buttonStyle = { padding: '4px 10px' } as const
 
@@ -60,7 +60,7 @@ const footerStyle = {
   alignItems: 'center',
   marginTop: 14,
   paddingTop: 10,
-  borderTop: '1px solid #efeade',
+  borderTop: '1px solid var(--yt-border-subtle)',
 } as const
 
 /** The kinds in the order the card lists their groups. */

@@ -48,7 +48,7 @@ const wrapStyle = {
   minHeight: 0,
   height: '100%',
   fontFamily: 'system-ui, "Microsoft YaHei", sans-serif',
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
   overflowY: 'auto',
 } as const
 
@@ -57,29 +57,29 @@ const barStyle = {
   alignItems: 'center',
   gap: 6,
   padding: '4px 8px',
-  borderBottom: '1px solid #e6e2d8',
-  color: '#6b6455',
-  fontSize: 12,
+  borderBottom: '1px solid var(--yt-border-subtle)',
+  color: 'var(--yt-text-secondary)',
+  fontSize: 'var(--yt-type-label)',
 } as const
 
 const toggleStyle = {
-  border: '1px solid #e6e2d8',
+  border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
   background: 'transparent',
   cursor: 'pointer',
   fontFamily: 'inherit',
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
   padding: '1px 6px',
 } as const
 
 const tableStyle = {
   margin: '4px 8px 8px',
   borderCollapse: 'collapse',
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
 } as const
 
 const cellStyle = {
-  borderBottom: '1px solid #f0ece2',
+  borderBottom: '1px solid var(--yt-border-subtle)',
   padding: '2px 8px 2px 0',
   textAlign: 'left',
   verticalAlign: 'top',
@@ -93,8 +93,8 @@ const outlineStyle = {
   right: 8,
   maxHeight: '60%',
   overflowY: 'auto',
-  background: '#fff',
-  border: '1px solid #e6e2d8',
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
   padding: '4px 6px',
   boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
@@ -109,7 +109,7 @@ const outlineItemStyle = {
   background: 'transparent',
   cursor: 'pointer',
   fontFamily: 'inherit',
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
   padding: '1px 0',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -290,7 +290,7 @@ export function MarkdownView({
           <tbody>
             {split.fields.map(field => (
               <tr key={field.key}>
-                <th style={{ ...cellStyle, fontWeight: 600, color: '#6b6455' }}>{field.key}</th>
+                <th style={{ ...cellStyle, fontWeight: 600, color: 'var(--yt-text-secondary)' }}>{field.key}</th>
                 <td style={cellStyle}>{field.value === '' ? '—' : field.value}</td>
               </tr>
             ))}

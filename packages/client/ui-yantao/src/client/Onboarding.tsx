@@ -27,23 +27,23 @@ const overlayStyle = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  background: 'rgba(251, 250, 247, 0.94)',
+  background: 'color-mix(in srgb, var(--yt-surface-primary) 94%, transparent)',
   fontFamily: 'system-ui, "Microsoft YaHei", sans-serif',
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
 } as const
 
 const cardStyle = {
   minWidth: 320,
   padding: 24,
-  background: '#fff',
-  border: '1px solid #e6e2d8',
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-border-subtle)',
   borderRadius: 8,
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
 } as const
 
-const errorStyle = { color: '#b4453a' } as const
+const errorStyle = { color: 'var(--yt-error)' } as const
 
 /**
  * The directory-choice overlay.
@@ -82,8 +82,8 @@ export function Onboarding({ setRoot, pickDirectory, onConfigured, t }: Onboardi
   return (
     <div style={overlayStyle} data-onboarding="true">
       <div style={cardStyle}>
-        <div style={{ fontSize: 14, fontWeight: 600 }}>{t('onboarding.title')}</div>
-        <div style={{ color: '#6b6455' }}>
+        <div style={{ fontSize: 'var(--yt-type-section)', fontWeight: 600 }}>{t('onboarding.title')}</div>
+        <div style={{ color: 'var(--yt-text-secondary)' }}>
           {t('onboarding.description')}
         </div>
         {error !== null && <div style={errorStyle}>{error}</div>}

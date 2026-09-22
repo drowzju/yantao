@@ -74,12 +74,12 @@ const wrapStyle = {
   minHeight: 0,
   height: '100%',
   fontFamily: 'system-ui, "Microsoft YaHei", sans-serif',
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
 } as const
 
-const barStyle = { padding: '4px 8px', background: '#fdf3d8', color: '#6b6455', display: 'flex', gap: 6, alignItems: 'center' } as const
+const barStyle = { padding: '4px 8px', background: 'var(--yt-warning-bg)', color: 'var(--yt-text-secondary)', display: 'flex', gap: 6, alignItems: 'center' } as const
 
-const errorStyle = { padding: '4px 8px', background: '#fbe9e7', color: '#b4453a' } as const
+const errorStyle = { padding: '4px 8px', background: 'var(--yt-error-bg)', color: 'var(--yt-error)' } as const
 
 const textareaStyle = {
   flex: 1,
@@ -90,10 +90,10 @@ const textareaStyle = {
   borderWidth: 0,
   borderTopWidth: 1,
   borderStyle: 'solid',
-  borderColor: '#e6e2d8',
+  borderColor: 'var(--yt-border-subtle)',
   padding: 8,
   fontFamily: 'ui-monospace, Consolas, monospace',
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
   lineHeight: 1.5,
 } as const
 
@@ -104,11 +104,11 @@ const preStyle = {
   margin: 0,
   padding: 8,
   overflow: 'auto',
-  background: '#fff',
-  border: '1px solid #e6e2d8',
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
   fontFamily: 'ui-monospace, Consolas, monospace',
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
   whiteSpace: 'pre-wrap',
 } as const
 
@@ -292,11 +292,11 @@ export function FileEditor({
       {status === 'conflict' && serverCopy !== null && showDiff && (
         <div style={diffStyle}>
           <div style={{ ...preStyle, flex: 1 }} data-diff="mine">
-            <div style={{ color: '#6b6455' }}>{t('editor.mine')}</div>
+            <div style={{ color: 'var(--yt-text-secondary)' }}>{t('editor.mine')}</div>
             {draft ?? ''}
           </div>
           <div style={preStyle} data-diff="server">
-            <div style={{ color: '#6b6455' }}>{t('editor.server')}</div>
+            <div style={{ color: 'var(--yt-text-secondary)' }}>{t('editor.server')}</div>
             {serverCopy}
           </div>
         </div>
