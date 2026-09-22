@@ -46,6 +46,9 @@ const PROFILE = 'yantao-web'
 /** How long to wait for the host to print its URL before giving up. */
 const HOST_BOOT_TIMEOUT_MS = 180_000
 
+/** How long the workbench navigation may take before it is declared stuck. */
+const WORKBENCH_LOAD_TIMEOUT_MS = 60_000
+
 /**
  * A 1×1 placeholder. There is no icon yet; a tray with no image fails to
  * construct on some builds, so an empty pixel beats a crash.
@@ -63,6 +66,14 @@ const LOADING_PAGE = 'data:text/html;charset=utf-8,' + encodeURIComponent(
 let tray: Tray | undefined
 let window: BrowserWindow | undefined
 let host: ChildProcess | undefined
+
+/**
+ * Set once `app.quit()` is underway. The close handler folds the window into
+ * the tray during everyday life, but `preventDefault` on close also cancels a
+ * quit — without this flag a boot failure's `app.quit()` leaves a zombie shell
+ * hiding behind the tray instead of exiting (seen 2026-09-22).
+ */
+let quitting = false
 
 /**
  * The Node to run the host with.
@@ -151,8 +162,39 @@ function bootHost(): { child: ChildProcess; url: Promise<string> } {
 /** Stop the host child, if one is running. */
 function stopHost(): void {
   if (host === undefined || host.exitCode !== null) return
+  hostExitExpected = true
   host.kill()
   host = undefined
+}
+
+/**
+ * Set when the host's exit is our own doing (`stopHost`), so the death watch
+ * stays quiet about planned shutdowns and restarts.
+ */
+let hostExitExpected = false
+
+/**
+ * Complain loudly once the host dies after its URL was handed over.
+ *
+ * `bootHost`'s own exit handler only guards the boot window: once the URL
+ * promise has settled, a later host death reaches nobody — the window keeps
+ * pointing at a dead server (seen 2026-09-22). Arming right after the URL
+ * resolves closes that gap; recovery is the human's move via the tray, so the
+ * shell never restarts a host on its own.
+ * @param started the running host and its URL promise.
+ */
+function armHostDeathWatch(started: { child: ChildProcess; url: Promise<string> }): void {
+  void started.url.then(() => {
+    started.child.on('exit', () => {
+      if (hostExitExpected) {
+        hostExitExpected = false
+        return
+      }
+      console.error('yantao: the host exited unexpectedly — use the tray\'s 重启宿主')
+      const notice = new Notification({ title: 'yantao 宿主已退出', body: '工作台的后端进程意外退出，请右键托盘图标选择「重启宿主」。' })
+      notice.show()
+    })
+  }).catch(() => { /* boot failed; bootHost's own error path covers it */ })
 }
 
 /**
@@ -184,6 +226,29 @@ async function purgeStaleAuthCookies(): Promise<void> {
     await jar.remove(`http://${cookie.domain}${cookie.path}`, cookie.name)
   }
   console.log(`yantao: dropped ${stale.length} stale auth cookie${stale.length === 1 ? '' : 's'}`)
+}
+
+/**
+ * Load the workbench URL with a deadline.
+ *
+ * `loadURL` resolves on any HTTP response — and can pend forever when the
+ * renderer's network service wedges at birth, leaving a white window while the
+ * shell waits on the await below (seen 2026-09-22). A deadline turns that
+ * silent hang into a surfaced failure.
+ * @param target the window to navigate.
+ * @param url the workbench URL printed by the host.
+ * @returns when the navigation settled (any HTTP status included).
+ */
+async function loadWorkbench(target: BrowserWindow, url: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`yantao: the workbench page did not finish loading in ${WORKBENCH_LOAD_TIMEOUT_MS / 1000}s — navigation stuck`))
+    }, WORKBENCH_LOAD_TIMEOUT_MS)
+    target.loadURL(url).then(
+      () => { clearTimeout(timer); resolve() },
+      (error: unknown) => { clearTimeout(timer); reject(error instanceof Error ? error : new Error(String(error))) },
+    )
+  })
 }
 
 function buildTray(onRestart: () => void): void {
@@ -224,8 +289,9 @@ function ensureWindow(): BrowserWindow {
   })
   // Closing the window minimises to the tray; 退出 in the tray menu is the way
   // out. A workbench that quits when you close its window loses your tabs.
+  // A genuine quit (tray 退出, boot failure) passes through: see `quitting`.
   window.on('close', (event) => {
-    if (tray === undefined) return
+    if (quitting || tray === undefined) return
     event.preventDefault()
     window?.hide()
   })
@@ -240,9 +306,10 @@ async function restartHost(): Promise<void> {
   await target.loadURL(LOADING_PAGE)
   const started = bootHost()
   host = started.child
+  armHostDeathWatch(started)
   await purgeStaleAuthCookies()
   try {
-    await target.loadURL(await started.url)
+    await loadWorkbench(target, await started.url)
     console.log('yantao: host restarted')
   } catch (error: unknown) {
     console.error('yantao: host restart failed', error)
@@ -273,6 +340,15 @@ async function main(): Promise<void> {
   // 也失去了 F12 调试入口）；托盘已经够用。
   Menu.setApplicationMenu(null)
 
+  // A refused main frame (401, 431, …) renders as a blank page; without this
+  // the shell logs «ready» for a page the server rejected (seen 2026-09-22 as
+  // a cookie-jar-overflow 431 — an all-white window with zero complaints).
+  session.defaultSession.webRequest.onCompleted((details) => {
+    if (details.resourceType === 'mainFrame' && details.statusCode >= 400) {
+      console.error(`yantao: the workbench page was refused (HTTP ${details.statusCode}): ${details.url}`)
+    }
+  })
+
   const target = ensureWindow()
   await target.loadURL(LOADING_PAGE)
   target.show()
@@ -283,12 +359,14 @@ async function main(): Promise<void> {
 
   const started = bootHost()
   host = started.child
+  armHostDeathWatch(started)
   await purgeStaleAuthCookies()
-  await target.loadURL(await started.url)
+  await loadWorkbench(target, await started.url)
   console.log('yantao: workbench ready')
 }
 
 app.on('before-quit', () => {
+  quitting = true
   stopHost()
 })
 
