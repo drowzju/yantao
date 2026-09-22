@@ -10,6 +10,7 @@
  */
 import type { KbMailMessage, KbPersonRelation } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { MailAnalysis } from './mail-analysis.ts'
+import { bareSubject, threadKey } from './mail-threads.ts'
 import type { MailEntities } from './mail-apply.ts'
 import type { WorkbenchLocaleKey } from './locales.ts'
 
@@ -260,18 +261,38 @@ export function analysisToProposal(
     return { sender: source.senderName, subject: source.subject || '（无主题）', why: '' }
   }
   const highlights: ProposalHighlight[] = []
-  const digest: ProposalHighlight[] = []
+  // Digest mails merge per thread (the panel groups them the same way): one
+  // 汇总类 line per conversation, `主题 ×N`, instead of one row per ping.
+  const digest = new Map<string, { entry: ProposalHighlight; count: number }>()
   for (const verdict of analysis.verdicts) {
     const flagged = highlightOf(verdict.mail)
     if (flagged === undefined) continue
     const entry = { ...flagged, why: verdict.why }
-    if (verdict.importance === 'focus') highlights.push(entry)
-    if (verdict.importance === 'digest') digest.push(entry)
+    if (verdict.importance === 'focus') {
+      highlights.push(entry)
+      continue
+    }
+    if (verdict.importance !== 'digest') continue
+    const source = mails[verdict.mail - 1]
+    const key = source === undefined ? `verdict:${verdict.mail}` : threadKey(source)
+    const merged = digest.get(key)
+    if (merged === undefined) {
+      const topic = source?.conversationTopic || flagged.subject
+      digest.set(key, { entry: { sender: flagged.sender, subject: topic, why: verdict.why }, count: 1 })
+      continue
+    }
+    merged.count += 1
+    if (verdict.why !== '' && merged.entry.why !== verdict.why) {
+      merged.entry = { ...merged.entry, why: `${merged.entry.why}；${verdict.why}` }
+    }
   }
+  const digestRows = [...digest.values()].map(({ entry, count }) =>
+    count > 1 ? { ...entry, subject: `${bareSubject(entry.subject) || entry.subject} ×${count}` } : entry,
+  )
   return {
     title,
     actions,
     ...(highlights.length > 0 ? { highlights } : {}),
-    ...(digest.length > 0 ? { digest } : {}),
+    ...(digestRows.length > 0 ? { digest: digestRows } : {}),
   }
 }

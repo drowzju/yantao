@@ -192,6 +192,23 @@ def mail_id(received_at, sender_address, subject):
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
+def thread_fields(item):
+    """
+    线程归并的两个原始字段：`ConversationID`（Outlook 2010+ 的稳定会话键）
+    和 `ConversationTopic`（会话主题，通常是去掉 RE/FW 的原始主题）。
+    任一读不到（旧版 Outlook、异常项）就给空串，由消费端自行回退。
+    """
+    try:
+        conversation_id = str(getattr(item, "ConversationID", "") or "")
+    except Exception:
+        conversation_id = ""
+    try:
+        conversation_topic = str(getattr(item, "ConversationTopic", "") or "")
+    except Exception:
+        conversation_topic = ""
+    return conversation_id, conversation_topic
+
+
 def current_user(ns):
     """
     当前 profile 的账户：返回 (名字, SMTP 地址)；任一拿不到就是空串。
@@ -309,6 +326,7 @@ def read_mails(folder, since, until, limit, me_name="", me_address=""):
             subject = getattr(item, "Subject", "") or ""
             body, truncated = clip(plain_body(item))
             entry_id = str(getattr(item, "EntryID", "") or "")
+            conversation_id, conversation_topic = thread_fields(item)
 
             messages.append({
                 "id": mail_id(received_at, sender_address, subject),
@@ -320,6 +338,8 @@ def read_mails(folder, since, until, limit, me_name="", me_address=""):
                 "body": body,
                 "truncated": truncated,
                 "toMe": to_me(item, me_name, me_address),
+                "conversationId": conversation_id,
+                "conversationTopic": conversation_topic,
             })
         except Exception as error:
             # 单封邮件读属性失败（加密、损坏、权限）不该拖垮整批；只提示，不回传。

@@ -14,10 +14,12 @@
  * tab, another capability, a collapsed rail). Without one, the panel makes its
  * own and behaves as it always did.
  */
-import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from 'react'
+import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { MailFetcher, MailMarker } from './remote.ts'
 import type { AnalysisStage, MailAnalyser, MailImportance } from './mail-analysis.ts'
 import { createMailRun, useMailRun, type MailProcessedRange, type MailRunStore } from './mail-run.ts'
+import { groupThreads, rollupImportance, THREAD_COLLAPSE_MIN } from './mail-threads.ts'
 import type { MailEntities } from './mail-apply.ts'
 import type { ProposalTarget } from './proposal-apply.ts'
 import { ProposalCard } from './ProposalCard.tsx'
@@ -79,20 +81,20 @@ const IMPORTANCE_KEYS: Record<MailImportance, WorkbenchLocaleKey> = {
 
 /** How each importance badge is styled: 重点 shouts, 汇总 mumbles, 普通 stays quiet. */
 const IMPORTANCE_STYLES: Record<MailImportance, CSSProperties> = {
-  focus: { color: '#b4453a', fontWeight: 600 },
-  digest: { color: '#9a9488' },
-  normal: { color: '#6b6455' },
+  focus: { color: 'var(--yt-error)', fontWeight: 600 },
+  digest: { color: 'var(--yt-text-muted)' },
+  normal: { color: 'var(--yt-text-secondary)' },
 }
 
 const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' } as const
 
 const buttonStyle = { padding: '3px 8px', alignSelf: 'flex-start' } as const
 
-const mutedStyle = { color: '#9a9488', fontSize: 12 } as const
+const mutedStyle = { color: 'var(--yt-text-muted)', fontSize: 12 } as const
 
-const errorStyle = { color: '#b4453a', fontSize: 12 } as const
+const errorStyle = { color: 'var(--yt-error)', fontSize: 12 } as const
 
-const hintStyle = { color: '#6b6455', fontSize: 12 } as const
+const hintStyle = { color: 'var(--yt-text-secondary)', fontSize: 12 } as const
 
 const mailListStyle = {
   display: 'flex',
@@ -101,8 +103,8 @@ const mailListStyle = {
   maxHeight: 240,
   overflow: 'auto',
   fontSize: 12,
-  borderTop: '1px solid #efeade',
-  borderBottom: '1px solid #efeade',
+  borderTop: '1px solid var(--yt-border-subtle)',
+  borderBottom: '1px solid var(--yt-border-subtle)',
   padding: '4px 0',
 } as const
 
@@ -110,9 +112,27 @@ const mailRowStyle = { display: 'flex', gap: 6, alignItems: 'baseline', minWidth
 
 const mailBadgeStyle = { flexShrink: 0, fontSize: 12 } as const
 
-const mailTextMutedStyle = { color: '#9a9488', whiteSpace: 'nowrap' } as const
+const mailTextMutedStyle = { color: 'var(--yt-text-muted)', whiteSpace: 'nowrap' } as const
 
 const mailSubjectStyle = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as const
+
+/** A thread header is a full-width toggle: badge, topic, ×N, and the caret. */
+const threadHeadStyle = {
+  display: 'flex',
+  gap: 6,
+  alignItems: 'baseline',
+  minWidth: 0,
+  width: '100%',
+  padding: '2px 0',
+  background: 'none',
+  border: 'none',
+  textAlign: 'left',
+  cursor: 'pointer',
+  font: 'inherit',
+  fontSize: 12,
+} as const
+
+const threadMemberIndent = { paddingLeft: 14 } as const
 
 /** The date of one ISO stamp, for the line that names the batch on screen. */
 function day(iso: string): string {
@@ -137,6 +157,12 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
   // state is the fresher authority on the processed range.
   const range = movedRange ?? processed
 
+  // Threads regroup per batch; memoising keeps the second-by-second analysis
+  // ticker from re-grouping. Collapse state is explicit per thread key, so it
+  // survives both the ticker and the batch's re-renders.
+  const threads = useMemo(() => groupThreads(mails), [mails])
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+
   // A slow judgement with no feedback reads as a hung one: count the seconds
   // the analysis has been running, next to the stage it has reached. Counting
   // from the run's own start keeps the number honest across remounts.
@@ -150,6 +176,25 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
   const elapsed = startedAt === null ? 0 : Math.max(Math.floor((Date.now() - startedAt) / 1000), 0)
 
   const busy = phase !== 'idle'
+
+  /** One flat-batch mail, exactly as the pre-thread row looked; threads indent theirs. */
+  const mailRow = (mail: KbMailMessage, index: number, indented: boolean): ReactElement => {
+    const verdict = verdicts.get(index + 1)
+    return (
+      <div key={mail.id} style={{ ...mailRowStyle, ...(indented ? threadMemberIndent : {}) }} data-mail-row={index + 1}>
+        {verdict !== undefined && (
+          <span style={{ ...mailBadgeStyle, ...IMPORTANCE_STYLES[verdict.importance] }} data-mail-verdict={verdict.importance}>
+            {t(IMPORTANCE_KEYS[verdict.importance])}
+          </span>
+        )}
+        <span style={mailTextMutedStyle}>{mail.senderName}</span>
+        <span style={mailSubjectStyle} title={mail.subject}>{mail.subject || t('mail.noSubject')}</span>
+        {verdict !== undefined && verdict.why !== '' && verdict.importance === 'focus' && (
+          <span style={hintStyle} title={verdict.why}>{verdict.why}</span>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div style={wrapStyle} data-mail-panel="true">
@@ -188,20 +233,29 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
       )}
       {mails.length > 0 && (
         <div style={mailListStyle} data-mail-list="true">
-          {mails.map((mail, index) => {
-            const verdict = verdicts.get(index + 1)
+          {threads.map((thread) => {
+            const rollup = rollupImportance(thread.members.map(member => verdicts.get(member.index + 1)?.importance))
+            if (thread.members.length === 1) {
+              const sole = thread.members[0]
+              if (sole === undefined) return null
+              return mailRow(sole.mail, sole.index, false)
+            }
+            const open = expanded[thread.key] ?? thread.members.length < THREAD_COLLAPSE_MIN
             return (
-              <div key={mail.id} style={mailRowStyle} data-mail-row={index + 1}>
-                {verdict !== undefined && (
-                  <span style={{ ...mailBadgeStyle, ...IMPORTANCE_STYLES[verdict.importance] }} data-mail-verdict={verdict.importance}>
-                    {t(IMPORTANCE_KEYS[verdict.importance])}
+              <div key={thread.key} data-mail-thread={thread.key}>
+                <button
+                  type="button"
+                  style={threadHeadStyle}
+                  data-mail-thread-toggle={thread.key}
+                  onClick={() => { setExpanded(previous => ({ ...previous, [thread.key]: !open })) }}
+                >
+                  <span style={{ ...mailBadgeStyle, ...IMPORTANCE_STYLES[rollup] }} data-mail-thread-verdict={rollup}>
+                    {t(IMPORTANCE_KEYS[rollup])}
                   </span>
-                )}
-                <span style={mailTextMutedStyle}>{mail.senderName}</span>
-                <span style={mailSubjectStyle} title={mail.subject}>{mail.subject || t('mail.noSubject')}</span>
-                {verdict !== undefined && verdict.why !== '' && verdict.importance === 'focus' && (
-                  <span style={hintStyle} title={verdict.why}>{verdict.why}</span>
-                )}
+                  <span style={mailSubjectStyle} title={thread.topic}>{thread.topic || t('mail.noSubject')}</span>
+                  <span style={mailTextMutedStyle}>{`×${thread.members.length}${open ? ' ▾' : ' ▸'}`}</span>
+                </button>
+                {open && thread.members.map(member => mailRow(member.mail, member.index, true))}
               </div>
             )
           })}

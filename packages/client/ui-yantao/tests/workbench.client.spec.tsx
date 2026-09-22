@@ -432,6 +432,37 @@ describe('IntakeRail', () => {
     })
   })
 
+  it('copies the absolute path off a resource row\'s 拷贝链接 menu item', async () => {
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const { container } = render(<IntakeRail {...railProps({ kbRoot: 'D:\\yantao-data\\' })} />)
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('拷贝链接'))
+    // The root's trailing separator is trimmed and the join is forward-slashed:
+    // a path that pastes cleanly into Explorer, Obsidian or a chat.
+    await waitFor(() => { expect(writeText).toHaveBeenCalledWith('D:/yantao-data/resources/周报.eml') })
+    await waitFor(() => { expect(container.querySelector('[data-row-menu]')).toBeNull() })
+  })
+
+  it('copies an entity\'s absolute path too, and falls back to the relative path without a root', async () => {
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const entity = render(<WorkspaceRail {...railProps({ load: loader(workspace), kbRoot: 'D:/yantao-data' })} />)
+    fireEvent.click(screen.getByText('人物'))
+    fireEvent.contextMenu(await screen.findByText('张三'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('拷贝链接'))
+    await waitFor(() => { expect(writeText).toHaveBeenCalledWith('D:/yantao-data/entities/people/张三.md') })
+    await waitFor(() => { expect(entity.container.querySelector('[data-row-menu]')).toBeNull() })
+    entity.unmount()
+
+    // No root known yet: the relative path is still worth having.
+    const relative = render(<IntakeRail {...railProps()} />)
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('拷贝链接'))
+    await waitFor(() => { expect(writeText).toHaveBeenLastCalledWith('resources/周报.eml') })
+    relative.unmount()
+  })
+
   it('hands a resource row\'s KB path to the drag payload (ADR-0029 决定 2)', async () => {
     const setData = vi.fn()
     render(<IntakeRail {...railProps()} />)

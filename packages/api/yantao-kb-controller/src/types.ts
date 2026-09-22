@@ -250,6 +250,17 @@ export interface KbMailMessage {
    * reported — only this one relationship.
    */
   readonly toMe?: 'to' | 'cc' | 'none' | 'unknown'
+  /**
+   * Outlook's stable conversation key (`ConversationID`, Outlook 2010+).
+   * Empty when the client could not read it; the UI then falls back to
+   * grouping by normalized subject.
+   */
+  readonly conversationId?: string
+  /**
+   * The conversation's topic (`ConversationTopic`) — usually the original
+   * subject with RE/FW prefixes stripped. Empty alongside `conversationId`.
+   */
+  readonly conversationTopic?: string
 }
 
 /** Input of the mail capability (ADR-0019): handed to `capabilityRun('mail', …)` as `input`. */

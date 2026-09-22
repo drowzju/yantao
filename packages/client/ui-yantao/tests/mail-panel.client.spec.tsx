@@ -288,3 +288,135 @@ describe('MailPanel cancellation', () => {
     expect(screen.queryByText(/失败/)).toBeNull()
   })
 })
+
+describe('MailPanel threads', () => {
+  const threadMail = (id: string, receivedAt: string, overrides: Partial<KbMailMessage> = {}): KbMailMessage => ({
+    id,
+    entryId: id,
+    receivedAt,
+    senderName: '张三',
+    senderAddress: 'zhangsan@example.com',
+    subject: '季度汇报',
+    body: '',
+    truncated: false,
+    toMe: 'to',
+    conversationId: 'C1',
+    conversationTopic: '季度汇报',
+    ...overrides,
+  })
+
+  const THREADED: readonly KbMailMessage[] = [
+    threadMail('t3', '2026-09-09T10:00:00+00:00'),
+    threadMail('t2', '2026-09-09T09:00:00+00:00'),
+    threadMail('t1', '2026-09-08T08:00:00+00:00'),
+  ]
+
+  it('groups a multi-mail thread under one collapsible header, collapsed from three on', async () => {
+    const { container } = render(<MailPanel {...props({ fetch: async () => ({ since: '2026-09-01T00:00:00.000Z', stale: false, hasMore: false, messages: THREADED }) })} />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('往后 →'))
+    })
+    await screen.findByText(/3 封 · /)
+    const header = container.querySelector('[data-mail-thread-toggle]')
+    expect(header).not.toBeNull()
+    expect(container.textContent).toContain('×3')
+    // Collapsed by default: the member rows are hidden until the header is clicked.
+    expect(container.querySelector('[data-mail-row="1"]')).toBeNull()
+    await act(async () => {
+      fireEvent.click(header as Element)
+    })
+    expect(container.querySelector('[data-mail-row="1"]')).not.toBeNull()
+    expect(container.querySelector('[data-mail-row="3"]')).not.toBeNull()
+  })
+
+  it('expands a pair by default and leaves a single mail without any header', async () => {
+    const pair = THREADED.slice(0, 2)
+    const { container } = render(<MailPanel {...props({ fetch: async () => ({ since: '2026-09-01T00:00:00.000Z', stale: false, hasMore: false, messages: pair }) })} />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('往后 →'))
+    })
+    await screen.findByText(/2 封 · /)
+    expect(container.querySelector('[data-mail-thread-toggle]')).not.toBeNull()
+    expect(container.querySelector('[data-mail-row="1"]')).not.toBeNull()
+
+    cleanup()
+    const solo = render(<MailPanel {...props()} />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('往后 →'))
+    })
+    await screen.findByText(/1 封 · /)
+    expect(solo.container.querySelector('[data-mail-thread-toggle]')).toBeNull()
+    expect(solo.container.querySelector('[data-mail-row="1"]')).not.toBeNull()
+  })
+
+  it('rolls the loudest member verdict up to the header, keeping per-mail badges on members', async () => {
+    const { container } = render(<MailPanel {...props({
+      fetch: async () => ({ since: '2026-09-01T00:00:00.000Z', stale: false, hasMore: false, messages: THREADED }),
+      analyse: async (_mails, _known, onProgress) => {
+        onProgress?.({
+          stage: 'answer', done: 3, total: 3,
+          verdicts: [
+            { mail: 1, importance: 'digest', why: '通知' },
+            { mail: 2, importance: 'focus', why: '上级主送' },
+            { mail: 3, importance: 'normal', why: '' },
+          ],
+        })
+        return new Promise<AnalysisRun>(() => {})
+      },
+    })} />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('往后 →'))
+    })
+    await screen.findByText(/3 封 · /)
+    await act(async () => {
+      fireEvent.click(screen.getByText('分析这 3 封'))
+    })
+    await screen.findByText(/×3/)
+    expect(container.querySelector('[data-mail-thread-verdict="focus"]')).not.toBeNull()
+    // Expand: the per-mail badges still light on their original rows.
+    await act(async () => {
+      fireEvent.click(container.querySelector('[data-mail-thread-toggle]') as Element)
+    })
+    const member = container.querySelector('[data-mail-row="2"] [data-mail-verdict="focus"]')
+    expect(member).not.toBeNull()
+  })
+
+  it('keeps the expanded state across a refetch that regroups the batch', async () => {
+    const { container } = render(<MailPanel {...props({ fetch: async () => ({ since: '2026-09-01T00:00:00.000Z', stale: false, hasMore: false, messages: [...THREADED] }) })} />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('往后 →'))
+    })
+    await screen.findByText(/3 封 · /)
+    await act(async () => {
+      fireEvent.click(container.querySelector('[data-mail-thread-toggle]') as Element)
+    })
+    expect(container.querySelector('[data-mail-row="1"]')).not.toBeNull()
+    // A fresh batch (new array identity) regroups, but the expansion survives.
+    await act(async () => {
+      fireEvent.click(screen.getByText('往后 →'))
+    })
+    await screen.findByText(/3 封 · /)
+    expect(container.querySelector('[data-mail-row="1"]')).not.toBeNull()
+  })
+
+  it('groups each read window on its own, without merging across batches', async () => {
+    let call = 0
+    const { container } = render(<MailPanel {...props({
+      fetch: vi.fn(async () => {
+        call += 1
+        return { since: '2026-09-01T00:00:00.000Z', stale: false, hasMore: call < 2, messages: call === 1 ? THREADED : [threadMail('t0', '2026-09-07T07:00:00+00:00')] }
+      }),
+    })} />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('往后 →'))
+    })
+    await screen.findByText(/3 封 · /)
+    expect(container.querySelector('[data-mail-thread-toggle]')).not.toBeNull()
+    // The older window holds one mail of the same conversation: alone, no header.
+    await act(async () => {
+      fireEvent.click(screen.getByText('← 往前'))
+    })
+    await screen.findByText(/1 封 · /)
+    expect(container.querySelector('[data-mail-thread-toggle]')).toBeNull()
+  })
+})

@@ -309,6 +309,46 @@ describe('analysisToProposal', () => {
     expect(proposal.digest).toEqual([{ sender: '系统', subject: '邮催：请处理工单', why: '系统自动邮催' }])
   })
 
+  it('merges same-thread digest mails into one 主题 ×N row', () => {
+    const proposal = analysisToProposal(
+      {
+        ...ANALYSIS,
+        verdicts: [
+          { mail: 1, importance: 'digest', why: '第一次邮催' },
+          { mail: 2, importance: 'digest', why: '第二次邮催' },
+        ],
+      },
+      ENTITIES,
+      't',
+      [
+        mail({ id: 'm1', senderName: '系统', subject: '邮催：请处理工单', toMe: 'cc' as const, conversationId: 'C9', conversationTopic: '邮催：请处理工单' }),
+        mail({ id: 'm2', senderName: '系统', subject: 'RE: 邮催：请处理工单', toMe: 'cc' as const, conversationId: 'C9', conversationTopic: '邮催：请处理工单' }),
+      ],
+    )
+    expect(proposal.digest).toEqual([
+      { sender: '系统', subject: '邮催：请处理工单 ×2', why: '第一次邮催；第二次邮催' },
+    ])
+  })
+
+  it('keeps digest mails of different threads as separate rows', () => {
+    const proposal = analysisToProposal(
+      {
+        ...ANALYSIS,
+        verdicts: [
+          { mail: 1, importance: 'digest', why: '邮催一' },
+          { mail: 2, importance: 'digest', why: '邮催二' },
+        ],
+      },
+      ENTITIES,
+      't',
+      [
+        mail({ senderName: '系统', subject: '邮催：工单一', toMe: 'cc' as const }),
+        mail({ id: 'm3', senderName: '系统', subject: '邮催：工单二', toMe: 'cc' as const }),
+      ],
+    )
+    expect(proposal.digest?.map(row => row.subject)).toEqual(['邮催：工单一', '邮催：工单二'])
+  })
+
   it('carries no highlight blocks when nothing was flagged', () => {
     const proposal = analysisToProposal(
       { ...ANALYSIS, verdicts: [{ mail: 1, importance: 'normal', why: '' }] },

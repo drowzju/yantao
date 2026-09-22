@@ -130,7 +130,7 @@ const frameStyle = {
 
 const colStyle = { minWidth: 0, overflow: 'hidden' } as const
 
-const railColStyle = { ...colStyle, background: '#fbfaf7' } as const
+const railColStyle = { ...colStyle, background: 'var(--yt-surface-primary)' } as const
 
 const overlayStyle = { position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' } as const
 
@@ -166,8 +166,8 @@ const noticeStyle = {
   transform: 'translateX(-50%)',
   maxWidth: '80%',
   padding: '6px 12px',
-  background: '#fffdf7',
-  border: '1px solid #e6e2d8',
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-border-subtle)',
   borderRadius: 6,
   boxShadow: '0 4px 12px rgba(28, 26, 22, 0.15)',
   fontSize: 12,
@@ -968,7 +968,7 @@ export function Frame({
       }}
       data-narrow={narrow || undefined}
     >
-      <div style={{ ...railColStyle, borderRight: '1px solid #e6e2d8' }}>
+      <div style={{ ...railColStyle, borderRight: '1px solid var(--yt-border-subtle)' }}>
         <IntakeRail
           collapsed={!intakeOpen}
           load={intake}
@@ -997,6 +997,7 @@ export function Frame({
           revealConnector={connectorNonce}
           onRunCapability={runRowCapability}
           onRefine={runRefineGesture}
+          kbRoot={kbRoot}
           t={t}
         />
       </div>
@@ -1060,7 +1061,7 @@ export function Frame({
           )}
         t={t}
       />
-      <div style={{ ...railColStyle, borderLeft: '1px solid #e6e2d8' }}>
+      <div style={{ ...railColStyle, borderLeft: '1px solid var(--yt-border-subtle)' }}>
         <WorkspaceRail
           collapsed={!workspaceOpen}
           load={workspace}
@@ -1084,6 +1085,7 @@ export function Frame({
           capabilityList={capabilityList}
           onRunCapability={runRowCapability}
           onRefine={runRefineGesture}
+          kbRoot={kbRoot}
           t={t}
         />
       </div>
@@ -1162,9 +1164,9 @@ export function Frame({
               style={{
                 marginLeft: 10,
                 padding: '1px 8px',
-                border: '1px solid #c9c2b2',
+                border: '1px solid var(--yt-border-strong)',
                 borderRadius: 4,
-                background: '#fff',
+                background: 'var(--yt-surface-raised)',
                 cursor: 'pointer',
                 fontSize: 12,
               }}

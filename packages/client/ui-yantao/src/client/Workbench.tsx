@@ -150,9 +150,9 @@ const compactStyle = {
   fontSize: 13,
 } as const
 
-const titleStyle = { margin: '12px 0 4px', fontSize: 12, fontWeight: 600, color: '#6b6455' } as const
+const titleStyle = { margin: '12px 0 4px', fontSize: 12, fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
 
-const errorStyle = { color: '#b4453a', padding: '4px 6px' } as const
+const errorStyle = { color: 'var(--yt-error)', padding: '4px 6px' } as const
 
 const rowStyle = {
   display: 'block',
@@ -168,10 +168,10 @@ const rowStyle = {
   cursor: 'pointer',
 } as const
 
-const selectedRowStyle = { ...rowStyle, background: '#eef3ff', borderColor: '#c7d7ff' } as const
+const selectedRowStyle = { ...rowStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } as const
 
 /** An entity row while a resource drag hovers over it — the drop target's affordance. */
-const dropHoverStyle = { outline: '2px dashed #c7d7ff', outlineOffset: -2 } as const
+const dropHoverStyle = { outline: '2px dashed var(--yt-accent-border)', outlineOffset: -2 } as const
 
 const tabRowStyle = { ...rowStyle, width: 'auto', flex: 1, textAlign: 'center' } as const
 
@@ -272,9 +272,9 @@ function FileRow({
       title={file.path}
     >
       {file.name}
-      {file.archived === true && <span style={{ color: '#9a9488' }}>{t('workbench.archived')}</span>}
+      {file.archived === true && <span style={{ color: 'var(--yt-text-muted)' }}>{t('workbench.archived')}</span>}
       {file.relation !== undefined && (
-        <span style={{ color: '#9a9488' }}>
+        <span style={{ color: 'var(--yt-text-muted)' }}>
           {' · '}
           {relationLabel(t, file.relation)}
         </span>
@@ -311,7 +311,7 @@ function Section({
   return (
     <div>
       {showHeading && <div style={titleStyle}>{t(SECTION_KEYS[id])}</div>}
-      {section === undefined && <div style={{ color: '#9a9488', padding: '4px 6px' }}>{t('common.empty')}</div>}
+      {section === undefined && <div style={{ color: 'var(--yt-text-muted)', padding: '4px 6px' }}>{t('common.empty')}</div>}
       {section?.files.map(file => (
         <FileRow
           key={file.path}
@@ -411,7 +411,7 @@ function ResourceTree({
     })
   }, [])
   if (section === undefined) {
-    return <div style={{ color: '#9a9488', padding: '4px 6px' }}>{t('common.empty')}</div>
+    return <div style={{ color: 'var(--yt-text-muted)', padding: '4px 6px' }}>{t('common.empty')}</div>
   }
   const renderNode = (node: ResourceDirNode, depth: number): ReactElement[] => {
     const rows: ReactElement[] = []
@@ -421,7 +421,7 @@ function ResourceTree({
         <button
           key={`dir:${child.dir}`}
           type="button"
-          style={{ ...rowStyle, paddingLeft: 6 + depth * 14, color: '#6b6455' }}
+          style={{ ...rowStyle, paddingLeft: 6 + depth * 14, color: 'var(--yt-text-secondary)' }}
           data-resource-dir={child.dir}
           aria-expanded={!folded}
           onClick={() => { toggle(child.dir) }}
@@ -474,8 +474,8 @@ const menuStyle = {
   position: 'fixed',
   zIndex: 40,
   padding: 4,
-  background: '#fff',
-  border: '1px solid #e6e2d8',
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
   boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
   fontFamily: FONT,
@@ -493,12 +493,36 @@ const menuItemStyle = {
   whiteSpace: 'nowrap',
 } as const
 
-const menuNoteStyle = { color: '#6b6455', padding: '2px 8px 4px' } as const
+const menuNoteStyle = { color: 'var(--yt-text-secondary)', padding: '2px 8px 4px' } as const
 
 /** One relation the row menu offers. */
 interface RelationOption {
   readonly value: KbPersonRelation
   readonly label: string
+}
+
+/**
+ * One file's absolute path on disk, forward slashes throughout — the form the
+ * human can paste into Explorer, Obsidian or a chat. The KB root is trimmed of
+ * its trailing separator and joined with the KB-relative path; with the root
+ * unknown the relative path is all there is (the Obsidian button's fallback).
+ * @param root - the absolute KB root, or '' when unknown.
+ * @param path - KB-relative path with forward slashes.
+ * @returns the path to put on the clipboard.
+ */
+export function absoluteKbPath(root: string, path: string): string {
+  if (root === '') return path
+  return `${root.replace(/[\\/]+$/, '')}/${path}`.replace(/\\/g, '/')
+}
+
+/**
+ * Put one string on the clipboard. The workbench runs in the desktop shell's
+ * renderer over loopback HTTP — a secure context, so the async clipboard API
+ * is always there and no deprecated fallback is needed.
+ * @param text - the string to copy.
+ */
+async function copyText(text: string): Promise<void> {
+  await navigator.clipboard.writeText(text)
 }
 
 /**
@@ -553,10 +577,12 @@ function RowMenu(props: {
   onRefine?: ((path: string, name: string) => void) | undefined
   /** Start the 提炼到实体 gesture on this resource row (ADR-0030); absent for non-resource rows. */
   onDistill?: ((path: string, name: string) => void) | undefined
+  /** The absolute KB root, for 「拷贝链接」; empty or absent copies the relative path. */
+  kbRoot?: string
   onDelete: (path: string) => void
   onClose: () => void
 }): ReactElement {
-  const { t, target, busy, relations, onRelate, capabilities, onRunCapability, onRefine, onDistill, onDelete, onClose } = props
+  const { t, target, busy, relations, onRelate, capabilities, onRunCapability, onRefine, onDistill, kbRoot = '', onDelete, onClose } = props
   const [confirming, setConfirming] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
   useMenuDismiss(ref, onClose)
@@ -622,6 +648,17 @@ function RowMenu(props: {
           {t('workbench.distill')}
         </button>
       )}
+      <button
+        type="button"
+        style={menuItemStyle}
+        data-row-copy-link="true"
+        onClick={() => {
+          void copyText(absoluteKbPath(kbRoot, target.path))
+          onClose()
+        }}
+      >
+        {t('workbench.copyLink')}
+      </button>
       {!confirming && (
         <button type="button" style={menuItemStyle} disabled={busy} onClick={() => { setConfirming(true) }}>
           {t('workbench.deleteConfirm', { name: target.name })}
@@ -787,7 +824,7 @@ function useCapabilities(load: CapabilityLoader, refreshKey: number): readonly K
       <button type="button" style={rowStyle} title={label} onClick={onExpand}>
         {side === 'intake' ? '›' : '‹'}
       </button>
-      {error !== null && <span style={{ color: '#b4453a' }} title={error}>!</span>}
+      {error !== null && <span style={{ color: 'var(--yt-error)' }} title={error}>!</span>}
     </div>
   )
 }
@@ -840,6 +877,12 @@ export interface RailProps {
   readonly capabilityList: CapabilityLoader
   /** Run one capability against a row (ADR-0021 决定 7); the frame owns the run. */
   readonly onRunCapability: (capability: KbCapabilitySummary, path: string) => void
+  /**
+   * The absolute KB root, so the row menu's 「拷贝链接」 can hand out a path
+   * that works outside the workbench (Explorer, Obsidian, a chat). Empty when
+   * the root is not (yet) known — the menu then copies the KB-relative path.
+   */
+  readonly kbRoot?: string
 }
 
 /** Intake-side additions: the intake rail owns the 能力 tab (ADR-0021). */
@@ -867,7 +910,7 @@ export interface IntakeRailProps extends RailProps {
 function RailHeader({ error }: { error: string | null }): ReactElement {
   return (
     <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-      {error !== null && <span style={{ color: '#b4453a' }} title={error}>!</span>}
+      {error !== null && <span style={{ color: 'var(--yt-error)' }} title={error}>!</span>}
     </div>
   )
 }
@@ -932,7 +975,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const {
     t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
     read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource, onRefine,
-    capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, onRunCapability,
+    capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, onRunCapability, kbRoot = '',
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const capabilities = useCapabilities(capabilityList, refreshKey)
@@ -1036,7 +1079,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
 
   return (
     <div
-      style={dragOver ? { ...railStyle, outline: '2px dashed #c7d7ff', outlineOffset: -4 } : railStyle}
+      style={dragOver ? { ...railStyle, outline: '2px dashed var(--yt-accent-border)', outlineOffset: -4 } : railStyle}
       data-drag-over={dragOver || undefined}
       onDragEnter={(event) => { event.stopPropagation() }}
       onDragOver={(event) => {
@@ -1056,7 +1099,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           <button
             key={id}
             type="button"
-            style={tab === id ? { ...tabRowStyle, background: '#eef3ff', borderColor: '#c7d7ff' } : tabRowStyle}
+            style={tab === id ? { ...tabRowStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } : tabRowStyle}
             onClick={() => { setTab(id) }}
           >
             {t(SECTION_KEYS[id])}
@@ -1064,7 +1107,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
                 waiting) somewhere the human cannot currently see. */}
             {id === 'connector' && (mailState.review !== null || mailState.phase === 'analysing') && (
               <span
-                style={{ marginLeft: 4, color: mailState.review !== null ? '#b4453a' : '#9a9488' }}
+                style={{ marginLeft: 4, color: mailState.review !== null ? 'var(--yt-error)' : 'var(--yt-text-muted)' }}
                 title={t(mailState.review !== null ? 'mail.tab.awaiting' : 'mail.tab.running')}
               >
                 ●
@@ -1161,6 +1204,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           onDistill={tab === 'resources'
             ? (path) => { onRefine({ mode: 'distill', resource: { path, name: path.split('/').pop() ?? path } }) }
             : undefined}
+          kbRoot={kbRoot}
           onDelete={(path) => { void rowMenu.remove(path) }}
           onClose={rowMenu.close}
         />
@@ -1187,7 +1231,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
 export function WorkspaceRail(props: RailProps): ReactElement {
   const {
     t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, createEntity, deleteFile,
-    setRelation: writeRelation, registerResource, onRefine, capabilityList, onRunCapability,
+    setRelation: writeRelation, registerResource, onRefine, capabilityList, onRunCapability, kbRoot = '',
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const capabilities = useCapabilities(capabilityList, refreshKey)
@@ -1240,7 +1284,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
           <button
             key={id}
             type="button"
-            style={tab === id ? { ...tabRowStyle, background: '#eef3ff', borderColor: '#c7d7ff' } : tabRowStyle}
+            style={tab === id ? { ...tabRowStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } : tabRowStyle}
             onClick={() => { setTab(id) }}
           >
             {t(SECTION_KEYS[id])}
@@ -1290,6 +1334,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
           onRefine={kind === undefined
             ? undefined
             : (path, name) => { onRefine({ mode: 'refine', entityPath: path, entityName: name, entityType: kind }) }}
+          kbRoot={kbRoot}
           onDelete={(path) => { void rowMenu.remove(path) }}
           onClose={rowMenu.close}
         />
