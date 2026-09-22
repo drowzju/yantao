@@ -25,7 +25,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, Tray } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, session, Tray } from 'electron'
 
 /**
  * Repository root. This file is `apps/yantao-desktop/src/main.ts`, so the
@@ -155,6 +155,37 @@ function stopHost(): void {
   host = undefined
 }
 
+/**
+ * The auth cookie's name prefix — `COOKIE_PREFIX` in
+ * `packages/client/connection/src/browser-auth.ts`. Duplicated as a literal so
+ * the shell keeps zero workspace dependencies.
+ */
+const AUTH_COOKIE_PREFIX = 'dsh-auth-'
+
+/**
+ * Drop the auth cookies left over by earlier host boots, before the workbench
+ * is loaded.
+ *
+ * Every boot runs the host on a random port (`--port 0`), and the cookie name
+ * embeds that port, so each boot mints a brand-new persistent cookie that no
+ * later boot overwrites or expires. The jar grows by one cookie per boot until
+ * the Cookie header crosses the server's request-header cap and the workbench
+ * index is refused with 431 — an empty, purely white page (hit on 2026-09-22
+ * with 70 accumulated cookies, a 15,958-byte header). The navigation that
+ * follows authenticates via the URL's launch token and mints one fresh cookie,
+ * so dropping the stale ones costs nothing.
+ * @returns when the jar holds no stale auth cookies.
+ */
+async function purgeStaleAuthCookies(): Promise<void> {
+  const jar = session.defaultSession.cookies
+  const stale = (await jar.get({})).filter(cookie => cookie.name.startsWith(AUTH_COOKIE_PREFIX))
+  if (stale.length === 0) return
+  for (const cookie of stale) {
+    await jar.remove(`http://${cookie.domain}${cookie.path}`, cookie.name)
+  }
+  console.log(`yantao: dropped ${stale.length} stale auth cookie${stale.length === 1 ? '' : 's'}`)
+}
+
 function buildTray(onRestart: () => void): void {
   tray?.destroy()
   tray = new Tray(nativeImage.createFromDataURL(TRAY_ICON))
@@ -209,6 +240,7 @@ async function restartHost(): Promise<void> {
   await target.loadURL(LOADING_PAGE)
   const started = bootHost()
   host = started.child
+  await purgeStaleAuthCookies()
   try {
     await target.loadURL(await started.url)
     console.log('yantao: host restarted')
@@ -251,6 +283,7 @@ async function main(): Promise<void> {
 
   const started = bootHost()
   host = started.child
+  await purgeStaleAuthCookies()
   await target.loadURL(await started.url)
   console.log('yantao: workbench ready')
 }
