@@ -106,6 +106,8 @@
 
 | **待办面板去胶囊去噪(design.md §2.5/§5/§7)** —— 日期从描边胶囊改为语义着色文字(逾期/当日红 `#b4453a`、五日内琥珀 `#8a6d3a`、其余 muted,弃 `#e02020`/`#eab308` 阶梯外色);行尾 `…`/`×` 从常驻描边按钮改为悬停显现的无边框文字按钮(`TodoBoard.module.css`,opacity 保持在可达性树内、focus-within 兜键盘);checkbox 与日期随 `alignItems: baseline` 骑行首基线;面板标题升到 14 档;`TODO`/`DONE` 改中文「待办/已完成」(en 副本同步) | `packages/client/ui-yantao/src/client/{TodoBoard.tsx,TodoBoard.module.css,locales.ts}`、`tests/{todo-board,workbench}.client.spec.*`。验证:ui-yantao 327 测试全绿,oxlint 0/0,client bundle 重建 |
 
+| **`--yt-*` token 落地 + 自绘 pane 逐 pane 迁移(design.md §8 第 1–2 步)** —— `yt-tokens.ts` 定值表(浅/暗两组色板 + 排版/间距阶梯,暗色为 design.md 基准值待实览微调),`theme-presenter.apply` 随上游别名 token 一并写入、走同一 `#appliedTokens` 撤回通道,新增 presenter spec;13 个自绘文件(CapabilityPanel、CenterPane、TasksPane、editor 三件、ProposalCard、QuestionDialog、SelectionMenu、TodoBoard、NewEntityRow、Onboarding)裸 hex 清零改 `var(--yt-*)`、字号回排版阶梯(徽标 11→12),色断言改验 `var(--yt-…)`;遗留拾遗:`--yt-warning-bg` 为迁移中新发现的缺 token,已补进 design.md §2.5;彩色 chip 上的 `#fff` 文字有意保留;Workbench/Frame/MailPanel 三文件的迁移在工作区随邮件工作一并提交 | `packages/client/ui-yantao/src/client/frame/{yt-tokens,theme-presenter}.ts`、上述 13 个组件文件、`docs/yantao/design.md`、`tests/{theme-presenter,todo-board}.client.spec.*`。验证:ui-yantao 330 测试全绿(17 文件),scoped oxlint 0/0,client bundle 重建;提交 3f10d37d4d/06b1a4a291 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
@@ -120,11 +122,10 @@
 
 规则全文见 [design.md](design.md);以下是余项,改的是现有组件,不动架构,无需 ADR。
 
-1. **`--yt-*` token 落地与逐 pane 迁移** —— 按 design.md §8 三步:`theme-presenter.ts` 增发 `--yt-*` 浅/暗两组值
-   → 逐 pane 把内联硬编码改为 token 引用(顺带清理阶梯外字号/间距)→ 迁移完成后上 lint 门禁(禁裸 hex)。
-   做完这步暗色模式才覆盖自绘 pane。
+1. **`--yt-*` 迁移收尾** —— 余三件(Workbench/Frame/MailPanel 已在工作区改成 token 引用,随邮件工作一并提交);
+   间距字面量引用 `--yt-space-*`(本轮只迁了颜色与字号,复合 shorthand 无法机械替换);之后上 lint 门禁(禁裸 hex、禁阶梯外 px,design.md §8 第 3 步)。
 2. **标识符等宽** —— 能力名、路径(`scripts/entry.py` 等)按 design.md §3 用 mono(只设标识符本身);
-   可并入第 1 条逐 pane 迁移顺手做。
+   可并入收尾顺手做。
 
 ## blocked(附原因)
 
