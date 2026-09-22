@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  frontmatterSummary, headingOutline, splitFrontmatter, taskLines, toggleTask,
+  collapseEmptySections, frontmatterSummary, headingOutline, splitFrontmatter, taskLines, toggleTask,
 } from '../src/client/markdown.ts'
 
 const ENTITY = [
@@ -131,6 +131,46 @@ describe('headingOutline', () => {
 
   it('ignores a # with no text after it', () => {
     expect(headingOutline('#')).toEqual([])
+  })
+})
+
+describe('collapseEmptySections', () => {
+  it('collapses a run of empty template sections into placeholder lines', () => {
+    const body = ['# 公共BMT', '', '## 状态', '', '## 决议', '', '## 待办', '', '## 流水', '', '- 2026-09-22 创建'].join('\n')
+    expect(collapseEmptySections(body)).toBe([
+      '# 公共BMT',
+      '',
+      '**状态**（空）',
+      '**决议**（空）',
+      '**待办**（空）',
+      '## 流水',
+      '',
+      '- 2026-09-22 创建',
+    ].join('\n'))
+  })
+
+  it('never collapses the document title', () => {
+    const body = ['# 标题', '', '## 状态', '', '进行中'].join('\n')
+    expect(collapseEmptySections(body)).toBe(body)
+  })
+
+  it('leaves non-empty sections byte-for-byte', () => {
+    const body = ['## 状态', '', '进行中', '', '## 流水', '', '- 2026-09-22 创建'].join('\n')
+    expect(collapseEmptySections(body)).toBe(body)
+  })
+
+  it('counts a fenced block as content and ignores headings inside it', () => {
+    const body = ['## 状态', '', '```', '## 不是区段', '```', '', '## 流水', '', '- x'].join('\n')
+    expect(collapseEmptySections(body)).toBe(body)
+  })
+
+  it('collapses a trailing empty section', () => {
+    const body = ['## 流水', '', '- x', '', '## 备注', ''].join('\n')
+    expect(collapseEmptySections(body)).toBe(['## 流水', '', '- x', '', '**备注**（空）'].join('\n'))
+  })
+
+  it('leaves a document with no headings unchanged', () => {
+    expect(collapseEmptySections('正文第一段\n\n正文第二段')).toBe('正文第一段\n\n正文第二段')
   })
 })
 

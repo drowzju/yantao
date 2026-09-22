@@ -89,7 +89,9 @@ describe('MarkdownView', () => {
   })
 
   it('opens an outline and jumps to the heading it names', () => {
-    const content = ['## 状态', '', 'a', '## 流水', '', 'b', '### 细目'].join('\n')
+    // Every heading carries a body line: an empty one would collapse to a
+    // placeholder (design.md §1) and rightly leave the outline.
+    const content = ['## 状态', '', 'a', '## 流水', '', 'b', '### 细目', '', 'c'].join('\n')
     const { container } = render(<MarkdownView content={content} t={t} />)
     fireEvent.click(screen.getByText('大纲'))
     const outline = container.querySelector('[data-outline="true"]') as HTMLElement

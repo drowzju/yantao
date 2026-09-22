@@ -22,6 +22,12 @@
  *   panel. Resolution itself is host-side (`yantaoKb.links`) — the client
  *   neither scans the KB nor guesses what a name means.
  *
+ * - **Empty sections (v4).** A template-declared section with no text yet
+ *   collapses to a `**name**（空）` placeholder line instead of a full-weight
+ *   heading over nothing (docs/yantao/design.md §1), and headings pull onto
+ *   the design ladder via `MarkdownView.module.css`. The outline is computed
+ *   from the same collapsed text the body renders.
+ *
  * Both ordinal mappings (checkboxes, headings) refuse when the counts disagree
  * rather than acting on the wrong line.
  */
@@ -30,9 +36,10 @@ import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import {
-  frontmatterSummary, headingOutline, linkPath, renderWikiLinks, splitFrontmatter, taskLines, toggleTask,
+  collapseEmptySections, frontmatterSummary, headingOutline, linkPath, renderWikiLinks, splitFrontmatter, taskLines, toggleTask,
 } from '../markdown.ts'
 import type { WorkbenchT } from '../locales.ts'
+import css from './MarkdownView.module.css'
 
 /** Wrapping and typography, matching the editor's own column. */
 const wrapStyle = {
@@ -154,15 +161,22 @@ export function MarkdownView({
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const split = useMemo(() => splitFrontmatter(content), [content])
   const summary = useMemo(() => frontmatterSummary(split.fields), [split.fields])
-  const outline = useMemo(() => headingOutline(split.body), [split.body])
   // Only the host knows what a target means; the view just renders its answer.
+  // Empty template sections collapse first (design.md §1), and the outline is
+  // taken from the same collapsed text the body renders — its ordinal-to-DOM
+  // mapping must describe what is actually on screen.
   const body = useMemo(() => {
-    if (links === undefined) return split.body
-    const resolved = new Map(links.outgoing
-      .filter(link => link.path !== null)
-      .map(link => [link.target, link.path as string]))
-    return renderWikiLinks(split.body, target => resolved.get(target) ?? null)
+    let linked = split.body
+    if (links !== undefined) {
+      const resolved = new Map(links.outgoing
+        .filter(link => link.path !== null)
+        .map(link => [link.target, link.path as string]))
+      linked = renderWikiLinks(split.body, target => resolved.get(target) ?? null)
+    }
+    return collapseEmptySections(linked)
   }, [split.body, links])
+  const outline = useMemo(() => headingOutline(body), [body])
+
 
   // MarkdownText renders task checkboxes disabled, and browsers do not
   // dispatch clicks on disabled controls — so the reading view would never see
@@ -283,7 +297,7 @@ export function MarkdownView({
           </tbody>
         </table>
       )}
-      <div style={bodyStyle} ref={bodyRef} onClick={onClick} data-markdown-body="true">
+      <div style={bodyStyle} className={css.body} ref={bodyRef} onClick={onClick} data-markdown-body="true">
         {backlinksOpen && (links?.incoming.length ?? 0) > 0 && (
           <div style={{ ...outlineStyle, left: 8, right: 'auto' }} data-backlinks="true">
             {links?.incoming.map(entry => (

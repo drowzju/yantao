@@ -148,6 +148,82 @@ export function headingOutline(text: string): readonly OutlineEntry[] {
 }
 
 /**
+ * Collapse sections whose body is empty into quiet placeholder lines.
+ *
+ * A freshly created entity's template declares its sections before any of them
+ * carries text; rendered at full heading weight they announce several empty
+ * rooms and dominate the first screen (design.md §1: emptiness must serve a
+ * focal point, not fill one). A level-2+ heading followed by nothing but blank
+ * lines until the next heading or the end of the file becomes a single
+ * `**name**（空）` line; consecutive placeholders land on adjacent lines, which
+ * markdown renders as one soft-wrapped paragraph. The document title (h1) is
+ * never collapsed, a fenced block counts as content, and non-empty sections
+ * pass through byte-for-byte.
+ * @param text - markdown text (a body, envelope already split off).
+ * @returns the text to render.
+ */
+export function collapseEmptySections(text: string): string {
+  const lines = text.split(/\r?\n/)
+  const out: string[] = []
+  let fenced = false
+  let index = 0
+  while (index < lines.length) {
+    const line = lines[index] ?? ''
+    if (fenced) {
+      if (FENCE.test(line)) fenced = false
+      out.push(line)
+      index += 1
+      continue
+    }
+    if (FENCE.test(line)) {
+      fenced = true
+      out.push(line)
+      index += 1
+      continue
+    }
+    const match = HEADING_LINE.exec(line)
+    if (match === null || (match[1]?.length ?? 1) < 2) {
+      out.push(line)
+      index += 1
+      continue
+    }
+    // Measure the section: everything up to the next unfenced heading or the
+    // end of the file. A fence inside it is content by itself, so a section
+    // holding one is never empty.
+    const name = match[2] ?? ''
+    let cursor = index + 1
+    let sectionFenced = false
+    let empty = true
+    while (cursor < lines.length) {
+      const probe = lines[cursor] ?? ''
+      if (sectionFenced) {
+        empty = false
+        if (FENCE.test(probe)) sectionFenced = false
+        cursor += 1
+        continue
+      }
+      if (FENCE.test(probe)) {
+        sectionFenced = true
+        empty = false
+        cursor += 1
+        continue
+      }
+      if (HEADING_LINE.test(probe)) break
+      if (probe.trim() !== '') empty = false
+      cursor += 1
+    }
+    if (empty) {
+      out.push(`**${name}**（空）`)
+      index = cursor
+      continue
+    }
+    out.push(line)
+    index += 1
+  }
+  return out.join('\n')
+}
+
+/**
  * Where a resolved `[[…]]` link points in the rendered document (ADR-0015).
  *
  * `MarkdownText` allows only http(s)/mailto destinations, so a link to a KB
