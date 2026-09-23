@@ -111,6 +111,16 @@ describe('mailPrompt', () => {
     expect(text).toContain('memories')
     expect(text).toContain('纠正')
   })
+
+  it('leads with the scope\'s behavior memory when one is given (ADR-0032 批次④)', () => {
+    const withMemory = mailPrompt([mail()], KNOWN, 0, '【行为记忆】人在以往运行中为「mail」沉淀的规则（历次纠正的累积），本次运行遵守：\n- 汇报先发给直属上级')
+    expect(withMemory).toContain('【行为记忆】')
+    expect(withMemory).toContain('汇报先发给直属上级')
+    expect(withMemory.indexOf('【行为记忆】')).toBeLessThan(withMemory.indexOf('知识库里已有的项目'))
+
+    const without = mailPrompt([mail()], KNOWN)
+    expect(without).not.toContain('【行为记忆】')
+  })
 })
 
 describe('parseAnalysis', () => {
@@ -198,6 +208,24 @@ describe('runMailAnalysis', () => {
     const run = await runMailAnalysis({ ctx: ctxWith(session), mails: [mail()], known: KNOWN })
     expect(asked.prompts[0]).toContain('季度汇报')
     expect(run.analysis.todos[0]?.title).toBe('待办 1')
+  })
+
+  it('rides the scope\'s behavior memory into every chunk\'s prompt (ADR-0032 批次④)', async () => {
+    const mails = Array.from({ length: 12 }, (_value, index) => mail({ id: `m${index}`, subject: `第 ${index + 1} 封` }))
+    const { session, asked } = fakeSession((turn) => {
+      const first = turn === 1 ? 1 : 11
+      return JSON.stringify({
+        verdicts: Array.from({ length: turn === 1 ? 10 : 2 }, (_v, i) => ({ mail: first + i, importance: 'normal', why: '' })),
+        people: [], todos: [], projects: [], resources: [], memories: [],
+      })
+    })
+    await runMailAnalysis({
+      ctx: ctxWith(session), mails, known: KNOWN,
+      memory: '【行为记忆】人在以往运行中为「mail」沉淀的规则（历次纠正的累积），本次运行遵守：\n- 汇报先发给直属上级',
+    })
+    expect(asked.prompts).toHaveLength(2)
+    expect(asked.prompts[0]).toContain('汇报先发给直属上级')
+    expect(asked.prompts[1]).toContain('汇报先发给直属上级')
   })
 
   it('walks the batch in chunks of ten, numbering mails globally', async () => {

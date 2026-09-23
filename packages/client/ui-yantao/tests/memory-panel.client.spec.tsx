@@ -30,7 +30,7 @@ function props(overrides: Partial<MemoryPanelProps> = {}): MemoryPanelProps {
     t,
     list: vi.fn(async () => LISTED),
     add: vi.fn(async (scope: string, text: string) => ({ path: `.dsh/yantao/memory/${scope}.md`, entry: { id: 'm9', text } })),
-    remove: vi.fn(async () => ({ path: '.dsh/yantao/memory/global.md' })),
+    remove: vi.fn(async () => {}),
     ...overrides,
   }
 }

@@ -56,6 +56,13 @@ export interface MailRunState {
   /** The read's answer about where the window ends, for the staleness line. */
   readonly lastReadAt?: string
   /**
+   * The mail scope's behavior memory (ADR-0032 批次④), as the last read's
+   * capability run rendered it — the corrections the human made in past
+   * rounds. Fed into the next analysis's prompt, so a correction taught once
+   * applies from the following batch onward.
+   */
+  readonly memory?: string
+  /**
    * The processed range as the run last advanced it. `undefined` until a
    * cursor move lands: before that the panel shows the capability's own
    * persisted state, which is the fresher authority early on.
@@ -220,6 +227,7 @@ export function createMailRun(): MailRunStore {
         stale: result.stale,
         hasMore: result.hasMore,
         lastReadAt: result.lastReadAt ?? result.since,
+        ...result.memory !== undefined ? { memory: result.memory } : {},
       })
     } catch (failure: unknown) {
       set(failurePatch(failure))
@@ -247,7 +255,7 @@ export function createMailRun(): MailRunStore {
         set(update.verdicts !== undefined
           ? { progress: update, verdicts: new Map(update.verdicts.map(verdict => [verdict.mail, verdict])) }
           : { progress: update })
-      }, analyseCancel.controller.signal)
+      }, analyseCancel.controller.signal, state.memory)
       set({ verdicts: new Map(result.analysis.verdicts.map(verdict => [verdict.mail, verdict])) })
       const review = analysisToProposal(result.analysis, known, result.title, state.mails)
       set({ review })

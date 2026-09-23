@@ -140,7 +140,15 @@ export type TodoWriter = (args: KbWriteTodosArgs) => Promise<KbWriteTodosResult>
  * The signal is the run's cancel line (ADR-0031 落地注记二): an abort kills
  * the reader subprocess server-side, same as any capability run.
  */
-export type MailFetcher = (args: KbMailFetchArgs, signal?: AbortSignal) => Promise<KbMailFetchResult>
+export type MailFetcher = (args: KbMailFetchArgs, signal?: AbortSignal) => Promise<MailFetchResult>
+
+/**
+ * The mail read's answer, plus the capability scope's behavior memory
+ * (ADR-0032 批次④): the run result already carries the rendered block (批次②),
+ * and the client-driven analysis is the consumer 落地注记三 pointed at — the
+ * panel stashes it and feeds the next analysis prompt.
+ */
+export type MailFetchResult = KbMailFetchResult & { readonly memory?: string }
 
 /** Move the mail connector's cursor forward (ADR-0019). */
 export type MailMarker = (args: KbMailMarkReadArgs) => Promise<KbMailMarkReadResult>
@@ -438,9 +446,14 @@ export async function writeTodos(ctx: Context, args: KbWriteTodosArgs): Promise<
  * @param signal - the human channel's cancel line (ADR-0031 落地注记二).
  * @returns the bound used, the mails, and the two flags the panel reports.
  */
-export async function fetchMail(ctx: Context, args: KbMailFetchArgs, signal?: AbortSignal): Promise<KbMailFetchResult> {
+export async function fetchMail(ctx: Context, args: KbMailFetchArgs, signal?: AbortSignal): Promise<MailFetchResult> {
   const run = await runCapability(ctx, { name: 'mail', input: args } as unknown as KbCapabilityRunArgs, signal)
-  return run.result as unknown as KbMailFetchResult
+  const result = run.result as unknown as KbMailFetchResult
+  return {
+    ...result,
+    // exactOptionalPropertyTypes: an absent memory must stay absent, not undefined-valued.
+    ...(run.memory !== undefined ? { memory: run.memory } : {}),
+  }
 }
 
 /**

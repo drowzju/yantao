@@ -189,6 +189,24 @@ describe('MailPanel', () => {
     expect(analyse.mock.calls[0]?.[1]).toMatchObject({ projects: ['飞书迁移'], people: [] })
   })
 
+  it('feeds the read\'s behavior memory into the analysis (ADR-0032 批次④)', async () => {
+    const analyse = vi.fn(async (
+      _mails: readonly KbMailMessage[], _known: KnownEntities,
+      _onProgress?: (progress: AnalysisProgress) => void, _signal?: AbortSignal, memory?: string,
+    ) => {
+      void memory
+      return { sessionId: 's', title: '邮件分析 2026-09-10', analysis: VERDICT }
+    })
+    await openReview({
+      fetch: async () => ({
+        since: '2026-09-01T00:00:00.000Z', stale: false, hasMore: false, messages: MAILS,
+        memory: '【行为记忆】人在以往运行中为「mail」沉淀的规则（历次纠正的累积），本次运行遵守：\n- 汇报先发给直属上级',
+      }),
+      analyse,
+    })
+    expect(analyse.mock.calls[0]?.[4]).toContain('汇报先发给直属上级')
+  })
+
   it('ticks nothing to begin with, and 全部接受 ticks every row', async () => {
     await openReview()
     expect(screen.getByText('确认写入（0）')).toBeTruthy()

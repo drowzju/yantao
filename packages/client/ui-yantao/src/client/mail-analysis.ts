@@ -135,12 +135,15 @@ export interface KnownPerson {
  * @param signal - aborting cancels the run: the in-flight chunk's turn is
  *   cancelled server-side, later chunks never start, and the verdicts already
  *   reported stay reported.
+ * @param memory - the mail scope's behavior memory (ADR-0032 批次④), as the
+ *   last read's capability run rendered it; it rides into every chunk's prompt.
  */
 export type MailAnalyser = (
   mails: readonly KbMailMessage[],
   known: KnownEntities,
   onProgress?: (progress: AnalysisProgress) => void,
   signal?: AbortSignal,
+  memory?: string,
 ) => Promise<AnalysisRun>
 
 /** What the KB already holds, so the model matches against it instead of inventing. */
@@ -206,10 +209,14 @@ function renderPerson(person: KnownPerson): string {
  * @param offset - how many mails precede this chunk, so numbers stay global.
  * @returns the prompt text.
  */
-export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities, offset = 0): string {
+export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities, offset = 0, memory?: string): string {
   const list = (values: readonly string[]): string => values.length === 0 ? '（无）' : values.join('、')
   return [
     `你是个人知识库的整理助手。下面是 ${mails.length} 封新邮件（编号 ${offset + 1} 到 ${offset + mails.length}；收件时间、发件人、是否主送、主题、正文；正文已截断到 12000 字）。`,
+    // The mail scope's behavior memory (ADR-0032 批次④): the corrections the
+    // human made in past rounds, rendered by the run context. Placed up front
+    // so the rules read as standing orders, not as an afterthought.
+    ...(memory !== undefined && memory !== '' ? ['', memory, ''] : []),
     '',
     `知识库里已有的项目/领域：${list(known.projects)}`,
     `知识库里已有的人物（名字（关系）（<邮箱>））：${known.people.map(renderPerson).join('、') || '（无）'}`,
@@ -384,11 +391,12 @@ async function analyseChunk(options: {
   readonly known: KnownEntities
   readonly offset: number
   readonly signal?: AbortSignal
+  readonly memory?: string
 }): Promise<MailAnalysis> {
   return jsonRound({
     session: options.session,
     sessionId: options.sessionId,
-    prompt: mailPrompt(options.mails, options.known, options.offset),
+    prompt: mailPrompt(options.mails, options.known, options.offset, options.memory),
     reask: REASK,
     parse: parseAnalysis,
     ...options.signal !== undefined ? { signal: options.signal } : {},
@@ -415,6 +423,7 @@ export async function runMailAnalysis(options: {
   readonly cwd?: string
   readonly onProgress?: (progress: AnalysisProgress) => void
   readonly signal?: AbortSignal
+  readonly memory?: string
 }): Promise<AnalysisRun> {
   const { ctx, mails, known, cwd, onProgress } = options
   const session = sessionRemoteOf(ctx)
@@ -453,6 +462,7 @@ export async function runMailAnalysis(options: {
       known,
       offset: start,
       ...options.signal !== undefined ? { signal: options.signal } : {},
+      ...options.memory !== undefined ? { memory: options.memory } : {},
     })
     verdicts.push(...analysis.verdicts)
     people.push(...analysis.people)

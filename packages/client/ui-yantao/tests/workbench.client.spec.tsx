@@ -102,7 +102,7 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     registerResource: () => Promise.resolve('resources/新资源.pdf'),
     memoryList: () => Promise.resolve({ groups: [] }),
     memoryAdd: () => Promise.resolve({ path: '.dsh/yantao/memory/global.md', entry: { id: 'm1', text: 'x' } }),
-    memoryDelete: () => Promise.resolve({ path: '.dsh/yantao/memory/global.md' }),
+    memoryDelete: () => Promise.resolve(),
     capabilityList: () => Promise.resolve({ capabilities: [], unregistered: [] }),
     capabilityCreate: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     capabilityAdopt: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
@@ -1139,6 +1139,9 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       analyseMail={kb.analyseMail}
       refine={kb.refine}
       registerResource={() => Promise.resolve('resources/新资源.pdf')}
+      memoryList={() => Promise.resolve({ groups: [] })}
+      memoryAdd={() => Promise.resolve({ path: '.dsh/yantao/memory/global.md', entry: { id: 'm1', text: 'x' } })}
+      memoryDelete={() => Promise.resolve()}
       capabilityList={kb.capabilityList}
       capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
       capabilityAdopt={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
@@ -1324,9 +1327,12 @@ describe('Frame', () => {
         writeTodos={kb.writeTodos}
         mailFetch={() => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] })}
         mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
-        analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [] } })}
+        analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [] } })}
         refine={() => Promise.resolve({ sessionId: '', title: '', relevant: true, reason: '' })}
         registerResource={() => Promise.resolve('resources/新资源.pdf')}
+        memoryList={() => Promise.resolve({ groups: [] })}
+        memoryAdd={() => Promise.resolve({ path: '.dsh/yantao/memory/global.md', entry: { id: 'm1', text: 'x' } })}
+        memoryDelete={() => Promise.resolve()}
         capabilityList={() => Promise.resolve({ capabilities: [], unregistered: [] })}
         capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
         capabilityAdopt={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
