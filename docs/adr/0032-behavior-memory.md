@@ -49,3 +49,5 @@ yantao 至今没有独立的记忆机制。`memory.md` section 里那句「知�
 5. **工具面**:零新工具、零新 `kb_*`;wire 增量仅限 `yantaoKb` 的记忆 RPC(列表/写入/删除,实现期登记进生成目录);agent 侧沿提炼管线先例,在会话裁决协议中增 `memories[]` 段,由 UI 解析为 `add-memory` 提案行。
 
 实现分四批(沿 ADR-0031 惯例,一批一提交):① 存储层(kb 包读写模型 + 记忆 RPC,同步 controller README 与生成目录);② 注入层(ADR-0022 增补动态 section:全局记忆拼系统 prompt、能力域记忆入 `kb_run_capability` 运行上下文);③ 手势层(提案卡 `add-memory` + 两入口 + 记忆管理视图);④ 邮件闭环端到端验证(纠正一次 → 下次分析生效;验收 = 同类纠正不再重复)。
+
+落地注记二(2026-09-23,批次①完成):kb 包新增 `memory.ts`——行式 markdown 读写模型(条目 id = `sha1("<scope>|<text>")`,删除按 id 定址、陈旧 id 报不存在;解析容忍手改,散行归前导区、空白子弹跳过)与 `MEMORY_SCOPE_SOFT_CAP = 50`。`yantaoKb` 登记三个 RPC:`memoryList`(目录扫描列作用域,global 恒第一,手建文件即作用域)、`memoryAdd`(人侧写入,精确重复拒绝)、`memoryDelete`(人侧删除);均要求已选知识库根。wire 类型已登记生成目录,controller README 同步。

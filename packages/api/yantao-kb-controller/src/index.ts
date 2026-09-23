@@ -15,7 +15,9 @@
  * `.dsh/skills/yantao.json` that registration writes (ADR-0025 落地注记二) —
  * and this controller seeds the shipped
  * ones, lists them, runs them, writes their artifacts, and persists their
- * state. The UI is the human
+ * state. The memory store (ADR-0032) is `memoryList`/`memoryAdd`/`memoryDelete`:
+ * behavior rules as markdown files under `.dsh/yantao/memory/`, written only
+ * through the human channel. The UI is the human
  * channel, so `write` is a full-file write; the ADR-0004 trust boundary
  * binds only the agent's kb_ tools, never this surface.
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
@@ -37,6 +39,7 @@ import {
   parseTodoFile, PERSON_RELATIONS, readCapabilityRecord, readCapabilityState,
   registerResourceContent, resolveWithinKb, serializeTodoFile, todayStamp,
   writeCapabilityState, writeMailWatermark,
+  appendMemoryEntry, listMemoryScopes, removeMemoryEntry,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities } from './capability/builtin.ts'
@@ -64,6 +67,11 @@ import type {
   KbLinksResult,
   KbMailMarkReadArgs,
   KbMailMarkReadResult,
+  KbMemoryAddArgs,
+  KbMemoryAddResult,
+  KbMemoryDeleteArgs,
+  KbMemoryDeleteResult,
+  KbMemoryListResult,
   KbOpenExternalResult,
   KbRegisterResourceArgs,
   KbRegisterResourceResult,
@@ -834,6 +842,92 @@ export class YantaoKbController extends TypertRemoteService {
     this.requireKbRootState()
     const lastReadAt = args.lastReadAt ?? new Date().toISOString()
     return writeMailWatermark(this.kbRoot, lastReadAt, args.firstReadAt)
+  }
+
+  /**
+   * The memory store's listing (ADR-0032): every scope that has a markdown
+   * file under `.dsh/yantao/memory/` — `global.md` first, then the capability
+   * scopes name-sorted — each with its exact text and parsed entries. The
+   * scan is directory-driven, so a file the human created by hand is a scope
+   * like any other. Injection (batch ②) reads the same files.
+   * @returns the scopes, global first.
+   */
+  @Remote('memoryList')
+  async memoryList(): Promise<KbMemoryListResult> {
+    this.requireKbRootForMemory()
+    return { groups: await listMemoryScopes(this.kbRoot) }
+  }
+
+  /**
+   * Remember one behavior rule (ADR-0032): append a stamped `- ` bullet to the
+   * scope's markdown file, creating the file with its heading when absent.
+   * This is the human channel's write — the UI's `add-memory` proposal row
+   * lands here after the human ticks it — and an already-remembered text is
+   * refused rather than duplicated, so the caller shows the human what is
+   * already there. The agent has no tool into this surface: its route is a
+   * proposal the human approves, never a direct write.
+   * @param args - the scope (`global` or a capability name) and the rule's text.
+   * @returns the scope's path and the entry as written.
+   */
+  @Remote('memoryAdd')
+  async memoryAdd(args: KbMemoryAddArgs): Promise<KbMemoryAddResult> {
+    this.requireKbRootForMemory()
+    try {
+      const scope = await appendMemoryEntry(this.kbRoot, args.scope, args.text)
+      const entry = scope.entries[scope.entries.length - 1]
+      if (entry === undefined) throw new KbError('empty-memory-text', '记忆内容不能为空')
+      return { path: scope.path, entry }
+    } catch (error: unknown) {
+      throw this.memoryError(error, args.scope)
+    }
+  }
+
+  /**
+   * Forget one behavior rule (ADR-0032): removal is human-only, addressed by
+   * the entry's id. A stale id — the human edited the line meanwhile — is a
+   * `not-found`, and the caller refreshes rather than guessing.
+   * @param args - the scope and the entry's id.
+   * @returns the scope's path.
+   */
+  @Remote('memoryDelete')
+  async memoryDelete(args: KbMemoryDeleteArgs): Promise<KbMemoryDeleteResult> {
+    this.requireKbRootForMemory()
+    try {
+      const scope = await removeMemoryEntry(this.kbRoot, args.scope, args.id)
+      return { path: scope.path }
+    } catch (error: unknown) {
+      throw this.memoryError(error, args.scope)
+    }
+  }
+
+  /** Refuse memory calls before a KB root exists — the store lives beside it. */
+  private requireKbRootForMemory(): void {
+    if (!this.ctx.yantaoKb.configured) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        '还没有选择知识库目录，记忆无处存放。',
+        { path: '.dsh/yantao/memory' },
+      )
+    }
+  }
+
+  /** Translate the kb package's memory failures into the Remote channel's classes. */
+  private memoryError(error: unknown, scope: string): RemoteError {
+    if (error instanceof KbError) {
+      const notFound = error.code === 'memory-entry-not-found'
+      return new RemoteError(
+        notFound ? 'yantao-kb/not-found' : 'yantao-kb/rejected',
+        error.message,
+        { path: `.dsh/yantao/memory/${scope === 'global' ? 'global.md' : `capabilities/${scope}.md`}` },
+        { cause: error },
+      )
+    }
+    return new RemoteError(
+      'yantao-kb/rejected',
+      `记忆操作失败：${(error as Error).message}`,
+      { path: '.dsh/yantao/memory' },
+      { cause: error },
+    )
   }
 
   /**

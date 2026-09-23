@@ -293,6 +293,38 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('mailMarkRead') async mailMarkRead(args: KbMailMarkReadArgs): Promise<KbMailMarkReadResult>
 
 /**
+ * The memory store's listing (ADR-0032): every scope that has a markdown
+ * file under `.dsh/yantao/memory/` — `global.md` first, then the capability
+ * scopes name-sorted — each with its exact text and parsed entries. The
+ * scan is directory-driven, so a file the human created by hand is a scope
+ * like any other. Injection (batch ②) reads the same files.
+ * @returns the scopes, global first.
+ */
+@Remote('memoryList') async memoryList(): Promise<KbMemoryListResult>
+
+/**
+ * Remember one behavior rule (ADR-0032): append a stamped `- ` bullet to the
+ * scope's markdown file, creating the file with its heading when absent.
+ * This is the human channel's write — the UI's `add-memory` proposal row
+ * lands here after the human ticks it — and an already-remembered text is
+ * refused rather than duplicated, so the caller shows the human what is
+ * already there. The agent has no tool into this surface: its route is a
+ * proposal the human approves, never a direct write.
+ * @param args - the scope (`global` or a capability name) and the rule's text.
+ * @returns the scope's path and the entry as written.
+ */
+@Remote('memoryAdd') async memoryAdd(args: KbMemoryAddArgs): Promise<KbMemoryAddResult>
+
+/**
+ * Forget one behavior rule (ADR-0032): removal is human-only, addressed by
+ * the entry's id. A stale id — the human edited the line meanwhile — is a
+ * `not-found`, and the caller refreshes rather than guessing.
+ * @param args - the scope and the entry's id.
+ * @returns the scope's path.
+ */
+@Remote('memoryDelete') async memoryDelete(args: KbMemoryDeleteArgs): Promise<KbMemoryDeleteResult>
+
+/**
  * Run one capability's host entry (ADR-0021) — the human channel's execution
  * seam, the mail connector's and the extractor's subprocess pattern
  * generalized. The capability is resolved through `ctx.skills` (the

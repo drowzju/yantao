@@ -3057,6 +3057,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the processed range as it now stands.',
       },
       {
+        signature: '@Remote(\'memoryList\') async memoryList(): Promise<KbMemoryListResult>',
+        description: 'The memory store\'s listing (ADR-0032): every scope that has a markdown file under `.dsh/yantao/memory/` — `global.md` first, then the capability scopes name-sorted — each with its exact text and parsed entries. The scan is directory-driven, so a file the human created by hand is a scope like any other. Injection (batch ②) reads the same files.',
+        parameters: [],
+        returns: 'the scopes, global first.',
+      },
+      {
+        signature: '@Remote(\'memoryAdd\') async memoryAdd(args: KbMemoryAddArgs): Promise<KbMemoryAddResult>',
+        description: 'Remember one behavior rule (ADR-0032): append a stamped `- ` bullet to the scope\'s markdown file, creating the file with its heading when absent. This is the human channel\'s write — the UI\'s `add-memory` proposal row lands here after the human ticks it — and an already-remembered text is refused rather than duplicated, so the caller shows the human what is already there. The agent has no tool into this surface: its route is a proposal the human approves, never a direct write.',
+        parameters: [{ name: 'args', description: 'the scope (`global` or a capability name) and the rule\'s text.' }],
+        returns: 'the scope\'s path and the entry as written.',
+      },
+      {
+        signature: '@Remote(\'memoryDelete\') async memoryDelete(args: KbMemoryDeleteArgs): Promise<KbMemoryDeleteResult>',
+        description: 'Forget one behavior rule (ADR-0032): removal is human-only, addressed by the entry\'s id. A stale id — the human edited the line meanwhile — is a `not-found`, and the caller refreshes rather than guessing.',
+        parameters: [{ name: 'args', description: 'the scope and the entry\'s id.' }],
+        returns: 'the scope\'s path.',
+      },
+      {
         signature: '@Remote(\'capabilityRun\') async capabilityRun(args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<KbCapabilityRunResult>',
         description: 'Run one capability\'s host entry (ADR-0021) — the human channel\'s execution seam, the mail connector\'s and the extractor\'s subprocess pattern generalized. The capability is resolved through `ctx.skills` (the skill-filesystem provider discovers the directories; this controller only consumes the winner), its `yantao.json` declaration (legacy `metadata.yantao` frontmatter accepted) picks the entry script, and the run is one Python subprocess with a JSON stdin/stdout contract (`capability/run.ts`).\n\nThe controller, not the script, owns every write: artifacts land under `.dsh/yantao/capabilities/<name>/` at paths the script cannot choose, and the returned state is persisted under `capabilities.<name>.state` in the KB\'s `.dsh/yantao/state.json` (ADR-0024) — machine state inside the KB, which stays markdown for humans. The agent has its own channel into the same seam: `kb_run_capability` (ADR-0023), gated per capability by the sidecar\'s `invocation` declaration.',
         parameters: [{ name: 'args', description: 'the capability\'s skill name and the caller\'s input, handed to the entry script verbatim.' }, { name: 'signal', description: 'the human channel\'s cancel line (ADR-0031): an abort kills the entry script\'s subprocess and rejects with the `cancelled` kind. The agent channel has no cancel — its runs answer or time out.' }],
@@ -4599,6 +4617,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KbMailMarkReadResult',
     declaration: 'export interface KbMailMarkReadResult {\n    readonly lastReadAt: string;\n    readonly firstReadAt?: string;\n}',
+  },
+  {
+    name: 'KbMemoryAddArgs',
+    declaration: 'export interface KbMemoryAddArgs {\n    readonly scope: string;\n    readonly text: string;\n}',
+  },
+  {
+    name: 'KbMemoryAddResult',
+    declaration: 'export interface KbMemoryAddResult {\n    readonly path: string;\n    readonly entry: KbMemoryEntry;\n}',
+  },
+  {
+    name: 'KbMemoryDeleteArgs',
+    declaration: 'export interface KbMemoryDeleteArgs {\n    readonly scope: string;\n    readonly id: string;\n}',
+  },
+  {
+    name: 'KbMemoryDeleteResult',
+    declaration: 'export interface KbMemoryDeleteResult {\n    readonly path: string;\n}',
+  },
+  {
+    name: 'KbMemoryEntry',
+    declaration: 'export interface KbMemoryEntry {\n    readonly id: string;\n    readonly date?: string;\n    readonly text: string;\n}',
+  },
+  {
+    name: 'KbMemoryGroup',
+    declaration: 'export interface KbMemoryGroup {\n    readonly scope: string;\n    readonly path: string;\n    readonly text: string;\n    readonly entries: readonly KbMemoryEntry[];\n}',
+  },
+  {
+    name: 'KbMemoryListResult',
+    declaration: 'export interface KbMemoryListResult {\n    readonly groups: readonly KbMemoryGroup[];\n}',
   },
   {
     name: 'KbOpenExternalResult',

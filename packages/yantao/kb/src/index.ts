@@ -521,6 +521,12 @@ export {
 } from './root-store.ts'
 export type { CapabilityRecord } from './root-store.ts'
 export { appendToLogSection, logBullet, replaceSection, replaceStateSection } from './splice.ts'
+export {
+  appendMemoryEntry, assertMemoryScope, listMemoryScopes, MEMORY_GLOBAL_SCOPE, MEMORY_SCOPE_SOFT_CAP,
+  memoryDisplayPath, memoryEntryId, memoryEntryLine, parseMemoryFile, readMemoryScope, removeMemoryEntry,
+  serializeMemoryFile,
+} from './memory.ts'
+export type { MemoryEntry, MemoryFile, MemoryScope } from './memory.ts'
 export { linksOf, resolveWikiLink, wikilinks } from './links.ts'
 export type { KbLinkSource, KbLinkTarget, KbLinks, WikiLink } from './links.ts'
 export { parseFrontmatter } from './frontmatter.ts'

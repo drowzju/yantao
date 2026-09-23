@@ -521,3 +521,64 @@ export interface KbCapabilityCreateResult {
   /** KB-relative path of the scaffolded directory, `.dsh/skills/<name>`. */
   readonly path: string
 }
+
+/**
+ * One remembered behavior rule of the memory store (ADR-0032): a `- ` bullet
+ * in the scope's markdown file, id-addressable for deletion.
+ */
+export interface KbMemoryEntry {
+  /** Stable id: `sha1("<scope>|<text>")`; `memoryDelete` addresses this. */
+  readonly id: string
+  /** Creation stamp (YYYY-MM-DD) when the line carries one. */
+  readonly date?: string
+  /** The rule's text, as written after the bullet (and optional stamp). */
+  readonly text: string
+}
+
+/** One scope's memory: the global file, or one capability's file. */
+export interface KbMemoryGroup {
+  /** The scope: `global`, or the capability's skill name. */
+  readonly scope: string
+  /** KB-relative path of the scope's markdown file, forward slashes. */
+  readonly path: string
+  /** The file's exact current text — an absent file reads as `''`, never an error. */
+  readonly text: string
+  /** The parsed entries, in file order; empty for an absent file. */
+  readonly entries: readonly KbMemoryEntry[]
+}
+
+/** Result of `yantaoKb.memoryList` (ADR-0032): every scope that has a file. */
+export interface KbMemoryListResult {
+  /** The global scope first, then the capability scopes name-sorted. */
+  readonly groups: readonly KbMemoryGroup[]
+}
+
+/** Parameters of `yantaoKb.memoryAdd` (ADR-0032). */
+export interface KbMemoryAddArgs {
+  /** The scope to remember in: `global`, or the capability's skill name. */
+  readonly scope: string
+  /** The rule's text; trimmed before it is stored, and refused when empty or already remembered. */
+  readonly text: string
+}
+
+/** Result of `yantaoKb.memoryAdd` (ADR-0032). */
+export interface KbMemoryAddResult {
+  /** KB-relative path of the scope's markdown file. */
+  readonly path: string
+  /** The entry as it now sits in the file. */
+  readonly entry: KbMemoryEntry
+}
+
+/** Parameters of `yantaoKb.memoryDelete` (ADR-0032): removal is human-only. */
+export interface KbMemoryDeleteArgs {
+  /** The scope the entry lives in. */
+  readonly scope: string
+  /** The entry's id, as `memoryList` reported it. */
+  readonly id: string
+}
+
+/** Result of `yantaoKb.memoryDelete` (ADR-0032). */
+export interface KbMemoryDeleteResult {
+  /** KB-relative path of the scope's markdown file. */
+  readonly path: string
+}
