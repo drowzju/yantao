@@ -106,6 +106,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0029 | 提炼闭环 v1:资源归入(拖资源到实体行,系统拖入先登记再分析)与实体提炼(右键)共用一条管线——UI 直驱专用会话(mail 分析先例,非 pre-step、不声明能力、零新 RPC/工具),JSON 裁决解析为提议卡;卡新增 `edit-section` 动作(缺区段补建、流水拒绝、frontmatter 不碰),落盘重读重定位逐动作失败标红;无关 toast 不留痕,逐实体 opt-in 不批量迁移(ADR-0026 台账 #6 的兑现形态) |
 | 0030 | 提炼闭环 v2:第三手势「提炼到实体」(资源行/目录行右键,一份资源对整个实体花名册的碰撞,目录逐文件独立会话串行排队);裁决协议 v2(targets[]/creates[]/questions[],旧单实体形状兼容,空行丢弃);creates 先行 + create-follows-create(`afterCreate` + applier `created` 映射);双链成结构化 `create-link` 行;questions 两段式(同会话续答,至多一轮);花名册整体注入(实体 8k/资源 32k 截断、二进制占位);UI 串行手势队列 + QuestionDialog;会议内置骨架补 `## 决议`/`## 待办` |
 | 0031 | 任务统一视图与取消:三类后台执行(提炼/邮件分析/能力)各有取消语义——提炼中止会话清队列、邮件停 chunk 保判定不动水位、能力杀子进程(刷新=杀任务),AbortSignal 作宿主方法尾参;中央栏常驻「任务」tab(运行数徽标、运行中置顶的扁平单列,行=动作+对象/阶段/进展/耗时/取消/查看),前端聚合三态、仅前端记忆,零后端任务模型;agent 发起的执行不可见为已记录局限 |
+| 0032 | 记忆系统:行为规则层——记忆 = 影响 agent 行为的规则与偏好(「怎么做」),实体知识(「是什么」)仍落实体;三类作用域(全局/能力域/实体域),一期只做前两档、实体域挂起观察,注入全走动态(ADR-0022 增补动态 section),写入走提案卡人批且永不免审(低频高杠杆、自我强化);首个验证场景邮件分诊;实现期增量与五项待决记于 ADR,零立即代码改动 |
 
 ## 5. 快速上手
 
@@ -137,7 +138,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 | [development.md](development.md) | 构建、运行、停止、测试、门禁、坑 |
 | [design.md](design.md) | UI 设计规则:`--yt-*` token、排版与间距阶梯、表面与构图纪律、迁移路径 |
 | [TODO.md](TODO.md) | 待办:done / next / deferred(每个搁置项都带原因) |
-| [../adr/](../adr/) | ADR 0001–0031(索引见第 4 节) |
+| [../adr/](../adr/) | ADR 0001–0032(索引见第 4 节) |
 | [../subsystems/yantao.md](../subsystems/yantao.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | 上下文地图:yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | 词汇表(规范用词) |
