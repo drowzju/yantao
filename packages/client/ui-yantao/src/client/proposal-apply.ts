@@ -22,7 +22,7 @@
 import type {
   KbTodoItem, KbTodosResult, KbWriteTodosResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { EntityCreator, FileReader, FileWriter, TodoLoader, TodoWriter } from './remote.ts'
+import { isDuplicateMemory, type EntityCreator, type FileReader, type FileWriter, type MemoryAdder, type TodoLoader, type TodoWriter } from './remote.ts'
 import type { Proposal, ProposalAction } from './proposal.ts'
 import { stamp } from './proposal.ts'
 
@@ -38,6 +38,8 @@ export interface ProposalTarget {
   readonly todos: TodoLoader
   /** Write the todo singleton under optimistic concurrency. */
   readonly writeTodos: TodoWriter
+  /** Remember one behavior rule (ADR-0032 批次③); an exact duplicate is refused. */
+  readonly memoryAdd: MemoryAdder
 }
 
 /** What one confirmed card produced. */
@@ -132,6 +134,7 @@ function writtenLine(action: ProposalAction): string {
     // A create-following section edit carries no path until the applier
     // resolves it; the create's name is what the human ticked.
     case 'edit-section': return `章节 ${action.section}（${action.path !== '' ? action.path : action.afterCreate ?? ''}）`
+    case 'add-memory': return `记忆（${action.scope}）${action.text}`
   }
 }
 
@@ -198,6 +201,19 @@ export async function applyProposal(options: {
         }
         await target.write(action.path, action.content)
         written.push(writtenLine(action))
+        continue
+      }
+      if (action.kind === 'add-memory') {
+        // ADR-0032 批次③: the host refuses an exact duplicate — that is the
+        // rule already being remembered, which reads as 已记得, not a failure.
+        try {
+          await target.memoryAdd(action.scope, action.text)
+          written.push(writtenLine(action))
+        } catch (error: unknown) {
+          skipped.push(isDuplicateMemory(error)
+            ? `${writtenLine(action)}：已记得，无需重记`
+            : failedLine(action, error))
+        }
         continue
       }
       if (action.kind === 'edit-section') {

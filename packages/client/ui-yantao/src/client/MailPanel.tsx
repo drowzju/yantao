@@ -16,7 +16,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 import type { KbMailMessage } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { MailFetcher, MailMarker } from './remote.ts'
+import { isDuplicateMemory, remoteMessage, type MailFetcher, type MailMarker, type MemoryAdder } from './remote.ts'
 import type { AnalysisStage, MailAnalyser, MailImportance } from './mail-analysis.ts'
 import { createMailRun, useMailRun, type MailProcessedRange, type MailRunStore } from './mail-run.ts'
 import { groupThreads, rollupImportance, THREAD_COLLAPSE_MIN } from './mail-threads.ts'
@@ -48,6 +48,13 @@ export interface MailPanelProps {
    * panel; absent, the panel keeps its own (which dies with it).
    */
   readonly store?: MailRunStore
+  /**
+   * Remember one behavior rule (ADR-0032 批次③) — the human-side direct
+   * write: a correction spotted while reading the batch goes straight into
+   * the `mail` scope, no proposal card (the human is the author). Absent,
+   * the row is not offered.
+   */
+  readonly memoryAdd?: MemoryAdder
 }
 
 /**
@@ -144,7 +151,7 @@ function day(iso: string): string {
  * @param props - see {@link MailPanelProps}.
  * @returns the panel element.
  */
-export function MailPanel({ t, fetch, mark, analyse, target, entities, processed = {}, store }: MailPanelProps): ReactElement {
+export function MailPanel({ t, fetch, mark, analyse, target, entities, processed = {}, store, memoryAdd }: MailPanelProps): ReactElement {
   // The store is the workbench's when it hands one down; otherwise this panel
   // keeps its own, exactly as ephemeral as the component state used to be.
   const local = useRef<MailRunStore | null>(null)
@@ -176,6 +183,24 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
   const elapsed = startedAt === null ? 0 : Math.max(Math.floor((Date.now() - startedAt) / 1000), 0)
 
   const busy = phase !== 'idle'
+
+  // ADR-0032 批次③: the human-side direct write — a correction spotted while
+  // reading the batch lands straight in the `mail` scope, no proposal card:
+  // the human is the author, and the UI is the human channel. A duplicate
+  // reads as 已记得, not an error.
+  const [memory, setMemory] = useState('')
+  const [memoryNotice, setMemoryNotice] = useState<string | null>(null)
+  const remember = async (): Promise<void> => {
+    const trimmed = memory.trim()
+    if (trimmed === '' || memoryAdd === undefined) return
+    try {
+      await memoryAdd('mail', trimmed)
+      setMemory('')
+      setMemoryNotice(t('memory.added'))
+    } catch (failure: unknown) {
+      setMemoryNotice(isDuplicateMemory(failure) ? t('memory.known') : remoteMessage(failure))
+    }
+  }
 
   /** One flat-batch mail, exactly as the pre-thread row looked; threads indent theirs. */
   const mailRow = (mail: KbMailMessage, index: number, indented: boolean): ReactElement => {
@@ -290,6 +315,23 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
         </div>
       )}
       {error !== null && <div style={errorStyle} data-mail-error="true">{error}</div>}
+      {memoryAdd !== undefined && (
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }} data-mail-memory="true">
+          <input
+            style={{ flex: 1, minWidth: 0, padding: '3px 6px' }}
+            value={memory}
+            placeholder={t('memory.addPlaceholder')}
+            onChange={(event) => { setMemory(event.target.value) }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') { void remember() }
+            }}
+          />
+          <button type="button" style={buttonStyle} disabled={memory.trim() === ''} onClick={() => { void remember() }}>
+            {t('memory.addButton')}
+          </button>
+        </div>
+      )}
+      {memoryNotice !== null && <div style={hintStyle} data-mail-memory-notice="true">{memoryNotice}</div>}
       {hint !== null && <div style={hintStyle}>{hint}</div>}
       {summary.length > 0 && (
         <div style={mutedStyle} data-mail-summary="true">

@@ -105,6 +105,12 @@ describe('mailPrompt', () => {
     expect(text).toContain('normal')
     expect(text).toContain('上级')
   })
+
+  it('asks for memories as one-sentence corrections or preferences', () => {
+    const text = mailPrompt([mail()], KNOWN)
+    expect(text).toContain('memories')
+    expect(text).toContain('纠正')
+  })
 })
 
 describe('parseAnalysis', () => {
@@ -121,6 +127,7 @@ describe('parseAnalysis', () => {
     todos: [{ title: '发汇报', due: '2026-09-12', body: '给张三' }, { title: '没期限的', due: null, body: '' }],
     projects: [{ name: '飞书迁移', note: '对方确认了时间' }],
     resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
+    memories: [{ text: '汇报先发给直属上级', why: '上级主送' }, { text: '', why: '空行丢弃' }, 'not an object'],
   })
 
   it('reads a fenced JSON block', () => {
@@ -137,6 +144,7 @@ describe('parseAnalysis', () => {
     expect(analysis.todos[1]?.due).toBeUndefined()
     expect(analysis.projects[0]?.name).toBe('飞书迁移')
     expect(analysis.resources).toEqual([{ name: '汇报模板', summary: '两句话', mail: 1 }])
+    expect(analysis.memories).toEqual([{ text: '汇报先发给直属上级', why: '上级主送' }])
   })
 
   it('reads bare JSON when the model skips the fence', () => {
@@ -256,6 +264,7 @@ describe('analysisToProposal', () => {
     todos: [{ title: '发汇报', due: '2026-09-12', body: '给张三' }],
     projects: [{ name: '飞书迁移', note: '对方确认了时间' }, { name: '不存在的项目', note: '没有这个项目' }],
     resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
+    memories: [],
   }
 
   it('maps the four blocks into one flat action list, in a fixed order', () => {
@@ -263,6 +272,14 @@ describe('analysisToProposal', () => {
     expect(proposal.title).toBe('邮件分析 2026-09-10')
     expect(proposal.actions.map(action => action.kind))
       .toEqual(['create-entity', 'add-todo', 'append-log', 'append-log', 'save-resource'])
+  })
+
+  it('pins the verdict\'s memories to the mail scope, so a slip cannot leak into every task (ADR-0032)', () => {
+    const proposal = analysisToProposal(
+      { ...ANALYSIS, memories: [{ text: '汇报先发给直属上级', why: '上级主送' }] },
+      ENTITIES, 't', MAILS,
+    )
+    expect(proposal.actions.at(-1)).toMatchObject({ kind: 'add-memory', scope: 'mail', text: '汇报先发给直属上级', reason: '上级主送' })
   })
 
   it('carries the relation and the sender address into the person action', () => {

@@ -12,7 +12,7 @@ import type {
 import type {
   CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, EntityCreator, FileDeleter, FileReader,
   FileWriter,
-  MailFetcher, MailMarker, RelationSetter, ResourceRegistrar,
+  MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, RelationSetter, ResourceRegistrar,
   TodoLoader, TodoWriter,
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
@@ -22,6 +22,7 @@ import type { ProposalTarget } from './proposal-apply.ts'
 import { entitiesOfTree } from './mail-apply.ts'
 import { CapabilityPanel } from './CapabilityPanel.tsx'
 import { MailPanel, mailRangeOf } from './MailPanel.tsx'
+import { MemoryPanel } from './MemoryPanel.tsx'
 import { createMailRun, useMailRun, type MailRunStore } from './mail-run.ts'
 import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { remoteMessage } from './remote.ts'
@@ -33,8 +34,10 @@ import { NewEntityRow } from './NewEntityRow.tsx'
 /** Loads one rail's sections; rejects with a message the rail can render. */
 export type TreeLoader = () => Promise<readonly KbTreeSection[]>
 
-/** Left-rail tabs in display order; `connector` is the 能力 tab (ADR-0021). */
-const INTAKE_PANEL_IDS: readonly (KbTreeSectionId | 'connector')[] = ['resources', 'todos', 'meetings', 'connector']
+/** Left-rail tabs in display order; `connector` is the 能力 tab (ADR-0021), `memory` the 记忆 one (ADR-0032). */
+const INTAKE_PANEL_IDS: readonly (KbTreeSectionId | 'connector' | 'memory')[] = [
+  'resources', 'todos', 'meetings', 'memory', 'connector',
+]
 
 /** Right-rail tabs in display order. */
 const WORKSPACE_TAB_IDS: readonly KbTreeSectionId[] = ['areas', 'people', 'projects']
@@ -64,11 +67,12 @@ function sectionOf(
 }
 
 /** Panel and tab labels as dictionary keys — translated at render through the threaded `t`. */
-export const SECTION_KEYS: Record<KbTreeSectionId | 'connector', WorkbenchLocaleKey> = {
+export const SECTION_KEYS: Record<KbTreeSectionId | 'connector' | 'memory', WorkbenchLocaleKey> = {
   resources: 'section.resource',
   todos: 'section.todo',
   meetings: 'section.meeting',
   connector: 'section.capability',
+  memory: 'section.memory',
   areas: 'section.domain',
   people: 'section.person',
   projects: 'section.project',
@@ -904,6 +908,12 @@ export interface IntakeRailProps extends RailProps {
    * any change brings 能力 to the front.
    */
   readonly revealConnector?: number
+  /** List the behavior-memory scopes (ADR-0032) — the 记忆 tab's read. */
+  readonly memoryList: MemoryLister
+  /** Remember one behavior rule (ADR-0032) — the 记忆 tab's and the mail panel's direct write. */
+  readonly memoryAdd: MemoryAdder
+  /** Forget one behavior rule by id (ADR-0032) — the 记忆 tab's delete. */
+  readonly memoryDelete: MemoryDeleter
 }
 
 /** The rail's error marker: it is the only thing left above the tab strip. */
@@ -976,10 +986,11 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
     read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource, onRefine,
     capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, onRunCapability, kbRoot = '',
+    memoryList, memoryAdd, memoryDelete,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const capabilities = useCapabilities(capabilityList, refreshKey)
-  const [tab, setTab] = useState<KbTreeSectionId | 'connector'>('resources')
+  const [tab, setTab] = useState<KbTreeSectionId | 'connector' | 'memory'>('resources')
   // The mail run outlives the panel: tab switches, capability switches and a
   // collapsed rail all unmount MailPanel, and an analysis (or the proposal
   // card waiting on the human) must still be there when they come back.
@@ -1043,8 +1054,10 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   }
 
   // ADR-0019: the writes a confirmed proposal lands on (mail's share of it).
+  // ADR-0032 批次③: the card's 记忆 rows go through the same memoryAdd the
+  // human's direct write uses — one seam, two authors.
   const mailTarget: ProposalTarget = {
-    createEntity, read, write, todos: loadTodos, writeTodos,
+    createEntity, read, write, todos: loadTodos, writeTodos, memoryAdd,
   }
 
   // ADR-0020: dropping files onto the rail registers them — a pure copy into
@@ -1143,9 +1156,13 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
               entities={async () => entitiesOfTree(await workspace())}
               processed={mailRangeOf(state)}
               store={mailRun}
+              memoryAdd={memoryAdd}
             />
           )}
         />
+      )}
+      {tab === 'memory' && (
+        <MemoryPanel t={t} list={memoryList} add={memoryAdd} remove={memoryDelete} />
       )}
       {tab === 'resources' && (
         <ResourceTree

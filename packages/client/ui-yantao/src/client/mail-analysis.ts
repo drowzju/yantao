@@ -68,6 +68,19 @@ export interface MailResource {
   readonly mail?: number
 }
 
+/**
+ * One behavior correction the mails exposed (ADR-0032 批次③): a rule the
+ * human would want followed next time. The model proposes only text and why —
+ * the scope is pinned to `mail` by the UI, so a misjudged rule can never leak
+ * into every task as a global memory.
+ */
+export interface MailMemory {
+  /** The rule, one sentence, worded to stand alone without this batch. */
+  readonly text: string
+  /** Why it is worth remembering. */
+  readonly why: string
+}
+
 /** How important one mail is, as the analysis classifies it. */
 export type MailImportance = 'focus' | 'digest' | 'normal'
 
@@ -88,6 +101,7 @@ export interface MailAnalysis {
   readonly todos: readonly MailTodo[]
   readonly projects: readonly MailProjectNote[]
   readonly resources: readonly MailResource[]
+  readonly memories: readonly MailMemory[]
 }
 
 /** Where one analysis run has got to — the panel turns it into a line of prose. */
@@ -138,7 +152,7 @@ export interface KnownEntities {
 }
 
 /** An empty verdict: what a parse returns when the model found nothing. */
-const EMPTY: MailAnalysis = { verdicts: [], people: [], todos: [], projects: [], resources: [] }
+const EMPTY: MailAnalysis = { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [] }
 
 /** Today as a YYYY-MM-DD stamp, in the human's own timezone. */
 function stamp(): string {
@@ -208,7 +222,8 @@ export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities
     '  "people": [{ "name": "张三", "relation": "superior | peer | subordinate | external 或 null", "reason": "为什么值得记住", "email": "发件人邮箱或 null" }],',
     '  "todos": [{ "title": "要做的事", "due": "YYYY-MM-DD 或 null", "body": "可选的补充正文" }],',
     '  "projects": [{ "name": "已存在的项目名", "note": "这封邮件对它意味着什么（一句话）" }],',
-    '  "resources": [{ "name": "值得留存的材料标题", "summary": "两三句话的摘要", "mail": 来自哪封邮件的编号或 null }]',
+    '  "resources": [{ "name": "值得留存的材料标题", "summary": "两三句话的摘要", "mail": 来自哪封邮件的编号或 null }],',
+    '  "memories": [{ "text": "要记住的纠正或偏好（一句话）", "why": "为什么值得记" }]',
     '}',
     '```',
     '',
@@ -226,6 +241,7 @@ export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities
     '- `people[].relation` 四选一：superior＝我的上级或领导，peer＝同事或平级协作者，subordinate＝我的下属，external＝公司外部的人；拿不准就填 null。',
     '- 拿不准的不要输出：宁可少，不可错。',
     '- 邮件本身默认不是资源，只有确实值得长期留存的材料才进 `resources`，并注明来自哪封邮件。',
+    '- `memories` 只收行为纠正或偏好：这批邮件暴露出的、下次遇到同类事情应当直接照做的规则（例如「发给甲的报告要先经乙审核」）。只在邮件里确凿看到时输出；每条一句话，写法要能脱离这批邮件单独成立。',
     '',
     '邮件：',
     '',
@@ -326,6 +342,10 @@ export function parseAnalysis(text: string): MailAnalysis {
     const mail = mailNumber((row as Record<string, unknown> | null)?.mail)
     return { name, summary: field(row, 'summary'), ...mail !== undefined ? { mail } : {} }
   })
+  const memories = rows(value.memories).map((row): MailMemory | undefined => {
+    const text = field(row, 'text')
+    return text === '' ? undefined : { text, why: field(row, 'why') }
+  })
 
   return {
     verdicts: verdicts.filter((row): row is MailVerdict => row !== undefined),
@@ -333,6 +353,7 @@ export function parseAnalysis(text: string): MailAnalysis {
     todos: todos.filter((row): row is MailTodo => row !== undefined),
     projects: projects.filter((row): row is MailProjectNote => row !== undefined),
     resources: resources.filter((row): row is MailResource => row !== undefined),
+    memories: memories.filter((row): row is MailMemory => row !== undefined),
   }
 }
 
@@ -347,7 +368,7 @@ export interface AnalysisRun {
 }
 
 /** The re-ask when the first answer is not readable JSON: JSON alone, nothing else. */
-const REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 verdicts/people/todos/projects/resources 字段），不要输出任何其它文字。'
+const REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 verdicts/people/todos/projects/resources/memories 字段），不要输出任何其它文字。'
 
 /**
  * One chunk of the batch through the already-created session, waited out to
@@ -422,6 +443,7 @@ export async function runMailAnalysis(options: {
   const todos: MailTodo[] = []
   const projects: MailProjectNote[] = []
   const resources: MailResource[] = []
+  const memories: MailMemory[] = []
   for (let start = 0; start < mails.length; start += CHUNK_SIZE) {
     const chunk = mails.slice(start, start + CHUNK_SIZE)
     const analysis = await analyseChunk({
@@ -437,6 +459,7 @@ export async function runMailAnalysis(options: {
     todos.push(...analysis.todos)
     projects.push(...analysis.projects)
     resources.push(...analysis.resources)
+    memories.push(...analysis.memories)
     onProgress?.({
       stage: 'answer',
       done: Math.min(start + CHUNK_SIZE, mails.length),
@@ -444,5 +467,5 @@ export async function runMailAnalysis(options: {
       verdicts: [...verdicts],
     })
   }
-  return { sessionId, title: sessionName, analysis: { verdicts, people, todos, projects, resources } }
+  return { sessionId, title: sessionName, analysis: { verdicts, people, todos, projects, resources, memories } }
 }

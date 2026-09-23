@@ -20,6 +20,7 @@ function target(overrides: Partial<ProposalTarget> = {}): ProposalTarget {
     write: vi.fn(async () => {}),
     todos: vi.fn(async () => todos),
     writeTodos: vi.fn(async () => ({ path: TODOS_PATH, text: TEXT })),
+    memoryAdd: vi.fn(async (scope: string, text: string) => ({ path: `.dsh/yantao/memory/${scope}.md`, entry: { id: 'm1', text } })),
     ...overrides,
   }
 }
@@ -161,6 +162,29 @@ describe('applyProposal', () => {
     expect(args.items.map(item => item.title)).toEqual(['已有的待办', '发汇报', '回邮件'])
     expect(args.items[1]?.due).toBe('2026-09-20')
     expect(result.written).toEqual(['待办 2 条（entities/todos.md）'])
+  })
+
+  it('records a memory through the memoryAdd seam (ADR-0032)', async () => {
+    const t = target()
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'add-memory', scope: 'mail', text: '汇报先发给直属上级', reason: '上级主送' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(t.memoryAdd).toHaveBeenCalledWith('mail', '汇报先发给直属上级')
+    expect(result.written).toEqual(['记忆（mail）汇报先发给直属上级'])
+    expect(result.skipped).toEqual([])
+  })
+
+  it('treats an exact-duplicate memory as already known, not as a failure', async () => {
+    const t = target({ memoryAdd: vi.fn(async () => { throw new Error('这条记忆已经存在（作用域 mail）：汇报先发给直属上级') }) })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'add-memory', scope: 'mail', text: '汇报先发给直属上级', reason: '上级主送' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(result.written).toEqual([])
+    expect(result.skipped).toEqual(['记忆（mail）汇报先发给直属上级：已记得，无需重记'])
   })
 
   it('runs the ticked actions in index order, not kind order', async () => {

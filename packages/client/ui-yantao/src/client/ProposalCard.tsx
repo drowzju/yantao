@@ -65,7 +65,7 @@ const footerStyle = {
 
 /** The kinds in the order the card lists their groups. */
 const GROUP_ORDER: readonly ProposalAction['kind'][] = [
-  'create-entity', 'add-todo', 'append-log', 'write-state', 'edit-section', 'create-link', 'save-resource',
+  'create-entity', 'add-todo', 'append-log', 'write-state', 'edit-section', 'create-link', 'save-resource', 'add-memory',
 ]
 
 /** A person action's relation, as the row's detail names it (self is never proposed). */
@@ -86,6 +86,7 @@ function labelOf(action: ProposalAction): string {
     case 'create-link': return action.link
     case 'save-resource': return action.path
     case 'edit-section': return action.section
+    case 'add-memory': return action.text
   }
 }
 

@@ -106,6 +106,19 @@ export type ProposalAction =
      */
     readonly afterCreate?: string
   }
+  | {
+    /**
+     * Remember one behavior rule in a scope (ADR-0032 批次③). The scope is
+     * pinned by the UI — the mail analysis's proposals all land in `mail` —
+     * so a misjudged rule can never leak into every task as a global memory.
+     * The applier routes it through `memoryAdd`; an exact duplicate is
+     * rendered as 已记得, not an error.
+     */
+    readonly kind: 'add-memory'
+    readonly scope: string
+    readonly text: string
+    readonly reason: string
+  }
 
 /** One mail the analysis flagged, shown on the card without a checkbox. */
 export interface ProposalHighlight {
@@ -143,6 +156,7 @@ export const GROUP_KEYS: Record<ProposalAction['kind'], WorkbenchLocaleKey> = {
   'create-link': 'group.domainLink',
   'add-todo': 'group.todo',
   'edit-section': 'group.editSection',
+  'add-memory': 'group.memory',
 }
 
 /** Today as a YYYY-MM-DD stamp, in the human's own timezone. */
@@ -253,6 +267,17 @@ export function analysisToProposal(
       path: `resources/${safeName(resource.name)}.md`,
       content: resourceNote(resource.name, resource.summary, resource.mail !== undefined ? mails[resource.mail - 1] : undefined),
       reason: resource.summary,
+    })
+  }
+  // ADR-0032 批次③: the model proposes only text and why; the scope is
+  // pinned here to `mail` — the analysis's own surface — so a rule it
+  // misjudges stays out of every other task.
+  for (const memory of analysis.memories) {
+    actions.push({
+      kind: 'add-memory',
+      scope: 'mail',
+      text: memory.text,
+      reason: memory.why,
     })
   }
   const highlightOf = (mail: number): ProposalHighlight | undefined => {

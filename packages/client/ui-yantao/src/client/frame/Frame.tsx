@@ -16,7 +16,8 @@ import type {
   CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, CapabilityRunner, DirectoryPicker,
   EntityCreator,
   ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader,
-  MailFetcher, MailMarker, RelationSetter, ResourceRegistrar, RevisionLoader, RootLoader, RootSetter,
+  MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, RelationSetter, ResourceRegistrar, RevisionLoader,
+  RootLoader, RootSetter,
   SessionPrompter, TodoLoader, TodoWriter,
 } from '../remote.ts'
 import type { AnalysisStage, MailAnalyser } from '../mail-analysis.ts'
@@ -104,6 +105,12 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly capabilityRun: CapabilityRunner
   /** Send one prompt to the conversation the human is watching (ADR-0025 决定 4). */
   readonly promptSession: SessionPrompter
+  /** List the behavior-memory scopes (ADR-0032) — the 记忆 tab's read. */
+  readonly memoryList: MemoryLister
+  /** Remember one behavior rule (ADR-0032) — the card rows' and the human's direct write. */
+  readonly memoryAdd: MemoryAdder
+  /** Forget one behavior rule by id (ADR-0032) — the 记忆 tab's delete. */
+  readonly memoryDelete: MemoryDeleter
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
   readonly onKbRootChanged: () => void
 }
@@ -285,7 +292,7 @@ export function Frame({
   t, renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine,
   registerResource, capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
-  promptSession, onKbRootChanged,
+  promptSession, memoryList, memoryAdd, memoryDelete, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -435,10 +442,11 @@ export function Frame({
 
   // ADR-0021 决定 4: the confirmed proposal lands through the shared applier's
   // direct RPCs — the frame owns the KB seams, the task owns the state machine.
+  // ADR-0032 批次③: the card's 记忆 rows go through the same memoryAdd.
   const applyConfirmed = useCallback(
     (options: { proposal: Proposal; ticked: readonly number[] }): Promise<ProposalApplyResult> =>
-      applyProposal({ ...options, target: { createEntity, read, write, todos, writeTodos } }),
-    [createEntity, read, write, todos, writeTodos],
+      applyProposal({ ...options, target: { createEntity, read, write, todos, writeTodos, memoryAdd } }),
+    [createEntity, read, write, todos, writeTodos, memoryAdd],
   )
 
   // The one confirm path every proposal card shares (capability runs'
@@ -995,6 +1003,9 @@ export function Frame({
           capabilityRegister={capabilityRegister}
           mailRun={mailRun}
           revealConnector={connectorNonce}
+          memoryList={memoryList}
+          memoryAdd={memoryAdd}
+          memoryDelete={memoryDelete}
           onRunCapability={runRowCapability}
           onRefine={runRefineGesture}
           kbRoot={kbRoot}

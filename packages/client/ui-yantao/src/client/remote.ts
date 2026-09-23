@@ -27,6 +27,7 @@ import type {
   KbCapabilityRunArgs, KbCapabilityRunResult, KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
   KbDeleteFileResult, KbFileContent, KbLinksResult,
   KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
+  KbMemoryAddArgs, KbMemoryAddResult, KbMemoryDeleteArgs, KbMemoryDeleteResult, KbMemoryListResult,
   KbOpenExternalResult, KbPersonRelation, KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
   KbRootResult, KbSetRelationArgs, KbSetRelationResult,
   KbSetRootResult, KbTodosResult, KbTree,
@@ -63,6 +64,12 @@ export interface KbRemote {
   capabilityRegister(args: KbCapabilityRegisterArgs): Promise<RemoteResult<KbCapabilityRegisterResult>>
   /** Copy one dropped file into `resources/` (ADR-0020). */
   registerResource(args: KbRegisterResourceArgs): Promise<RemoteResult<KbRegisterResourceResult>>
+  /** The behavior-memory store's listing (ADR-0032): every scope that has a file. */
+  memoryList(): Promise<RemoteResult<KbMemoryListResult>>
+  /** Remember one behavior rule (ADR-0032); an exact duplicate is refused. */
+  memoryAdd(args: KbMemoryAddArgs): Promise<RemoteResult<KbMemoryAddResult>>
+  /** Forget one behavior rule by id (ADR-0032); a stale id is a not-found. */
+  memoryDelete(args: KbMemoryDeleteArgs): Promise<RemoteResult<KbMemoryDeleteResult>>
 }
 
 /**
@@ -168,6 +175,18 @@ export type CapabilityRegistrar = (name: string, reach?: CapabilityRegisterReach
 
 /** One mail as the connector reports it (ADR-0019). */
 export type MailMessage = KbMailMessage
+
+/** List the behavior-memory scopes (ADR-0032): global first, then name-sorted. */
+export type MemoryLister = () => Promise<KbMemoryListResult>
+
+/**
+ * Remember one behavior rule in a scope (ADR-0032). An exact duplicate is
+ * refused by the host — the caller renders that as 「已记得」, not an error.
+ */
+export type MemoryAdder = (scope: string, text: string) => Promise<KbMemoryAddResult>
+
+/** Forget one behavior rule by id (ADR-0032); a stale id rejects, and the caller refreshes. */
+export type MemoryDeleter = (scope: string, id: string) => Promise<void>
 
 /** Open the host's native directory picker; resolves null when cancelled. */
 export type DirectoryPicker = () => Promise<string | null>
@@ -527,6 +546,57 @@ export async function registerCapability(
     ...reach.resourceMenu === true ? { resourceMenu: true } : {},
     ...reach.selectionMenu === true ? { selectionMenu: true } : {},
   }))
+}
+
+/**
+ * List the behavior-memory scopes (ADR-0032).
+ * @param ctx - client root context.
+ * @returns the scopes, global first, or a rejected promise carrying the reason.
+ */
+export async function listMemory(ctx: Context): Promise<KbMemoryListResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.memoryList())
+}
+
+/**
+ * Remember one behavior rule in a scope (ADR-0032) — the human channel's
+ * write, direct (no proposal card) when the human is the author.
+ * @param ctx - client root context.
+ * @param scope - `global`, `mail`, or a capability name.
+ * @param text - the rule's text; empty and exact-duplicate texts are refused.
+ * @returns the scope's path and the entry as written.
+ */
+export async function addMemory(ctx: Context, scope: string, text: string): Promise<KbMemoryAddResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.memoryAdd({ scope, text }))
+}
+
+/**
+ * Forget one behavior rule by id (ADR-0032).
+ * @param ctx - client root context.
+ * @param scope - the scope the entry lives in.
+ * @param id - the entry's id, as `memoryList` reported it.
+ * @returns a rejected promise carrying the reason on failure (a stale id is
+ *   a not-found: refresh, don't guess).
+ */
+export async function deleteMemory(ctx: Context, scope: string, id: string): Promise<void> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  unwrapRemote(await kb.memoryDelete({ scope, id }))
+}
+
+/**
+ * Whether one memory failure is the host's exact-duplicate refusal (ADR-0032):
+ * the wire carries only the message, and the store's wording — 「这条记忆已经
+ * 存在…」 — is the stable witness. The caller renders it as 已记得, not an
+ * error: the human asked to remember something that is already remembered.
+ * @param error - a caught value.
+ * @returns true when the failure is the duplicate refusal.
+ */
+export function isDuplicateMemory(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('已经存在')
 }
 
 /**

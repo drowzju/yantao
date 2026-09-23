@@ -51,7 +51,8 @@ import { kbReferenceSource } from './kb-reference.ts'
 import { capabilityGestureSource } from './capability-gesture.ts'
 import { WORKBENCH_NS, en, zh } from './locales.ts'
 import {
-  adoptCapability, createCapability, createEntity, deleteFile, fetchMail, loadCapabilities, loadIntake, loadLinks,
+  addMemory, adoptCapability, createCapability, createEntity, deleteFile, deleteMemory, fetchMail, listMemory,
+  loadCapabilities, loadIntake, loadLinks,
   loadRevision, loadRoot, loadTodos,
   loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, runCapability, setKbRoot,
   setRelation, writeFile, writeTodos,
@@ -200,6 +201,12 @@ export function apply(ctx: Context): void {
       promptSession: async (text: string) => {
         await promptCurrentSession(ctx, text, await kbCwd())
       },
+      // ADR-0032 批次③: the behavior-memory surface — the 记忆 tab's
+      // management view, the mail panel's direct write, and the proposal
+      // card's 记忆 rows all land on these three.
+      memoryList: () => listMemory(ctx),
+      memoryAdd: (scope: string, text: string) => addMemory(ctx, scope, text),
+      memoryDelete: (scope: string, id: string) => deleteMemory(ctx, scope, id),
       onKbRootChanged: align,
     }),
   }, Frame), 'ui-yantao: root frame')

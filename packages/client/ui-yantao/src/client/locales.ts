@@ -34,6 +34,7 @@ export const zh = {
   'section.domain': '领域',
   'section.person': '人物',
   'section.project': '项目',
+  'section.memory': '记忆',
 
   // Person relations
   'relation.self': '自己',
@@ -112,6 +113,17 @@ export const zh = {
   'mail.waited': '（已等待 {seconds} 秒）',
   'mail.tab.running': '邮件分析进行中',
   'mail.tab.awaiting': '有待确认的邮件提议',
+
+  // Behavior memory (ADR-0032)
+  'memory.description': '行为记忆：跨会话生效的纠正与偏好，按作用域分文件存放（全局、邮件、各能力）。这里可以新增和删除。',
+  'memory.scope.global': '全局',
+  'memory.scope.mail': '邮件',
+  'memory.empty': '还没有记忆。',
+  'memory.loading': '载入中…',
+  'memory.addPlaceholder': '要记住的纠正或偏好（一句话）',
+  'memory.addButton': '记住',
+  'memory.added': '已记住。',
+  'memory.known': '这条已经记得了。',
 
   // Todo board
   'todo.newAria': '新待办',
@@ -196,6 +208,7 @@ export const zh = {
   'group.domainLink': '领域关联',
   'group.todo': '待办',
   'group.editSection': '章节改写',
+  'group.memory': '记忆',
 } satisfies Record<string, string>
 
 /** Workbench locale key union. */
@@ -216,6 +229,7 @@ export const en = {
   'section.domain': 'Domains',
   'section.person': 'People',
   'section.project': 'Projects',
+  'section.memory': 'Memory',
 
   // Person relations
   'relation.self': 'Self',
@@ -294,6 +308,17 @@ export const en = {
   'mail.waited': '(waited {seconds}s)',
   'mail.tab.running': 'Mail analysis running',
   'mail.tab.awaiting': 'Mail proposals awaiting confirmation',
+
+  // Behavior memory (ADR-0032)
+  'memory.description': 'Behavior memory: corrections and preferences that outlive a session, stored per scope (global, mail, each capability). Add and delete here.',
+  'memory.scope.global': 'Global',
+  'memory.scope.mail': 'Mail',
+  'memory.empty': 'No memories yet.',
+  'memory.loading': 'Loading…',
+  'memory.addPlaceholder': 'A correction or preference to remember (one sentence)',
+  'memory.addButton': 'Remember',
+  'memory.added': 'Remembered.',
+  'memory.known': 'Already remembered.',
 
   // Todo board
   'todo.newAria': 'New todo',
@@ -378,4 +403,5 @@ export const en = {
   'group.domainLink': 'Domain links',
   'group.todo': 'Todos',
   'group.editSection': 'Section edits',
+  'group.memory': 'Memories',
 } satisfies Record<WorkbenchLocaleKey, string>

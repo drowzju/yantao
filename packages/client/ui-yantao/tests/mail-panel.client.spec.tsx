@@ -40,6 +40,7 @@ const VERDICT: MailAnalysis = {
   todos: [{ title: '发汇报', due: '2026-09-12', body: '' }],
   projects: [{ name: '飞书迁移', note: '对方确认了时间' }],
   resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
+  memories: [],
 }
 
 /** The panel's props, with spies standing in for the RPCs and the writes. */
@@ -55,6 +56,7 @@ function props(overrides: Partial<MailPanelProps> = {}): MailPanelProps {
       write: vi.fn(async () => {}),
       todos: async () => ({ path: TODOS_PATH, text: TEXT, items: [{ done: false, title: '已有的待办', body: '', extra: [] }] }),
       writeTodos: vi.fn(async () => ({ path: TODOS_PATH, text: TEXT })),
+      memoryAdd: vi.fn(async (scope: string, text: string) => ({ path: `.dsh/yantao/memory/${scope}.md`, entry: { id: 'm1', text } })),
     },
     entities: async () => ENTITIES,
     ...overrides,
@@ -251,6 +253,47 @@ describe('MailPanel', () => {
       fireEvent.click(screen.getByText('确认写入（4）'))
     })
     expect(await screen.findByText(/实体 飞书迁移：知识库里没有这个实体/)).toBeTruthy()
+  })
+
+  it('turns the verdict\'s memories into add-memory rows pinned to the mail scope (ADR-0032)', async () => {
+    const panel = await openReview({
+      analyse: async () => ({
+        sessionId: 'session-1', title: '邮件分析 2026-09-10',
+        analysis: { ...VERDICT, memories: [{ text: '汇报先发给直属上级', why: '上级主送' }] },
+      }),
+    })
+    // The card carries a 记忆 group with the proposed line.
+    expect(screen.getByText('记忆')).toBeTruthy()
+    expect(screen.getByText('汇报先发给直属上级')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('全部接受'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('确认写入（5）'))
+    })
+    await waitFor(() => {
+      expect(panel.target.memoryAdd as unknown as ReturnType<typeof vi.fn>).toHaveBeenCalledWith('mail', '汇报先发给直属上级')
+    })
+    expect(await screen.findByText(/记忆（mail）汇报先发给直属上级/)).toBeTruthy()
+  })
+
+  it('writes the human-side memory straight through memoryAdd, with 已记得 for duplicates', async () => {
+    const memoryAdd = vi.fn(async (scope: string, text: string) => ({ path: `.dsh/yantao/memory/${scope}.md`, entry: { id: 'm1', text } }))
+    render(<MailPanel {...props({ memoryAdd })} />)
+    const box = screen.getByPlaceholderText('要记住的纠正或偏好（一句话）') as HTMLInputElement
+    fireEvent.change(box, { target: { value: '周报周五下班前发' } })
+    await act(async () => {
+      fireEvent.click(screen.getByText('记住'))
+    })
+    expect(memoryAdd).toHaveBeenCalledWith('mail', '周报周五下班前发')
+    expect(await screen.findByText('已记住。')).toBeTruthy()
+    expect(box.value).toBe('')
+
+    fireEvent.change(box, { target: { value: '周报周五下班前发' } })
+    ;(memoryAdd as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('这条记忆已经存在（作用域 mail）：周报周五下班前发'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('记住'))
+    })
+    expect(await screen.findByText('这条已经记得了。')).toBeTruthy()
   })
 })
 
