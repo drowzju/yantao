@@ -58,6 +58,10 @@ _Avoid_: 整理、归纳
 
 _Avoid_: 批量归类、自动打标签
 
+**记忆 (Memory)**: 影响 agent 行为方式的规则与偏好（「怎么做」，ADR-0032），与实体知识（「是什么」，落实体章节/流水）划清边界。存 `<kbRoot>/.dsh/yantao/memory/` 行式 markdown：`global.md` 全局 + `capabilities/<能力名>.md` 能力域。写入永远过人批（agent 只能提案，永不免审），删除只经人；注入全动态——全局拼系统 prompt 动态 section，能力域随 `kb_run_capability` 运行上下文。
+
+_Avoid_: 笔记（那是 Resource）、长期记忆（含混「是什么」与「怎么做」）、用户画像
+
 ### 运行时
 
 **工作台 (Workbench)**: 本产品；三栏（输入栏 / 中栏 / 工作栏）。中栏是 tab 化的：「对话」与「任务」两个常驻 tab 不可关（后者列本会话的后台执行，ADR-0031），打开的文件各占一个可关闭 tab（ADR-0012）。

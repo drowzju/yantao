@@ -16,6 +16,7 @@
  * @module @deepseek-ai/dsh-yantao-kb/memory
  */
 
+import { readFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
@@ -236,4 +237,65 @@ export async function removeMemoryEntry(kbRoot: string, scope: string, id: strin
   }
   await writeFile(target, `${serializeMemoryFile(file)}\n`, 'utf8')
   return readMemoryScope(kbRoot, scope)
+}
+
+/**
+ * Apply the injection-time soft cap (ADR-0032 落地注记 3): the file order is
+ * chronological (append-only), so staying under the cap means keeping the
+ * NEWEST entries and counting the older ones out. Nothing is ever deleted —
+ * the file keeps everything, only the injection shrinks.
+ */
+function cappedEntries(entries: readonly MemoryEntry[]): { kept: readonly MemoryEntry[]; omitted: number } {
+  if (entries.length <= MEMORY_SCOPE_SOFT_CAP) return { kept: entries, omitted: 0 }
+  return { kept: entries.slice(-MEMORY_SCOPE_SOFT_CAP), omitted: entries.length - MEMORY_SCOPE_SOFT_CAP }
+}
+
+/** The bullet lines of an entry list, exactly as the file writes them. */
+function entryLines(entries: readonly MemoryEntry[]): string {
+  return entries.map(entry => memoryEntryLine(entry)).join('\n')
+}
+
+/**
+ * The global memory's system-prompt section text (ADR-0032 决定 4): the
+ * behavior rules as bullets under a two-line header. Empty when nothing is
+ * remembered — an empty section contributes nothing to the assembly.
+ */
+export function renderGlobalMemorySection(entries: readonly MemoryEntry[]): string {
+  if (entries.length === 0) return ''
+  const { kept, omitted } = cappedEntries(entries)
+  const head = '## 行为记忆\n以下是人在这个工作台上批准沉淀的行为规则（历次纠正的累积），执行任务时遵守：'
+  const tail = omitted > 0 ? `\n（另有 ${omitted} 条较早的记忆未列出，全文见 .dsh/yantao/memory/global.md）` : ''
+  return `${head}\n${entryLines(kept)}${tail}`
+}
+
+/**
+ * The capability memory's run-context block (ADR-0032 决定 4): rides the
+ * `memory` field of a capability run (the `kb_run_capability` tool render
+ * appends it; the human channel's `capabilityRun` result carries it for the
+ * client-driven flows). Empty when the capability has no remembered rules.
+ */
+export function renderCapabilityMemoryBlock(scope: string, entries: readonly MemoryEntry[]): string {
+  if (entries.length === 0) return ''
+  const { kept, omitted } = cappedEntries(entries)
+  const head = `【行为记忆】人在以往运行中为「${scope}」沉淀的规则（历次纠正的累积），本次运行遵守：`
+  const tail = omitted > 0 ? `\n（另有 ${omitted} 条较早的记忆未列出）` : ''
+  return `${head}\n${entryLines(kept)}${tail}`
+}
+
+/**
+ * Synchronous read of the global memory for the system-prompt section
+ * provider (ADR-0022 增补的动态 section): the registry evaluates section text
+ * at each assembly, so the read is sync and every turn reflects the current
+ * file — the human's latest edit is honored on the next step. A missing file
+ * reads as no entries, and any other read failure degrades to no section
+ * rather than breaking the whole assembly.
+ */
+export function readGlobalMemoryEntries(kbRoot: string): readonly MemoryEntry[] {
+  let text = ''
+  try {
+    text = readFileSync(join(kbRoot, '.dsh', 'yantao', 'memory', 'global.md'), 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return []
+  }
+  return parseMemoryFile(MEMORY_GLOBAL_SCOPE, text).entries
 }

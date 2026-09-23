@@ -4580,7 +4580,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbCapabilityRunResult',
-    declaration: 'export interface KbCapabilityRunResult {\n    readonly name: string;\n    readonly runAt: string;\n    readonly result?: JsonValue;\n    readonly content?: string;\n    readonly artifacts: readonly string[];\n}',
+    declaration: 'export interface KbCapabilityRunResult {\n    readonly name: string;\n    readonly runAt: string;\n    readonly result?: JsonValue;\n    readonly content?: string;\n    readonly memory?: string;\n    readonly artifacts: readonly string[];\n}',
   },
   {
     name: 'KbCapabilitySummary',

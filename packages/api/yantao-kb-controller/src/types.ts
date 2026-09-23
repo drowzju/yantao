@@ -370,6 +370,15 @@ export interface KbCapabilityRunResult {
    * with `result`.
    */
   readonly content?: string
+  /**
+   * The capability scope's behavior memory (ADR-0032 决定 4), read from
+   * `.dsh/yantao/memory/capabilities/<name>.md` at run time — the rules the
+   * human approved across earlier runs, which this run must obey. Absent
+   * when the capability has none. The agent channel's tool render appends it
+   * to the answer; the human channel's client-driven flows (mail analysis)
+   * read it from the result.
+   */
+  readonly memory?: string
   /** KB-relative paths of the files the run wrote under `.dsh/yantao/capabilities/<name>/`. */
   readonly artifacts: readonly string[]
 }

@@ -75,3 +75,15 @@ dsh 上游对此有现成机制：`@deepseek-ai/dsh-system-prompt` 是一个 sec
 - 无新 RPC、无 bundle 行增减。kb 插件新增 `inject = ['systemPrompt']` 声明预计不触发
   gen-cordis-catalog；落地时若 catalog 漂移，重跑生成器即可。
 - ADR-0023 的 `yantao:skills` section 依赖本 ADR 的机制与 0023 的门控结论，两边互相引用。
+
+落地注记(2026-09-23,ADR-0032 批次②增补——动态 section):
+
+决定 6 的「不提供运行时改写」针对的是**静态 section 的内容工作流**(改文件要重启,不热改);
+它不禁止一种新的注册形态:**动态 section**——`PromptSection.text` 注册为函数 provider,
+注册表在每次组装时求值(机制本就存在于 `packages/core/system-prompt/src/index.ts`,本 ADR
+落地时即已存在,只是从未用过)。动态层与静态层的分工:静态 section 承载仓库里版本受控的
+领域纪律(决定 3、6 不变);动态 section 承载**运行时可变、人批沉淀**的内容,首个实例是
+`yantao:behavior-memory`(全局行为记忆,order 150,每次组装重读
+`<kbRoot>/.dsh/yantao/memory/global.md`,ADR-0032 决定 4)。动态层不写入"知识库覆盖层"
+(waterfall)——那是取舍台账 #1 的重开形态,至今未启用;动态 section 的引入由 ADR-0032
+裁定,本 ADR 只承认这个概念并记录分工。

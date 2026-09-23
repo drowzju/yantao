@@ -23,7 +23,7 @@ import { readCitedEntries } from './cited.ts'
 import { appendLog, createEntity, editSection, initKb, listEntities, readEntity, readResource, registerResource, writeResource, writeState } from './core.ts'
 import { kbMentions, renderKbMentions } from './mentions.ts'
 import { importLegacyRootState } from './root-store.ts'
-import { registerPromptSections } from './sections.ts'
+import { registerBehaviorMemorySection, registerPromptSections } from './sections.ts'
 import { ENTITY_TYPES, PERSON_RELATIONS } from './types.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -175,6 +175,10 @@ export function apply(ctx: Context, config: Config): void {
   // The prompt-section layer (ADR-0022): yantao's domain disciplines as
   // named sections over dsh's registry, sourced from prompt/sections/*.md.
   registerPromptSections(ctx)
+
+  // The dynamic section (ADR-0032 批次②): the global behavior memory rides
+  // the system prompt, re-read from the KB on every assembly.
+  registerBehaviorMemorySection(ctx, () => liveRoot.root)
 
   // `@` mentions: the composer inserts a KB-relative path, and nothing else in
   // this profile tells the model what one is. Read the cited files and hand
@@ -523,7 +527,8 @@ export type { CapabilityRecord } from './root-store.ts'
 export { appendToLogSection, logBullet, replaceSection, replaceStateSection } from './splice.ts'
 export {
   appendMemoryEntry, assertMemoryScope, listMemoryScopes, MEMORY_GLOBAL_SCOPE, MEMORY_SCOPE_SOFT_CAP,
-  memoryDisplayPath, memoryEntryId, memoryEntryLine, parseMemoryFile, readMemoryScope, removeMemoryEntry,
+  memoryDisplayPath, memoryEntryId, memoryEntryLine, parseMemoryFile, readGlobalMemoryEntries,
+  readMemoryScope, removeMemoryEntry, renderCapabilityMemoryBlock, renderGlobalMemorySection,
   serializeMemoryFile,
 } from './memory.ts'
 export type { MemoryEntry, MemoryFile, MemoryScope } from './memory.ts'

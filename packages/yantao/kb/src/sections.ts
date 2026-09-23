@@ -9,6 +9,7 @@
 
 import { readFileSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
+import { readGlobalMemoryEntries, renderGlobalMemorySection } from './memory.ts'
 
 /** One prompt section this plugin contributes. */
 export interface YantaoSection {
@@ -43,6 +44,34 @@ export const YANTAO_SECTIONS: readonly YantaoSection[] = [
  */
 export function loadSectionText(file: string): string {
   return readFileSync(new URL(`../prompt/sections/${file}`, import.meta.url), 'utf8')
+}
+
+/**
+ * The dynamic section (ADR-0022 增补, sanctioned by ADR-0032 决定 4): unlike
+ * the four static disciplines, its text is a provider evaluated at every
+ * assembly, so the global behavior memory the human approved across runs is
+ * reflected on the next step without any rebuild. Placement follows the
+ * static `yantao:memory` (140) — identity → disciplines → accumulated
+ * behavior → skills.
+ */
+export const BEHAVIOR_MEMORY_SECTION = { name: 'yantao:behavior-memory', order: 150 } as const
+
+/**
+ * Register the dynamic behavior-memory section. The provider reads
+ * `<kbRoot>/.dsh/yantao/memory/global.md` through the live-root getter on
+ * every assembly, so a `setRoot` retarget is honored without re-registering.
+ * @param ctx - the mounting plugin context (needs `effect` and `systemPrompt`).
+ * @param root - the live KB root, read per assembly.
+ */
+export function registerBehaviorMemorySection(ctx: Context, root: () => string): void {
+  ctx.effect(
+    () => ctx.systemPrompt.section({
+      name: BEHAVIOR_MEMORY_SECTION.name,
+      order: BEHAVIOR_MEMORY_SECTION.order,
+      text: () => renderGlobalMemorySection(readGlobalMemoryEntries(root())),
+    }),
+    `yantao-kb: register dynamic prompt section ${BEHAVIOR_MEMORY_SECTION.name}`,
+  )
 }
 
 /**

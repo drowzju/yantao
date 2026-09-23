@@ -39,7 +39,7 @@ import {
   parseTodoFile, PERSON_RELATIONS, readCapabilityRecord, readCapabilityState,
   registerResourceContent, resolveWithinKb, serializeTodoFile, todayStamp,
   writeCapabilityState, writeMailWatermark,
-  appendMemoryEntry, listMemoryScopes, removeMemoryEntry,
+  appendMemoryEntry, listMemoryScopes, readMemoryScope, removeMemoryEntry, renderCapabilityMemoryBlock,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities } from './capability/builtin.ts'
@@ -267,17 +267,19 @@ export class YantaoKbController extends TypertRemoteService {
             runAt: { type: 'string', required: true },
             result: { type: 'json' },
             content: { type: 'string' },
+            memory: { type: 'string' },
             artifacts: { type: 'array', items: { type: 'string' }, required: true },
           },
         },
         render: (_args, value) => [{
           type: 'text',
-          text: value.content !== undefined
+          text: (value.content !== undefined
             ? `能力「${value.name}」是指令型，以下是它的指令正文：\n\n${value.content}`
             : `能力「${value.name}」已运行（${value.runAt}）`
               + (value.artifacts.length > 0 ? `，产物：${value.artifacts.join('、')}` : '')
               + '。'
-              + (value.result !== undefined ? `\n结果：${JSON.stringify(value.result)}` : ''),
+              + (value.result !== undefined ? `\n结果：${JSON.stringify(value.result)}` : ''))
+            + (value.memory !== undefined ? `\n\n${value.memory}` : ''),
         }],
       },
       execute: async ({ name, input }) => {
@@ -911,6 +913,22 @@ export class YantaoKbController extends TypertRemoteService {
     }
   }
 
+  /**
+   * The capability scope's behavior memory (ADR-0032 决定 4), rendered for a
+   * run context: `.dsh/yantao/memory/capabilities/<name>.md`'s entries under
+   * the run-context header, undefined when the scope has none. Every failure
+   * — an unsafe name, an unreadable file — degrades to undefined: memory
+   * rides along, it never blocks a run.
+   */
+  private async capabilityMemory(name: string): Promise<string | undefined> {
+    try {
+      const scope = await readMemoryScope(this.kbRoot, name)
+      return renderCapabilityMemoryBlock(name, scope.entries) || undefined
+    } catch {
+      return undefined
+    }
+  }
+
   /** Translate the kb package's memory failures into the Remote channel's classes. */
   private memoryError(error: unknown, scope: string): RemoteError {
     if (error instanceof KbError) {
@@ -977,7 +995,9 @@ export class YantaoKbController extends TypertRemoteService {
    * @param invoker - which channel is calling; only `'agent'` is gated.
    * @param signal - the human channel's cancel line, threaded to the
    *   subprocess run; undefined for the agent channel.
-   * @returns what the run answered, when it ran, and which artifact paths were written.
+   * @returns what the run answered, when it ran, which artifact paths were
+   *   written, and the capability scope's behavior memory (ADR-0032 决定 4)
+   *   when the scope has remembered rules.
    */
   private async runByName(
     name: string,
@@ -992,6 +1012,11 @@ export class YantaoKbController extends TypertRemoteService {
         { kind: 'no-root', hint: '先选择一次知识库目录，再运行能力。' },
       )
     }
+    // The capability scope's behavior memory (ADR-0032 决定 4): read once per
+    // run, attached to whichever answer the run produces. A scope with no
+    // remembered rules (or an unreadable one) degrades to absent — a memory
+    // hiccup must not fail the run.
+    const memory = await this.capabilityMemory(name)
     // Seed the shipped capabilities before resolving: a first run on a fresh
     // KB would otherwise answer "not found" for a capability that is about to
     // be copied in.
@@ -1006,9 +1031,9 @@ export class YantaoKbController extends TypertRemoteService {
         // claim the name — registration writes routes, not sidecars.
         const route = await this.routeOf(name)
         if (route === undefined) throw badManifestError(error)
-        return this.runRouted(name, route, invoker)
+        return this.runRouted(name, route, invoker, memory)
       }
-      return this.runDeclared(name, definition, manifest, input, invoker, signal)
+      return this.runDeclared(name, definition, manifest, input, invoker, memory, signal)
     }
     // A definition resolved from outside the KB (a `~/.dsh/skills` or project
     // skill shadowing the name) is not a yantao capability: single source
@@ -1022,7 +1047,7 @@ export class YantaoKbController extends TypertRemoteService {
         { kind: 'not-found', hint: CAPABILITY_HINTS['not-found'] },
       )
     }
-    return this.runRouted(name, route, invoker)
+    return this.runRouted(name, route, invoker, memory)
   }
 
   /**
@@ -1046,7 +1071,12 @@ export class YantaoKbController extends TypertRemoteService {
    * answer. Nothing spawns, nothing persists. The agent channel passes the
    * route's `invocation` gate first.
    */
-  private async runRouted(name: string, route: CapabilityRoute, invoker: CapabilityInvoker): Promise<KbCapabilityRunResult> {
+  private async runRouted(
+    name: string,
+    route: CapabilityRoute,
+    invoker: CapabilityInvoker,
+    memory: string | undefined,
+  ): Promise<KbCapabilityRunResult> {
     // The invocation gate (ADR-0023 决定 2): the agent only reaches what the
     // route declared `"agent"`; the human channel is ungated.
     if (invoker === 'agent' && !route.invocation.includes('agent')) {
@@ -1064,7 +1094,13 @@ export class YantaoKbController extends TypertRemoteService {
         { kind: 'bad-manifest', hint: CAPABILITY_HINTS['bad-manifest'] },
       )
     }
-    return { name, runAt: new Date().toISOString(), content: routed.body, artifacts: [] }
+    return {
+      name,
+      runAt: new Date().toISOString(),
+      content: routed.body,
+      ...(memory !== undefined ? { memory } : {}),
+      artifacts: [],
+    }
   }
 
   /** Run a skill whose own declaration (sidecar or frontmatter) resolved — the sidecar channel. */
@@ -1074,6 +1110,7 @@ export class YantaoKbController extends TypertRemoteService {
     manifest: CapabilityManifest,
     input: unknown,
     invoker: CapabilityInvoker,
+    memory: string | undefined,
     signal?: AbortSignal,
   ): Promise<KbCapabilityRunResult> {
     // The invocation gate (ADR-0023 决定 2): the agent only reaches what the
@@ -1092,6 +1129,7 @@ export class YantaoKbController extends TypertRemoteService {
         name,
         runAt: new Date().toISOString(),
         content: definition.content,
+        ...(memory !== undefined ? { memory } : {}),
         artifacts: [],
       }
     }
@@ -1146,6 +1184,7 @@ export class YantaoKbController extends TypertRemoteService {
       name,
       runAt: new Date().toISOString(),
       ...output.result !== undefined ? { result: output.result as JsonValue } : {},
+      ...(memory !== undefined ? { memory } : {}),
       artifacts: written,
     }
   }

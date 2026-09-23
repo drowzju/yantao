@@ -1007,3 +1007,52 @@ describe('plugin repository registration (ADR-0025 落地注记二)', () => {
     expect((failure as Error).message).toMatch(/找不到可注册的技能/)
   })
 })
+
+describe('capability run carries the scope memory (ADR-0032 批次②)', () => {
+  /** Seed the mail scope's memory file as the human channel would have written it. */
+  async function seedMemory(lines: string[]): Promise<void> {
+    const dir = join(home, '.dsh', 'yantao', 'memory', 'capabilities')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'mail.md'), `# 记忆 · mail\n\n${lines.join('\n')}\n`, 'utf8')
+  }
+
+  it('attaches the remembered rules to an instruction run', async () => {
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human', 'agent'] }), 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {}, content: '# 指令正文' }))
+    await seedMemory(['- 2026-09-23 同类邮件直接提示删除'])
+    const result = await ctx.yantaoKbController.capabilityRun({ name: 'mail' })
+    expect(result.content).toBe('# 指令正文')
+    expect(result.memory).toContain('同类邮件直接提示删除')
+    expect(result.memory).toContain('mail')
+  })
+
+  it('attaches the remembered rules to a script run alongside its result', async () => {
+    skillGet.mockResolvedValue(definition())
+    runCapability.mockResolvedValue({ result: { messages: [] } })
+    await seedMemory(['- 2026-09-23 广告邮件只计数不提案'])
+    const result = await ctx.yantaoKbController.capabilityRun({ name: 'mail' })
+    expect(result.result).toEqual({ messages: [] })
+    expect(result.memory).toContain('广告邮件只计数不提案')
+  })
+
+  it('answers a routed capability with its scope memory too', async () => {
+    const directory = join(home, '.dsh', 'skills', 'routed-skill')
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n# 路由正文\n', 'utf8')
+    await writeCentral({ 'routed-skill': { path: 'routed-skill', invocation: ['human'] } })
+    skillGet.mockResolvedValue(undefined)
+    const dir = join(home, '.dsh', 'yantao', 'memory', 'capabilities')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'routed-skill.md'), '# 记忆 · routed-skill\n\n- 2026-09-23 路由技能也守规矩\n', 'utf8')
+    const result = await ctx.yantaoKbController.capabilityRun({ name: 'routed-skill' })
+    expect(result.content).toContain('路由正文')
+    expect(result.memory).toContain('路由技能也守规矩')
+  })
+
+  it('leaves memory absent when the scope has no remembered rules', async () => {
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human', 'agent'] }), 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {}, content: '# 指令正文' }))
+    const result = await ctx.yantaoKbController.capabilityRun({ name: 'mail' })
+    expect(result.memory).toBeUndefined()
+  })
+})

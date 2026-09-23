@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   appendMemoryEntry, assertMemoryScope, listMemoryScopes, MEMORY_GLOBAL_SCOPE, MEMORY_SCOPE_SOFT_CAP,
-  memoryDisplayPath, memoryEntryId, parseMemoryFile, readMemoryScope, removeMemoryEntry, serializeMemoryFile,
+  memoryDisplayPath, memoryEntryId, parseMemoryFile, readGlobalMemoryEntries, readMemoryScope,
+  removeMemoryEntry, renderCapabilityMemoryBlock, renderGlobalMemorySection, serializeMemoryFile,
 } from '../src/memory.ts'
 import { KbError } from '../src/types.ts'
 
@@ -149,5 +150,48 @@ describe('memoryDisplayPath', () => {
   it('maps global to global.md and capabilities into the subdirectory', () => {
     expect(memoryDisplayPath('global')).toBe(GLOBAL_PATH)
     expect(memoryDisplayPath('mail')).toBe('.dsh/yantao/memory/capabilities/mail.md')
+  })
+})
+
+describe('injection renderers (ADR-0032 批次②)', () => {
+  it('renders an empty scope as nothing', () => {
+    expect(renderGlobalMemorySection([])).toBe('')
+    expect(renderCapabilityMemoryBlock('mail', [])).toBe('')
+  })
+
+  it('renders the global section as header plus bullet lines', () => {
+    const text = renderGlobalMemorySection([{ id: 'a', date: '2026-09-23', text: '同类邮件直接提示删除' }])
+    expect(text).toContain('## 行为记忆')
+    expect(text).toContain('- 2026-09-23 同类邮件直接提示删除')
+  })
+
+  it('renders the capability block with the scope named', () => {
+    const text = renderCapabilityMemoryBlock('mail', [{ id: 'a', text: '同类邮件直接提示删除' }])
+    expect(text).toContain('【行为记忆】')
+    expect(text).toContain('「mail」')
+    expect(text).toContain('- 同类邮件直接提示删除')
+  })
+
+  it('keeps the newest entries past the soft cap and says what was omitted', () => {
+    const many = Array.from({ length: MEMORY_SCOPE_SOFT_CAP + 3 }, (_, at) => ({
+      id: `id-${at}`, date: '2026-01-01', text: `规则${at}`,
+    }))
+    const omitted = 3
+    const global = renderGlobalMemorySection(many)
+    expect(global).toContain('- 2026-01-01 规则3')
+    expect(global).not.toContain('- 2026-01-01 规则2\n')
+    expect(global).toContain(`另有 ${omitted} 条较早的记忆未列出`)
+    const capability = renderCapabilityMemoryBlock('mail', many)
+    expect(capability).toContain(`规则${MEMORY_SCOPE_SOFT_CAP + 2}`)
+    expect(capability).not.toContain('- 2026-01-01 规则2\n')
+    expect(capability).toContain(`${omitted} 条较早的记忆未列出`)
+  })
+
+  it('reads the global scope synchronously for the section provider', async () => {
+    expect(readGlobalMemoryEntries(kbRoot)).toEqual([])
+    await appendMemoryEntry(kbRoot, 'global', '新建项目应尝试关联 area')
+    const entries = readGlobalMemoryEntries(kbRoot)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.text).toBe('新建项目应尝试关联 area')
   })
 })
