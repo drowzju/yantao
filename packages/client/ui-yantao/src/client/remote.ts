@@ -221,7 +221,7 @@ function missing(): Error {
 }
 
 /**
- * Load the intake sections (resources / todos / meetings).
+ * Load the intake sections (resources / todos).
  * @param ctx - client root context.
  * @returns the sections, or a rejected promise carrying the reason.
  */

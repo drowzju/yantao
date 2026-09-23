@@ -26,9 +26,9 @@ import type { WorkbenchT } from './locales.ts'
 export interface KbReferenceFaces {
   /** The workbench translate face. */
   readonly t: WorkbenchT
-  /** Load the intake sections (资源 / 待办 / 会议). */
+  /** Load the intake sections (资源 / 待办). */
   readonly intake: TreeLoader
-  /** Load the workspace sections (领域 / 人物 / 项目). */
+  /** Load the workspace sections (领域 / 人物 / 项目 / 会议). */
   readonly workspace: TreeLoader
 }
 

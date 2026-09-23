@@ -71,21 +71,20 @@ async function seedKb(): Promise<void> {
 }
 
 describe('yantaoKb.intakeTree', () => {
-  it('returns resources, meetings and todos even when the KB is empty', async () => {
+  it('returns resources and todos even when the KB is empty', async () => {
     const tree = await ctx.yantaoKbController.intakeTree()
-    expect(tree.sections.map(section => section.id)).toEqual(['resources', 'meetings', 'todos'])
+    expect(tree.sections.map(section => section.id)).toEqual(['resources', 'todos'])
     for (const section of tree.sections) expect(section.files).toEqual([])
   })
 
   it('pairs resource rows with their shadow notes', async () => {
     await seedKb()
     const tree = await ctx.yantaoKbController.intakeTree()
-    const [resources, meetings, todos] = tree.sections as [KbTreeSection, KbTreeSection, KbTreeSection]
+    const [resources, todos] = tree.sections as [KbTreeSection, KbTreeSection]
     expect(resources.files).toEqual([
       { name: '周报.eml', path: 'resources/周报.eml', notePath: 'resources/周报.eml.md' },
       { name: '照片.png', path: 'resources/照片.png' },
     ])
-    expect(meetings.files).toEqual([{ name: '周会', path: 'entities/meetings/周会.md' }])
     expect(todos.files).toEqual([{ name: 'todos', path: 'entities/todos.md' }])
   })
 
@@ -118,22 +117,23 @@ describe('yantaoKb.intakeTree', () => {
 })
 
 describe('yantaoKb.workspaceTree', () => {
-  it('returns projects, areas and people even when the KB is empty', async () => {
+  it('returns projects, areas, people and meetings even when the KB is empty', async () => {
     const tree = await ctx.yantaoKbController.workspaceTree()
-    expect(tree.sections.map(section => section.id)).toEqual(['projects', 'areas', 'people'])
+    expect(tree.sections.map(section => section.id)).toEqual(['projects', 'areas', 'people', 'meetings'])
     for (const section of tree.sections) expect(section.files).toEqual([])
   })
 
   it('carries archive and relation flags on entity rows', async () => {
     await seedKb()
-    const [projects, areas, people] = (await ctx.yantaoKbController.workspaceTree())
-      .sections as [KbTreeSection, KbTreeSection, KbTreeSection]
+    const [projects, areas, people, meetings] = (await ctx.yantaoKbController.workspaceTree())
+      .sections as [KbTreeSection, KbTreeSection, KbTreeSection, KbTreeSection]
     expect(projects.files).toEqual([
       { name: 'dsh 学习', path: 'entities/projects/dsh 学习.md' },
       { name: '旧项目', path: 'entities/projects/旧项目.md', archived: true },
     ])
     expect(areas.files).toEqual([{ name: '健康', path: 'entities/areas/健康.md' }])
     expect(people.files).toEqual([{ name: '我自己', path: 'entities/people/我自己.md', relation: 'self' }])
+    expect(meetings.files).toEqual([{ name: '周会', path: 'entities/meetings/周会.md' }])
   })
 })
 

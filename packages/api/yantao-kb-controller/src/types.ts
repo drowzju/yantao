@@ -30,8 +30,8 @@ export interface KbTreeFile {
 
 /**
  * Stable section identifiers across both trees. The intake tree carries
- * `resources` + `meetings` + `todos`, the workspace tree `projects` +
- * `areas` + `people` — one union keeps the Client's label map total.
+ * `resources` + `todos`, the workspace tree `projects` + `areas` + `people`
+ * + `meetings` — one union keeps the Client's label map total.
  */
 export type KbTreeSectionId = 'resources' | 'meetings' | 'todos' | 'projects' | 'areas' | 'people'
 

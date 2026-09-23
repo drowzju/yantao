@@ -62,7 +62,6 @@ export const zh = {
   'workbench.questionSubmit': '提交回答',
   'workbench.questionAbort': '放弃本次提炼',
   'workbench.questionBusy': '正在继续提炼…',
-  'workbench.meetingPlaceholder': '会议名称',
   'workbench.entityNamePlaceholder': '{section}名称',
   'frame.closeNotice': '点击关闭',
 
@@ -257,7 +256,6 @@ export const en = {
   'workbench.questionSubmit': 'Submit answers',
   'workbench.questionAbort': 'Abandon this refinement',
   'workbench.questionBusy': 'Continuing the refinement…',
-  'workbench.meetingPlaceholder': 'Meeting name',
   'workbench.entityNamePlaceholder': '{section} name',
   'frame.closeNotice': 'Click to close',
 

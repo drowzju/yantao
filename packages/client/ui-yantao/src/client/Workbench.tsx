@@ -36,11 +36,11 @@ export type TreeLoader = () => Promise<readonly KbTreeSection[]>
 
 /** Left-rail tabs in display order; `connector` is the 能力 tab (ADR-0021), `memory` the 记忆 one (ADR-0032). */
 const INTAKE_PANEL_IDS: readonly (KbTreeSectionId | 'connector' | 'memory')[] = [
-  'resources', 'todos', 'meetings', 'memory', 'connector',
+  'resources', 'todos', 'memory', 'connector',
 ]
 
 /** Right-rail tabs in display order. */
-const WORKSPACE_TAB_IDS: readonly KbTreeSectionId[] = ['areas', 'people', 'projects']
+const WORKSPACE_TAB_IDS: readonly KbTreeSectionId[] = ['areas', 'people', 'projects', 'meetings']
 
 /** The entity kind each tree section creates. `todos` is a singleton — the server refuses it. */
 const ENTITY_KINDS: Partial<Record<KbTreeSectionId, KbCreatableEntityType>> = {
@@ -974,9 +974,9 @@ async function dropOnEntity(args: {
 }
 
 /**
- * The intake rail: 资源 / 待办 / 会议 / 能力 as tabs. 待办 renders the
- * singleton as a TODO / DONE board inline (ADR-0018); 会议 can create a
- * meeting inline; 资源 rows open read-only; 能力 lists the registered
+ * The intake rail: 资源 / 待办 / 记忆 / 能力 as tabs. 待办 renders the
+ * singleton as a TODO / DONE board inline (ADR-0018); 资源 rows open
+ * read-only; 记忆 is ADR-0032's management view; 能力 lists the registered
  * capabilities (ADR-0021), the mail one embedding the connector panel.
  * @param props - see {@link RailProps}.
  * @returns the rail element.
@@ -1030,13 +1030,6 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     return (
       <CompactRail label={t('workbench.expandIntake')} error={error} onExpand={onExpand} side="intake" />
     )
-  }
-
-  /** Create an entity of this section's kind, reload the tree, and open it. */
-  const create = async (kind: KbCreatableEntityType, name: string): Promise<void> => {
-    const path = await createEntity(kind, name)
-    await refresh()
-    onOpenFile(path, 'edit')
   }
 
   // ADR-0030: 提炼到实体 for a whole directory — every file under it,
@@ -1179,30 +1172,6 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           drag={(file, event) => { event.dataTransfer.setData(RESOURCE_DRAG_TYPE, file.path) }}
         />
       )}
-      {tab === 'meetings' && (
-        <Section
-          t={t}
-          id="meetings"
-          section={sections?.find(entry => entry.id === 'meetings')}
-          selection={selection}
-          onSelect={(path) => { onOpenFile(path, path.endsWith('.md') ? 'edit' : 'read') }}
-          onMenu={rowMenu.open}
-          showHeading={false}
-          drop={(file, event) => {
-            void dropOnEntity({ event, entity: file, entityType: 'meeting', registerResource, onRefine, onError: setActionError })
-          }}
-        />
-      )}
-      {tab === 'meetings' && (
-        <NewEntityRow
-          t={t}
-          label={t('workbench.newButton')}
-          placeholder={t('workbench.meetingPlaceholder')}
-          submit={name => create('meeting', name).catch((failure: unknown) => {
-            setActionError(failure instanceof Error ? failure.message : String(failure))
-          })}
-        />
-      )}
       {rowMenu.menu !== null && (
         <RowMenu
           key={rowMenu.menu.path}
@@ -1211,13 +1180,8 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           busy={rowMenu.busy || dropping}
           capabilities={tab === 'resources'
             ? matchCapabilities(capabilities, { kind: 'resource', path: rowMenu.menu.path })
-            : tab === 'meetings'
-              ? matchCapabilities(capabilities, { kind: 'entity', path: rowMenu.menu.path, entityType: 'meeting' })
-              : undefined}
-          onRunCapability={onRunCapability}
-          onRefine={tab === 'meetings'
-            ? (path, name) => { onRefine({ mode: 'refine', entityPath: path, entityName: name, entityType: 'meeting' }) }
             : undefined}
+          onRunCapability={onRunCapability}
           onDistill={tab === 'resources'
             ? (path) => { onRefine({ mode: 'distill', resource: { path, name: path.split('/').pop() ?? path } }) }
             : undefined}
@@ -1240,8 +1204,8 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
 }
 
 /**
- * The workspace rail: 领域 / 人物 / 项目 as tabs, each able to create its own
- * kind inline and open its entities as editable tabs.
+ * The workspace rail: 领域 / 人物 / 项目 / 会议 as tabs, each able to create
+ * its own kind inline and open its entities as editable tabs.
  * @param props - see {@link RailProps}.
  * @returns the rail element.
  */

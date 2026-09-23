@@ -1,7 +1,7 @@
 /**
  * The yantaoKb Remote controller: the workbench UI's direct KB channel.
- * `intakeTree` shapes the input side (resources, meetings, todos) and
- * `workspaceTree` the workspace side (projects, areas, people);
+ * `intakeTree` shapes the input side (resources, todos) and
+ * `workspaceTree` the workspace side (projects, areas, people, meetings);
  * `read`/`write` address single files by KB-relative path, always confined
  * one configuration point, no duplicated config. `root`/`setRoot` answer and
  * choose that root — the service persists the choice in the settings plane
@@ -115,7 +115,6 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 
 /** Entity sections of the intake tree, in display order, mapped to their entity type. */
 const INTAKE_ENTITY_SECTIONS = [
-  { id: 'meetings', type: 'meeting' },
   { id: 'todos', type: 'todo' },
 ] as const satisfies readonly { id: KbTreeSection['id']; type: EntityType }[]
 
@@ -124,6 +123,7 @@ const WORKSPACE_ENTITY_SECTIONS = [
   { id: 'projects', type: 'project' },
   { id: 'areas', type: 'area' },
   { id: 'people', type: 'person' },
+  { id: 'meetings', type: 'meeting' },
 ] as const satisfies readonly { id: KbTreeSection['id']; type: EntityType }[]
 
 /** KB-relative path of the todo singleton (ADR-0018); a singleton kind resolves whatever its name. */
@@ -324,9 +324,9 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
-   * The intake side of the KB: resources, meetings, and the todo singleton.
+   * The intake side of the KB: resources and the todo singleton.
    * Every section is present even when its directory is absent or empty.
-   * @returns the three intake sections in display order; a resource row pairs its companion note when one exists.
+   * @returns the two intake sections in display order; a resource row pairs its companion note when one exists.
    */
   @Remote('intakeTree')
   async intakeTree(): Promise<KbTree> {
@@ -334,8 +334,8 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
-   * The workspace side of the KB: projects, areas, people.
-   * @returns the three workspace sections in display order, entity rows carrying archive and relation flags.
+   * The workspace side of the KB: projects, areas, people, meetings.
+   * @returns the four workspace sections in display order, entity rows carrying archive and relation flags.
    */
   @Remote('workspaceTree')
   async workspaceTree(): Promise<KbTree> {

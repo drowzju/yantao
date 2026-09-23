@@ -45,7 +45,6 @@ beforeEach(() => {
 
 const intake: KbTreeSection[] = [
   { id: 'resources', files: [{ name: '周报.eml', path: 'resources/周报.eml' }] },
-  { id: 'meetings', files: [{ name: '周会', path: 'entities/meetings/周会.md' }] },
   { id: 'todos', files: [{ name: 'todos', path: 'entities/todos.md' }] },
 ]
 
@@ -59,6 +58,7 @@ const workspace: KbTreeSection[] = [
       { name: '张三', path: 'entities/people/张三.md', relation: 'peer' },
     ],
   },
+  { id: 'meetings', files: [{ name: '周会', path: 'entities/meetings/周会.md' }] },
 ]
 
 /** The todo singleton as the KB writes it. */
@@ -157,7 +157,7 @@ describe('WorkbenchLayout', () => {
 describe('IntakeRail', () => {
   it('shows the four intake tabs and the 资源 tab first', async () => {
     render(<IntakeRail {...railProps()} />)
-    for (const label of ['资源', '待办', '会议', '能力']) {
+    for (const label of ['资源', '待办', '记忆', '能力']) {
       expect(screen.getByText(label)).toBeTruthy()
     }
     expect(await screen.findByText('周报.eml')).toBeTruthy()
@@ -203,80 +203,6 @@ describe('IntakeRail', () => {
     expect(onOpenFile).toHaveBeenCalledWith('entities/todos.md', 'edit')
   })
 
-  it('creates a meeting inline, refreshes the tree, and opens it', async () => {
-    const load = vi.fn(loader(intake))
-    const createEntity = vi.fn(() => Promise.resolve('entities/meetings/新会议.md'))
-    const onOpenFile = vi.fn()
-    render(<IntakeRail {...railProps({ load, createEntity, onOpenFile })} />)
-    fireEvent.click(screen.getByText('会议'))
-    fireEvent.click(await screen.findByText('+ 新建'))
-    const input = screen.getByPlaceholderText('会议名称')
-    await act(async () => {
-      fireEvent.change(input, { target: { value: '新会议' } })
-      fireEvent.keyDown(input, { key: 'Enter' })
-    })
-    expect(createEntity).toHaveBeenCalledWith('meeting', '新会议')
-    expect(load).toHaveBeenCalledTimes(2)
-    expect(onOpenFile).toHaveBeenCalledWith('entities/meetings/新会议.md', 'edit')
-  })
-
-  it('cancels an inline name with Escape', async () => {
-    const createEntity = vi.fn()
-    render(<IntakeRail {...railProps({ createEntity })} />)
-    fireEvent.click(screen.getByText('会议'))
-    fireEvent.click(await screen.findByText('+ 新建'))
-    const input = screen.getByPlaceholderText('会议名称')
-    fireEvent.change(input, { target: { value: '不要建' } })
-    fireEvent.keyDown(input, { key: 'Escape' })
-    expect(screen.queryByPlaceholderText('会议名称')).toBeNull()
-    expect(createEntity).not.toHaveBeenCalled()
-  })
-
-  it('cancels an inline name with the 取消 button', async () => {
-    const createEntity = vi.fn()
-    render(<IntakeRail {...railProps({ createEntity })} />)
-    fireEvent.click(screen.getByText('会议'))
-    fireEvent.click(await screen.findByText('+ 新建'))
-    fireEvent.click(screen.getByText('取消'))
-    expect(screen.queryByPlaceholderText('会议名称')).toBeNull()
-    expect(createEntity).not.toHaveBeenCalled()
-  })
-
-  it('cancels an inline name with Escape after the input lost the focus', async () => {
-    const createEntity = vi.fn()
-    render(<IntakeRail {...railProps({ createEntity })} />)
-    fireEvent.click(screen.getByText('会议'))
-    fireEvent.click(await screen.findByText('+ 新建'))
-    fireEvent.keyDown(document.body, { key: 'Escape' })
-    expect(screen.queryByPlaceholderText('会议名称')).toBeNull()
-    expect(createEntity).not.toHaveBeenCalled()
-  })
-
-  it('deletes a meeting row from its right-click menu', async () => {
-    const load = vi.fn(loader(intake))
-    const deleteFile = vi.fn(() => Promise.resolve())
-    const onCloseFile = vi.fn()
-    render(<IntakeRail {...railProps({ load, deleteFile, onCloseFile })} />)
-    fireEvent.click(screen.getByText('会议'))
-    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
-    fireEvent.click(await screen.findByText('删除「周会」'))
-    await act(async () => {
-      fireEvent.click(screen.getByText('删除'))
-    })
-    expect(deleteFile).toHaveBeenCalledWith('entities/meetings/周会.md')
-    expect(load).toHaveBeenCalledTimes(2)
-    expect(onCloseFile).toHaveBeenCalledWith('entities/meetings/周会.md')
-  })
-
-  it('closes the row menu on Escape', async () => {
-    render(<IntakeRail {...railProps({})} />)
-    fireEvent.click(screen.getByText('会议'))
-    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
-    expect(await screen.findByText('删除「周会」')).toBeTruthy()
-    fireEvent.keyDown(document.body, { key: 'Escape' })
-    expect(screen.queryByText('删除「周会」')).toBeNull()
-  })
-
   it('surfaces a load failure', async () => {
     const failing = vi.fn(() => Promise.reject(new Error('知识库加载失败')))
     render(<IntakeRail {...railProps({ load: failing })} />)
@@ -291,18 +217,11 @@ describe('IntakeRail', () => {
     expect(onExpand).toHaveBeenCalledOnce()
   })
 
-  it('pulls forward the tab owning the selected file', async () => {
-    // The rail opens on 资源; the selected meeting lives under 会议.
-    const { container } = render(<IntakeRail {...railProps({ selection: 'entities/meetings/周会.md' })} />)
-    expect(await screen.findByText('周会')).toBeTruthy()
-    const row = container.querySelector('[data-selected="true"]') as HTMLElement
-    expect(row.getAttribute('title')).toBe('entities/meetings/周会.md')
-  })
-
   it('leaves its tab alone when the other rail owns the selection', async () => {
-    render(<IntakeRail {...railProps({ selection: 'entities/areas/健康.md' })} />)
+    // 会议 now lives in the workspace rail; a selected meeting must not pull
+    // any intake tab forward.
+    render(<IntakeRail {...railProps({ selection: 'entities/meetings/周会.md' })} />)
     expect(await screen.findByText('周报.eml')).toBeTruthy()
-    expect(screen.queryByText('周会')).toBeNull()
   })
 
   it('registers a dropped file as a resource and reloads the tree', async () => {
@@ -392,35 +311,6 @@ describe('IntakeRail', () => {
     await waitFor(() => { expect(container.querySelector('[data-row-menu]')).toBeNull() })
   })
 
-  it('offers the matching capability on a meeting row\'s menu', async () => {
-    const { container } = render(
-      <IntakeRail {...railProps({ capabilityList: () => Promise.resolve({ capabilities: ROW_CAPABILITIES, unregistered: [] }) })} />,
-    )
-    fireEvent.click(screen.getByText('会议'))
-    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
-    const group = await waitFor(() => {
-      const found = container.querySelector('[data-row-capabilities="true"]')
-      expect(found).not.toBeNull()
-      return found as HTMLElement
-    })
-    expect(within(group).getByText('meeting-minutes')).toBeTruthy()
-    expect(within(group).queryByText('eml-digest')).toBeNull()
-  })
-
-  it('offers 提炼 on a meeting row\'s menu and starts the refine gesture (ADR-0029 决定 2)', async () => {
-    const onRefine = vi.fn()
-    render(<IntakeRail {...railProps({ onRefine })} />)
-    fireEvent.click(screen.getByText('会议'))
-    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
-    fireEvent.click(await screen.findByText('提炼'))
-    expect(onRefine).toHaveBeenCalledWith({
-      mode: 'refine',
-      entityPath: 'entities/meetings/周会.md',
-      entityName: '周会',
-      entityType: 'meeting',
-    })
-  })
-
   it('offers no 提炼 on a resource row\'s menu, but 提炼到实体 starts the distill gesture (ADR-0030)', async () => {
     const onRefine = vi.fn()
     render(<IntakeRail {...railProps({ onRefine })} />)
@@ -472,62 +362,6 @@ describe('IntakeRail', () => {
     const row = await screen.findByText('周报.eml')
     fireEvent.dragStart(row, { dataTransfer: { setData } })
     expect(setData).toHaveBeenCalledWith(RESOURCE_DRAG_TYPE, 'resources/周报.eml')
-  })
-
-  it('starts the 归入 gesture when a library resource drops on a meeting row', async () => {
-    const onRefine = vi.fn()
-    render(<IntakeRail {...railProps({ onRefine })} />)
-    fireEvent.click(screen.getByText('会议'))
-    const row = await screen.findByText('周会')
-    await act(async () => {
-      fireEvent.drop(row, {
-        dataTransfer: { getData: (type: string) => (type === RESOURCE_DRAG_TYPE ? 'resources/周报.eml' : ''), files: [] },
-      })
-    })
-    expect(onRefine).toHaveBeenCalledWith({
-      mode: 'intake',
-      entityPath: 'entities/meetings/周会.md',
-      entityName: '周会',
-      entityType: 'meeting',
-      resource: { path: 'resources/周报.eml', name: '周报.eml' },
-    })
-  })
-
-  it('registers an OS file dropped on a meeting row, then starts the 归入 gesture', async () => {
-    const registerResource = vi.fn(() => Promise.resolve('resources/纪要.pdf'))
-    const onRefine = vi.fn()
-    render(<IntakeRail {...railProps({ registerResource, onRefine })} />)
-    fireEvent.click(screen.getByText('会议'))
-    const row = await screen.findByText('周会')
-    await act(async () => {
-      fireEvent.drop(row, {
-        dataTransfer: { getData: () => '', files: [new File(['内容'], '纪要.pdf')] },
-      })
-    })
-    await waitFor(() => { expect(registerResource).toHaveBeenCalledOnce() })
-    expect(onRefine).toHaveBeenCalledWith({
-      mode: 'intake',
-      entityPath: 'entities/meetings/周会.md',
-      entityName: '周会',
-      entityType: 'meeting',
-      resource: { path: 'resources/纪要.pdf', name: '纪要.pdf' },
-    })
-  })
-
-  it('rejects a multi-file drop on an entity row with a message (ADR-0029 台账 #4)', async () => {
-    const registerResource = vi.fn()
-    const onRefine = vi.fn()
-    render(<IntakeRail {...railProps({ registerResource, onRefine })} />)
-    fireEvent.click(screen.getByText('会议'))
-    const row = await screen.findByText('周会')
-    await act(async () => {
-      fireEvent.drop(row, {
-        dataTransfer: { getData: () => '', files: [new File(['a'], 'a.pdf'), new File(['b'], 'b.pdf')] },
-      })
-    })
-    expect(await screen.findByText('一次只归入一个文件。')).toBeTruthy()
-    expect(registerResource).not.toHaveBeenCalled()
-    expect(onRefine).not.toHaveBeenCalled()
   })
 })
 
@@ -847,6 +681,162 @@ describe('WorkspaceRail', () => {
       entityType: 'project',
       resource: { path: 'resources/纪要.pdf', name: '纪要.pdf' },
     })
+  })
+
+  // 会议 moved here from the intake rail: a meeting is an entity like any
+  // other, so the workspace rail's generic tab machinery carries it.
+
+  it('creates a meeting inline, refreshes the tree, and opens it', async () => {
+    const load = vi.fn(loader(workspace))
+    const createEntity = vi.fn(() => Promise.resolve('entities/meetings/新会议.md'))
+    const onOpenFile = vi.fn()
+    render(<WorkspaceRail {...railProps({ load, createEntity, onOpenFile })} />)
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.click(await screen.findByText('+ 新建'))
+    const input = screen.getByPlaceholderText('会议名称')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: '新会议' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+    // Only a person is asked for a relation; a meeting sends none.
+    expect(createEntity).toHaveBeenCalledWith('meeting', '新会议', undefined)
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(onOpenFile).toHaveBeenCalledWith('entities/meetings/新会议.md', 'edit')
+  })
+
+  it('cancels an inline meeting name with Escape', async () => {
+    const createEntity = vi.fn()
+    render(<WorkspaceRail {...railProps({ load: loader(workspace), createEntity })} />)
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.click(await screen.findByText('+ 新建'))
+    const input = screen.getByPlaceholderText('会议名称')
+    fireEvent.change(input, { target: { value: '不要建' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByPlaceholderText('会议名称')).toBeNull()
+    expect(createEntity).not.toHaveBeenCalled()
+  })
+
+  it('cancels an inline meeting name with the 取消 button', async () => {
+    const createEntity = vi.fn()
+    render(<WorkspaceRail {...railProps({ load: loader(workspace), createEntity })} />)
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.click(await screen.findByText('+ 新建'))
+    fireEvent.click(screen.getByText('取消'))
+    expect(screen.queryByPlaceholderText('会议名称')).toBeNull()
+    expect(createEntity).not.toHaveBeenCalled()
+  })
+
+  it('deletes a meeting row from its right-click menu', async () => {
+    const load = vi.fn(loader(workspace))
+    const deleteFile = vi.fn(() => Promise.resolve())
+    const onCloseFile = vi.fn()
+    render(<WorkspaceRail {...railProps({ load, deleteFile, onCloseFile })} />)
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('删除「周会」'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('删除'))
+    })
+    expect(deleteFile).toHaveBeenCalledWith('entities/meetings/周会.md')
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(onCloseFile).toHaveBeenCalledWith('entities/meetings/周会.md')
+  })
+
+  it('closes a meeting row\'s menu on Escape', async () => {
+    render(<WorkspaceRail {...railProps({ load: loader(workspace) })} />)
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
+    expect(await screen.findByText('删除「周会」')).toBeTruthy()
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(screen.queryByText('删除「周会」')).toBeNull()
+  })
+
+  it('offers the matching capability on a meeting row\'s menu', async () => {
+    const { container } = render(
+      <WorkspaceRail {...railProps({
+        load: loader(workspace),
+        capabilityList: () => Promise.resolve({ capabilities: ROW_CAPABILITIES, unregistered: [] }),
+      })} />,
+    )
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
+    const group = await waitFor(() => {
+      const found = container.querySelector('[data-row-capabilities="true"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    expect(within(group).getByText('meeting-minutes')).toBeTruthy()
+    expect(within(group).queryByText('eml-digest')).toBeNull()
+  })
+
+  it('offers 提炼 on a meeting row\'s menu and starts the refine gesture (ADR-0029 决定 2)', async () => {
+    const onRefine = vi.fn()
+    render(<WorkspaceRail {...railProps({ load: loader(workspace), onRefine })} />)
+    fireEvent.click(screen.getByText('会议'))
+    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
+    fireEvent.click(await screen.findByText('提炼'))
+    expect(onRefine).toHaveBeenCalledWith({
+      mode: 'refine',
+      entityPath: 'entities/meetings/周会.md',
+      entityName: '周会',
+      entityType: 'meeting',
+    })
+  })
+
+  it('starts the 归入 gesture when a library resource drops on a meeting row', async () => {
+    const onRefine = vi.fn()
+    render(<WorkspaceRail {...railProps({ load: loader(workspace), onRefine })} />)
+    fireEvent.click(screen.getByText('会议'))
+    const row = await screen.findByText('周会')
+    await act(async () => {
+      fireEvent.drop(row, {
+        dataTransfer: { getData: (type: string) => (type === RESOURCE_DRAG_TYPE ? 'resources/周报.eml' : ''), files: [] },
+      })
+    })
+    expect(onRefine).toHaveBeenCalledWith({
+      mode: 'intake',
+      entityPath: 'entities/meetings/周会.md',
+      entityName: '周会',
+      entityType: 'meeting',
+      resource: { path: 'resources/周报.eml', name: '周报.eml' },
+    })
+  })
+
+  it('registers an OS file dropped on a meeting row, then starts the 归入 gesture', async () => {
+    const registerResource = vi.fn(() => Promise.resolve('resources/纪要.pdf'))
+    const onRefine = vi.fn()
+    render(<WorkspaceRail {...railProps({ load: loader(workspace), registerResource, onRefine })} />)
+    fireEvent.click(screen.getByText('会议'))
+    const row = await screen.findByText('周会')
+    await act(async () => {
+      fireEvent.drop(row, {
+        dataTransfer: { getData: () => '', files: [new File(['内容'], '纪要.pdf')] },
+      })
+    })
+    await waitFor(() => { expect(registerResource).toHaveBeenCalledOnce() })
+    expect(onRefine).toHaveBeenCalledWith({
+      mode: 'intake',
+      entityPath: 'entities/meetings/周会.md',
+      entityName: '周会',
+      entityType: 'meeting',
+      resource: { path: 'resources/纪要.pdf', name: '纪要.pdf' },
+    })
+  })
+
+  it('rejects a multi-file drop on a meeting row with a message (ADR-0029 台账 #4)', async () => {
+    const registerResource = vi.fn()
+    const onRefine = vi.fn()
+    render(<WorkspaceRail {...railProps({ load: loader(workspace), registerResource, onRefine })} />)
+    fireEvent.click(screen.getByText('会议'))
+    const row = await screen.findByText('周会')
+    await act(async () => {
+      fireEvent.drop(row, {
+        dataTransfer: { getData: () => '', files: [new File(['a'], 'a.pdf'), new File(['b'], 'b.pdf')] },
+      })
+    })
+    expect(await screen.findByText('一次只归入一个文件。')).toBeTruthy()
+    expect(registerResource).not.toHaveBeenCalled()
+    expect(onRefine).not.toHaveBeenCalled()
   })
 })
 
@@ -1616,7 +1606,7 @@ describe('Frame', () => {
         entityPath: 'entities/projects/dsh 学习.md',
         entityName: 'dsh 学习',
         entityType: 'project',
-        siblings: ['dsh 学习', '健康', '我自己', '张三'],
+        siblings: ['dsh 学习', '健康', '我自己', '张三', '周会'],
       }))
     })
     // The verdict opens the shared proposal card, edit-section group included.
@@ -1667,14 +1657,14 @@ describe('Frame', () => {
       expect(refine).toHaveBeenCalledWith(expect.objectContaining({
         mode: 'distill',
         resource: { path: 'resources/周报.eml', name: '周报.eml' },
-        // Meetings, then the workspace's projects / areas / people — the
+        // The workspace's projects / areas / people / meetings — the
         // resources and todo sections contribute nothing.
         roster: [
-          { name: '周会', type: 'meeting', path: 'entities/meetings/周会.md' },
           { name: 'dsh 学习', type: 'project', path: 'entities/projects/dsh 学习.md' },
           { name: '健康', type: 'area', path: 'entities/areas/健康.md' },
           { name: '我自己', type: 'person', path: 'entities/people/我自己.md' },
           { name: '张三', type: 'person', path: 'entities/people/张三.md' },
+          { name: '周会', type: 'meeting', path: 'entities/meetings/周会.md' },
         ],
       }))
     })
