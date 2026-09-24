@@ -124,6 +124,10 @@
 
 设计裁定见 [ADR-0032](../adr/0032-behavior-memory.md);讨论背景见 [memory.md](memory.md)。定义:记忆 = 影响 agent 行为的规则与偏好,实体知识仍落实体。一期只做**全局 + 能力域**两档,写入走提案卡人批、永不免审,注入走动态 section(ADR-0022 增补);首个验证场景为邮件分诊。**五项待决已于 2026-09-23 收敛**(ADR 落地注记:markdown 存 `.dsh/yantao/memory/`、去重零算法人裁决、软上限+删除只经人、提案卡 `add-memory` 动作、零新工具/wire 仅记忆 RPC);实现分四批:~~① 存储层+记忆 RPC~~(**已落地 2026-09-23**,ADR 落地注记二)→ ~~② 注入层(动态 section)~~(**已落地 2026-09-23**,ADR-0022 落地注记 + 本 ADR 落地注记三)→ ~~③ 手势层(卡动作+两入口+管理视图)~~(**已落地 2026-09-23**,本 ADR 落地注记四;模型产出的记忆提案作用域由 UI 钉死为 `mail`)→ ~~④ 邮件闭环接线~~(**已落地 2026-09-23**,本 ADR 落地注记五;「同类纠正不再重复」的实操验收待人跑一轮真实邮件分析)。
 
+### 邮件三分拣 v2(ADR-0034,2026-09-24)
+
+设计裁定见 [ADR-0034](../adr/0034-mail-triage-v2.md)。行为记忆与执行层对齐:注入剥日期、清单分组清洗、注入围栏、focus 判据改合取+安全告警例外;schema 增 `newProjects`/`meetings`/`deletions` 三槽;提案扩展 create-project(领域勾选写 frontmatter);删除刀仅人通道(COM 移入已删除文件夹,agent 只有提名权)。实现分三批:① 提示词层(纯 prompt 修订) → ② 提案扩展(ProposalAction/GROUP_KEYS/locales/ProposalCard/proposal-apply 五触点) → ③ 删除刀(builtin 删除脚本+确认 UI)。渐进加载/agentic 化记 deferred。
+
 ### 设计规则落地(design.md,2026-09-22 截图审视)
 
 规则全文见 [design.md](design.md);以下是余项,改的是现有组件,不动架构,无需 ADR。

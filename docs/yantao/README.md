@@ -108,6 +108,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0031 | 任务统一视图与取消:三类后台执行(提炼/邮件分析/能力)各有取消语义——提炼中止会话清队列、邮件停 chunk 保判定不动水位、能力杀子进程(刷新=杀任务),AbortSignal 作宿主方法尾参;中央栏常驻「任务」tab(运行数徽标、运行中置顶的扁平单列,行=动作+对象/阶段/进展/耗时/取消/查看),前端聚合三态、仅前端记忆,零后端任务模型;agent 发起的执行不可见为已记录局限 |
 | 0032 | 记忆系统:行为规则层——记忆 = 影响 agent 行为的规则与偏好(「怎么做」),实体知识(「是什么」)仍落实体;三类作用域(全局/能力域/实体域),一期只做前两档、实体域挂起观察,注入全走动态(ADR-0022 增补动态 section),写入走提案卡人批且永不免审(低频高杠杆、自我强化);首个验证场景邮件分诊;实现期增量与五项待决记于 ADR,零立即代码改动 |
 | 0033 | 任务会话详情:「任务」行的只读审计抽屉——行带会话锚点(提炼/邮件分析回填,脚本能力无锚点无入口),读盘走上游现成的 follow snapshot + `page` 回溯(零新 RPC、零上游改动),整形规则钉死纯模块(user 原文/注入弱化、assistant 逐条、tool 按 callId 配对成可折叠节点链、系统提示词不展示),16k/4k/8k 裁剪,任务 tab 盒内浮层 Esc/关闭/遮罩收回;任务行仍仅前端记忆(deferred「任务落盘登记」) |
+| 0034 | 邮件三分拣 v2:行为记忆与执行层对齐——注入剥日期(存储保留)、清单分组清洗(项目/领域分列、去 self、无邮箱标注)、注入围栏(正文定界符+不可信声明)、focus 判据改合取(主送我或含 superior+真人发件+严重内容语义判定)+安全告警例外;schema 增 `newProjects`/`meetings`/`deletions` 三槽(`projects` 收紧为只挂已存在),提案扩展 create-project 带领域勾选写 frontmatter;删除刀仅人通道(COM 移入已删除文件夹,agent 只有提名权,kb_* 保持十一);渐进加载/agentic 化记 deferred |
 
 ## 5. 快速上手
 
@@ -139,7 +140,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 | [development.md](development.md) | 构建、运行、停止、测试、门禁、坑 |
 | [design.md](design.md) | UI 设计规则:`--yt-*` token、排版与间距阶梯、表面与构图纪律、迁移路径 |
 | [TODO.md](TODO.md) | 待办:done / next / deferred(每个搁置项都带原因) |
-| [../adr/](../adr/) | ADR 0001–0033(索引见第 4 节) |
+| [../adr/](../adr/) | ADR 0001–0034(索引见第 4 节) |
 | [../subsystems/yantao.md](../subsystems/yantao.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | 上下文地图:yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | 词汇表(规范用词) |
