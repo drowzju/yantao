@@ -42,6 +42,8 @@ import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
 import { runRefine, type RefineRunnerArgs } from './refine.ts'
 import { promptCurrentSession } from './session-prompt.ts'
+import { loadSessionDetail } from './session-detail.ts'
+import { sessionRemoteOf } from './remote.ts'
 import { Frame } from './frame/Frame.tsx'
 import { ThemePresenter } from './frame/theme-presenter.ts'
 import { WorkbenchLayout, createPanelSeat } from './frame/layout.ts'
@@ -209,6 +211,13 @@ export function apply(ctx: Context): void {
       memoryList: () => listMemory(ctx),
       memoryAdd: (scope: string, text: string) => addMemory(ctx, scope, text),
       memoryDelete: (scope: string, id: string) => deleteMemory(ctx, scope, id),
+      // ADR-0033: the 任务 tab's 「详情」 drawer reads one run's session log
+      // back through the session Remote's existing follow/page faces.
+      sessionDetail: (sessionId: string, signal?: AbortSignal) => {
+        const session = sessionRemoteOf(ctx)
+        if (session === undefined) return Promise.reject(new Error('没有挂载 session Remote 命名空间'))
+        return loadSessionDetail(session, sessionId, signal)
+      },
       onKbRootChanged: align,
     }),
   }, Frame), 'ui-yantao: root frame')

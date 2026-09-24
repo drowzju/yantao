@@ -18,7 +18,8 @@ import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   SessionCancelRequest, SessionCancelValue, SessionCreateRequest, SessionCreateValue, SessionFollowFrame,
-  SessionFollowRequest, SessionPromptRequest, SessionPromptValue, SessionRenameRequest, SessionRenameValue,
+  SessionFollowRequest, SessionPage, SessionPageRequest, SessionPromptRequest, SessionPromptValue,
+  SessionRenameRequest, SessionRenameValue,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {
   KbCapabilityAdoptArgs, KbCapabilityAdoptResult, KbCapabilityCreateArgs, KbCapabilityCreateResult,
@@ -81,6 +82,12 @@ export interface SessionRemote {
   rename(args: SessionRenameRequest): Promise<RemoteResult<SessionRenameValue>>
   prompt(args: SessionPromptRequest, signal?: AbortSignal): Promise<RemoteResult<SessionPromptValue>>
   follow(args: SessionFollowRequest, signal?: AbortSignal): AsyncIterable<SessionFollowFrame>
+  /**
+   * Page backwards through one session's durable history (the controller's
+   * cold-read `session/page`, already in the generated client face) — the
+   * 任务 tab's 「详情」 drawer walks older history with it (ADR-0033).
+   */
+  page(args: SessionPageRequest, signal?: AbortSignal): Promise<RemoteResult<SessionPage>>
   /**
    * Cancel the session's in-flight turn (the controller's `session/cancel`,
    * already in the generated client face): the turn ends `aborted` instead of

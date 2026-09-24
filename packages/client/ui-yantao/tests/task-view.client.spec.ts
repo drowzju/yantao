@@ -6,6 +6,7 @@ function row(overrides: Partial<TaskRow> & { readonly id: string }): TaskRow {
   return {
     kind: 'refine', title: '提炼「x」', stage: '', detail: null,
     status: 'running', startedAt: 0, endedAt: null,
+    sessionId: null,
     ...overrides,
   }
 }

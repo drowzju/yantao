@@ -45,6 +45,10 @@ export interface CenterPaneProps {
   readonly onTaskCancel: (row: TaskRow) => void
   /** Jump to where one task's outcome lives. */
   readonly onTaskJump: (row: TaskRow) => void
+  /** Open one task's 「详情」 drawer (ADR-0033); TasksPane offers the verb only for rows anchored to a session. */
+  readonly onTaskDetail: (row: TaskRow) => void
+  /** The open drawer, when one is — rendered inside the 任务 tab's box. */
+  readonly taskDetail: ReactNode
   readonly t: WorkbenchT
 }
 
@@ -163,6 +167,8 @@ export function CenterPane({
   taskRows,
   onTaskCancel,
   onTaskJump,
+  onTaskDetail,
+  taskDetail,
   t,
 }: CenterPaneProps): ReactElement {
   // The conversation is rendered unconditionally and only hidden: remounting
@@ -249,8 +255,15 @@ export function CenterPane({
         <div style={{ ...pageStyle, display: conversationActive ? 'flex' : 'none' }} data-tab={CONVERSATION_TAB}>
           {renderConversation()}
         </div>
-        <div style={{ ...pageStyle, display: tasksActive ? 'flex' : 'none' }} data-tab={TASKS_TAB}>
-          <TasksPane rows={taskRows} onCancel={onTaskCancel} onJump={onTaskJump} />
+        <div
+          style={{ ...pageStyle, display: tasksActive ? 'flex' : 'none', position: 'relative' }}
+          data-tab={TASKS_TAB}
+        >
+          <TasksPane rows={taskRows} onCancel={onTaskCancel} onJump={onTaskJump} onDetail={onTaskDetail} />
+          {/* The 「详情」 drawer overlays its tab's box (ADR-0033): the box is
+              position:relative, so the drawer scrolls independently and never
+              escapes into the neighbouring tabs. */}
+          {taskDetail}
         </div>
         {tabs.files.map(tab => (
           <div

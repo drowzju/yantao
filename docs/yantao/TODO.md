@@ -108,6 +108,8 @@
 
 | **`--yt-*` token 落地 + 自绘 pane 逐 pane 迁移(design.md §8 第 1–2 步)** —— `yt-tokens.ts` 定值表(浅/暗两组色板 + 排版/间距阶梯,暗色为 design.md 基准值待实览微调),`theme-presenter.apply` 随上游别名 token 一并写入、走同一 `#appliedTokens` 撤回通道,新增 presenter spec;13 个自绘文件(CapabilityPanel、CenterPane、TasksPane、editor 三件、ProposalCard、QuestionDialog、SelectionMenu、TodoBoard、NewEntityRow、Onboarding)裸 hex 清零改 `var(--yt-*)`、字号回排版阶梯(徽标 11→12),色断言改验 `var(--yt-…)`;遗留拾遗:`--yt-warning-bg` 为迁移中新发现的缺 token,已补进 design.md §2.5;彩色 chip 上的 `#fff` 文字有意保留;Workbench/Frame/MailPanel 三文件的迁移在工作区随邮件工作一并提交 | `packages/client/ui-yantao/src/client/frame/{yt-tokens,theme-presenter}.ts`、上述 13 个组件文件、`docs/yantao/design.md`、`tests/{theme-presenter,todo-board}.client.spec.*`。验证:ui-yantao 330 测试全绿(17 文件),scoped oxlint 0/0,client bundle 重建;提交 3f10d37d4d/06b1a4a291 |
 
+| **任务会话详情(ADR-0033 2026-09-23)** —— 「任务」行的只读审计抽屉:`TaskRow` 增 `sessionId` 锚点(提炼在 run 落回时回填、空会话哨兵 `''` 映射 null;邮件经进度回调 → store → Frame effect 镜像;脚本能力行无锚点不渲染「详情」,指令型能力本就不建行),行上「查看」与「详情」并存;读盘零新 RPC——`session-detail.ts` 纯模块开 `follow` 取 snapshot 后即弃流(`opener.abort()`),`hasMore` 时以 `beforeSeq` 用上游现成 `page` RPC 向前回溯(`remote.ts` 只补类型声明),`detailFromEvents` 把事件整形为 user 原文(`source.kind !== 'user'` 的注入弱化)/assistant 逐条(空文本跳过)/tool 按 `callId` 配对的可折叠节点(默认收起、名称+参数摘要、点开全量,失败带错误标识),回合分隔,系统提示词不展示(它不是事件),16k/4k/8k 裁剪带标记;`SessionDetailDrawer.tsx` 挂任务 tab 盒内(position:relative)绝对定位浮层,独立滚动,Esc/关闭/遮罩收回,key 绑行 id 换行重读,进行中任务读已落盘部分 | `packages/client/ui-yantao/src/client/{session-detail,remote,task-view,mail-analysis,mail-run}.ts`、`SessionDetailDrawer.tsx`、`frame/{Frame,CenterPane,TasksPane}.tsx`、`index.ts`、`tests/{session-detail,task-view,workbench}.client.spec.*`、`docs/adr/0033-*`。验证:ui-yantao 测试全绿(session-detail 8 例 + task-view/workbench 适配),`tsc -b tsconfig.client.json` 干净,client bundle 重建 |
+
 ## next
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
@@ -140,6 +142,7 @@ _无。(曾在此的三项 —— 客户端 face 重建、`tsgolint`、`toThrowE
 
 | 项 | 为什么搁置 |
 |---|---|
+| 任务落盘登记(ADR-0031 台账 #1 / ADR-0033 台账 #4) | 任务行仍是前端记忆,重启后行与「详情」一并消失;但会话本身已落盘,会话列表与对话 tab 仍可回看。等真的需要跨刷新的任务历史时,把行登记为一次落盘投影——先有真实痛点再立后端任务模型 |
 | ~~提炼闭环 v1(人触发 → agent 提议 → 人批准)~~ *(已完成 2026-09-17,见 done 表;ADR-0029)* | 原因「需要先有编辑器面板与提议 UI」已消除:提议卡(ADR-0021)与 `kb_read_resource`(ADR-0028)相继落地 |
 | 会话转写落 `sessions/` | dsh 已经把每个会话事件溯源(`session.vN.jsonl`),这活儿应变成"投影"而非新机制 —— **且:会话功能已移除(ADR-0010),待重新设计后再启** |
 | FTS 与 backlinks 索引 | 等知识库有真实内容后再定存储(drift/sqlite 还是 dsh `session-query`) |

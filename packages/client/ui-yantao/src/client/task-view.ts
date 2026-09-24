@@ -37,6 +37,13 @@ export interface TaskRow {
   readonly startedAt: number
   /** When the task ended, or null while it has not. */
   readonly endedAt: number | null
+  /**
+   * The session the task ran in, when it ran in one (refine and mail analysis
+   * do; script capabilities are bare subprocesses — ADR-0033). Null rows
+   * render no 「详情」 entry; backfilled by the run owners as soon as the
+   * session exists.
+   */
+  readonly sessionId: string | null
 }
 
 /**

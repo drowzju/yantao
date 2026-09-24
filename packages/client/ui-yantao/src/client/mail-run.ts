@@ -85,6 +85,12 @@ export interface MailRunState {
    * — the task view's witness, distinct from an error.
    */
   readonly cancelled: boolean
+  /**
+   * The analysis run's session, once it exists (ADR-0033) — the task row's
+   * 「详情」 entry reads that session's durable log back. Null until the run
+   * reports it, and reset when a new run starts.
+   */
+  readonly sessionId: string | null
 }
 
 /** The seams a run needs — exactly the panel's RPC props, captured once. */
@@ -124,6 +130,7 @@ const EMPTY_STATE: MailRunState = {
   verdicts: new Map(),
   startedAt: null,
   cancelled: false,
+  sessionId: null,
 }
 
 /** How far back one 往前 step reaches. */
@@ -248,13 +255,18 @@ export function createMailRun(): MailRunStore {
       progress: { stage: 'session' },
       verdicts: new Map(),
       startedAt: Date.now(),
+      sessionId: null,
     })
     try {
       const known = await deps.entities()
       const result = await deps.analyse(state.mails, known, (update) => {
-        set(update.verdicts !== undefined
-          ? { progress: update, verdicts: new Map(update.verdicts.map(verdict => [verdict.mail, verdict])) }
-          : { progress: update })
+        set({
+          ...(update.verdicts !== undefined
+            ? { progress: update, verdicts: new Map(update.verdicts.map(verdict => [verdict.mail, verdict])) }
+            : { progress: update }),
+          // Backfill the task row's detail anchor as soon as the session exists (ADR-0033).
+          ...(update.sessionId !== undefined ? { sessionId: update.sessionId } : {}),
+        })
       }, analyseCancel.controller.signal, state.memory)
       set({ verdicts: new Map(result.analysis.verdicts.map(verdict => [verdict.mail, verdict])) })
       const review = analysisToProposal(result.analysis, known, result.title, state.mails)

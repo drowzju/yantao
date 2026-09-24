@@ -1138,6 +1138,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       capabilityRegister={() => Promise.resolve({ path: '.dsh/skills/yantao.json' })}
       capabilityRun={kb.capabilityRun}
       promptSession={kb.promptSession}
+      sessionDetail={() => Promise.resolve([])}
       writeTodos={kb.writeTodos}
       onKbRootChanged={onKbRootChanged}
     />
@@ -1329,6 +1330,7 @@ describe('Frame', () => {
         capabilityRegister={() => Promise.resolve({ path: '.dsh/skills/yantao.json' })}
         capabilityRun={() => Promise.resolve({ name: '', runAt: '', artifacts: [] })}
         promptSession={kb.promptSession}
+        sessionDetail={() => Promise.resolve([])}
         onKbRootChanged={onKbRootChanged}
       />,
     )

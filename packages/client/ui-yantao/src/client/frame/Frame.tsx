@@ -24,6 +24,8 @@ import type { AnalysisStage, MailAnalyser } from '../mail-analysis.ts'
 import { createMailRun, useMailRun } from '../mail-run.ts'
 import type { RefineGesture, RefineRosterEntry, RefineRunner, RefineRun } from '../refine.ts'
 import type { TaskKind, TaskRow, TaskStatus } from '../task-view.ts'
+import type { SessionDetailLoader } from '../session-detail.ts'
+import { SessionDetailDrawer } from '../SessionDetailDrawer.tsx'
 import type { Proposal } from '../proposal.ts'
 import { applyProposal, type ProposalApplyResult } from '../proposal-apply.ts'
 import { proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
@@ -105,6 +107,8 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly capabilityRun: CapabilityRunner
   /** Send one prompt to the conversation the human is watching (ADR-0025 决定 4). */
   readonly promptSession: SessionPrompter
+  /** Read one task session's transcript back for the 任务 tab's 「详情」 drawer (ADR-0033). */
+  readonly sessionDetail: SessionDetailLoader
   /** List the behavior-memory scopes (ADR-0032) — the 记忆 tab's read. */
   readonly memoryList: MemoryLister
   /** Remember one behavior rule (ADR-0032) — the card rows' and the human's direct write. */
@@ -292,7 +296,7 @@ export function Frame({
   t, renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine,
   registerResource, capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
-  promptSession, memoryList, memoryAdd, memoryDelete, onKbRootChanged,
+  promptSession, memoryList, memoryAdd, memoryDelete, sessionDetail, onKbRootChanged,
 }: FrameProps): ReactElement {
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -472,14 +476,14 @@ export function Frame({
     taskSeq.current += 1
     const id = `task-${taskSeq.current}`
     setTaskRows(rows => [
-      { id, kind, title, stage, detail: null, status: 'running', startedAt: Date.now(), endedAt: null },
+      { id, kind, title, stage, detail: null, status: 'running', startedAt: Date.now(), endedAt: null, sessionId: null },
       ...rows,
     ])
     return id
   }, [])
   const taskPatch = useCallback((
     id: string,
-    patch: Partial<Pick<TaskRow, 'stage' | 'detail' | 'status' | 'endedAt'>>,
+    patch: Partial<Pick<TaskRow, 'stage' | 'detail' | 'status' | 'endedAt' | 'sessionId'>>,
   ): void => {
     setTaskRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row))
   }, [])
@@ -647,6 +651,9 @@ export function Frame({
       return refine({ ...queued.gesture, siblings, signal: aborter.signal })
     })().then((run) => {
       setRefineActive(false)
+      // Anchor the row's 「详情」 entry to the run's session (ADR-0033); the
+      // skipped-empty run never made one, and its '' sentinel maps to null.
+      taskPatch(queued.taskId, { sessionId: run.sessionId === '' ? null : run.sessionId })
       // Questions take precedence: the dialog pauses the queue until the
       // human answers (the same session continues) or abandons the run.
       if (run.questions !== undefined && run.questions.length > 0) {
@@ -696,6 +703,8 @@ export function Frame({
       taskPatch(id, {
         stage: progress === null ? '创建会话' : stageOf(progress.stage),
         ...(detail !== null ? { detail } : {}),
+        // Anchor the row's 「详情」 entry once the run's session exists (ADR-0033).
+        ...(mailState.sessionId !== null ? { sessionId: mailState.sessionId } : {}),
       })
       return
     }
@@ -765,6 +774,14 @@ export function Frame({
     else if (row.kind === 'mail') mailRun.cancel()
     else cancelCapability()
   }, [cancelRefine, cancelCapability, mailRun])
+
+  // ADR-0033: the 任务 row's 「详情」 — a read-only drawer over the run's
+  // session log. The row anchors to a session only when its run made one
+  // (refine and mail analysis do; script capabilities are bare subprocesses),
+  // so TasksPane renders the verb only for those rows.
+  const [detailRow, setDetailRow] = useState<TaskRow | null>(null)
+  const onTaskDetail = useCallback((row: TaskRow): void => { setDetailRow(row) }, [])
+  const closeTaskDetail = useCallback((): void => { setDetailRow(null) }, [])
 
   // ADR-0017: editing belongs to Obsidian, so this only hands the file over.
   // Without a root we still open the KB-relative path and let the host resolve
@@ -1018,6 +1035,16 @@ export function Frame({
         taskRows={taskRows}
         onTaskCancel={cancelTask}
         onTaskJump={jumpTask}
+        onTaskDetail={onTaskDetail}
+        taskDetail={detailRow === null ? null : (
+          <SessionDetailDrawer
+            key={detailRow.id}
+            row={detailRow}
+            load={sessionDetail}
+            onClose={closeTaskDetail}
+            t={t}
+          />
+        )}
         onActivate={(key) => { setTabs(state => activateTab(state, key)) }}
         onClose={closeFile}
         viewMode={viewMode}

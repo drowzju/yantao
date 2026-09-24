@@ -116,6 +116,11 @@ export interface AnalysisProgress {
   readonly total?: number
   /** The verdicts accumulated so far, for the panel's per-mail badges. */
   readonly verdicts?: readonly MailVerdict[]
+  /**
+   * The session the analysis runs in, once it exists (ADR-0033) — the task
+   * row's 「详情」 entry reads that session's durable log back.
+   */
+  readonly sessionId?: string
 }
 
 /** One person the KB already holds, offered to the model for matching. */
@@ -446,7 +451,7 @@ export async function runMailAnalysis(options: {
   // signal already tears down the local wait; this ends the turn itself.
   if (options.signal !== undefined) cancelSessionTurnOnAbort(options.signal, session, sessionId)
 
-  onProgress?.({ stage: 'prompt' })
+  onProgress?.({ stage: 'prompt', sessionId })
   const verdicts: MailVerdict[] = []
   const people: MailPerson[] = []
   const todos: MailTodo[] = []

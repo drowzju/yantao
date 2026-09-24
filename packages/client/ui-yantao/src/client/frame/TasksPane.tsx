@@ -9,7 +9,7 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import { formatElapsed, sortTaskRows, type TaskRow, type TaskStatus } from '../task-view.ts'
 
-/** The pane's props: the frame's rows plus the two verbs it offers per row. */
+/** The pane's props: the frame's rows plus the verbs it offers per row. */
 export interface TasksPaneProps {
   /** The frame's task rows in arrival order; the pane sorts them for display. */
   readonly rows: readonly TaskRow[]
@@ -17,6 +17,8 @@ export interface TasksPaneProps {
   readonly onCancel: (row: TaskRow) => void
   /** Jump to where the task's outcome lives (会话 for refine, the connector tab otherwise). */
   readonly onJump: (row: TaskRow) => void
+  /** Open one task's 「详情」 drawer (ADR-0033) — offered only for rows anchored to a session. */
+  readonly onDetail: (row: TaskRow) => void
 }
 
 const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
@@ -82,10 +84,11 @@ const actionButtonStyle = {
 } as const
 
 /** One row of the list. */
-function TaskLine({ row, onCancel, onJump }: {
+function TaskLine({ row, onCancel, onJump, onDetail }: {
   row: TaskRow
   onCancel: (row: TaskRow) => void
   onJump: (row: TaskRow) => void
+  onDetail: (row: TaskRow) => void
 }): ReactElement {
   const chip = STATUS_CHIPS[row.status]
   const elapsed = formatElapsed((row.endedAt ?? Date.now()) - row.startedAt)
@@ -105,6 +108,13 @@ function TaskLine({ row, onCancel, onJump }: {
       <button type="button" style={actionButtonStyle} data-task-jump="true" onClick={() => { onJump(row) }}>
         查看
       </button>
+      {/* ADR-0033: the read-only transcript drawer, only where the run made a
+          session — script capabilities are bare subprocesses with no log. */}
+      {row.sessionId !== null && (
+        <button type="button" style={actionButtonStyle} data-task-detail="true" onClick={() => { onDetail(row) }}>
+          详情
+        </button>
+      )}
     </div>
   )
 }
@@ -114,7 +124,7 @@ function TaskLine({ row, onCancel, onJump }: {
  * @param props - see {@link TasksPaneProps}.
  * @returns the pane element.
  */
-export function TasksPane({ rows, onCancel, onJump }: TasksPaneProps): ReactElement {
+export function TasksPane({ rows, onCancel, onJump, onDetail }: TasksPaneProps): ReactElement {
   // The elapsed column ticks: one re-render a second while anything is live,
   // none at all once every row has ended.
   const [, setTick] = useState(0)
@@ -136,7 +146,7 @@ export function TasksPane({ rows, onCancel, onJump }: TasksPaneProps): ReactElem
   return (
     <div style={paneStyle} data-tasks-pane="true">
       {sorted.map(row => (
-        <TaskLine key={row.id} row={row} onCancel={onCancel} onJump={onJump} />
+        <TaskLine key={row.id} row={row} onCancel={onCancel} onJump={onJump} onDetail={onDetail} />
       ))}
     </div>
   )
