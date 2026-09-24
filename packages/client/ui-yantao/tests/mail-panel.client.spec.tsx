@@ -31,8 +31,10 @@ const MAILS: readonly KbMailMessage[] = [
 const ENTITIES: MailEntities = {
   projects: ['飞书迁移'],
   areas: [],
+  meetings: [],
   people: [],
   files: [{ name: '飞书迁移', path: 'entities/projects/飞书迁移.md' }],
+  meetingFiles: [],
 }
 
 const VERDICT: MailAnalysis = {
@@ -40,6 +42,9 @@ const VERDICT: MailAnalysis = {
   people: [{ name: '张三', relation: 'peer', reason: '一起做汇报' }],
   todos: [{ title: '发汇报', due: '2026-09-12', body: '' }],
   projects: [{ name: '飞书迁移', note: '对方确认了时间' }],
+  newProjects: [],
+  meetings: [],
+  deletions: [],
   resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
   memories: [],
 }
@@ -266,7 +271,7 @@ describe('MailPanel', () => {
   })
 
   it('reports a project the KB does not hold instead of inventing a file', async () => {
-    await openReview({ entities: async () => ({ projects: [], people: [], files: [] }) })
+    await openReview({ entities: async () => ({ projects: [], areas: [], meetings: [], people: [], files: [], meetingFiles: [] }) })
     fireEvent.click(screen.getByText('全部接受'))
     await act(async () => {
       fireEvent.click(screen.getByText('确认写入（4）'))

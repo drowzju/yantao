@@ -126,14 +126,16 @@ export function replaceSection(content: string, heading: string, after: string):
 function writtenLine(action: ProposalAction): string {
   switch (action.kind) {
     case 'create-entity': return `实体 ${action.name}`
+    case 'create-project': return `项目 ${action.name}`
     case 'append-log': return `项目动态 ${action.entityName}`
     case 'write-state': return `状态 ${action.entityName}`
     case 'save-resource': return `资源 ${action.path}`
     case 'create-link': return `关联 ${action.entityName} → ${action.link}`
     case 'add-todo': return `待办 ${action.title}`
-    // A create-following section edit carries no path until the applier
+    // A create-following section action carries no path until the applier
     // resolves it; the create's name is what the human ticked.
     case 'edit-section': return `章节 ${action.section}（${action.path !== '' ? action.path : action.afterCreate ?? ''}）`
+    case 'append-section': return `章节 ${action.section}（${action.path !== '' ? action.path : action.afterCreate ?? ''}）`
     case 'add-memory': return `记忆（${action.scope}）${action.text}`
   }
 }
@@ -153,24 +155,33 @@ function failedLine(action: ProposalAction, error: unknown): string {
  * time (`entityPath: ''`) is skipped, not guessed: the prompt told the model
  * to match existing names, and guessing a filename is worse than reporting
  * the miss.
- * @param options - the proposal, the ticked indexes, and the KB seams.
+ * @param options - the proposal, the ticked indexes, the create-project rows'
+ *   adjusted 领域勾选 keyed by action index (absent: keep the model's
+ *   suggestion, ADR-0034 决定 4), and the KB seams.
  * @returns what was written and what was skipped.
  */
 export async function applyProposal(options: {
   readonly proposal: Proposal
   readonly ticked: readonly number[]
+  readonly areaPicks?: Readonly<Record<number, readonly string[]>>
   readonly target: ProposalTarget
 }): Promise<ProposalApplyResult> {
   const { proposal, ticked, target } = options
   const picked = ticked
-    .map(index => proposal.actions[index])
-    .filter((action): action is ProposalAction => action !== undefined)
+    .map(index => ({ index, action: proposal.actions[index] }))
+    .filter((row): row is { index: number; action: ProposalAction } => row.action !== undefined)
   const written: string[] = []
   const skipped: string[] = []
 
-  const todos = picked.filter((action): action is Extract<ProposalAction, { kind: 'add-todo' }> =>
-    action.kind === 'add-todo')
-  const rest = picked.filter(action => action.kind !== 'add-todo')
+  const todos = picked
+    .map(row => row.action)
+    .filter((action): action is Extract<ProposalAction, { kind: 'add-todo' }> => action.kind === 'add-todo')
+  // An explicit predicate: TS 5.5 only infers one when the check narrows the
+  // parameter itself, and here the discriminant sits on `row.action`.
+  const rest = picked.filter(
+    (row): row is { index: number; action: Exclude<ProposalAction, { kind: 'add-todo' }> } =>
+      row.action.kind !== 'add-todo',
+  )
 
   // The paths of the entities this very card created, by name: a create's own
   // edits, links, and log follow it (ADR-0030). A create that was not ticked
@@ -178,7 +189,7 @@ export async function applyProposal(options: {
   const created = new Map<string, string>()
   const resolveAfterCreate = (name: string): string | undefined => created.get(name)
 
-  for (const action of rest) {
+  for (const { index, action } of rest) {
     try {
       if (action.kind === 'create-entity') {
         // Only the mail path names a person's address; its analysis also
@@ -191,6 +202,30 @@ export async function applyProposal(options: {
           ...action.email !== undefined ? [action.email] : [],
         )
         created.set(action.name, path)
+        written.push(writtenLine(action))
+        continue
+      }
+      if (action.kind === 'create-project') {
+        const path = await target.createEntity('project', action.name)
+        created.set(action.name, path)
+        // ADR-0034 决定 4: the area association rides in the same confirming
+        // breath, so no orphan project is born. The template emits
+        // `areas: []`; a file without that line (a user-template quirk) is
+        // reported, not guessed at.
+        const areas = options.areaPicks?.[index] ?? action.areas ?? []
+        if (areas.length > 0) {
+          try {
+            const content = await target.read(path)
+            if (!/^areas: \[\][ \t]*$/m.test(content)) throw new Error('frontmatter 里没有 areas: [] 可写')
+            await target.write(
+              path,
+              content.replace(/^areas: \[\][ \t]*$/m, `areas: [${areas.map(area => JSON.stringify(area)).join(', ')}]`),
+            )
+          } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error)
+            skipped.push(`项目 ${action.name} 的领域关联：${message}`)
+          }
+        }
         written.push(writtenLine(action))
         continue
       }
@@ -239,6 +274,34 @@ export async function applyProposal(options: {
         // section is re-located in the current file, never snapshot-written.
         const content = await target.read(path)
         await target.write(path, replaceSection(content, heading, action.after))
+        written.push(writtenLine(action))
+        continue
+      }
+      if (action.kind === 'append-section') {
+        // Same iron law as edit-section: the UI channel never becomes the
+        // 流水 bypass (ADR-0029).
+        const heading = action.section.startsWith('#') ? action.section : `## ${action.section}`
+        if (heading === '## 流水') {
+          skipped.push(`${writtenLine(action)}：流水只增不改`)
+          continue
+        }
+        let path = action.path
+        if (path === '' && action.afterCreate !== undefined) {
+          const fresh = resolveAfterCreate(action.afterCreate)
+          if (fresh === undefined) {
+            skipped.push(`${writtenLine(action)}：前置的新建「${action.afterCreate}」没有落地`)
+            continue
+          }
+          path = fresh
+        }
+        if (path === '') {
+          skipped.push(`${writtenLine(action)}：知识库里没有这个实体`)
+          continue
+        }
+        // Re-read at apply time and append at the section's end: enrichment
+        // adds to what the section holds, it never replaces (ADR-0034 决定 4).
+        const content = await target.read(path)
+        await target.write(path, insertIntoSection(content, heading, action.text))
         written.push(writtenLine(action))
         continue
       }

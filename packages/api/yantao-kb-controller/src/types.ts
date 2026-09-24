@@ -251,6 +251,13 @@ export interface KbMailMessage {
    */
   readonly toMe?: 'to' | 'cc' | 'none' | 'unknown'
   /**
+   * Whether one of this mail's recipients matches an address the caller
+   * declared as a `superior` person's (ADR-0034 批次②). Like `toMe`, the
+   * recipients themselves are never reported — only this one flag. Absent
+   * from reads that ran without a superior address set.
+   */
+  readonly superiorInvolved?: boolean
+  /**
    * Outlook's stable conversation key (`ConversationID`, Outlook 2010+).
    * Empty when the client could not read it; the UI then falls back to
    * grouping by normalized subject.
@@ -279,6 +286,14 @@ export interface KbMailFetchArgs {
   readonly until?: string
   /** How many of the newest mails to return; defaults to 50. */
   readonly limit?: number
+  /**
+   * The SMTP addresses of the people the KB holds with relation `superior`
+   * (ADR-0034 批次②). The collector matches recipients against this set and
+   * reports only a per-mail `superiorInvolved` flag — the recipient list
+   * itself never crosses the boundary (ADR-0019's privacy rule). Absent: the
+   * flag reads false everywhere.
+   */
+  readonly superiorAddresses?: readonly string[]
 }
 
 /** Result of the mail capability (ADR-0019): the `result` of `capabilityRun('mail', …)`. */

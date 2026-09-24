@@ -54,7 +54,7 @@ describe('ProposalCard', () => {
     fireEvent.click(screen.getByLabelText('张三'))
     fireEvent.click(screen.getByLabelText('resources/汇报模板.md'))
     fireEvent.click(screen.getByText('确认写入（2）'))
-    expect(onConfirm).toHaveBeenCalledWith([0, 3])
+    expect(onConfirm).toHaveBeenCalledWith([0, 3], undefined)
   })
 
   it('refuses to confirm while nothing is ticked, and holds still while busy', () => {
@@ -108,5 +108,60 @@ describe('ProposalCard', () => {
     render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={onDismiss} t={t} />)
     fireEvent.click(screen.getByText('取消'))
     expect(onDismiss).toHaveBeenCalled()
+  })
+})
+
+describe('ProposalCard create-project 领域勾选 (ADR-0034 决定 4)', () => {
+  const AREAS_PROPOSAL: Proposal = {
+    title: '邮件分析 2026-09-24',
+    actions: [{ kind: 'create-project', name: '机房搬迁', reason: 'r', areas: ['基础设施'] }],
+    areas: ['基础设施', '协作平台'],
+  }
+
+  it('renders the row\'s 领域勾选 with the model\'s suggestion pre-checked', () => {
+    render(<ProposalCard proposal={AREAS_PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
+    expect(screen.getByText('新建项目')).toBeTruthy()
+    expect(screen.getByText(/关联领域：基础设施。/)).toBeTruthy()
+    expect(screen.getByLabelText('机房搬迁·基础设施').checked).toBe(true)
+    expect(screen.getByLabelText('机房搬迁·协作平台').checked).toBe(false)
+  })
+
+  it('passes the adjusted 领域勾选 to onConfirm, keyed by action index', () => {
+    const onConfirm = vi.fn()
+    render(<ProposalCard proposal={AREAS_PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} t={t} />)
+    fireEvent.click(screen.getByLabelText('机房搬迁·协作平台'))
+    fireEvent.click(screen.getByLabelText('机房搬迁'))
+    fireEvent.click(screen.getByText('确认写入（1）'))
+    expect(onConfirm).toHaveBeenCalledWith([0], { 0: ['基础设施', '协作平台'] })
+  })
+
+  it('keeps the model\'s suggestion when the human touches no checkbox', () => {
+    const onConfirm = vi.fn()
+    render(<ProposalCard proposal={AREAS_PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} t={t} />)
+    fireEvent.click(screen.getByLabelText('机房搬迁'))
+    fireEvent.click(screen.getByText('确认写入（1）'))
+    expect(onConfirm).toHaveBeenCalledWith([0], undefined)
+  })
+})
+
+describe('ProposalCard deletions block (ADR-0034 批次②)', () => {
+  it('shows the deletion nominees as informational, without checkboxes', () => {
+    render(
+      <ProposalCard
+        proposal={{
+          ...PROPOSAL,
+          deletions: [{ sender: 'IT 服务台', subject: '旧流程下线通知', why: '失效通知，无待办' }],
+        }}
+        onConfirm={() => {}}
+        onDismiss={() => {}}
+        t={t}
+      />,
+    )
+    expect(screen.getByText('建议删除（确认后才执行）')).toBeTruthy()
+    expect(screen.getByText('IT 服务台：旧流程下线通知 — 失效通知，无待办')).toBeTruthy()
+    // Informational: it adds nothing to the tick count.
+    expect(screen.getByText('确认写入（0）')).toBeTruthy()
+    fireEvent.click(screen.getByText('全部接受'))
+    expect(screen.getByText('确认写入（4）')).toBeTruthy()
   })
 })

@@ -35,6 +35,20 @@ export type ProposalAction =
     readonly email?: string
   }
   | {
+    /**
+     * Create one project, with the area association in the same confirming
+     * breath (ADR-0034 决定 4): the ticked area names are written into the
+     * fresh file's frontmatter `areas: []` — the one spot the agent's tools
+     * cannot reach but the human channel may. Separate from `create-entity`
+     * so the card can group and dress it differently (领域勾选).
+     */
+    readonly kind: 'create-project'
+    readonly name: string
+    readonly reason: string
+    /** Suggested area names, already filtered to ones the KB holds. */
+    readonly areas?: readonly string[]
+  }
+  | {
     /** Append one dated bullet to an entity's `## 流水` (the append-only section). */
     readonly kind: 'append-log'
     readonly entityPath: string
@@ -108,6 +122,22 @@ export type ProposalAction =
   }
   | {
     /**
+     * Append one line at the end of a named `## ` section (ADR-0034 决定 4:
+     * meeting enrichment lands in 决议/待办). Unlike `edit-section` this never
+     * replaces anything — enrichment adds to what the section already holds;
+     * a section the file does not carry is created (UI channel only).
+     */
+    readonly kind: 'append-section'
+    readonly path: string
+    /** The section heading without the `## ` prefix, e.g. `决议`. */
+    readonly section: string
+    readonly text: string
+    readonly why: string
+    /** Same create-follows-create resolution as `edit-section`'s (ADR-0030). */
+    readonly afterCreate?: string
+  }
+  | {
+    /**
      * Remember one behavior rule in a scope (ADR-0032 批次③). The scope is
      * pinned by the UI — the mail analysis's proposals all land in `mail` —
      * so a misjudged rule can never leak into every task as a global memory.
@@ -145,17 +175,30 @@ export interface Proposal {
   readonly highlights?: readonly ProposalHighlight[]
   /** The 汇总类 mails (邮催、通知), merged into one block instead of per-mail alarms. */
   readonly digest?: readonly ProposalHighlight[]
+  /**
+   * The deletion nominees (ADR-0034 决定 3/5): mails the analysis suggests
+   * removing, with a reason each. Informational — the knife itself is batch ③'s
+   * human-channel-only script; the agent only ever nominates.
+   */
+  readonly deletions?: readonly ProposalHighlight[]
+  /**
+   * The KB's area names, offered to the create-project rows' 领域勾选
+   * (ADR-0034 决定 4). Absent when the KB holds no areas.
+   */
+  readonly areas?: readonly string[]
 }
 
 /** What one group of same-kind actions is called on the card — dictionary keys, translated at render. */
 export const GROUP_KEYS: Record<ProposalAction['kind'], WorkbenchLocaleKey> = {
   'create-entity': 'group.createEntity',
+  'create-project': 'group.createProject',
   'append-log': 'group.projectUpdate',
   'write-state': 'group.writeState',
   'save-resource': 'group.resource',
   'create-link': 'group.domainLink',
   'add-todo': 'group.todo',
   'edit-section': 'group.editSection',
+  'append-section': 'group.appendSection',
   'add-memory': 'group.memory',
 }
 
@@ -261,6 +304,57 @@ export function analysisToProposal(
       reason: note.note,
     })
   }
+  // ADR-0034 决定 3: the 「建立项目」 intent lands here, apart from the
+  // must-already-exist `projects`. A suggested area that the KB does not
+  // actually hold is dropped, not written — the same anti-hallucination rule
+  // the projects slot obeys, applied to associations.
+  for (const project of analysis.newProjects) {
+    const areas = (project.areas ?? []).filter(area => entities.areas.includes(area))
+    actions.push({
+      kind: 'create-project',
+      name: project.name,
+      reason: project.why,
+      ...(areas.length > 0 ? { areas } : {}),
+    })
+  }
+  // ADR-0034 决定 3/4: a meeting the KB holds gains 决议/待办 material in
+  // place; a new one is created first and the material follows it through
+  // the create-follows-create resolution (ADR-0030).
+  for (const meeting of analysis.meetings) {
+    const material: readonly { section: string; text: string }[] = [
+      ...(meeting.decision !== undefined && meeting.decision !== '' ? [{ section: '决议', text: meeting.decision }] : []),
+      ...(meeting.todo !== undefined && meeting.todo !== '' ? [{ section: '待办', text: meeting.todo }] : []),
+    ]
+    if (meeting.isNew) {
+      actions.push({
+        kind: 'create-entity',
+        entityType: 'meeting',
+        name: meeting.name,
+        reason: meeting.why,
+      })
+      for (const line of material) {
+        actions.push({
+          kind: 'append-section',
+          path: '',
+          section: line.section,
+          text: line.text,
+          why: meeting.why,
+          afterCreate: meeting.name,
+        })
+      }
+      continue
+    }
+    const file = entities.meetingFiles.find(entry => entry.name === meeting.name)
+    for (const line of material) {
+      actions.push({
+        kind: 'append-section',
+        path: file?.path ?? '',
+        section: line.section,
+        text: line.text,
+        why: meeting.why,
+      })
+    }
+  }
   for (const resource of analysis.resources) {
     actions.push({
       kind: 'save-resource',
@@ -314,10 +408,20 @@ export function analysisToProposal(
   const digestRows = [...digest.values()].map(({ entry, count }) =>
     count > 1 ? { ...entry, subject: `${bareSubject(entry.subject) || entry.subject} ×${count}` } : entry,
   )
+  // ADR-0034 决定 3/5: deletion nominees render as an informational block —
+  // a nominee whose mail is not in the batch is unattributable and dropped.
+  const deletions: ProposalHighlight[] = []
+  for (const deletion of analysis.deletions) {
+    const source = mails[deletion.mail - 1]
+    if (source === undefined) continue
+    deletions.push({ sender: source.senderName, subject: source.subject || '（无主题）', why: deletion.reason })
+  }
   return {
     title,
     actions,
     ...(highlights.length > 0 ? { highlights } : {}),
     ...(digestRows.length > 0 ? { digest: digestRows } : {}),
+    ...(deletions.length > 0 ? { deletions } : {}),
+    ...(entities.areas.length > 0 ? { areas: [...entities.areas] } : {}),
   }
 }

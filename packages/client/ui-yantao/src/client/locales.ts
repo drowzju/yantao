@@ -188,6 +188,7 @@ export const zh = {
   // Proposal card
   'proposal.highlight': '重点提醒',
   'proposal.digest': '日常通知（汇总）',
+  'proposal.deletions': '建议删除（确认后才执行）',
   'proposal.empty': '这次没有发现值得进入知识库的内容。',
   'proposal.acceptAll': '全部接受',
   'proposal.ignoreAll': '全部忽略',
@@ -201,12 +202,14 @@ export const zh = {
 
   // Proposal groups (ProposalCard headings)
   'group.createEntity': '新建实体',
+  'group.createProject': '新建项目',
   'group.projectUpdate': '项目动态',
   'group.writeState': '写状态',
   'group.resource': '资源',
   'group.domainLink': '领域关联',
   'group.todo': '待办',
   'group.editSection': '章节改写',
+  'group.appendSection': '章节补充',
   'group.memory': '记忆',
 } satisfies Record<string, string>
 
@@ -382,6 +385,7 @@ export const en = {
   // Proposal card
   'proposal.highlight': 'Key reminders',
   'proposal.digest': 'Routine notices (digest)',
+  'proposal.deletions': 'Deletion nominees (executed only after confirm)',
   'proposal.empty': 'Nothing worth recording in the KB this time.',
   'proposal.acceptAll': 'Accept all',
   'proposal.ignoreAll': 'Ignore all',
@@ -395,11 +399,13 @@ export const en = {
 
   // Proposal groups
   'group.createEntity': 'New entities',
+  'group.createProject': 'New projects',
   'group.projectUpdate': 'Project updates',
   'group.writeState': 'State writes',
   'group.resource': 'Resources',
   'group.domainLink': 'Domain links',
   'group.todo': 'Todos',
   'group.editSection': 'Section edits',
+  'group.appendSection': 'Section additions',
   'group.memory': 'Memories',
 } satisfies Record<WorkbenchLocaleKey, string>

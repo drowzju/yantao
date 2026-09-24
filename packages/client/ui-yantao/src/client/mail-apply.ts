@@ -14,10 +14,14 @@ export interface MailEntities {
   readonly projects: readonly string[]
   /** Existing area names, listed apart from projects (ADR-0034 决定 2). */
   readonly areas: readonly string[]
+  /** Existing meeting names, offered to the model (ADR-0034 决定 3). */
+  readonly meetings: readonly string[]
   /** Existing people, with their relations and addresses, offered to the model. */
   readonly people: readonly KnownPerson[]
   /** The project files themselves, so a chosen name resolves to a path. */
   readonly files: readonly KbTreeFile[]
+  /** The meeting files themselves, so a chosen meeting name resolves to a path. */
+  readonly meetingFiles: readonly KbTreeFile[]
 }
 
 /**
@@ -36,9 +40,11 @@ export function entitiesOfTree(tree: readonly KbTreeSection[]): MailEntities {
   const section = (id: string): readonly KbTreeFile[] =>
     tree.find(entry => entry.id === id)?.files ?? []
   const projects = section('projects')
+  const meetings = section('meetings')
   return {
     projects: projects.map(file => file.name),
     areas: section('areas').map(file => file.name),
+    meetings: meetings.map(file => file.name),
     people: section('people')
       .filter(file => file.relation !== 'self')
       .map((file): KnownPerson => ({
@@ -47,5 +53,6 @@ export function entitiesOfTree(tree: readonly KbTreeSection[]): MailEntities {
         ...file.email !== undefined ? { email: file.email } : {},
       })),
     files: projects,
+    meetingFiles: meetings,
   }
 }

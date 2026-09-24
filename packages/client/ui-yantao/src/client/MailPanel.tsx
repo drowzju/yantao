@@ -343,7 +343,7 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
           t={t}
           proposal={review}
           busy={phase === 'applying'}
-          onConfirm={(ticked) => { void run.confirm(ticked) }}
+          onConfirm={(ticked, areaPicks) => { void run.confirm(ticked, areaPicks) }}
           onDismiss={() => { void run.dismiss() }}
         />
       )}

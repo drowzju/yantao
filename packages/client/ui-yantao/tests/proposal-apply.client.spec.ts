@@ -271,6 +271,132 @@ describe('create-follows-create (ADR-0030)', () => {
   })
 })
 
+describe('create-project actions (ADR-0034 决定 4)', () => {
+  // The project template guarantees an `areas: []` frontmatter line.
+  const PROJECT_CONTENT = '---\nkind: project\nareas: []\n---\n\n# 机房搬迁\n\n## 状态\n\n\n## 流水\n\n- 2026-01-01 创建\n'
+
+  it('creates the project and writes the suggested areas into the frontmatter', async () => {
+    const t = target({ read: vi.fn(async () => PROJECT_CONTENT) })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'create-project', name: '机房搬迁', reason: 'r', areas: ['基础设施'] }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(t.createEntity).toHaveBeenCalledWith('project', '机房搬迁')
+    const [path, next] = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
+    expect(path).toBe('entities/people/张三.md') // the path the create seam resolved
+    expect(next).toContain('areas: ["基础设施"]')
+    expect(next).not.toContain('areas: []')
+    expect(result.written).toEqual(['项目 机房搬迁'])
+    expect(result.skipped).toEqual([])
+  })
+
+  it('lets the human\'s 领域勾选 override the model\'s suggestion', async () => {
+    const t = target({ read: vi.fn(async () => PROJECT_CONTENT) })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'create-project', name: '机房搬迁', reason: 'r', areas: ['模型建议'] }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], areaPicks: { 0: ['人工勾选'] }, target: t })
+    const [, next] = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
+    expect(next).toContain('areas: ["人工勾选"]')
+    expect(next).not.toContain('模型建议')
+    expect(result.skipped).toEqual([])
+  })
+
+  it('touches no frontmatter when no areas are associated', async () => {
+    const t = target()
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'create-project', name: '机房搬迁', reason: 'r' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(t.read).not.toHaveBeenCalled()
+    expect(t.write).not.toHaveBeenCalled()
+    expect(result.written).toEqual(['项目 机房搬迁'])
+  })
+
+  it('reports a file without the `areas: []` line, and still lands the project', async () => {
+    const t = target({ read: vi.fn(async () => '---\nkind: project\n---\n\n# 机房搬迁\n') })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'create-project', name: '机房搬迁', reason: 'r', areas: ['基础设施'] }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(result.written).toEqual(['项目 机房搬迁'])
+    expect(result.skipped).toEqual(['项目 机房搬迁 的领域关联：frontmatter 里没有 areas: [] 可写'])
+  })
+})
+
+describe('append-section actions (ADR-0034 决定 4)', () => {
+  const MEETING = 'entities/meetings/周会.md'
+  const CONTENT = '# 周会\n\n## 状态\n\n每周一\n\n## 决议\n\n- 旧决议\n\n## 待办\n\n\n## 流水\n\n- 2026-01-01 创建\n'
+  // A project-shaped body for the afterCreate chain: the create seam resolves
+  // to this path and the fresh file carries the section the follower fills.
+  const FRESH_PROJECT = '---\nkind: project\nareas: []\n---\n\n# 机房搬迁\n\n## 目标\n\n\n## 流水\n\n- 2026-01-01 创建\n'
+
+  function targetWith(content: string): ProposalTarget {
+    return target({ read: vi.fn(async () => content) })
+  }
+
+  it('appends at the section\'s end and preserves what was there', async () => {
+    const t = targetWith(CONTENT)
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'append-section', path: MEETING, section: '决议', text: '- 通过了预算', why: 'w' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(t.read).toHaveBeenCalledWith(MEETING)
+    const [path, next] = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
+    expect(path).toBe(MEETING)
+    expect(next).toContain('- 旧决议')
+    expect(next).toContain('- 通过了预算')
+    expect(next.indexOf('- 通过了预算')).toBeGreaterThan(next.indexOf('- 旧决议'))
+    expect(next.indexOf('- 通过了预算')).toBeLessThan(next.indexOf('## 待办'))
+    expect(result.written).toEqual([`章节 决议（${MEETING}）`])
+    expect(result.skipped).toEqual([])
+  })
+
+  it('lands in the freshly created project through afterCreate', async () => {
+    const t = targetWith(FRESH_PROJECT)
+    const proposal: Proposal = {
+      title: 't',
+      actions: [
+        { kind: 'create-project', name: '机房搬迁', reason: 'r' },
+        { kind: 'append-section', path: '', afterCreate: '机房搬迁', section: '目标', text: '季度内完成', why: 'w' },
+      ],
+    }
+    const result = await applyProposal({ proposal, ticked: [0, 1], target: t })
+    expect(result.skipped).toEqual([])
+    const [path, next] = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
+    expect(path).toBe('entities/people/张三.md')
+    expect(next).toContain('季度内完成')
+  })
+
+  it('refuses a 流水 target: the append-only section has no UI bypass', async () => {
+    const t = targetWith(CONTENT)
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'append-section', path: MEETING, section: '流水', text: 'x', why: 'w' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(t.read).not.toHaveBeenCalled()
+    expect(t.write).not.toHaveBeenCalled()
+    expect(result.skipped).toEqual([`章节 流水（${MEETING}）：流水只增不改`])
+  })
+
+  it('skips an action whose path could not be resolved', async () => {
+    const t = targetWith(CONTENT)
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'append-section', path: '', section: '决议', text: 'x', why: 'w' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(t.read).not.toHaveBeenCalled()
+    expect(result.skipped).toEqual(['章节 决议（）：知识库里没有这个实体'])
+  })
+})
+
 describe('replaceSection', () => {
   it('replaces the section body and keeps the rest of the file', () => {
     const content = '# 张三\n\n## 状态\n\n旧内容\n\n## 流水\n\n- 2026-01-01 创建\n'

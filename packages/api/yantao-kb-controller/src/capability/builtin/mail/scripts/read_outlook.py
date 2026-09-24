@@ -47,6 +47,8 @@
   toMe     我在收件人列表里的位置："to"（主送）、"cc"（抄送）、"none"（都不是）、
            "unknown"（认不出当前账户）。只输出我与这封邮件的关系，不输出其他
            收件人的名字或地址——完整抄送列表既噪声又是他人隐私。
+  superiorInvolved  收件人中是否有人的地址命中调用方给出的上级地址集合（布尔）。
+           只回旗标，同样不输出收件人的名字或地址；调用方没给集合时恒为 false。
 """
 
 import argparse
@@ -276,6 +278,24 @@ def to_me(item, me_name, me_address):
     return "cc" if in_cc else "none"
 
 
+def superior_involved(item, superior_addresses):
+    """
+    这封邮件的收件人里有没有上级：把收件人的 SMTP 地址逐一与调用方给出的
+    上级地址集合比对，命中即真。与 to_me 一样只比较、不收集——任何收件人的
+    名字或地址都不落输出（ADR-0019 的隐私边界不变，ADR-0034 批次②）。
+    """
+    wanted = {str(address).lower() for address in superior_addresses if str(address)}
+    if not wanted:
+        return False
+    try:
+        for recipient in item.Recipients:
+            if recipient_address(recipient).lower() in wanted:
+                return True
+    except Exception:
+        return False
+    return False
+
+
 def find_folder(ns, name):
     """按名称在所有 store 及其子文件夹里递归查找，找不到返回 None。"""
     def walk(folder):
@@ -296,7 +316,7 @@ def find_folder(ns, name):
     return None
 
 
-def read_mails(folder, since, until, limit, me_name="", me_address=""):
+def read_mails(folder, since, until, limit, me_name="", me_address="", superior_addresses=()):
     """取 folder 里收件时间落在 [since, until) 的最新 limit 封邮件。"""
     items = folder.Items
     items.Sort("[ReceivedTime]", True)
@@ -338,6 +358,7 @@ def read_mails(folder, since, until, limit, me_name="", me_address=""):
                 "body": body,
                 "truncated": truncated,
                 "toMe": to_me(item, me_name, me_address),
+                "superiorInvolved": superior_involved(item, superior_addresses),
                 "conversationId": conversation_id,
                 "conversationTopic": conversation_topic,
             })
@@ -351,11 +372,12 @@ def read_mails(folder, since, until, limit, me_name="", me_address=""):
     return messages
 
 
-def fetch_messages(since_text, until_text, limit, folder_name):
+def fetch_messages(since_text, until_text, limit, folder_name, superior_addresses=()):
     """
     取数核心：把 [since, until) 窗口里的最新 limit 封邮件取回来。
     供 entry.py 以函数方式调用；失败抛 OutlookError（kind/message 与命令行
-    stderr 的 JSON 同词表）。
+    stderr 的 JSON 同词表）。superior_addresses 是上级的 SMTP 地址集合，只为
+    计算 superiorInvolved 旗标（ADR-0034 批次②）。
     """
     try:
         import win32com.client
@@ -403,7 +425,7 @@ def fetch_messages(since_text, until_text, limit, folder_name):
         raise OutlookError("folder-missing", f"打开邮件文件夹失败：{error}") from error
 
     try:
-        return read_mails(folder, since, until, limit, *current_user(ns))
+        return read_mails(folder, since, until, limit, *current_user(ns), superior_addresses=superior_addresses)
     except Exception as error:
         raise OutlookError("other", f"读取邮件失败：{error}") from error
 

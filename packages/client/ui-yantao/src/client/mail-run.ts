@@ -112,7 +112,7 @@ export interface MailRunStore {
   readonly run: () => Promise<void>
   /** Stop a running analysis: later chunks never start, landed verdicts stay (ADR-0031). */
   readonly cancel: () => void
-  readonly confirm: (ticked: readonly number[]) => Promise<void>
+  readonly confirm: (ticked: readonly number[], areaPicks?: Readonly<Record<number, readonly string[]>>) => Promise<void>
   readonly dismiss: () => Promise<void>
 }
 
@@ -228,7 +228,23 @@ export function createMailRun(): MailRunStore {
     if (deps === undefined) return
     set({ phase: 'fetching', error: null, hint: null, summary: [], verdicts: new Map() })
     try {
-      const result = await deps.fetch(boundsFor(direction, state.mails))
+      // ADR-0034 批次②: the collection side can only flag 「上级参与」 when it
+      // knows whom to match, so the KB's superior addresses ride along with
+      // the bounds. A failed tree read degrades to no set — the read must not
+      // die for a flag.
+      let superiorAddresses: readonly string[] = []
+      try {
+        const known = await deps.entities()
+        superiorAddresses = known.people
+          .filter(person => person.relation === 'superior' && person.email !== undefined)
+          .map(person => person.email as string)
+      } catch {
+        superiorAddresses = []
+      }
+      const result = await deps.fetch({
+        ...boundsFor(direction, state.mails),
+        ...(superiorAddresses.length > 0 ? { superiorAddresses } : {}),
+      })
       set({
         mails: result.messages,
         stale: result.stale,
@@ -324,12 +340,17 @@ export function createMailRun(): MailRunStore {
   }
 
   /** Write what was ticked, then move the cursor: the mails count as read. */
-  const confirm = async (ticked: readonly number[]): Promise<void> => {
+  const confirm = async (ticked: readonly number[], areaPicks?: Readonly<Record<number, readonly string[]>>): Promise<void> => {
     if (deps === undefined || state.review === null) return
     const batch = state.mails
     set({ phase: 'applying' })
     try {
-      const result = await applyProposal({ proposal: state.review, ticked, target: deps.target })
+      const result = await applyProposal({
+        proposal: state.review,
+        ticked,
+        ...areaPicks !== undefined ? { areaPicks } : {},
+        target: deps.target,
+      })
       set({ summary: [...result.written, ...result.skipped], review: null, mails: [] })
     } catch (failure: unknown) {
       set(failurePatch(failure))

@@ -76,6 +76,7 @@ function ctxWith(session: SessionRemote): Context {
 const KNOWN = {
   projects: ['飞书迁移'],
   areas: ['协作平台'],
+  meetings: ['周会'],
   people: [{ name: '李四', relation: 'superior', email: 'lisi@example.com' }, { name: '王五' }],
 }
 
@@ -100,6 +101,30 @@ describe('mailPrompt', () => {
     expect(text).toContain('知识库里已有的领域')
     expect(text).toContain('协作平台')
     expect(text).not.toContain('项目/领域')
+  })
+
+  it('lists the KB\'s meetings, so a meeting match is a match (ADR-0034)', () => {
+    const text = mailPrompt([mail()], KNOWN)
+    expect(text).toContain('知识库里已有的会议：周会')
+  })
+
+  it('offers the three proposal slots: newProjects, meetings, deletions (ADR-0034)', () => {
+    const text = mailPrompt([mail()], KNOWN)
+    expect(text).toContain('"newProjects"')
+    expect(text).toContain('"meetings"')
+    expect(text).toContain('"deletions"')
+    expect(text).toContain('不得与已有项目重名')
+    expect(text).toContain('删除提名')
+  })
+
+  it('marks a mail whose recipients hit a superior address (ADR-0034 批次②)', () => {
+    const flagged = mailPrompt([mail({ superiorInvolved: true })], KNOWN)
+    // The per-mail marker is its own line; the focus criterion (a) also names
+    // the flag inline, so the assertion anchors on the line, not the phrase.
+    expect(flagged).toContain('\n上级参与：是\n')
+    expect(flagged).toContain('「上级参与：是」')
+    const plain = mailPrompt([mail()], KNOWN)
+    expect(plain).not.toContain('\n上级参与：是\n')
   })
 
   it('marks people without an address, so a name-only match is an honest one (ADR-0034)', () => {
@@ -208,6 +233,29 @@ describe('parseAnalysis', () => {
     expect(analysis.todos[0]?.due).toBeUndefined()
   })
 
+  it('reads the three proposal slots, dropping junk rows (ADR-0034)', () => {
+    const analysis = parseAnalysis(JSON.stringify({
+      newProjects: [
+        { name: '机房迁移', why: '三次事故同源', areas: ['基础设施', '编造的领域'] },
+        { name: '', why: '没有名字' },
+      ],
+      meetings: [
+        { name: '周会', new: false, decision: '改用方案 B', todo: '张三出方案', why: '有结论' },
+        { name: '评审会', new: true, decision: null, todo: null, why: '需要立项跟进' },
+        { todo: '没有名字' },
+      ],
+      deletions: [{ mail: 2, reason: '广告' }, { mail: 'x', reason: '没有编号' }],
+    }))
+    expect(analysis.newProjects).toEqual([
+      { name: '机房迁移', why: '三次事故同源', areas: ['基础设施', '编造的领域'] },
+    ])
+    expect(analysis.meetings).toEqual([
+      { name: '周会', isNew: false, why: '有结论', decision: '改用方案 B', todo: '张三出方案' },
+      { name: '评审会', isNew: true, why: '需要立项跟进' },
+    ])
+    expect(analysis.deletions).toEqual([{ mail: 2, reason: '广告' }])
+  })
+
   it('says the model did not answer rather than returning an empty verdict', () => {
     expect(() => parseAnalysis('我觉得这些邮件都不重要。')).toThrow(/JSON/)
   })
@@ -304,9 +352,11 @@ describe('runMailAnalysis', () => {
 describe('analysisToProposal', () => {
   const ENTITIES = {
     projects: ['飞书迁移'],
-    areas: [],
+    areas: ['协作平台'],
+    meetings: ['周会'],
     people: [],
     files: [{ name: '飞书迁移', path: 'entities/projects/飞书迁移.md' }],
+    meetingFiles: [{ name: '周会', path: 'entities/meetings/周会.md' }],
   }
   const MAILS = [
     mail({ senderName: '老板', subject: '周报截止' }),
@@ -320,6 +370,9 @@ describe('analysisToProposal', () => {
     people: [{ name: '张三', relation: 'peer', reason: '一起做汇报', email: 'zhangsan@example.com' }],
     todos: [{ title: '发汇报', due: '2026-09-12', body: '给张三' }],
     projects: [{ name: '飞书迁移', note: '对方确认了时间' }, { name: '不存在的项目', note: '没有这个项目' }],
+    newProjects: [],
+    meetings: [],
+    deletions: [],
     resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
     memories: [],
   }
@@ -329,6 +382,56 @@ describe('analysisToProposal', () => {
     expect(proposal.title).toBe('邮件分析 2026-09-10')
     expect(proposal.actions.map(action => action.kind))
       .toEqual(['create-entity', 'add-todo', 'append-log', 'append-log', 'save-resource'])
+  })
+
+  it('maps newProjects into create-project, keeping only areas the KB holds (ADR-0034)', () => {
+    const proposal = analysisToProposal(
+      {
+        ...ANALYSIS,
+        newProjects: [
+          { name: '机房迁移', why: '三次事故同源', areas: ['协作平台', '编造的领域'] },
+          { name: '无领域的', why: '先立起来' },
+        ],
+      },
+      ENTITIES, 't', MAILS,
+    )
+    expect(proposal.actions.filter(action => action.kind === 'create-project')).toEqual([
+      { kind: 'create-project', name: '机房迁移', reason: '三次事故同源', areas: ['协作平台'] },
+      { kind: 'create-project', name: '无领域的', reason: '先立起来' },
+    ])
+    // The card's 领域勾选 universe is the KB's own areas.
+    expect(proposal.areas).toEqual(['协作平台'])
+  })
+
+  it('maps meetings: enrichment in place, or create followed by section material (ADR-0034)', () => {
+    const proposal = analysisToProposal(
+      {
+        ...ANALYSIS,
+        meetings: [
+          { name: '周会', isNew: false, decision: '改用方案 B', todo: '张三出方案', why: '有结论' },
+          { name: '评审会', isNew: true, decision: '通过立项', todo: '', why: '需要跟进' },
+          { name: '没有素材的会', isNew: false, decision: '', todo: '', why: '没什么可记' },
+        ],
+      },
+      ENTITIES, 't', MAILS,
+    )
+    expect(proposal.actions.filter(action => action.kind === 'append-section')).toEqual([
+      { kind: 'append-section', path: 'entities/meetings/周会.md', section: '决议', text: '改用方案 B', why: '有结论' },
+      { kind: 'append-section', path: 'entities/meetings/周会.md', section: '待办', text: '张三出方案', why: '有结论' },
+      { kind: 'append-section', path: '', section: '决议', text: '通过立项', why: '需要跟进', afterCreate: '评审会' },
+    ])
+    // A new meeting is created ahead of its material.
+    expect(proposal.actions.some(action =>
+      action.kind === 'create-entity' && action.entityType === 'meeting' && action.name === '评审会')).toBe(true)
+  })
+
+  it('renders deletion nominees as an informational block, not actions (ADR-0034)', () => {
+    const proposal = analysisToProposal(
+      { ...ANALYSIS, deletions: [{ mail: 2, reason: '广告' }, { mail: 99, reason: '不在批次里' }] },
+      ENTITIES, 't', MAILS,
+    )
+    expect(proposal.deletions).toEqual([{ sender: '系统', subject: '邮催：请处理工单', why: '广告' }])
+    expect(proposal.actions.every(action => action.kind !== 'delete')).toBe(true)
   })
 
   it('pins the verdict\'s memories to the mail scope, so a slip cannot leak into every task (ADR-0032)', () => {

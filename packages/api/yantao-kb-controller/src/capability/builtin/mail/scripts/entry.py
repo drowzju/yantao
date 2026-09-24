@@ -84,8 +84,13 @@ def main():
         limit = MAIL_LIMIT
     folder = caller_input.get("folder") or None
 
+    # 上级的 SMTP 地址集合（ADR-0034 批次②）：只为收取侧计算 superiorInvolved
+    # 旗标；集合本身不落任何输出，收件人名单也照样不出脚本。
+    superior = caller_input.get("superiorAddresses")
+    superior_addresses = [str(address) for address in superior if str(address)] if isinstance(superior, list) else []
+
     try:
-        messages = fetch_messages(since, until, limit, folder)
+        messages = fetch_messages(since, until, limit, folder, superior_addresses)
     except OutlookError as error:
         emit({
             "ok": False,

@@ -98,7 +98,7 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     workspace: loader(workspace),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
-    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [] } }),
+    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [] } }),
     registerResource: () => Promise.resolve('resources/新资源.pdf'),
     memoryList: () => Promise.resolve({ groups: [] }),
     memoryAdd: () => Promise.resolve({ path: '.dsh/yantao/memory/global.md', entry: { id: 'm1', text: 'x' } }),
@@ -1096,7 +1096,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     capabilityRun: () => Promise.resolve({ name: '', runAt: '', artifacts: [] }),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
-    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [] } }),
+    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [] } }),
     refine: () => Promise.resolve({ sessionId: '', title: '', relevant: true, reason: '' }),
     ...overrides,
   }
@@ -1545,6 +1545,9 @@ describe('Frame', () => {
           projects: [{ name: '飞书迁移', note: '对方确认了时间' }],
           resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
           memories: [],
+          newProjects: [],
+          meetings: [],
+          deletions: [],
         },
       }),
     }))

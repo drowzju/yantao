@@ -58,6 +58,46 @@ export interface MailProjectNote {
   readonly note: string
 }
 
+/**
+ * A project the analysis proposes *creating* (ADR-0034 决定 3): the 「建立项目」
+ * intent lands here, apart from `projects` — whose names must match existing
+ * files, so the two intents each get their own confirmation path.
+ */
+export interface MailNewProject {
+  /** The proposed project name; becomes the entity file's name. */
+  readonly name: string
+  /** Why the mails justify opening this project. */
+  readonly why: string
+  /** Suggested area names; the KB only holds some of these, the card filters. */
+  readonly areas?: readonly string[]
+}
+
+/**
+ * A meeting the analysis enriches or proposes creating (ADR-0034 决定 3):
+ * an existing meeting gains material in its 决议/待办 sections; a new one is
+ * created first and the material follows it.
+ */
+export interface MailMeeting {
+  /** The meeting's name — an existing entity's name, or a proposed new one. */
+  readonly name: string
+  /** True when the model believes the KB does not hold this meeting yet. */
+  readonly isNew: boolean
+  /** One decision the mail records, landing in the 决议 section. */
+  readonly decision?: string
+  /** One action item the mail assigns, landing in the 待办 section. */
+  readonly todo?: string
+  /** Why this meeting is worth recording. */
+  readonly why: string
+}
+
+/** A mail the analysis nominates for deletion (ADR-0034 决定 3) — a nomination only. */
+export interface MailDeletion {
+  /** The nominated mail's 1-based number within the batch. */
+  readonly mail: number
+  /** One line of why it is not worth keeping. */
+  readonly reason: string
+}
+
 /** A mail worth keeping as a resource. */
 export interface MailResource {
   /** The resource's title; becomes `resources/<name>.md`. */
@@ -100,6 +140,9 @@ export interface MailAnalysis {
   readonly people: readonly MailPerson[]
   readonly todos: readonly MailTodo[]
   readonly projects: readonly MailProjectNote[]
+  readonly newProjects: readonly MailNewProject[]
+  readonly meetings: readonly MailMeeting[]
+  readonly deletions: readonly MailDeletion[]
   readonly resources: readonly MailResource[]
   readonly memories: readonly MailMemory[]
 }
@@ -157,12 +200,16 @@ export interface KnownEntities {
   readonly projects: readonly string[]
   /** Existing area names — listed apart from projects (ADR-0034 决定 2). */
   readonly areas: readonly string[]
+  /** Existing meeting names, so a meeting match is a match and not a guess. */
+  readonly meetings: readonly string[]
   /** Existing people, with their relations and addresses when known. */
   readonly people: readonly KnownPerson[]
 }
 
 /** An empty verdict: what a parse returns when the model found nothing. */
-const EMPTY: MailAnalysis = { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [] }
+const EMPTY: MailAnalysis = {
+  verdicts: [], people: [], todos: [], projects: [], newProjects: [], meetings: [], deletions: [], resources: [], memories: [],
+}
 
 /** Today as a YYYY-MM-DD stamp, in the human's own timezone. */
 function stamp(): string {
@@ -203,6 +250,9 @@ function renderMail(mail: KbMailMessage, index: number): string {
   const lines = [
     `[${index}] ${mail.receivedAt} ${mail.senderName} <${mail.senderAddress}>`,
     `寄给我：${TO_ME_PROMPT[mail.toMe ?? 'unknown']}`,
+    // ADR-0034 批次②: the collection side matched the recipients against the
+    // KB's superior addresses; the flag rides in lieu of the recipient list.
+    ...(mail.superiorInvolved === true ? ['上级参与：是'] : []),
     `主题：${mail.subject || '（无主题）'}`,
     `正文：\n${BODY_FENCE_OPEN}\n${mail.body}${mail.truncated ? '\n（已截断）' : ''}\n${BODY_FENCE_CLOSE}`,
   ]
@@ -237,6 +287,7 @@ export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities
     '',
     `知识库里已有的项目：${list(known.projects)}`,
     `知识库里已有的领域（领域不是项目，projects[].name 不要填领域）：${list(known.areas)}`,
+    `知识库里已有的会议：${list(known.meetings)}`,
     `知识库里已有的人物（名字（关系或「无邮箱」）（<邮箱>））：${known.people.map(renderPerson).join('、') || '（无）'}`,
     '',
     '请对每封邮件判断重要程度，并找出值得进入知识库的内容。**只输出一个 JSON 对象，不要输出任何其它文字**：',
@@ -247,13 +298,16 @@ export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities
     '  "people": [{ "name": "张三", "relation": "superior | peer | subordinate | external 或 null", "reason": "为什么值得记住", "email": "发件人邮箱或 null" }],',
     '  "todos": [{ "title": "要做的事", "due": "YYYY-MM-DD 或 null", "body": "可选的补充正文" }],',
     '  "projects": [{ "name": "已存在的项目名", "note": "这封邮件对它意味着什么（一句话）" }],',
+    '  "newProjects": [{ "name": "建议新建的项目名", "why": "为什么值得立项（一句话）", "areas": ["建议关联的领域名"] 或 null }],',
+    '  "meetings": [{ "name": "会议名（已有的用列表里的名字）", "new": false, "decision": "邮件里记录的会议决议（一句话）或 null", "todo": "邮件里布置的一件事（一句话）或 null", "why": "为什么值得记录" }],',
+    '  "deletions": [{ "mail": 1, "reason": "为什么建议删除（一句话）" }],',
     '  "resources": [{ "name": "值得留存的材料标题", "summary": "两三句话的摘要", "mail": 来自哪封邮件的编号或 null }],',
     '  "memories": [{ "text": "要记住的纠正或偏好（一句话）", "why": "为什么值得记" }]',
     '}',
     '```',
     '',
     '重要程度（verdicts[].importance）的判断规则，每封邮件都必须给出一个：',
-    '- `focus`（重点提醒）：以下三条同时满足——(a) 主送我；(b) 发件方是具体人员，而非系统、组织或无人值守邮箱；(c) 标题或正文在语义上涉及重大事故、重大风险、客户不满等严重内容（按语义判断，不要逐字匹配关键词）。上级的判定以知识库里关系为 superior 的人物为准。',
+    '- `focus`（重点提醒）：以下三条同时满足——(a) 主送我，或邮件标注了「上级参与：是」（收件人中有知识库里关系为 superior 的人物）；(b) 发件方是具体人员，而非系统、组织或无人值守邮箱；(c) 标题或正文在语义上涉及重大事故、重大风险、客户不满等严重内容（按语义判断，不要逐字匹配关键词）。',
     '- 例外：账号安全、异地登录类的系统告警无视发件人条件，一律 `focus`——宁可虚惊一场，不可漏报一次。',
     '- `digest`（汇总类）：系统自动发送的邮催/催办、日常通知、例行通告。它们合并汇总即可，不值得逐封提醒。',
     '- `normal`（普通）：其余邮件。',
@@ -261,7 +315,10 @@ export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities
     '',
     '规则：',
     '- `verdicts[].mail` 用邮件方括号里的编号；每封邮件恰好一条。',
-    '- `projects[].name` 必须来自上面给出的项目列表（领域不算项目）；对不上就留空数组，不要新建项目。',
+    '- `projects[].name` 必须来自上面给出的项目列表（领域不算项目）；对不上就留空数组，不要新建项目。「想新建项目」的意图放进 `newProjects`，不放 `projects`。',
+    '- `newProjects[].name` 不得与已有项目重名；`areas` 只能从上面给出的领域列表里选，拿不准就填 null。',
+    '- `meetings[].name` 已存在的必须来自上面给出的会议列表（此时 new=false）；确实是新会议才 new=true。`decision`/`todo` 只在邮件里确凿看到时填，否则填 null。',
+    '- `deletions` 只是删除提名：只提名确定没有留存价值的邮件（广告、与知识库主人无关的群发），删除与否由人决定。',
     '- `todos[].due` 只在邮件里明确写了时间才填，否则填 null。',
     '- `people[].email` 只在这批邮件里能拿到该人地址时填，否则填 null。',
     '- `people[].relation` 四选一：superior＝我的上级或领导，peer＝同事或平级协作者，subordinate＝我的下属，external＝公司外部的人；拿不准就填 null。',
@@ -287,6 +344,18 @@ function field(row: unknown, key: string): string {
 /** The rows of one block, dropping anything that is not an object. */
 function rows(value: unknown): readonly unknown[] {
   return Array.isArray(value) ? value : []
+}
+
+/**
+ * The string entries of one array field, trimmed — a model that slips junk
+ * into `areas` gets it filtered, not forwarded.
+ * @param value - the raw field.
+ * @returns the non-empty strings.
+ */
+function stringList(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '').map(entry => entry.trim())
+    : []
 }
 
 /**
@@ -364,6 +433,35 @@ export function parseAnalysis(text: string): MailAnalysis {
     const name = field(row, 'name')
     return name === '' ? undefined : { name, note: field(row, 'note') }
   })
+  const newProjects = rows(value.newProjects).map((row): MailNewProject | undefined => {
+    const name = field(row, 'name')
+    if (name === '') return undefined
+    const areas = stringList((row as Record<string, unknown> | null)?.areas)
+    return {
+      name,
+      why: field(row, 'why'),
+      ...(areas.length > 0 ? { areas } : {}),
+    }
+  })
+  const meetings = rows(value.meetings).map((row): MailMeeting | undefined => {
+    const name = field(row, 'name')
+    if (name === '') return undefined
+    const record = row as Record<string, unknown> | null
+    const decision = field(record, 'decision')
+    const todo = field(record, 'todo')
+    return {
+      name,
+      isNew: record?.new === true,
+      why: field(row, 'why'),
+      ...(decision !== '' ? { decision } : {}),
+      ...(todo !== '' ? { todo } : {}),
+    }
+  })
+  const deletions = rows(value.deletions).map((row): MailDeletion | undefined => {
+    const mail = mailNumber((row as Record<string, unknown> | null)?.mail)
+    if (mail === undefined) return undefined
+    return { mail, reason: field(row, 'reason') }
+  })
   const resources = rows(value.resources).map((row): MailResource | undefined => {
     const name = field(row, 'name')
     if (name === '') return undefined
@@ -380,6 +478,9 @@ export function parseAnalysis(text: string): MailAnalysis {
     people: people.filter((row): row is MailPerson => row !== undefined),
     todos: todos.filter((row): row is MailTodo => row !== undefined),
     projects: projects.filter((row): row is MailProjectNote => row !== undefined),
+    newProjects: newProjects.filter((row): row is MailNewProject => row !== undefined),
+    meetings: meetings.filter((row): row is MailMeeting => row !== undefined),
+    deletions: deletions.filter((row): row is MailDeletion => row !== undefined),
     resources: resources.filter((row): row is MailResource => row !== undefined),
     memories: memories.filter((row): row is MailMemory => row !== undefined),
   }
@@ -396,7 +497,7 @@ export interface AnalysisRun {
 }
 
 /** The re-ask when the first answer is not readable JSON: JSON alone, nothing else. */
-const REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 verdicts/people/todos/projects/resources/memories 字段），不要输出任何其它文字。'
+const REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 verdicts/people/todos/projects/newProjects/meetings/deletions/resources/memories 字段），不要输出任何其它文字。'
 
 /**
  * One chunk of the batch through the already-created session, waited out to
@@ -472,6 +573,9 @@ export async function runMailAnalysis(options: {
   const people: MailPerson[] = []
   const todos: MailTodo[] = []
   const projects: MailProjectNote[] = []
+  const newProjects: MailNewProject[] = []
+  const meetings: MailMeeting[] = []
+  const deletions: MailDeletion[] = []
   const resources: MailResource[] = []
   const memories: MailMemory[] = []
   for (let start = 0; start < mails.length; start += CHUNK_SIZE) {
@@ -489,6 +593,9 @@ export async function runMailAnalysis(options: {
     people.push(...analysis.people)
     todos.push(...analysis.todos)
     projects.push(...analysis.projects)
+    newProjects.push(...analysis.newProjects)
+    meetings.push(...analysis.meetings)
+    deletions.push(...analysis.deletions)
     resources.push(...analysis.resources)
     memories.push(...analysis.memories)
     onProgress?.({
@@ -498,5 +605,9 @@ export async function runMailAnalysis(options: {
       verdicts: [...verdicts],
     })
   }
-  return { sessionId, title: sessionName, analysis: { verdicts, people, todos, projects, resources, memories } }
+  return {
+    sessionId,
+    title: sessionName,
+    analysis: { verdicts, people, todos, projects, newProjects, meetings, deletions, resources, memories },
+  }
 }

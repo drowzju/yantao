@@ -65,7 +65,7 @@ const footerStyle = {
 
 /** The kinds in the order the card lists their groups. */
 const GROUP_ORDER: readonly ProposalAction['kind'][] = [
-  'create-entity', 'add-todo', 'append-log', 'write-state', 'edit-section', 'create-link', 'save-resource', 'add-memory',
+  'create-entity', 'create-project', 'add-todo', 'append-log', 'write-state', 'edit-section', 'append-section', 'create-link', 'save-resource', 'add-memory',
 ]
 
 /** A person action's relation, as the row's detail names it (self is never proposed). */
@@ -80,12 +80,14 @@ const RELATION_KEYS: Partial<Record<NonNullable<Extract<ProposalAction, { kind: 
 function labelOf(action: ProposalAction): string {
   switch (action.kind) {
     case 'create-entity': return action.name
+    case 'create-project': return action.name
     case 'add-todo': return action.due !== undefined ? `${action.title}（${action.due}）` : action.title
     case 'append-log': return action.entityName
     case 'write-state': return action.entityName
     case 'create-link': return action.link
     case 'save-resource': return action.path
     case 'edit-section': return action.section
+    case 'append-section': return action.section
     case 'add-memory': return action.text
   }
 }
@@ -93,6 +95,11 @@ function labelOf(action: ProposalAction): string {
 /** One row's explanation — why the agent proposes this. */
 function detailOf(action: ProposalAction, t: WorkbenchT): string {
   if (action.kind === 'edit-section') return `${action.path}：${action.why}`
+  if (action.kind === 'append-section') return `${action.path}：${action.why}`
+  if (action.kind === 'create-project') {
+    const areas = action.areas !== undefined && action.areas.length > 0 ? `关联领域：${action.areas.join('、')}。` : ''
+    return `${areas}${action.reason}`
+  }
   if (action.kind === 'create-entity' && action.relation !== undefined) {
     const key = RELATION_KEYS[action.relation]
     return key === undefined ? action.reason : `${t(key)}：${action.reason}`
@@ -103,12 +110,14 @@ function detailOf(action: ProposalAction, t: WorkbenchT): string {
 /**
  * Render the proposal card.
  * @param props - the proposal, the two callbacks, and whether a confirm or a
- *   dismiss is already in flight (buttons hold still while it is).
+ *   dismiss is already in flight (buttons hold still while it is). The confirm
+ *   callback also receives the create-project rows' 领域勾选, keyed by action
+ *   index (ADR-0034 决定 4) — the human adjusts the association before writing.
  * @returns the card element.
  */
 export function ProposalCard(props: {
   readonly proposal: Proposal
-  readonly onConfirm: (ticked: readonly number[]) => void
+  readonly onConfirm: (ticked: readonly number[], areaPicks?: Readonly<Record<number, readonly string[]>>) => void
   readonly onDismiss: () => void
   readonly busy?: boolean
   readonly t: WorkbenchT
@@ -117,12 +126,24 @@ export function ProposalCard(props: {
   // Nothing is ticked to begin with: writing into a knowledge base is the one
   // action here that cannot be undone by looking again.
   const [ticked, setTicked] = useState<readonly number[]>([])
+  // The create-project rows' area association, keyed by action index (ADR-0034
+  // 决定 4). A row the human never touched keeps the model's suggestion.
+  const [areaPicks, setAreaPicks] = useState<Readonly<Record<number, readonly string[]>>>({})
 
   /** Tick or untick one row. */
   const toggle = (index: number): void => {
     setTicked(state => state.includes(index)
       ? state.filter(entry => entry !== index)
       : [...state, index].sort((left, right) => left - right))
+  }
+
+  /** Tick or untick one area of one create-project row. */
+  const toggleArea = (index: number, area: string, areas: readonly string[]): void => {
+    setAreaPicks((previous) => {
+      const base = previous[index] ?? areas
+      const on = base.includes(area)
+      return { ...previous, [index]: on ? base.filter(entry => entry !== area) : [...base, area] }
+    })
   }
 
   const all = (): void => {
@@ -158,6 +179,16 @@ export function ProposalCard(props: {
             ))}
           </div>
         )}
+        {proposal.deletions !== undefined && proposal.deletions.length > 0 && (
+          <div data-proposal-deletions="true">
+            <div style={groupTitleStyle}>{t('proposal.deletions')}</div>
+            {proposal.deletions.map((entry, index) => (
+              <div key={index} style={detailStyle}>
+                {entry.sender}：{entry.subject} — {entry.why}
+              </div>
+            ))}
+          </div>
+        )}
         {nothing && <div style={{ ...detailStyle, marginTop: 10 }}>{t('proposal.empty')}</div>}
         {GROUP_ORDER.map((kind) => {
           const rows = proposal.actions
@@ -178,6 +209,27 @@ export function ProposalCard(props: {
                   <div style={{ minWidth: 0 }}>
                     <div>{labelOf(action)}</div>
                     {detailOf(action, t) !== '' && <div style={detailStyle}>{detailOf(action, t)}</div>}
+                    {/* ADR-0034 决定 4: the create-project row's 领域勾选 — the
+                        human adjusts the association before it is written. */}
+                    {action.kind === 'create-project' && proposal.areas !== undefined && proposal.areas.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 2 }} data-proposal-areas={index}>
+                        {proposal.areas.map((area) => {
+                          const current = areaPicks[index] ?? action.areas ?? []
+                          const on = current.includes(area)
+                          return (
+                            <label key={area} style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 'var(--yt-type-label)' }}>
+                              <input
+                                type="checkbox"
+                                aria-label={`${action.name}·${area}`}
+                                checked={on}
+                                onChange={() => { toggleArea(index, area, action.areas ?? []) }}
+                              />
+                              {area}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -199,7 +251,7 @@ export function ProposalCard(props: {
             type="button"
             style={buttonStyle}
             disabled={props.busy === true || count === 0}
-            onClick={() => { props.onConfirm(ticked) }}
+            onClick={() => { props.onConfirm(ticked, Object.keys(areaPicks).length > 0 ? areaPicks : undefined) }}
           >
             {t('proposal.confirmWrite', { count })}
           </button>
