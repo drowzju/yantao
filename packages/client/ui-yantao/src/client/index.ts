@@ -53,7 +53,7 @@ import { kbReferenceSource } from './kb-reference.ts'
 import { capabilityGestureSource } from './capability-gesture.ts'
 import { WORKBENCH_NS, en, zh } from './locales.ts'
 import {
-  addMemory, adoptCapability, createCapability, createEntity, deleteFile, deleteMemory, fetchMail, listMemory,
+  addMemory, adoptCapability, createCapability, createEntity, deleteFile, deleteMemory, deleteMails, fetchMail, listMemory,
   loadCapabilities, loadIntake, loadLinks,
   loadRevision, loadRoot, loadTodos,
   loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, runCapability, setKbRoot,
@@ -168,6 +168,7 @@ export function apply(ctx: Context): void {
       writeTodos: (args: KbWriteTodosArgs) => writeTodos(ctx, args),
       mailFetch: (args: KbMailFetchArgs) => fetchMail(ctx, args),
       mailMarkRead: (args: KbMailMarkReadArgs) => markMailRead(ctx, args),
+      mailDelete: (ids: readonly string[]) => deleteMails(ctx, ids),
       analyseMail: async (
         mails: readonly MailMessage[],
         known: KnownEntities,

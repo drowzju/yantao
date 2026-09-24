@@ -149,6 +149,20 @@ export type ProposalAction =
     readonly text: string
     readonly reason: string
   }
+  | {
+    /**
+     * Move one nominated mail to Outlook's 已删除 folder (ADR-0034 决定 5).
+     * The agent only nominates; the knife swings on the human's tick — the
+     * applier routes it through the optional `deleteMails` seam, which drives
+     * the controller's human-channel-only `verb: 'delete'`. Absent seam ⇒
+     * the row is honestly skipped, never silently executed elsewhere.
+     */
+    readonly kind: 'delete-mails'
+    readonly entryId: string
+    readonly sender: string
+    readonly subject: string
+    readonly reason: string
+  }
 
 /** One mail the analysis flagged, shown on the card without a checkbox. */
 export interface ProposalHighlight {
@@ -176,12 +190,6 @@ export interface Proposal {
   /** The 汇总类 mails (邮催、通知), merged into one block instead of per-mail alarms. */
   readonly digest?: readonly ProposalHighlight[]
   /**
-   * The deletion nominees (ADR-0034 决定 3/5): mails the analysis suggests
-   * removing, with a reason each. Informational — the knife itself is batch ③'s
-   * human-channel-only script; the agent only ever nominates.
-   */
-  readonly deletions?: readonly ProposalHighlight[]
-  /**
    * The KB's area names, offered to the create-project rows' 领域勾选
    * (ADR-0034 决定 4). Absent when the KB holds no areas.
    */
@@ -200,6 +208,7 @@ export const GROUP_KEYS: Record<ProposalAction['kind'], WorkbenchLocaleKey> = {
   'edit-section': 'group.editSection',
   'append-section': 'group.appendSection',
   'add-memory': 'group.memory',
+  'delete-mails': 'group.deleteMails',
 }
 
 /** Today as a YYYY-MM-DD stamp, in the human's own timezone. */
@@ -408,20 +417,26 @@ export function analysisToProposal(
   const digestRows = [...digest.values()].map(({ entry, count }) =>
     count > 1 ? { ...entry, subject: `${bareSubject(entry.subject) || entry.subject} ×${count}` } : entry,
   )
-  // ADR-0034 决定 3/5: deletion nominees render as an informational block —
-  // a nominee whose mail is not in the batch is unattributable and dropped.
-  const deletions: ProposalHighlight[] = []
+  // ADR-0034 决定 5: deletion nominees become tickable delete-mails actions —
+  // the agent nominates, the human's tick swings the knife through the
+  // controller's human-channel-only delete verb. A nominee whose mail is not
+  // in the batch is unattributable (no entryId to move) and dropped.
   for (const deletion of analysis.deletions) {
     const source = mails[deletion.mail - 1]
     if (source === undefined) continue
-    deletions.push({ sender: source.senderName, subject: source.subject || '（无主题）', why: deletion.reason })
+    actions.push({
+      kind: 'delete-mails',
+      entryId: source.entryId,
+      sender: source.senderName,
+      subject: source.subject || '（无主题）',
+      reason: deletion.reason,
+    })
   }
   return {
     title,
     actions,
     ...(highlights.length > 0 ? { highlights } : {}),
     ...(digestRows.length > 0 ? { digest: digestRows } : {}),
-    ...(deletions.length > 0 ? { deletions } : {}),
     ...(entities.areas.length > 0 ? { areas: [...entities.areas] } : {}),
   }
 }

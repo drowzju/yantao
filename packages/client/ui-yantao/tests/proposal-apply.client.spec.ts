@@ -397,6 +397,45 @@ describe('append-section actions (ADR-0034 决定 4)', () => {
   })
 })
 
+describe('delete-mails actions (ADR-0034 决定 5)', () => {
+  const ACTION = { kind: 'delete-mails', entryId: 'e1', sender: 'IT 服务台', subject: '旧流程下线通知', reason: '失效通知' } as const
+
+  it('moves the mail through the optional seam when the outcome is moved', async () => {
+    const deleteMails = vi.fn(async () => ({ moved: ['e1'], missing: [], failed: [] }))
+    const t = target({ deleteMails })
+    const proposal: Proposal = { title: 't', actions: [ACTION] }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(deleteMails).toHaveBeenCalledWith(['e1'])
+    expect(result.written).toEqual(['删除邮件 旧流程下线通知'])
+    expect(result.skipped).toEqual([])
+  })
+
+  it('skips a mail the mailbox no longer holds', async () => {
+    const deleteMails = vi.fn(async () => ({ moved: [], missing: ['e1'], failed: [] }))
+    const t = target({ deleteMails })
+    const proposal: Proposal = { title: 't', actions: [ACTION] }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(result.written).toEqual([])
+    expect(result.skipped).toEqual(['删除邮件 旧流程下线通知：邮箱里找不到这封邮件（可能已被移走）'])
+  })
+
+  it('reports the script\'s per-mail failure message', async () => {
+    const deleteMails = vi.fn(async () => ({ moved: [], missing: [], failed: [{ id: 'e1', message: 'Outlook 不肯放人' }] }))
+    const t = target({ deleteMails })
+    const proposal: Proposal = { title: 't', actions: [ACTION] }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(result.skipped).toEqual(['删除邮件 旧流程下线通知：Outlook 不肯放人'])
+  })
+
+  it('skips honestly when the caller carries no knife', async () => {
+    const t = target()
+    const proposal: Proposal = { title: 't', actions: [ACTION] }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(result.written).toEqual([])
+    expect(result.skipped).toEqual(['删除邮件 旧流程下线通知：这条通道没有挂删除刀'])
+  })
+})
+
 describe('replaceSection', () => {
   it('replaces the section body and keeps the rest of the file', () => {
     const content = '# 张三\n\n## 状态\n\n旧内容\n\n## 流水\n\n- 2026-01-01 创建\n'

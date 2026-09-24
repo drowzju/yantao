@@ -12,7 +12,7 @@ import type {
 import type {
   CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, EntityCreator, FileDeleter, FileReader,
   FileWriter,
-  MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, RelationSetter, ResourceRegistrar,
+  MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, RelationSetter, ResourceRegistrar,
   TodoLoader, TodoWriter,
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
@@ -871,6 +871,12 @@ export interface RailProps {
   readonly mailFetch: MailFetcher
   /** Move that cursor forward (ADR-0019). */
   readonly mailMarkRead: MailMarker
+  /**
+   * Swing the deletion knife (ADR-0034 决定 5) — optional, so embedders
+   * without the face (tests, the frame's own targets) render delete-mails
+   * rows that skip honestly instead of executing unseen.
+   */
+  readonly mailDelete?: MailDeleter
   /** Run one mail analysis in a dsh session (ADR-0019). */
   readonly analyseMail: MailAnalyser
   /** Copy one dropped file into `resources/` — both rails' entity rows accept OS drops (ADR-0029 决定 2). */
@@ -988,6 +994,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, onRunCapability, kbRoot = '',
     memoryList, memoryAdd, memoryDelete,
   } = props
+  const mailDelete = props.mailDelete
   const { sections, error, refresh } = useRail(load, refreshKey)
   const capabilities = useCapabilities(capabilityList, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector' | 'memory'>('resources')
@@ -1049,8 +1056,11 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   // ADR-0019: the writes a confirmed proposal lands on (mail's share of it).
   // ADR-0032 批次③: the card's 记忆 rows go through the same memoryAdd the
   // human's direct write uses — one seam, two authors.
+  // ADR-0034 决定 5: the knife rides along when the host supplies the face —
+  // the proposal card's tick is what arms it.
   const mailTarget: ProposalTarget = {
     createEntity, read, write, todos: loadTodos, writeTodos, memoryAdd,
+    ...(mailDelete !== undefined ? { deleteMails: mailDelete } : {}),
   }
 
   // ADR-0020: dropping files onto the rail registers them — a pure copy into

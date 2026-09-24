@@ -188,7 +188,6 @@ export const zh = {
   // Proposal card
   'proposal.highlight': '重点提醒',
   'proposal.digest': '日常通知（汇总）',
-  'proposal.deletions': '建议删除（确认后才执行）',
   'proposal.empty': '这次没有发现值得进入知识库的内容。',
   'proposal.acceptAll': '全部接受',
   'proposal.ignoreAll': '全部忽略',
@@ -211,6 +210,7 @@ export const zh = {
   'group.editSection': '章节改写',
   'group.appendSection': '章节补充',
   'group.memory': '记忆',
+  'group.deleteMails': '删除邮件（移入已删除）',
 } satisfies Record<string, string>
 
 /** Workbench locale key union. */
@@ -385,7 +385,6 @@ export const en = {
   // Proposal card
   'proposal.highlight': 'Key reminders',
   'proposal.digest': 'Routine notices (digest)',
-  'proposal.deletions': 'Deletion nominees (executed only after confirm)',
   'proposal.empty': 'Nothing worth recording in the KB this time.',
   'proposal.acceptAll': 'Accept all',
   'proposal.ignoreAll': 'Ignore all',
@@ -408,4 +407,5 @@ export const en = {
   'group.editSection': 'Section edits',
   'group.appendSection': 'Section additions',
   'group.memory': 'Memories',
+  'group.deleteMails': 'Mail deletions (move to Deleted)',
 } satisfies Record<WorkbenchLocaleKey, string>

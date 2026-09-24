@@ -144,24 +144,24 @@ describe('ProposalCard create-project 领域勾选 (ADR-0034 决定 4)', () => {
   })
 })
 
-describe('ProposalCard deletions block (ADR-0034 批次②)', () => {
-  it('shows the deletion nominees as informational, without checkboxes', () => {
-    render(
-      <ProposalCard
-        proposal={{
-          ...PROPOSAL,
-          deletions: [{ sender: 'IT 服务台', subject: '旧流程下线通知', why: '失效通知，无待办' }],
-        }}
-        onConfirm={() => {}}
-        onDismiss={() => {}}
-        t={t}
-      />,
-    )
-    expect(screen.getByText('建议删除（确认后才执行）')).toBeTruthy()
-    expect(screen.getByText('IT 服务台：旧流程下线通知 — 失效通知，无待办')).toBeTruthy()
-    // Informational: it adds nothing to the tick count.
+describe('ProposalCard delete-mails group (ADR-0034 决定 5)', () => {
+  const DELETION_PROPOSAL: Proposal = {
+    title: '邮件分析 2026-09-24',
+    actions: [
+      { kind: 'delete-mails', entryId: 'e1', sender: 'IT 服务台', subject: '旧流程下线通知', reason: '失效通知，无待办' },
+    ],
+  }
+
+  it('renders the nominees as a tickable 删除邮件 group, not an informational block', () => {
+    const onConfirm = vi.fn()
+    render(<ProposalCard proposal={DELETION_PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} t={t} />)
+    expect(screen.getByText('删除邮件（移入已删除）')).toBeTruthy()
+    expect(screen.getByText('旧流程下线通知')).toBeTruthy()
+    expect(screen.getByText('IT 服务台：失效通知，无待办')).toBeTruthy()
+    // The knife waits for the human's tick: nothing is pre-ticked.
     expect(screen.getByText('确认写入（0）')).toBeTruthy()
-    fireEvent.click(screen.getByText('全部接受'))
-    expect(screen.getByText('确认写入（4）')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('旧流程下线通知'))
+    fireEvent.click(screen.getByText('确认写入（1）'))
+    expect(onConfirm).toHaveBeenCalledWith([0], undefined)
   })
 })

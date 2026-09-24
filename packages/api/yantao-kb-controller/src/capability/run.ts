@@ -337,6 +337,14 @@ export interface RunCapabilityOptions {
   readonly kbRoot: string
   /** The caller's input, handed to the script verbatim. */
   readonly input?: unknown
+  /**
+   * Which channel is calling, injected into the request envelope by the host
+   * (ADR-0034 决定 5). Unlike `input` — the caller's own words, forgeable —
+   * this is the controller's testimony, and it is what a privileged verb
+   * (the mail capability's delete) checks before it will run. Absent: the
+   * script sees no channel at all and must treat itself as least-privileged.
+   */
+  readonly channel?: 'human' | 'agent'
   /** The capability's previous persisted state, or null when it never ran. */
   readonly state?: unknown
   /** Python interpreter; defaults to `python` on Windows, `python3` elsewhere. */
@@ -381,6 +389,7 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
     kbRoot: options.kbRoot,
     input: options.input ?? null,
     state: options.state ?? null,
+    ...(options.channel !== undefined ? { channel: options.channel } : {}),
   })
 
   return new Promise<CapabilityRunOutput>((resolveRun, reject) => {

@@ -16,7 +16,11 @@ SKILL.md 保持纯净，方便直接复用开源 skill 目录。
 ## 执行契约
 
 入口是 `scripts/entry.py`，由工作台以子进程调用：stdin 收一个 JSON 对象
-`{name, kbRoot, input, state}`，stdout 回一个 JSON 对象。
+`{name, kbRoot, input, state, channel}`，stdout 回一个 JSON 对象。按
+`input.verb` 分派，缺省是取数；`channel` 由宿主按真实调用方注入（人的确认
+卡是 `human`，agent 的 kb_run_capability 是 `agent`），删除动词只认前者。
+
+### 取数（缺省动词）
 
 - `input`：`{since?, until?, limit?, folder?, superiorAddresses?}`——`since`/`until`
   是显式翻页边界（半开区间 `[since, until)`）；都不给时用 `state.lastReadAt`，
@@ -32,8 +36,20 @@ SKILL.md 保持纯净，方便直接复用开源 skill 目录。
   批次②）——两者都只回关系或旗标，不含其他收件人的名字或地址；`conversationId`/`conversationTopic`
   是 Outlook 的会话键与会话主题（Outlook 2010+），读不到时为空串，客户端据此前提
   归并线程、缺失时回退按主题剥 RE/FW 前缀分组。
-- 失败：`{ok: false, kind, message, hint}`，kind ∈ python-missing / outlook-unavailable /
-  folder-missing / other。
+
+### 删除（`verb: 'delete'`，仅人通道，ADR-0034 决定 5）
+
+- `input`：`{verb: 'delete', ids: [entryId, …]}`——要移走的邮件的 Outlook
+  EntryID 列表，来自提案卡上人勾选的删除提名。
+- `channel` 必须是人通道：信封里的 `channel` 由宿主注入、调用方伪造不了，
+  agent 通道在此被拒（`not-invocable`）——agent 只有删除提名权，没有执行权。
+- 去处是「已删除」文件夹（移动，不是永久删除，回收站里可捞回）。
+- 成功：`{ok: true, result: {moved, missing, failed}}`——`moved`/`missing` 是
+  EntryID 列表，`failed` 是 `{id, message}`；单封失败不影响其余。
+- 失败：与取数同词表（python-missing / outlook-unavailable / other）。
+
+两类动词共用的失败：`{ok: false, kind, message, hint}`，kind ∈
+python-missing / outlook-unavailable / folder-missing / not-invocable / other。
 
 ## 前提
 

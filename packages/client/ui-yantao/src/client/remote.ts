@@ -27,7 +27,7 @@ import type {
   KbCapabilityRegisterArgs, KbCapabilityRegisterResult,
   KbCapabilityRunArgs, KbCapabilityRunResult, KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
   KbDeleteFileResult, KbFileContent, KbLinksResult,
-  KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
+  KbMailDeleteArgs, KbMailDeleteResult, KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
   KbMemoryAddArgs, KbMemoryAddResult, KbMemoryDeleteArgs, KbMemoryDeleteResult, KbMemoryListResult,
   KbOpenExternalResult, KbPersonRelation, KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
   KbRootResult, KbSetRelationArgs, KbSetRelationResult,
@@ -159,6 +159,14 @@ export type MailFetchResult = KbMailFetchResult & { readonly memory?: string }
 
 /** Move the mail connector's cursor forward (ADR-0019). */
 export type MailMarker = (args: KbMailMarkReadArgs) => Promise<KbMailMarkReadResult>
+
+/**
+ * Swing the deletion knife (ADR-0034 决定 5): move nominated mails to
+ * Outlook's 已删除 folder through the `mail` capability's human-channel-only
+ * `verb: 'delete'`. Human channel only — the agent's `kb_*` toolset never
+ * grows a delete.
+ */
+export type MailDeleter = (ids: readonly string[]) => Promise<KbMailDeleteResult>
 
 /** Copy one dropped file into `resources/` and resolve its path (ADR-0020). */
 export type ResourceRegistrar = (name: string, contentBase64: string) => Promise<string>
@@ -473,6 +481,22 @@ export async function markMailRead(ctx: Context, args: KbMailMarkReadArgs): Prom
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.mailMarkRead(args))
+}
+
+/**
+ * Move nominated mails to Outlook's 已删除 folder (ADR-0034 决定 5), through
+ * the `mail` capability's delete verb. The generic `capabilityRun` RPC
+ * hardcodes the human invoker, and the controller testifies that channel in
+ * the request envelope — the entry script refuses the verb to anyone else.
+ * @param ctx - client root context.
+ * @param ids - the nominated mails' Outlook EntryIDs (from the analysed batch).
+ * @param signal - the human channel's cancel line (ADR-0031).
+ * @returns the per-mail outcome split, or a rejected promise carrying the reason.
+ */
+export async function deleteMails(ctx: Context, ids: readonly string[], signal?: AbortSignal): Promise<KbMailDeleteResult> {
+  const args: KbMailDeleteArgs = { verb: 'delete', ids }
+  const run = await runCapability(ctx, { name: 'mail', input: args } as unknown as KbCapabilityRunArgs, signal)
+  return run.result as unknown as KbMailDeleteResult
 }
 
 /**

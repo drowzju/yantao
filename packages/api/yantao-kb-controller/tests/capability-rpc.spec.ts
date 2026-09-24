@@ -207,6 +207,15 @@ describe('yantaoKb.capabilityRun', () => {
     expect(runCapability).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }))
   })
 
+  it('testifies the human channel in the request envelope (ADR-0034 决定 5)', async () => {
+    skillGet.mockResolvedValue(definition())
+    runCapability.mockResolvedValue({ result: { moved: ['e1'], missing: [], failed: [] } })
+    await ctx.yantaoKbController.capabilityRun({ name: 'mail', input: { verb: 'delete', ids: ['e1'] } })
+    // Host testimony, not caller input: the entry script trusts this field to
+    // gate its privileged verbs, so it never rides in the forgeable `input`.
+    expect(runCapability).toHaveBeenCalledWith(expect.objectContaining({ channel: 'human' }))
+  })
+
   it('surfaces the script\'s own failure kind, message, and remedy', async () => {
     const { CapabilityError } = await import('../src/capability/run.ts')
     skillGet.mockResolvedValue(definition())

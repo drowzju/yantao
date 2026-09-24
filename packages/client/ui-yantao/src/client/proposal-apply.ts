@@ -20,9 +20,9 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/proposal-apply
  */
 import type {
-  KbTodoItem, KbTodosResult, KbWriteTodosResult,
+  KbMailDeleteResult, KbTodoItem, KbTodosResult, KbWriteTodosResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import { isDuplicateMemory, type EntityCreator, type FileReader, type FileWriter, type MemoryAdder, type TodoLoader, type TodoWriter } from './remote.ts'
+import { isDuplicateMemory, type EntityCreator, type FileReader, type FileWriter, type MailDeleter, type MemoryAdder, type TodoLoader, type TodoWriter } from './remote.ts'
 import type { Proposal, ProposalAction } from './proposal.ts'
 import { stamp } from './proposal.ts'
 
@@ -40,6 +40,13 @@ export interface ProposalTarget {
   readonly writeTodos: TodoWriter
   /** Remember one behavior rule (ADR-0032 批次③); an exact duplicate is refused. */
   readonly memoryAdd: MemoryAdder
+  /**
+   * Move nominated mails to Outlook's 已删除 folder (ADR-0034 决定 5) —
+   * optional, because only the human channel carries the knife: a caller
+   * without it (the refine loop's target) skips delete-mails rows honestly
+   * instead of executing them somewhere unseen.
+   */
+  readonly deleteMails?: MailDeleter
 }
 
 /** What one confirmed card produced. */
@@ -137,6 +144,7 @@ function writtenLine(action: ProposalAction): string {
     case 'edit-section': return `章节 ${action.section}（${action.path !== '' ? action.path : action.afterCreate ?? ''}）`
     case 'append-section': return `章节 ${action.section}（${action.path !== '' ? action.path : action.afterCreate ?? ''}）`
     case 'add-memory': return `记忆（${action.scope}）${action.text}`
+    case 'delete-mails': return `删除邮件 ${action.subject}`
   }
 }
 
@@ -248,6 +256,27 @@ export async function applyProposal(options: {
           skipped.push(isDuplicateMemory(error)
             ? `${writtenLine(action)}：已记得，无需重记`
             : failedLine(action, error))
+        }
+        continue
+      }
+      if (action.kind === 'delete-mails') {
+        // ADR-0034 决定 5: the agent nominated, the human ticked; the knife
+        // itself is the controller's human-channel-only delete verb. One mail
+        // per call keeps the report per-row — a batch miss marks only its own
+        // row, not the group.
+        const deleter = target.deleteMails
+        if (deleter === undefined) {
+          skipped.push(`${writtenLine(action)}：这条通道没有挂删除刀`)
+          continue
+        }
+        const outcome: KbMailDeleteResult = await deleter([action.entryId])
+        if (outcome.moved.includes(action.entryId)) {
+          written.push(writtenLine(action))
+        } else if (outcome.missing.includes(action.entryId)) {
+          skipped.push(`${writtenLine(action)}：邮箱里找不到这封邮件（可能已被移走）`)
+        } else {
+          const failure = outcome.failed.find(entry => entry.id === action.entryId)
+          skipped.push(`${writtenLine(action)}：${failure?.message ?? '未知原因'}`)
         }
         continue
       }

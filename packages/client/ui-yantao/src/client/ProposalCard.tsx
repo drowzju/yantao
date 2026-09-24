@@ -65,7 +65,7 @@ const footerStyle = {
 
 /** The kinds in the order the card lists their groups. */
 const GROUP_ORDER: readonly ProposalAction['kind'][] = [
-  'create-entity', 'create-project', 'add-todo', 'append-log', 'write-state', 'edit-section', 'append-section', 'create-link', 'save-resource', 'add-memory',
+  'create-entity', 'create-project', 'add-todo', 'append-log', 'write-state', 'edit-section', 'append-section', 'create-link', 'save-resource', 'add-memory', 'delete-mails',
 ]
 
 /** A person action's relation, as the row's detail names it (self is never proposed). */
@@ -89,6 +89,7 @@ function labelOf(action: ProposalAction): string {
     case 'edit-section': return action.section
     case 'append-section': return action.section
     case 'add-memory': return action.text
+    case 'delete-mails': return action.subject
   }
 }
 
@@ -96,6 +97,7 @@ function labelOf(action: ProposalAction): string {
 function detailOf(action: ProposalAction, t: WorkbenchT): string {
   if (action.kind === 'edit-section') return `${action.path}：${action.why}`
   if (action.kind === 'append-section') return `${action.path}：${action.why}`
+  if (action.kind === 'delete-mails') return `${action.sender}：${action.reason}`
   if (action.kind === 'create-project') {
     const areas = action.areas !== undefined && action.areas.length > 0 ? `关联领域：${action.areas.join('、')}。` : ''
     return `${areas}${action.reason}`
@@ -173,16 +175,6 @@ export function ProposalCard(props: {
           <div data-proposal-digest="true">
             <div style={groupTitleStyle}>{t('proposal.digest')}</div>
             {proposal.digest.map((entry, index) => (
-              <div key={index} style={detailStyle}>
-                {entry.sender}：{entry.subject} — {entry.why}
-              </div>
-            ))}
-          </div>
-        )}
-        {proposal.deletions !== undefined && proposal.deletions.length > 0 && (
-          <div data-proposal-deletions="true">
-            <div style={groupTitleStyle}>{t('proposal.deletions')}</div>
-            {proposal.deletions.map((entry, index) => (
               <div key={index} style={detailStyle}>
                 {entry.sender}：{entry.subject} — {entry.why}
               </div>

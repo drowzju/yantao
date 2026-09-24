@@ -1151,6 +1151,9 @@ export class YantaoKbController extends TypertRemoteService {
         entryPath,
         kbRoot,
         input,
+        // The invoker's testimony in the script's request envelope (ADR-0034
+        // 决定 5): the caller cannot forge it, and a privileged verb checks it.
+        channel: invoker,
         state: readCapabilityState(kbRoot, name),
         ...(signal !== undefined ? { signal } : {}),
       })

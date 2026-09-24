@@ -89,6 +89,10 @@ OL_CC = 2
 # 6 = olFolderInbox
 OL_FOLDER_INBOX = 6
 
+# 3 = olFolderDeletedItems：删除刀的去处（ADR-0034 决定 5）。移动而非永久
+# 删除——回收站里还能捞回来，误删有闸。
+OL_FOLDER_DELETED = 3
+
 # MAPI 属性 PR_SENDER_SMTP_ADDRESS：Outlook 已知的发件人 SMTP 地址。
 PR_SENDER_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x5D01001F"
 
@@ -370,6 +374,55 @@ def read_mails(folder, since, until, limit, me_name="", me_address="", superior_
             break
 
     return messages
+
+
+def delete_messages(entry_ids):
+    """
+    把 EntryID 列表对应的邮件逐封移入「已删除」文件夹（ADR-0034 决定 5）。
+    移动而非永久删除：回收站里还能捞回来。逐封收集结果——单封失败不拖垮
+    整批，这与 read_mails 的单封容错同一脾气。返回 {moved, missing, failed}：
+    moved/missing 是 EntryID 列表，failed 是 {id, message}。整体性的失败
+    （连不上 Outlook、打不开已删除文件夹）抛 OutlookError。
+    """
+    try:
+        import win32com.client
+    except ImportError:
+        raise OutlookError(
+            "python-missing",
+            "缺少 pywin32：请先安装 Python 3，再执行 pip install pywin32，并确认 Python 位数与 Office 一致。",
+        ) from None
+
+    try:
+        outlook = win32com.client.Dispatch("Outlook.Application")
+        ns = outlook.GetNamespace("MAPI")
+    except Exception as error:
+        raise OutlookError(
+            "outlook-unavailable",
+            f"无法连接 Outlook：{error}。请确认已安装经典 Outlook 桌面版并已启动、已配置好账户。",
+        ) from error
+
+    try:
+        deleted = ns.GetDefaultFolder(OL_FOLDER_DELETED)
+    except Exception as error:
+        raise OutlookError("other", f"打不开「已删除」文件夹：{error}") from error
+
+    moved = []
+    missing = []
+    failed = []
+    for entry_id in entry_ids:
+        try:
+            item = ns.GetItemFromID(entry_id)
+        except Exception:
+            # EntryID 认不出：邮件已被移走、邮箱重建、或本来就不是这个
+            # profile 的东西。如实报告，不猜。
+            missing.append(entry_id)
+            continue
+        try:
+            item.Move(deleted)
+            moved.append(entry_id)
+        except Exception as error:
+            failed.append({"id": entry_id, "message": str(error)})
+    return {"moved": moved, "missing": missing, "failed": failed}
 
 
 def fetch_messages(since_text, until_text, limit, folder_name, superior_addresses=()):

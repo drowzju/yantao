@@ -328,6 +328,29 @@ export interface KbMailMarkReadArgs {
   readonly firstReadAt?: string
 }
 
+/**
+ * Input of the mail capability's delete verb (ADR-0034 决定 5): handed to
+ * `capabilityRun('mail', …)` as `input` with `verb: 'delete'`. The knife is
+ * human-channel-only — the entry script refuses it unless the host injected
+ * `channel: 'human'`, which the agent's `kb_run_capability` never carries.
+ */
+export interface KbMailDeleteArgs {
+  /** The mail capability's verb selector; the fetch verb is the default. */
+  readonly verb: 'delete'
+  /** The Outlook EntryIDs of the mails to move to the Deleted Items folder. */
+  readonly ids: readonly string[]
+}
+
+/** Result of the mail capability's delete verb (ADR-0034 决定 5). One COM run, per-mail outcomes. */
+export interface KbMailDeleteResult {
+  /** The EntryIDs that were moved to the Deleted Items folder. */
+  readonly moved: readonly string[]
+  /** The EntryIDs Outlook could not resolve (already gone, store rebuilt). */
+  readonly missing: readonly string[]
+  /** The EntryIDs whose move failed, each with the reason. */
+  readonly failed: readonly { readonly id: string; readonly message: string }[]
+}
+
 /** Result of `yantaoKb.mailMarkRead` (ADR-0019). */
 export interface KbMailMarkReadResult {
   /** The watermark as it now stands. */

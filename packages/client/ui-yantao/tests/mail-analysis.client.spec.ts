@@ -425,13 +425,14 @@ describe('analysisToProposal', () => {
       action.kind === 'create-entity' && action.entityType === 'meeting' && action.name === '评审会')).toBe(true)
   })
 
-  it('renders deletion nominees as an informational block, not actions (ADR-0034)', () => {
+  it('maps deletion nominees into tickable delete-mails actions, dropping unattributable ones (ADR-0034 决定 5)', () => {
     const proposal = analysisToProposal(
       { ...ANALYSIS, deletions: [{ mail: 2, reason: '广告' }, { mail: 99, reason: '不在批次里' }] },
       ENTITIES, 't', MAILS,
     )
-    expect(proposal.deletions).toEqual([{ sender: '系统', subject: '邮催：请处理工单', why: '广告' }])
-    expect(proposal.actions.every(action => action.kind !== 'delete')).toBe(true)
+    expect(proposal.actions.filter(action => action.kind === 'delete-mails')).toEqual([
+      { kind: 'delete-mails', entryId: 'entry', sender: '系统', subject: '邮催：请处理工单', reason: '广告' },
+    ])
   })
 
   it('pins the verdict\'s memories to the mail scope, so a slip cannot leak into every task (ADR-0032)', () => {

@@ -137,7 +137,9 @@ describe('kb_run_capability tool (ADR-0023)', () => {
       artifacts: readonly string[]
     }
     expect(result).toMatchObject({ name: 'mail', result: { mails: 3 }, artifacts: [] })
-    expect(runCapability).toHaveBeenCalledWith(expect.objectContaining({ name: 'mail', input: { limit: 10 } }))
+    // The agent's testimony rides the envelope too (ADR-0034 决定 5) — the
+    // counterpart of the human RPC's `channel: 'human'`.
+    expect(runCapability).toHaveBeenCalledWith(expect.objectContaining({ name: 'mail', input: { limit: 10 }, channel: 'agent' }))
   })
 
   it('refuses a capability the sidecar did not open to the agent', async () => {
