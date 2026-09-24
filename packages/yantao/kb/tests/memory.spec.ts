@@ -162,7 +162,9 @@ describe('injection renderers (ADR-0032 批次②)', () => {
   it('renders the global section as header plus bullet lines', () => {
     const text = renderGlobalMemorySection([{ id: 'a', date: '2026-09-23', text: '同类邮件直接提示删除' }])
     expect(text).toContain('## 行为记忆')
-    expect(text).toContain('- 2026-09-23 同类邮件直接提示删除')
+    // ADR-0034 决定 1: the injection strips the date — the file keeps it.
+    expect(text).toContain('- 同类邮件直接提示删除')
+    expect(text).not.toContain('2026-09-23')
   })
 
   it('renders the capability block with the scope named', () => {
@@ -178,12 +180,12 @@ describe('injection renderers (ADR-0032 批次②)', () => {
     }))
     const omitted = 3
     const global = renderGlobalMemorySection(many)
-    expect(global).toContain('- 2026-01-01 规则3')
-    expect(global).not.toContain('- 2026-01-01 规则2\n')
+    expect(global).toContain('- 规则3')
+    expect(global).not.toContain('- 规则2\n')
     expect(global).toContain(`另有 ${omitted} 条较早的记忆未列出`)
     const capability = renderCapabilityMemoryBlock('mail', many)
     expect(capability).toContain(`规则${MEMORY_SCOPE_SOFT_CAP + 2}`)
-    expect(capability).not.toContain('- 2026-01-01 规则2\n')
+    expect(capability).not.toContain('- 规则2\n')
     expect(capability).toContain(`${omitted} 条较早的记忆未列出`)
   })
 

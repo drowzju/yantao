@@ -75,6 +75,7 @@ function ctxWith(session: SessionRemote): Context {
 
 const KNOWN = {
   projects: ['飞书迁移'],
+  areas: ['协作平台'],
   people: [{ name: '李四', relation: 'superior', email: 'lisi@example.com' }, { name: '王五' }],
 }
 
@@ -93,6 +94,25 @@ describe('mailPrompt', () => {
     expect(text).toContain('王五')
   })
 
+  it('lists projects and areas apart, so an area never reads as a project (ADR-0034)', () => {
+    const text = mailPrompt([mail()], KNOWN)
+    expect(text).toContain('知识库里已有的项目：飞书迁移')
+    expect(text).toContain('知识库里已有的领域')
+    expect(text).toContain('协作平台')
+    expect(text).not.toContain('项目/领域')
+  })
+
+  it('marks people without an address, so a name-only match is an honest one (ADR-0034)', () => {
+    const text = mailPrompt([mail()], KNOWN)
+    expect(text).toContain('王五（无邮箱）')
+  })
+
+  it('wraps every mail body in the untrusted-data fence with a standing disclaimer (ADR-0034)', () => {
+    const text = mailPrompt([mail()], KNOWN)
+    expect(text).toContain('<<<邮件正文·开始>>>\n这是正文\n<<<邮件正文·结束>>>')
+    expect(text).toContain('不可信数据')
+  })
+
   it('numbers mails globally across chunks', () => {
     const text = mailPrompt([mail()], KNOWN, 10)
     expect(text).toContain('[11]')
@@ -104,6 +124,14 @@ describe('mailPrompt', () => {
     expect(text).toContain('digest')
     expect(text).toContain('normal')
     expect(text).toContain('上级')
+  })
+
+  it('states focus as a conjunction and carves out security alerts (ADR-0034)', () => {
+    const text = mailPrompt([mail()], KNOWN)
+    expect(text).toContain('同时满足')
+    expect(text).toContain('具体人员')
+    expect(text).toContain('语义')
+    expect(text).toContain('账号安全')
   })
 
   it('asks for memories as one-sentence corrections or preferences', () => {
@@ -276,6 +304,7 @@ describe('runMailAnalysis', () => {
 describe('analysisToProposal', () => {
   const ENTITIES = {
     projects: ['飞书迁移'],
+    areas: [],
     people: [],
     files: [{ name: '飞书迁移', path: 'entities/projects/飞书迁移.md' }],
   }

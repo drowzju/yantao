@@ -126,7 +126,7 @@
 
 ### 邮件三分拣 v2(ADR-0034,2026-09-24)
 
-设计裁定见 [ADR-0034](../adr/0034-mail-triage-v2.md)。行为记忆与执行层对齐:注入剥日期、清单分组清洗、注入围栏、focus 判据改合取+安全告警例外;schema 增 `newProjects`/`meetings`/`deletions` 三槽;提案扩展 create-project(领域勾选写 frontmatter);删除刀仅人通道(COM 移入已删除文件夹,agent 只有提名权)。实现分三批:① 提示词层(纯 prompt 修订) → ② 提案扩展(ProposalAction/GROUP_KEYS/locales/ProposalCard/proposal-apply 五触点) → ③ 删除刀(builtin 删除脚本+确认 UI)。渐进加载/agentic 化记 deferred。
+设计裁定见 [ADR-0034](../adr/0034-mail-triage-v2.md)。行为记忆与执行层对齐:注入剥日期、清单分组清洗、注入围栏、focus 判据改合取+安全告警例外;schema 增 `newProjects`/`meetings`/`deletions` 三槽;提案扩展 create-project(领域勾选写 frontmatter);删除刀仅人通道(COM 移入已删除文件夹,agent 只有提名权)。实现分三批：~~① 提示词层~~(**已落地 2026-09-24**,ADR 落地注记;「主送/抄送含上级」以 `superiorInvolved` 旗标并入批次②) → ② 提案扩展(ProposalAction/GROUP_KEYS/locales/ProposalCard/proposal-apply 五触点) → ③ 删除刀(builtin 删除脚本+确认 UI)。渐进加载/agentic 化记 deferred。
 
 ### 设计规则落地(design.md,2026-09-22 截图审视)
 

@@ -250,9 +250,14 @@ function cappedEntries(entries: readonly MemoryEntry[]): { kept: readonly Memory
   return { kept: entries.slice(-MEMORY_SCOPE_SOFT_CAP), omitted: entries.length - MEMORY_SCOPE_SOFT_CAP }
 }
 
-/** The bullet lines of an entry list, exactly as the file writes them. */
+/**
+ * The bullet lines of an entry list as the injection renders them (ADR-0034
+ * 决定 1): text only. The date stays in the file — the management view uses it
+ * to recall context — but the injection reads as standing orders, not a
+ * changelog, so same-day corrections do not repeat one date four times.
+ */
 function entryLines(entries: readonly MemoryEntry[]): string {
-  return entries.map(entry => memoryEntryLine(entry)).join('\n')
+  return entries.map(entry => `- ${entry.text}`).join('\n')
 }
 
 /**

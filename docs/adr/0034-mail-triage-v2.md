@@ -39,3 +39,5 @@ status: accepted
 - `packages/api/yantao-kb-controller` 增量：`builtin/mail/scripts/` 新增删除脚本（COM 移入已删除文件夹），能力声明补人通道调用面。
 - **零新 agent 工具、零上游文件改动**：`kb_*` 保持十一，`yantaoKb` RPC 个数不动（`applyProposal` 复用既有 RPC），session-controller 不碰。
 - 文档同步：`docs/yantao/README.md` ADR 索引（本条）、`docs/yantao/TODO.md`（done 行＋deferred「渐进加载/agentic 化」）、`packages/yantao/CONTEXT.md` 词条按需补。
+
+落地注记（2026-09-24）：批次①提示词层落地——`memory.ts` 的 `entryLines` 注入剥日期（存储与管理视图保留）；`mail-apply.ts` 项目/领域分列、人物名单剔除 self；`mail-analysis.ts` 正文围栏（`<<<邮件正文·开始/结束>>>`＋不可信声明）、focus 合取判据＋安全告警例外、无邮箱者标注、`KnownEntities` 增 `areas`。验证：kb＋ui-yantao 376 测试全绿，双包 `tsc -b` 干净，scoped oxlint 0/0，client bundle 重建。一处对决定 2 的偏离：focus 合取里的「主送/抄送含上级」因 `KbMailMessage` 不携收件人列表（ADR-0019）暂不可评，裁定由收取侧补 `superiorInvolved` 旗标（收件人地址对 KB superior 邮箱匹配，只回旗标不回名单），并入批次②。

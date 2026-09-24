@@ -30,6 +30,7 @@ const MAILS: readonly KbMailMessage[] = [
 
 const ENTITIES: MailEntities = {
   projects: ['飞书迁移'],
+  areas: [],
   people: [],
   files: [{ name: '飞书迁移', path: 'entities/projects/飞书迁移.md' }],
 }
