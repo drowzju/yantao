@@ -168,3 +168,118 @@ describe('ProposalCard delete-mails group (ADR-0034 决定 5)', () => {
     expect(onConfirm).toHaveBeenCalledWith([0], undefined)
   })
 })
+
+describe('ProposalCard 双区块 (ADR-0036 决定 6)', () => {
+  const FIX_ROW = {
+    kind: 'edit-section',
+    path: 'entities/people/张三.md',
+    section: '状态',
+    before: '旧',
+    after: '新',
+    why: '将 [[坏名]]（位于 张三）改写为 [[好名]]',
+  } as const
+  const MODEL_ROW = { kind: 'create-entity', entityType: 'person', name: '李四', reason: 'r' } as const
+
+  it('shows only the deterministic block when the model said nothing, fix rows still tickable', () => {
+    const onConfirm = vi.fn()
+    render(
+      <ProposalCard
+        proposal={{
+          title: 't',
+          actions: [],
+          prescan: {
+            orphans: [{ name: '孤岛', type: 'person', incoming: 0 }],
+            findings: [{ kind: 'broken-link', subject: '[[坏名]]', why: '无可信修复候选' }],
+            actions: [FIX_ROW],
+          },
+        }}
+        onConfirm={onConfirm}
+        onDismiss={() => {}}
+        t={t}
+      />,
+    )
+    expect(screen.getByText('系统预扫（确定性）')).toBeTruthy()
+    expect(screen.getByText('孤岛（person，入链 0）')).toBeTruthy()
+    expect(screen.getByText('[[坏名]] — 无可信修复候选')).toBeTruthy()
+    expect(screen.queryByText('模型发现')).toBeNull()
+    // The fix candidate is a tickable row like any action, with the same
+    // partial-approval semantics.
+    fireEvent.click(screen.getByLabelText('状态'))
+    fireEvent.click(screen.getByText('确认写入（1）'))
+    expect(onConfirm).toHaveBeenCalledWith([0], undefined)
+  })
+
+  it('shows only the model block when there is no prescan', () => {
+    render(
+      <ProposalCard
+        proposal={{
+          title: 't',
+          actions: [MODEL_ROW],
+          findings: [{ kind: 'stale', subject: '张三', why: '状态过期' }],
+        }}
+        onConfirm={() => {}}
+        onDismiss={() => {}}
+        t={t}
+      />,
+    )
+    expect(screen.getByText('模型发现')).toBeTruthy()
+    expect(screen.queryByText('系统预扫（确定性）')).toBeNull()
+  })
+
+  it('hides the whole deterministic block when the prescan found nothing', () => {
+    render(
+      <ProposalCard
+        proposal={{ title: 't', actions: [MODEL_ROW], prescan: { orphans: [], findings: [], actions: [] } }}
+        onConfirm={() => {}}
+        onDismiss={() => {}}
+        t={t}
+      />,
+    )
+    expect(screen.queryByText('系统预扫（确定性）')).toBeNull()
+    expect(screen.getByText('新建实体')).toBeTruthy()
+  })
+
+  it('orders the deterministic block above the model block when both exist', () => {
+    const { container } = render(
+      <ProposalCard
+        proposal={{
+          title: 't',
+          actions: [MODEL_ROW],
+          findings: [{ kind: 'stale', subject: '张三', why: '状态过期' }],
+          prescan: {
+            orphans: [{ name: '孤岛', type: 'person', incoming: 0 }],
+            findings: [{ kind: 'broken-link', subject: '[[坏名]]', why: '无可信修复候选' }],
+            actions: [FIX_ROW],
+          },
+        }}
+        onConfirm={() => {}}
+        onDismiss={() => {}}
+        t={t}
+      />,
+    )
+    const prescan = container.querySelector('[data-proposal-prescan]')
+    const model = container.querySelector('[data-proposal-findings]')
+    expect(prescan).not.toBeNull()
+    expect(model).not.toBeNull()
+    expect(model!.compareDocumentPosition(prescan!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+  })
+
+  it('ticks both blocks with 全部接受 and keeps the flat index across them', () => {
+    const onConfirm = vi.fn()
+    render(
+      <ProposalCard
+        proposal={{
+          title: 't',
+          actions: [MODEL_ROW],
+          prescan: { orphans: [], findings: [], actions: [FIX_ROW] },
+        }}
+        onConfirm={onConfirm}
+        onDismiss={() => {}}
+        t={t}
+      />,
+    )
+    fireEvent.click(screen.getByText('全部接受'))
+    fireEvent.click(screen.getByText('确认写入（2）'))
+    expect(onConfirm).toHaveBeenCalledWith([0, 1], undefined)
+  })
+})

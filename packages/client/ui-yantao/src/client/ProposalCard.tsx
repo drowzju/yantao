@@ -149,11 +149,69 @@ export function ProposalCard(props: {
   }
 
   const all = (): void => {
-    setTicked(proposal.actions.map((_action, index) => index))
+    const total = proposal.actions.length + (proposal.prescan?.actions.length ?? 0)
+    setTicked(Array.from({ length: total }, (_, index) => index))
   }
   const none = (): void => { setTicked([]) }
   const count = ticked.length
-  const nothing = proposal.actions.length === 0
+  // Both blocks' rows count: the deterministic fix rows are actions like any
+  // other, only rendered apart (ADR-0036 决定 6).
+  const nothing = proposal.actions.length === 0 && (proposal.prescan?.actions.length ?? 0) === 0
+
+  /**
+   * One block's action groups, kind by kind; `base` shifts the row's flat
+   * index — the deterministic rows occupy 0..n-1, the model's follow (the
+   * applier resolves ticked indices over the same concatenation).
+   */
+  const renderGroups = (actions: readonly ProposalAction[], base: number, keyPrefix: string): (ReactElement | null)[] =>
+    GROUP_ORDER.map((kind) => {
+      const rows = actions
+        .map((action, index) => ({ action, index: base + index }))
+        .filter(row => row.action.kind === kind)
+      if (rows.length === 0) return null
+      return (
+        <div key={`${keyPrefix(kind)}${base}`}>
+          <div style={groupTitleStyle} data-proposal-group={kind}>{t(GROUP_KEYS[kind])}</div>
+          {rows.map(({ action, index }) => (
+            <div key={index} style={rowStyle} data-proposal-row={index}>
+              <input
+                type="checkbox"
+                aria-label={labelOf(action)}
+                checked={ticked.includes(index)}
+                onChange={() => { toggle(index) }}
+              />
+              <div style={{ minWidth: 0 }}>
+                <div>{labelOf(action)}</div>
+                {detailOf(action, t) !== '' && <div style={detailStyle}>{detailOf(action, t)}</div>}
+                {/* ADR-0034 决定 4: the create-project row's 领域勾选 — the
+                    human adjusts the association before it is written. */}
+                {action.kind === 'create-project' && proposal.areas !== undefined && proposal.areas.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 2 }} data-proposal-areas={index}>
+                    {proposal.areas.map((area) => {
+                      const current = areaPicks[index] ?? action.areas ?? []
+                      const on = current.includes(area)
+                      return (
+                        <label key={area} style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 'var(--yt-type-label)' }}>
+                          <input
+                            type="checkbox"
+                            aria-label={`${action.name}·${area}`}
+                            checked={on}
+                            onChange={() => { toggleArea(index, area, action.areas ?? []) }}
+                          />
+                          {area}
+                        </label>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )
+    })
+
+  const prescan = proposal.prescan
 
   return (
     <div style={panelStyle} data-proposal-card="true">
@@ -181,9 +239,31 @@ export function ProposalCard(props: {
             ))}
           </div>
         )}
+        {/* The deterministic block (ADR-0036 决定 2/6): zero-token prescan
+            rows and fix candidates, above everything the model said, in the
+            same calm grey as any group title — no alarm colour, nothing here
+            needs the human's suspicion. Hidden whole when empty. */}
+        {prescan !== undefined && (prescan.orphans.length > 0 || prescan.findings.length > 0 || prescan.actions.length > 0) && (
+          <div data-proposal-prescan="true">
+            <div style={groupTitleStyle}>{t('proposal.prescanFindings')}</div>
+            {prescan.orphans.map((orphan, index) => (
+              <div key={`orphan-${index}`} style={detailStyle} data-proposal-orphan={orphan.name}>
+                {orphan.name}（{orphan.type}，入链 {orphan.incoming}）
+              </div>
+            ))}
+            {prescan.findings.map((finding, index) => (
+              <div key={`finding-${index}`} style={detailStyle} data-proposal-finding={finding.kind}>
+                {finding.subject} — {finding.why}
+              </div>
+            ))}
+            {renderGroups(prescan.actions, 0, kind => `prescan-${kind}`)}
+          </div>
+        )}
+        {/* The model block: the diagnostician's semantic rows and link
+            suggestions, in the findings style the card always had. */}
         {proposal.findings !== undefined && proposal.findings.length > 0 && (
           <div data-proposal-findings="true">
-            <div style={groupTitleStyle}>{t('proposal.findings')}</div>
+            <div style={groupTitleStyle}>{t('proposal.modelFindings')}</div>
             {proposal.findings.map((finding, index) => (
               <div key={index} style={detailStyle} data-proposal-finding={finding.kind}>
                 {finding.subject} — {finding.why}
@@ -192,52 +272,7 @@ export function ProposalCard(props: {
           </div>
         )}
         {nothing && <div style={{ ...detailStyle, marginTop: 10 }}>{t('proposal.empty')}</div>}
-        {GROUP_ORDER.map((kind) => {
-          const rows = proposal.actions
-            .map((action, index) => ({ action, index }))
-            .filter(row => row.action.kind === kind)
-          if (rows.length === 0) return null
-          return (
-            <div key={kind}>
-              <div style={groupTitleStyle} data-proposal-group={kind}>{t(GROUP_KEYS[kind])}</div>
-              {rows.map(({ action, index }) => (
-                <div key={index} style={rowStyle} data-proposal-row={index}>
-                  <input
-                    type="checkbox"
-                    aria-label={labelOf(action)}
-                    checked={ticked.includes(index)}
-                    onChange={() => { toggle(index) }}
-                  />
-                  <div style={{ minWidth: 0 }}>
-                    <div>{labelOf(action)}</div>
-                    {detailOf(action, t) !== '' && <div style={detailStyle}>{detailOf(action, t)}</div>}
-                    {/* ADR-0034 决定 4: the create-project row's 领域勾选 — the
-                        human adjusts the association before it is written. */}
-                    {action.kind === 'create-project' && proposal.areas !== undefined && proposal.areas.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 2 }} data-proposal-areas={index}>
-                        {proposal.areas.map((area) => {
-                          const current = areaPicks[index] ?? action.areas ?? []
-                          const on = current.includes(area)
-                          return (
-                            <label key={area} style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 'var(--yt-type-label)' }}>
-                              <input
-                                type="checkbox"
-                                aria-label={`${action.name}·${area}`}
-                                checked={on}
-                                onChange={() => { toggleArea(index, area, action.areas ?? []) }}
-                              />
-                              {area}
-                            </label>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )
-        })}
+        {renderGroups(proposal.actions, prescan?.actions.length ?? 0, kind => `model-${kind}`)}
         <div style={footerStyle}>
           <button type="button" style={buttonStyle} disabled={props.busy === true || nothing} onClick={all}>
             {t('proposal.acceptAll')}

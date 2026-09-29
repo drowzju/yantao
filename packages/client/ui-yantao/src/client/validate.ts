@@ -352,25 +352,39 @@ export function brokenLinkFixesOf(
 }
 
 /**
- * Turn a validate verdict into a proposal (ADR-0036 决定 1/4): peel
+ * The deterministic material one run hands the card (ADR-0036 决定 2/4): the
+ * prescan's orphans for display, plus the broken-link fix material
+ * ({@link brokenLinkFixesOf}) — tickable `edit-section` rows for the links a
+ * roster candidate can repair, display-only rows for the rest.
+ */
+export interface ValidateCardBlocks {
+  readonly orphans: readonly ValidateOrphan[]
+  readonly fixes: BrokenLinkFixes
+}
+
+/**
+ * Turn a validate verdict into a proposal (ADR-0036 决定 1/4/6): peel
  * `findings` off, map the rest onto the v2 verdict shape with `creates`
- * pinned empty, and let `verdictToProposal` build the card. Targets' `edits`
- * are stripped here, not only banned in the prompt (a target left with
- * nothing at all simply contributes no rows) — the check-up produces links,
- * never prose.
+ * pinned empty, and let `verdictToProposal` build the model block. Targets'
+ * `edits` are stripped here, not only banned in the prompt (a target left
+ * with nothing at all simply contributes no rows) — the check-up produces
+ * links, never prose. The deterministic blocks ride separately: the fix
+ * actions are placed at the FRONT of the execution order (the applier
+ * resolves ticked indices against `[...prescan.actions, ...actions]`) and
+ * packaged with the orphans and the degraded display rows into `prescan`,
+ * so a prescan row and a model row can never meet in one array.
  * @param verdict - what the model proposed.
  * @param views - the entities the target names resolve against.
  * @param title - the card's heading; the session's name.
- * @param fixes - the deterministic broken-link material
- *   ({@link brokenLinkFixesOf}); its actions join the card's action groups
- *   and its display rows trail the model's findings.
- * @returns the proposal, with the findings attached as its display rows.
+ * @param blocks - the deterministic prescan material; absent for tests and
+ *   degenerate runs without one.
+ * @returns the proposal, with the model findings attached as its display rows.
  */
 export function verdictToValidateProposal(
   verdict: ValidateVerdict,
   views: RefineViews,
   title: string,
-  fixes?: BrokenLinkFixes,
+  blocks?: ValidateCardBlocks,
 ): Proposal {
   const refined: RefineVerdict = {
     relevant: true,
@@ -380,13 +394,18 @@ export function verdictToValidateProposal(
     questions: [],
   }
   const proposal = verdictToProposal(refined, views, title)
-  const findings = [...verdict.findings, ...fixes?.findings ?? []]
+  const fixActions = blocks?.fixes.actions ?? []
   return {
     ...proposal,
-    ...(fixes === undefined || fixes.actions.length === 0
-      ? {}
-      : { actions: [...proposal.actions, ...fixes.actions] }),
-    ...(findings.length > 0 ? { findings } : {}),
+    ...(fixActions.length > 0 ? { actions: [...fixActions, ...proposal.actions] } : {}),
+    ...(blocks === undefined ? {} : {
+      prescan: {
+        orphans: blocks.orphans,
+        findings: blocks.fixes.findings,
+        actions: blocks.fixes.actions,
+      },
+    }),
+    ...(verdict.findings.length > 0 ? { findings: verdict.findings } : {}),
   }
 }
 
@@ -489,7 +508,7 @@ export async function runValidate(options: {
 
   // Deterministic fix material (ADR-0036 决定 4): computed once, before the
   // verdict even exists — the prescan's broken links never pass the model.
-  const linkFixes = brokenLinkFixesOf(preScan, views, roster)
+  const blocks: ValidateCardBlocks = { orphans: preScan.orphans, fixes: brokenLinkFixesOf(preScan, views, roster) }
 
   const finish = (final: ValidateVerdict): ValidateRun => {
     onStage?.('proposal')
@@ -503,7 +522,7 @@ export async function runValidate(options: {
       brokenTargets: preScan.broken.map(link => link.target),
     })
     const filtered = checked.counts.findings + checked.counts.targets + checked.counts.links
-    const proposal = verdictToValidateProposal(checked.verdict, { roster: views }, sessionName, linkFixes)
+    const proposal = verdictToValidateProposal(checked.verdict, { roster: views }, sessionName, blocks)
     return {
       sessionId,
       title: sessionName,

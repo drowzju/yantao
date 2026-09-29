@@ -526,3 +526,37 @@ describe('edit-section actions', () => {
     expect(result.written).toEqual(['资源 resources/note.md'])
   })
 })
+
+describe('prescan fix rows resolve ahead of the model actions (ADR-0036 决定 6)', () => {
+  const ENTITY = 'entities/projects/飞书迁移.md'
+  const CONTENT = '# 飞书迁移\n\n## 状态\n\n旧状态\n'
+
+  it('resolves ticked indices against [...prescan.actions, ...actions]', async () => {
+    const t = target({ read: vi.fn(async () => CONTENT) })
+    const fixRow = { kind: 'edit-section', path: ENTITY, section: '状态', before: '旧目标', after: '新目标', why: 'w' } as const
+    const modelRow = { kind: 'save-resource', path: 'resources/note.md', content: 'n', reason: 'r' } as const
+    const proposal: Proposal = {
+      title: 't',
+      actions: [modelRow],
+      prescan: { orphans: [], findings: [], actions: [fixRow] },
+    }
+    // Index 0 is the prescan fix row, index 1 the model's — the card ticks
+    // the same flat indices it renders.
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(result.written).toEqual([`章节 状态（${ENTITY}）`])
+    expect(result.skipped).toEqual([])
+  })
+
+  it('indexes past the prescan block into the model actions', async () => {
+    const t = target({ read: vi.fn(async () => CONTENT) })
+    const fixRow = { kind: 'edit-section', path: ENTITY, section: '状态', before: '旧目标', after: '新目标', why: 'w' } as const
+    const modelRow = { kind: 'save-resource', path: 'resources/note.md', content: 'n', reason: 'r' } as const
+    const proposal: Proposal = {
+      title: 't',
+      actions: [modelRow],
+      prescan: { orphans: [], findings: [], actions: [fixRow] },
+    }
+    const result = await applyProposal({ proposal, ticked: [1], target: t })
+    expect(result.written).toEqual(['资源 resources/note.md'])
+  })
+})

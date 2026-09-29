@@ -175,8 +175,12 @@ export async function applyProposal(options: {
   readonly target: ProposalTarget
 }): Promise<ProposalApplyResult> {
   const { proposal, ticked, target } = options
+  // The validate card's deterministic fix rows precede the model's in the
+  // execution order (ADR-0036 决定 6): the card ticks indices over this same
+  // concatenation, so one resolution serves both blocks.
+  const allActions = [...(proposal.prescan?.actions ?? []), ...proposal.actions]
   const picked = ticked
-    .map(index => ({ index, action: proposal.actions[index] }))
+    .map(index => ({ index, action: allActions[index] }))
     .filter((row): row is { index: number; action: ProposalAction } => row.action !== undefined)
   const written: string[] = []
   const skipped: string[] = []

@@ -238,31 +238,51 @@ describe('brokenLinkFixesOf', () => {
   })
 })
 
-describe('verdictToValidateProposal with broken-link fixes', () => {
+describe('verdictToValidateProposal with the deterministic blocks', () => {
   const VERDICT: ValidateVerdict = {
     reason: 'r',
     findings: [{ kind: 'stale', subject: '张三', why: '状态过期' }],
     targets: [],
     questions: [],
   }
+  const FIX_ACTION = { kind: 'edit-section', path: ZHANG_PATH, section: '状态', before: 'a', after: 'b', why: 'w' } as const
 
-  it('appends the fix actions after the model-built ones and trails the display rows', () => {
+  it('packages the prescan rows into the prescan block and keeps the model rows apart', () => {
     const proposal = verdictToValidateProposal(VERDICT, { roster: viewsWith('# 张三\n') }, 't', {
-      actions: [{ kind: 'edit-section', path: ZHANG_PATH, section: '状态', before: 'a', after: 'b', why: 'w' }],
-      findings: [{ kind: 'broken-link', subject: '[[坏名]]', why: '无可信修复候选' }],
+      orphans: [{ path: ZHANG_PATH, name: '张三', type: 'person', incoming: 0 }],
+      fixes: {
+        actions: [FIX_ACTION],
+        findings: [{ kind: 'broken-link', subject: '[[坏名]]', why: '无可信修复候选' }],
+      },
     })
-    expect(proposal.actions).toHaveLength(1)
-    expect(proposal.findings).toEqual([
-      { kind: 'stale', subject: '张三', why: '状态过期' },
-      { kind: 'broken-link', subject: '[[坏名]]', why: '无可信修复候选' },
-    ])
+    // The fix rows lead the execution order; the model's rows follow.
+    expect(proposal.actions).toEqual([FIX_ACTION])
+    expect(proposal.prescan).toEqual({
+      orphans: [{ path: ZHANG_PATH, name: '张三', type: 'person', incoming: 0 }],
+      findings: [{ kind: 'broken-link', subject: '[[坏名]]', why: '无可信修复候选' }],
+      actions: [FIX_ACTION],
+    })
+    // The model block's display rows are the model's alone — a prescan row
+    // and a model row never meet in one array.
+    expect(proposal.findings).toEqual([{ kind: 'stale', subject: '张三', why: '状态过期' }])
   })
 
-  it('leaves the actions untouched when the fixes carry none', () => {
+  it('puts the fix actions ahead of the model-built ones', () => {
+    const verdictWithTargets: ValidateVerdict = { ...VERDICT, targets: [{ entity: '李四', edits: [], links: [], log: 'l' }] }
+    const proposal = verdictToValidateProposal(verdictWithTargets, { roster: viewsWith('# 张三\n') }, 't', {
+      orphans: [],
+      fixes: { actions: [FIX_ACTION], findings: [] },
+    })
+    expect(proposal.actions[0]).toEqual(FIX_ACTION)
+    expect(proposal.actions.length).toBeGreaterThan(1)
+    expect(proposal.prescan).toEqual({ orphans: [], findings: [], actions: [FIX_ACTION] })
+  })
+
+  it('leaves the actions untouched when no blocks are handed over', () => {
     const bare = verdictToValidateProposal(VERDICT, { roster: viewsWith('# 张三\n') }, 't')
-    const empty = verdictToValidateProposal(VERDICT, { roster: viewsWith('# 张三\n') }, 't', { actions: [], findings: [] })
-    expect(empty.actions).toEqual(bare.actions)
-    expect(empty.findings).toEqual(bare.findings)
+    expect(bare.prescan).toBeUndefined()
+    expect(bare.actions).toEqual([])
+    expect(bare.findings).toEqual([{ kind: 'stale', subject: '张三', why: '状态过期' }])
   })
 })
 

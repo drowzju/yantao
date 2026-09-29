@@ -188,13 +188,45 @@ export interface ProposalFinding {
   readonly why: string
 }
 
+/** One orphan the prescan found, as the deterministic block shows it. */
+export interface ProposalOrphan {
+  readonly name: string
+  readonly type: string
+  /** How many links resolve into it. */
+  readonly incoming: number
+}
+
+/**
+ * The validate gesture's deterministic block (ADR-0036 决定 6): everything
+ * the code computed and the model never saw — orphan entities, broken links
+ * that found no credible fix, and the tickable fix-candidate rows. Kept as
+ * its own object so a prescan row and a model row cannot meet in one array;
+ * the card renders it above the model block, in a calmer style.
+ */
+export interface ProposalPrescan {
+  /** Entities at most one link resolves into. */
+  readonly orphans: readonly ProposalOrphan[]
+  /** Broken links (and the 流水/小节外 strays) that degrade to display rows. */
+  readonly findings: readonly ProposalFinding[]
+  /**
+   * The fix-candidate rows, tickable like any action. The applier resolves
+   * ticked indices against `[...prescan.actions, ...actions]` — these sit
+   * at the front of the execution order.
+   */
+  readonly actions: readonly ProposalAction[]
+}
+
 /** Everything one run proposes; the human ticks actions, not blocks. */
 export interface Proposal {
   /** The card's heading — which judgement these actions came from. */
   readonly title: string
   /** One line under the title, e.g. that the session is kept for re-reading. */
   readonly note?: string
-  /** The actions, in the order the applier executes them. */
+  /**
+   * The model block's actions, in the order the applier executes them —
+   * after any {@link Proposal.prescan} rows, which precede them in the
+   * applier's resolution order.
+   */
   readonly actions: readonly ProposalAction[]
   /**
    * The 重点提醒 mails: serious, directly addressed, or involving a superior.
@@ -209,10 +241,17 @@ export interface Proposal {
    */
   readonly areas?: readonly string[]
   /**
-   * The validate gesture's findings (ADR-0035 决定 3): informational rows
-   * above the action groups, never ticked. Absent when the run had none.
+   * The model block's findings (ADR-0036 决定 6): the diagnostician's
+   * semantic rows, styled as before. Deterministic prescan rows live in
+   * {@link Proposal.prescan}, never here.
    */
   readonly findings?: readonly ProposalFinding[]
+  /**
+   * The deterministic prescan block (ADR-0036 决定 2/4/6): zero-token
+   * findings and fix candidates, rendered above — and visually apart
+   * from — everything the model said. Absent for the other gestures.
+   */
+  readonly prescan?: ProposalPrescan
 }
 
 /** What one group of same-kind actions is called on the card — dictionary keys, translated at render. */

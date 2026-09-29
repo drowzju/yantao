@@ -195,7 +195,8 @@ export const zh = {
   // Proposal card
   'proposal.highlight': '重点提醒',
   'proposal.digest': '日常通知（汇总）',
-  'proposal.findings': '发现',
+  'proposal.prescanFindings': '系统预扫（确定性）',
+  'proposal.modelFindings': '模型发现',
   'proposal.empty': '这次没有发现值得进入知识库的内容。',
   'proposal.acceptAll': '全部接受',
   'proposal.ignoreAll': '全部忽略',
@@ -400,7 +401,8 @@ export const en = {
   // Proposal card
   'proposal.highlight': 'Key reminders',
   'proposal.digest': 'Routine notices (digest)',
-  'proposal.findings': 'Findings',
+  'proposal.prescanFindings': 'System prescan (deterministic)',
+  'proposal.modelFindings': 'Model findings',
   'proposal.empty': 'Nothing worth recording in the KB this time.',
   'proposal.acceptAll': 'Accept all',
   'proposal.ignoreAll': 'Ignore all',
