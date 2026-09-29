@@ -21,6 +21,12 @@
 | kb 插件 / 控制器 / 任意 host 包 | `npm run build:lib:host`(较慢,数分钟) |
 | `packages/client/**` 下任意内容 | `npm run build:lib:client` |
 | 迭代客户端插件时热更新 | 服务运行的同时开 `pnpm run dev:web` |
+| 一次性刷新所有 UI 侧产物 | `pnpm run yantao:refresh`(client 库 + 插件 bundle + 前端,数秒) |
+
+**桌面端不热加载产物**:Electron 进程启动时就把插件 bundle 读进内存,之后改代码、重建都不会反映到已开的窗口——
+症状是「我明明改了,点了没反应」。跑完 `pnpm run yantao:refresh` 后必须重启工作台(托盘退出再 `start`)才生效。
+`dev:web` 的热更新只覆盖浏览器入口,救不了桌面壳。习惯在 `apps/yantao-desktop` 里干活的话,
+那里的 `pnpm run refresh` 就是同一件事的一键版(委托根上的 `yantao:refresh` 并提示重启)。
 
 ## 启动与停止
 
@@ -67,7 +73,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"     # headless:
 11. **新增/改名 Remote 方法后必须重建 client 产物。** 浏览器侧的 Remote 代理方法表被打包进
     `packages/api/remotes/lib/client.js`,而 `pnpm run typecheck` 只重建 host 侧(`build:lib:host`)。所以改动 `@Remote`
     方法后要跑 `pnpm run build:lib:client`(外加插件自己的 `bundle`),否则页面报 `kb.<方法> is not a function`
-    —— 服务端其实已经是新的了。
+    —— 服务端其实已经是新的了。这两步连同前端构建,统一用 `pnpm run yantao:refresh` 一键完成。
 
 ## 扩展方式
 

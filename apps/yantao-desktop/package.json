@@ -7,7 +7,8 @@
   "main": "./src/entry.mjs",
   "license": "MIT",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "refresh": "pnpm -w run yantao:refresh && echo Refreshed. Quit the workbench from the tray, then run \"pnpm start\" again."
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.1",
