@@ -59,6 +59,24 @@ export interface KbLinks {
   readonly incoming: readonly KbLinkSource[]
 }
 
+/** One directed edge of the whole-KB link graph (ADR-0035). */
+export interface KbGraphEdge {
+  /** KB-relative path of the linking file. */
+  readonly from: string
+  /** The target as written inside the brackets. */
+  readonly target: string
+  /** The resolved KB-relative path, or null when it does not resolve. */
+  readonly to: string | null
+}
+
+/** The whole KB's link graph in one payload. */
+export interface KbGraph {
+  /** Every entity file, as KB-relative paths, in type-then-directory order. */
+  readonly nodes: readonly string[]
+  /** Every `[[…]]` occurrence outside fenced blocks; self-links are dropped. */
+  readonly edges: readonly KbGraphEdge[]
+}
+
 /** A `[[…]]` token, with an optional `|label` and no brackets inside. */
 const WIKI_LINK = /\[\[([^[\]\n|]+)(?:\|([^[\]\n]+))?\]\]/g
 
@@ -217,4 +235,61 @@ export async function linksOf(kbRoot: string, path: string): Promise<KbLinks> {
     }
   }
   return { path, outgoing, incoming }
+}
+
+/**
+ * The whole KB's link graph in one pass (ADR-0035): every entity file read
+ * once, every `[[…]]` occurrence resolved, self-links dropped. Bare-name
+ * resolution reproduces {@link byName}'s rules exactly — a dated meeting
+ * answers to its bare title, and a name matching several files stays
+ * unresolved — so an edge here agrees with what `linksOf` reports per file.
+ * @param kbRoot - the knowledge-base root directory.
+ * @returns the nodes (every entity file) and the edges.
+ */
+export async function linkGraphOf(kbRoot: string): Promise<KbGraph> {
+  const files = await entityFiles(kbRoot)
+  const root = resolve(kbRoot)
+  const contents = new Map<string, string>()
+  for (const path of files) {
+    try {
+      contents.set(path, await readFile(join(root, path), 'utf8'))
+    } catch {
+      // One unreadable note contributes no edges, like linksOf's scan.
+    }
+  }
+  // Bare-name index, mirroring byName: the stem itself, plus a dated
+  // meeting's title half. Several files answering one name stay ambiguous.
+  const byStem = new Map<string, string[]>()
+  for (const path of files) {
+    const stem = basename(path, '.md')
+    for (const name of /^\d{4}-\d{2}-\d{2} /.test(stem) ? [stem, stem.slice(11)] : [stem]) {
+      const bucket = byStem.get(name)
+      if (bucket === undefined) byStem.set(name, [path])
+      else bucket.push(path)
+    }
+  }
+  const resolved = new Map<string, string | null>()
+  const resolveTarget = async (target: string): Promise<string | null> => {
+    const cached = resolved.get(target)
+    if (cached !== undefined) return cached
+    const trimmed = target.trim()
+    let path: string | null = null
+    if (/^(project|projects|area|areas|person|people|meeting|meetings|todo|todos)[:：]/i.test(trimmed)) {
+      path = await resolveWikiLink(kbRoot, trimmed)
+    } else {
+      const hits = byStem.get(trimmed)
+      path = hits !== undefined && hits.length === 1 ? (hits[0] ?? null) : null
+    }
+    resolved.set(target, path)
+    return path
+  }
+  const edges: KbGraphEdge[] = []
+  for (const [from, text] of contents) {
+    for (const link of wikilinks(text)) {
+      const to = await resolveTarget(link.target)
+      if (to === from) continue
+      edges.push({ from, target: link.target, to })
+    }
+  }
+  return { nodes: files, edges }
 }

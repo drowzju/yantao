@@ -30,6 +30,7 @@ import type { TabMode } from './tabs.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 import { TodoBoard } from './TodoBoard.tsx'
 import { NewEntityRow } from './NewEntityRow.tsx'
+import type { ValidateScope } from './validate.ts'
 
 /** Loads one rail's sections; rejects with a message the rail can render. */
 export type TreeLoader = () => Promise<readonly KbTreeSection[]>
@@ -883,6 +884,13 @@ export interface RailProps {
   readonly registerResource: ResourceRegistrar
   /** Start one refine gesture (归入 or 提炼); the frame owns the run (ADR-0029). */
   readonly onRefine: (gesture: RefineGesture) => void
+  /**
+   * Start one validate pass scoped to an entity kind (ADR-0035, 2026-09-29
+   * 修订): the 人物 / 项目 tabs each carry a 校验 button beside 新建, and
+   * the frame owns the run. Optional, so embedders without the face (tests)
+   * still render the rail — the button simply does not appear.
+   */
+  readonly onValidate?: ((scope: ValidateScope) => void) | undefined
   /** List the registered capabilities (ADR-0021) — the row menus' 能力 group. */
   readonly capabilityList: CapabilityLoader
   /** Run one capability against a row (ADR-0021 决定 7); the frame owns the run. */
@@ -1222,7 +1230,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
 export function WorkspaceRail(props: RailProps): ReactElement {
   const {
     t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, createEntity, deleteFile,
-    setRelation: writeRelation, registerResource, onRefine, capabilityList, onRunCapability, kbRoot = '',
+    setRelation: writeRelation, registerResource, onRefine, onValidate, capabilityList, onRunCapability, kbRoot = '',
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   const capabilities = useCapabilities(capabilityList, refreshKey)
@@ -1283,6 +1291,49 @@ export function WorkspaceRail(props: RailProps): ReactElement {
         ))}
       </div>
       {actionError !== null && <div style={errorStyle}>{actionError}</div>}
+      {/* ADR-0035, 2026-09-29 修订: the validate entry lives in the two tabs
+          it scopes — 人物 / 项目 — beside 新建 at the tab's very top. */}
+      {(tab === 'people' || tab === 'projects') && onValidate !== undefined && (
+        <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <NewEntityRow
+              t={t}
+              label={t('workbench.newButton')}
+              placeholder={t('workbench.entityNamePlaceholder', { section: t(SECTION_KEYS[tab]) })}
+              choice={tab === 'people' ? {
+                options: relationOptions(t),
+                value: relation,
+                onChange: (value) => { setRelation(value as KbPersonRelation) },
+              } : undefined}
+              submit={name => create(name).catch((failure: unknown) => {
+                setActionError(failure instanceof Error ? failure.message : String(failure))
+              })}
+            />
+          </div>
+          <button
+            type="button"
+            style={{ padding: '2px 6px', marginTop: 4 }}
+            onClick={() => { onValidate(tab === 'people' ? 'person' : 'project') }}
+          >
+            {t('workbench.validateButton')}
+          </button>
+        </div>
+      )}
+      {!(onValidate !== undefined && (tab === 'people' || tab === 'projects')) && (
+        <NewEntityRow
+          t={t}
+          label={t('workbench.newButton')}
+          placeholder={t('workbench.entityNamePlaceholder', { section: t(SECTION_KEYS[tab]) })}
+          choice={tab === 'people' ? {
+            options: relationOptions(t),
+            value: relation,
+            onChange: (value) => { setRelation(value as KbPersonRelation) },
+          } : undefined}
+          submit={name => create(name).catch((failure: unknown) => {
+            setActionError(failure instanceof Error ? failure.message : String(failure))
+          })}
+        />
+      )}
       <Section
         t={t}
         id={tab}
@@ -1296,19 +1347,6 @@ export function WorkspaceRail(props: RailProps): ReactElement {
         drop={kind === undefined ? undefined : (file, event) => {
           void dropOnEntity({ event, entity: file, entityType: kind, registerResource, onRefine, onError: setActionError })
         }}
-      />
-      <NewEntityRow
-        t={t}
-        label={t('workbench.newButton')}
-        placeholder={t('workbench.entityNamePlaceholder', { section: t(SECTION_KEYS[tab]) })}
-        choice={kind === 'person' ? {
-          options: relationOptions(t),
-          value: relation,
-          onChange: (value) => { setRelation(value as KbPersonRelation) },
-        } : undefined}
-        submit={name => create(name).catch((failure: unknown) => {
-          setActionError(failure instanceof Error ? failure.message : String(failure))
-        })}
       />
       {rowMenu.menu !== null && (
         <RowMenu

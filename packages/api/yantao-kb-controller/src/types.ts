@@ -111,6 +111,24 @@ export interface KbLinksResult {
   readonly incoming: readonly KbLinkSource[]
 }
 
+/** One directed edge of the whole-KB `[[…]]` link graph (ADR-0035). */
+export interface KbGraphEdge {
+  /** KB-relative path of the linking file. */
+  readonly from: string
+  /** The target as written inside the brackets. */
+  readonly target: string
+  /** The resolved KB-relative path, or null when it names zero or several files. */
+  readonly to: string | null
+}
+
+/** Result of `yantaoKb.graph`: the whole KB's link graph in one payload (ADR-0035). */
+export interface KbGraphResult {
+  /** Every entity file, as KB-relative paths, in type-then-directory order. */
+  readonly nodes: readonly string[]
+  /** Every `[[…]]` occurrence outside fenced blocks; self-links are dropped. */
+  readonly edges: readonly KbGraphEdge[]
+}
+
 /** Result of `yantaoKb.root`. */
 export interface KbRootResult {
   /** The live knowledge-base root directory. */

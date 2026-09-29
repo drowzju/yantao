@@ -26,7 +26,7 @@ import type {
   KbCapabilityListResult,
   KbCapabilityRegisterArgs, KbCapabilityRegisterResult,
   KbCapabilityRunArgs, KbCapabilityRunResult, KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
-  KbDeleteFileResult, KbFileContent, KbLinksResult,
+  KbDeleteFileResult, KbFileContent, KbGraphResult, KbLinksResult,
   KbMailDeleteArgs, KbMailDeleteResult, KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
   KbMemoryAddArgs, KbMemoryAddResult, KbMemoryDeleteArgs, KbMemoryDeleteResult, KbMemoryListResult,
   KbOpenExternalResult, KbPersonRelation, KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
@@ -41,6 +41,8 @@ export interface KbRemote {
   workspaceTree(): Promise<RemoteResult<KbTree>>
   read(path: string): Promise<RemoteResult<KbFileContent>>
   links(path: string): Promise<RemoteResult<KbLinksResult>>
+  /** The whole KB's link graph in one payload (ADR-0035) — the validate gesture's prescan. */
+  graph(): Promise<RemoteResult<KbGraphResult>>
   write(path: string, content: string): Promise<RemoteResult<KbWriteResult>>
   deleteFile(path: string): Promise<RemoteResult<KbDeleteFileResult>>
   setRelation(args: KbSetRelationArgs): Promise<RemoteResult<KbSetRelationResult>>

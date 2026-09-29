@@ -117,15 +117,15 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 
 ```ts cordis-catalog
 /**
- * The intake side of the KB: resources, meetings, and the todo singleton.
+ * The intake side of the KB: resources and the todo singleton.
  * Every section is present even when its directory is absent or empty.
- * @returns the three intake sections in display order; a resource row pairs its companion note when one exists.
+ * @returns the two intake sections in display order; a resource row pairs its companion note when one exists.
  */
 @Remote('intakeTree') async intakeTree(): Promise<KbTree>
 
 /**
- * The workspace side of the KB: projects, areas, people.
- * @returns the three workspace sections in display order, entity rows carrying archive and relation flags.
+ * The workspace side of the KB: projects, areas, people, meetings.
+ * @returns the four workspace sections in display order, entity rows carrying archive and relation flags.
  */
 @Remote('workspaceTree') async workspaceTree(): Promise<KbTree>
 
@@ -154,6 +154,17 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * @returns the file's outgoing and incoming links.
  */
 @Remote('links') async links(path: string): Promise<KbLinksResult>
+
+/**
+ * The whole KB's `[[…]]` link graph in one payload (ADR-0035): every entity
+ * file as a node, every link as an edge with its resolution. The scan lives
+ * here for the same reason `links` does — it reads every entity note — and
+ * the 实体校验 gesture consumes it for its deterministic pre-scan (orphans,
+ * broken links); a future related-entities panel is its natural second
+ * consumer.
+ * @returns every entity path plus every resolved-or-not edge.
+ */
+@Remote('graph') async graph(): Promise<KbGraphResult>
 
 /**
  * The live KB root and whether the human has chosen one yet.

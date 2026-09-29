@@ -181,6 +181,16 @@ export function ProposalCard(props: {
             ))}
           </div>
         )}
+        {proposal.findings !== undefined && proposal.findings.length > 0 && (
+          <div data-proposal-findings="true">
+            <div style={groupTitleStyle}>{t('proposal.findings')}</div>
+            {proposal.findings.map((finding, index) => (
+              <div key={index} style={detailStyle} data-proposal-finding={finding.kind}>
+                {finding.subject} — {finding.why}
+              </div>
+            ))}
+          </div>
+        )}
         {nothing && <div style={{ ...detailStyle, marginTop: 10 }}>{t('proposal.empty')}</div>}
         {GROUP_ORDER.map((kind) => {
           const rows = proposal.actions

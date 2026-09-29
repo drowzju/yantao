@@ -35,7 +35,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
-  createEntity, entityDisplayPath, initKb, KbError, linksOf, listEntities, parseFrontmatter,
+  createEntity, entityDisplayPath, initKb, KbError, linkGraphOf, linksOf, listEntities, parseFrontmatter,
   parseTodoFile, PERSON_RELATIONS, readCapabilityRecord, readCapabilityState,
   registerResourceContent, resolveWithinKb, serializeTodoFile, todayStamp,
   writeCapabilityState, writeMailWatermark,
@@ -64,6 +64,7 @@ import type {
   KbCapabilitySummary,
   KbDeleteFileResult,
   KbFileContent,
+  KbGraphResult,
   KbLinksResult,
   KbMailMarkReadArgs,
   KbMailMarkReadResult,
@@ -456,6 +457,20 @@ export class YantaoKbController extends TypertRemoteService {
   async links(path: string): Promise<KbLinksResult> {
     this.confine(path, path)
     return linksOf(this.kbRoot, path)
+  }
+
+  /**
+   * The whole KB's `[[…]]` link graph in one payload (ADR-0035): every entity
+   * file as a node, every link as an edge with its resolution. The scan lives
+   * here for the same reason `links` does — it reads every entity note — and
+   * the 实体校验 gesture consumes it for its deterministic pre-scan (orphans,
+   * broken links); a future related-entities panel is its natural second
+   * consumer.
+   * @returns every entity path plus every resolved-or-not edge.
+   */
+  @Remote('graph')
+  async graph(): Promise<KbGraphResult> {
+    return linkGraphOf(this.kbRoot)
   }
 
   /**

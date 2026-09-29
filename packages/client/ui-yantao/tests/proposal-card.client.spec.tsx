@@ -122,8 +122,11 @@ describe('ProposalCard create-project 领域勾选 (ADR-0034 决定 4)', () => {
     render(<ProposalCard proposal={AREAS_PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
     expect(screen.getByText('新建项目')).toBeTruthy()
     expect(screen.getByText(/关联领域：基础设施。/)).toBeTruthy()
-    expect(screen.getByLabelText('机房搬迁·基础设施').checked).toBe(true)
-    expect(screen.getByLabelText('机房搬迁·协作平台').checked).toBe(false)
+    // `matches(':checked')` instead of the `checked` property: the aggregated
+    // typert build and oxlint disagree on what `getByLabelText` returns, and
+    // this reads the same truth off either typing without a cast.
+    expect(screen.getByLabelText('机房搬迁·基础设施').matches(':checked')).toBe(true)
+    expect(screen.getByLabelText('机房搬迁·协作平台').matches(':checked')).toBe(false)
   })
 
   it('passes the adjusted 领域勾选 to onConfirm, keyed by action index', () => {

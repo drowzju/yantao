@@ -698,6 +698,8 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   KbCreateEntityArgs: 'wire createEntity request is owned by packages/api/yantao-kb-controller/README.md',
   KbCreateEntityResult: 'wire createEntity result is owned by packages/api/yantao-kb-controller/README.md',
   KbLinksResult: 'wire links result is owned by packages/api/yantao-kb-controller/README.md',
+  KbGraphResult: 'wire graph result is owned by packages/api/yantao-kb-controller/README.md',
+  KbGraphEdge: 'wire graph edge is owned by packages/api/yantao-kb-controller/README.md',
   KbRevisionResult: 'wire revision result is owned by packages/api/yantao-kb-controller/README.md',
   KbOpenExternalResult: 'wire openExternal result is owned by packages/api/yantao-kb-controller/README.md',
   KbTodosResult: 'wire todos result is owned by packages/api/yantao-kb-controller/README.md',

@@ -532,8 +532,8 @@ export {
   serializeMemoryFile,
 } from './memory.ts'
 export type { MemoryEntry, MemoryFile, MemoryScope } from './memory.ts'
-export { linksOf, resolveWikiLink, wikilinks } from './links.ts'
-export type { KbLinkSource, KbLinkTarget, KbLinks, WikiLink } from './links.ts'
+export { linksOf, linkGraphOf, resolveWikiLink, wikilinks } from './links.ts'
+export type { KbGraph, KbGraphEdge, KbLinkSource, KbLinkTarget, KbLinks, WikiLink } from './links.ts'
 export { parseFrontmatter } from './frontmatter.ts'
 export type { Frontmatter } from './frontmatter.ts'
 export { addTodo, parseTodoFile, removeTodo, serializeTodoFile, toggleTodo, updateTodo } from './todo.ts'

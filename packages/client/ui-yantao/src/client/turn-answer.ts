@@ -52,10 +52,22 @@ function turnEndKind(data: unknown): string | undefined {
 }
 
 /**
+ * One step's token accounting, as the `assistant/message` event carries it —
+ * the same wire shape the adapter reported, read defensively by the caller.
+ */
+export interface TurnUsage {
+  readonly inputTokens: number
+  readonly outputTokens: number
+  readonly totalTokens?: number
+}
+
+/**
  * Send one prompt and follow the session until that turn's durable
  * `turn/end` lands.
- * @param options - the session namespace, the session id, the prompt, and an
- *   optional abort signal.
+ * @param options - the session namespace, the session id, the prompt, an
+ *   optional abort signal, and an optional per-step usage sink (ADR-0035
+ *   决定 6's statistics): called once per `assistant/message` that carries
+ *   token accounting, as it streams by.
  * @returns the turn's final assistant text — `''` when the turn ended
  *   without any text block.
  */
@@ -64,6 +76,7 @@ export async function askTurn(options: {
   readonly sessionId: string
   readonly prompt: string
   readonly signal?: AbortSignal
+  readonly onUsage?: (usage: TurnUsage) => void
 }): Promise<string> {
   // The wire id is a plain string; the Remote face brands it (reading-flow's precedent).
   const sessionId = options.sessionId as SessionId
@@ -83,7 +96,19 @@ export async function askTurn(options: {
     options.signal,
   )) {
     if (frame.type !== 'event') continue
-    if (frame.event.type === 'assistant/message') answer = messageText(frame.event.data)
+    if (frame.event.type === 'assistant/message') {
+      answer = messageText(frame.event.data)
+      // The usage rides the same event as the message (there is no separate
+      // usage record); absent when the adapter reported none.
+      if (options.onUsage !== undefined && typeof frame.event.data === 'object' && frame.event.data !== null) {
+        const usage = (frame.event.data as { usage?: unknown }).usage
+        if (typeof usage === 'object' && usage !== null
+          && typeof (usage as { inputTokens?: unknown }).inputTokens === 'number'
+          && typeof (usage as { outputTokens?: unknown }).outputTokens === 'number') {
+          options.onUsage(usage as TurnUsage)
+        }
+      }
+    }
     if (frame.event.type === 'turn/end') {
       if (turnEndKind(frame.event.data) !== 'completed') {
         throw new Error(`会话回合没有正常完成（${turnEndKind(frame.event.data) ?? '原因未知'}），没有拿到完整回答。`)
@@ -124,6 +149,7 @@ export async function jsonRound<T>(options: {
   readonly reask: string
   readonly parse: (text: string) => T
   readonly signal?: AbortSignal
+  readonly onUsage?: (usage: TurnUsage) => void
 }): Promise<T> {
   const first = await askTurn(options)
   try {

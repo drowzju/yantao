@@ -116,6 +116,27 @@ describe('yantaoKb.intakeTree', () => {
   })
 })
 
+describe('yantaoKb.graph', () => {
+  it('returns the whole link graph: nodes for entities, edges with resolutions', async () => {
+    await seedKb()
+    await seedFile('entities/projects/dsh 学习.md', entityFileContent('project', 'dsh 学习', TODAY) + '\n关联 [[健康]] 与 [[不存在]]\n')
+    const graph = await ctx.yantaoKbController.graph()
+    expect(graph.nodes).toContain('entities/projects/dsh 学习.md')
+    expect(graph.nodes).toContain('entities/areas/健康.md')
+    expect(graph.edges).toEqual(expect.arrayContaining([
+      { from: 'entities/projects/dsh 学习.md', target: '健康', to: 'entities/areas/健康.md' },
+      { from: 'entities/projects/dsh 学习.md', target: '不存在', to: null },
+    ]))
+    // Self-links are dropped, resources are never linkable.
+    expect(graph.edges.some(edge => edge.from === edge.to)).toBe(false)
+    expect(graph.edges.every(edge => edge.to === null || edge.to.startsWith('entities/'))).toBe(true)
+  })
+
+  it('returns an empty graph for an empty KB', async () => {
+    expect(await ctx.yantaoKbController.graph()).toEqual({ nodes: [], edges: [] })
+  })
+})
+
 describe('yantaoKb.workspaceTree', () => {
   it('returns projects, areas, people and meetings even when the KB is empty', async () => {
     const tree = await ctx.yantaoKbController.workspaceTree()

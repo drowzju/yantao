@@ -16,6 +16,8 @@ import type {
 } from '../src/client/remote.ts'
 import type { MailAnalyser } from '../src/client/mail-analysis.ts'
 import type { RefineRunner } from '../src/client/refine.ts'
+import type { ValidateRunner } from '../src/client/validate.ts'
+import type { SessionDetailLoader, DetailItem } from '../src/client/session-detail.ts'
 import { CapabilityPanel } from '../src/client/CapabilityPanel.tsx'
 import { RESOURCE_DRAG_TYPE } from '../src/client/refine.ts'
 import type { Proposal } from '../src/client/proposal.ts'
@@ -1073,6 +1075,8 @@ interface FrameFaces {
   readonly mailMarkRead: MailMarker
   readonly analyseMail: MailAnalyser
   readonly refine: RefineRunner
+  readonly validate: ValidateRunner
+  readonly sessionDetail: SessionDetailLoader
 }
 
 /** Build the frame's spies; `read` answers every path with the same content. */
@@ -1092,12 +1096,18 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     revision: () => Promise.resolve({ root: '/kb', revision: 0 }),
     openExternal: () => Promise.resolve({ target: '' }),
     promptSession: () => Promise.resolve(),
+    sessionDetail: () => Promise.resolve([]),
     capabilityList: () => Promise.resolve({ capabilities: [], unregistered: [] }),
     capabilityRun: () => Promise.resolve({ name: '', runAt: '', artifacts: [] }),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
     analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [] } }),
     refine: () => Promise.resolve({ sessionId: '', title: '', relevant: true, reason: '' }),
+    validate: () => Promise.resolve({
+      sessionId: '', title: '', reason: '',
+      preScan: { entities: 0, orphans: [], broken: [] },
+      stats: { entities: 0, findings: 0, tokens: 0, elapsedMs: 0 },
+    }),
     ...overrides,
   }
 }
@@ -1128,6 +1138,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       mailMarkRead={kb.mailMarkRead}
       analyseMail={kb.analyseMail}
       refine={kb.refine}
+      validate={kb.validate}
       registerResource={() => Promise.resolve('resources/新资源.pdf')}
       memoryList={() => Promise.resolve({ groups: [] })}
       memoryAdd={() => Promise.resolve({ path: '.dsh/yantao/memory/global.md', entry: { id: 'm1', text: 'x' } })}
@@ -1138,7 +1149,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       capabilityRegister={() => Promise.resolve({ path: '.dsh/skills/yantao.json' })}
       capabilityRun={kb.capabilityRun}
       promptSession={kb.promptSession}
-      sessionDetail={() => Promise.resolve([])}
+      sessionDetail={kb.sessionDetail}
       writeTodos={kb.writeTodos}
       onKbRootChanged={onKbRootChanged}
     />
@@ -1318,8 +1329,13 @@ describe('Frame', () => {
         writeTodos={kb.writeTodos}
         mailFetch={() => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] })}
         mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
-        analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [] } })}
+        analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [] } })}
         refine={() => Promise.resolve({ sessionId: '', title: '', relevant: true, reason: '' })}
+        validate={() => Promise.resolve({
+          sessionId: '', title: '', reason: '',
+          preScan: { entities: 0, orphans: [], broken: [] },
+          stats: { entities: 0, findings: 0, tokens: 0, elapsedMs: 0 },
+        })}
         registerResource={() => Promise.resolve('resources/新资源.pdf')}
         memoryList={() => Promise.resolve({ groups: [] })}
         memoryAdd={() => Promise.resolve({ path: '.dsh/yantao/memory/global.md', entry: { id: 'm1', text: 'x' } })}
@@ -1479,6 +1495,43 @@ describe('Frame', () => {
     fireEvent.click(within(line).getByText('取消'))
     await waitFor(() => { expect(line.getAttribute('data-task-status')).toBe('cancelled') })
     expect((capabilityRun.mock.calls[0]?.[1] as AbortSignal).aborted).toBe(true)
+  })
+
+  it('opens the validate run\'s detail drawer from its 查看 verb (ADR-0035)', async () => {
+    const sessionDetail = vi.fn((): Promise<readonly DetailItem[]> => Promise.resolve([
+      { kind: 'user', seq: 0, turn: 1, text: '【预扫 · 孤儿条目（入链不超过 1）】', injected: true },
+    ]))
+    render(renderFrame({
+      sessionDetail,
+      validate: () => Promise.resolve({
+        sessionId: 'sess-validate', title: '', reason: '',
+        preScan: { entities: 3, orphans: [], broken: [] },
+        stats: { entities: 3, findings: 2, tokens: 456, elapsedMs: 1200 },
+      }),
+    }))
+    // The scoped entry: the 人物 tab's 校验 button beside 新建.
+    fireEvent.click(await screen.findByText('人物'))
+    fireEvent.click(await screen.findByText('校验'))
+
+    fireEvent.click(screen.getByText('任务'))
+    const pane = await waitFor(() => {
+      const found = document.querySelector('[data-tasks-pane="true"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    const line = pane.querySelector('[data-task-row]') as HTMLElement
+    await waitFor(() => { expect(line.getAttribute('data-task-status')).toBe('done') })
+
+    // 查看 opens the ADR-0033 drawer over the run's session log — the
+    // prescan lists and the model's judgement ride inside that log.
+    fireEvent.click(within(line).getByText('查看'))
+    const drawer = await waitFor(() => {
+      const found = document.querySelector('[data-task-detail-panel="true"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    expect(drawer.getAttribute('aria-label')).toBe('实体校验（人物）')
+    await waitFor(() => { expect(sessionDetail).toHaveBeenCalledWith('sess-validate', expect.anything()) })
   })
 
   it('lists the mail fetch as a task row and cancels it from there (ADR-0031 落地注记二)', async () => {

@@ -214,9 +214,10 @@ const RESOURCE_CLIP = 32 * 1024
 /**
  * How much of one roster entity's content the distill prompt sees — tighter
  * than a resource's clip, because the roster arrives whole: a big library
- * must not blow the prompt.
+ * must not blow the prompt. The validate gesture clips its named entities at
+ * the same line (ADR-0035 决定 4).
  */
-const ENTITY_CLIP = 8 * 1024
+export const ENTITY_CLIP = 8 * 1024
 
 /**
  * The built-in body skeletons, mirrored from `packages/yantao/kb` — the
@@ -264,20 +265,24 @@ export async function templateBodyOf(read: (path: string) => Promise<string>, en
   return body === '' ? fallback : body
 }
 
-/** One string field of a parsed JSON row, or `''` when it is not a string. */
-function field(row: unknown, key: string): string {
+/**
+ * One string field of a parsed JSON row, or `''` when it is not a string.
+ * Shared with the validate verdict's parser (ADR-0035), which reuses the v2
+ * entry shapes wholesale.
+ */
+export function field(row: unknown, key: string): string {
   if (typeof row !== 'object' || row === null) return ''
   const value = (row as Record<string, unknown>)[key]
   return typeof value === 'string' ? value.trim() : ''
 }
 
 /** The rows of one block, dropping anything that is not an object. */
-function rows(value: unknown): readonly unknown[] {
+export function rows(value: unknown): readonly unknown[] {
   return Array.isArray(value) ? value : []
 }
 
 /** The edits of one verdict block, dropping the ones that would wipe or dangle (宁可少，不可错). */
-function editsOf(value: unknown): readonly RefineEdit[] {
+export function editsOf(value: unknown): readonly RefineEdit[] {
   return rows(value).map((row): RefineEdit | undefined => {
     const section = field(row, 'section')
     const after = field(row, 'after')
@@ -289,7 +294,7 @@ function editsOf(value: unknown): readonly RefineEdit[] {
 }
 
 /** The links of one verdict block, dropping the ones with nowhere to point. */
-function linksOf(value: unknown): readonly RefineLink[] {
+export function linksOf(value: unknown): readonly RefineLink[] {
   return rows(value).map((row): RefineLink | undefined => {
     const to = field(row, 'to')
     if (to === '') return undefined
@@ -479,7 +484,7 @@ export function answersPrompt(questions: readonly RefineQuestion[], answers: rea
  * @param heading - the full heading, e.g. `## 目标`.
  * @returns the section's current body.
  */
-function sectionBody(content: string, heading: string): string {
+export function sectionBody(content: string, heading: string): string {
   const lines = content.replace(/\s*$/, '').split('\n')
   const start = lines.findIndex(line => line.trim() === heading)
   if (start === -1) return ''
@@ -626,7 +631,7 @@ export function isEmptyBody(text: string): boolean {
  * honestly. `isEmpty` reports the emptiness of the raw body (before the
  * clip), so a distill gesture can skip a title-only file outright.
  */
-async function contentViewOf(
+export async function contentViewOf(
   read: (path: string) => Promise<string>,
   path: string,
   name: string,

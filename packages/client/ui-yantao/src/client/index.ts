@@ -41,6 +41,7 @@ import type {
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
 import { runRefine, type RefineRunnerArgs } from './refine.ts'
+import { runValidate, type ValidateScope } from './validate.ts'
 import { promptCurrentSession } from './session-prompt.ts'
 import { loadSessionDetail } from './session-detail.ts'
 import { sessionRemoteOf } from './remote.ts'
@@ -190,6 +191,17 @@ export function apply(ctx: Context): void {
       refine: async (gesture: RefineRunnerArgs) => {
         const cwd = await kbCwd()
         return runRefine({ ctx, ...gesture, ...cwd !== undefined ? { cwd } : {} })
+      },
+      // ADR-0035: the scoped validate pass (人物 / 项目 angles) — the same
+      // KB-rooted session discipline as refine's.
+      validate: async (options: {
+        scope: ValidateScope
+        signal?: AbortSignal
+        onStage?: (stage: 'prescan' | 'analyse' | 'proposal') => void
+        onSession?: (sessionId: string) => void
+      }) => {
+        const cwd = await kbCwd()
+        return runValidate({ ctx, ...options, ...cwd !== undefined ? { cwd } : {} })
       },
       // ADR-0020: the resource intake.
       registerResource: (name: string, contentBase64: string) => registerResource(ctx, name, contentBase64),

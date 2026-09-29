@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { linksOf, resolveWikiLink, wikilinks } from '../src/links.ts'
+import { linksOf, linkGraphOf, resolveWikiLink, wikilinks } from '../src/links.ts'
 import { initKb } from '../src/core.ts'
 
 let kbRoot: string
@@ -134,5 +134,59 @@ describe('linksOf', () => {
     expect(links.outgoing).toEqual([{ target: '我自己', path: 'entities/people/我自己.md' }])
     // The skeleton's own people note is in the scan and links nowhere yet.
     expect(links.incoming).toEqual([])
+  })
+})
+
+describe('linkGraphOf', () => {
+  it('returns the whole graph: every entity a node, every link an edge', async () => {
+    await put('entities/projects/甲.md', '---\ntype: project\n---\n\n依赖 [[乙]]，提及 [[不在库里]]\n')
+    await put('entities/areas/乙.md', '---\ntype: area\n---\n\n回到 [[project:甲]]\n')
+    await put('entities/people/张三.md', '---\ntype: person\n---\n')
+    const graph = await linkGraphOf(kbRoot)
+    expect(graph.nodes).toEqual([
+      'entities/projects/甲.md',
+      'entities/areas/乙.md',
+      'entities/people/张三.md',
+    ])
+    expect(graph.edges).toEqual([
+      { from: 'entities/projects/甲.md', target: '乙', to: 'entities/areas/乙.md' },
+      { from: 'entities/projects/甲.md', target: '不在库里', to: null },
+      { from: 'entities/areas/乙.md', target: 'project:甲', to: 'entities/projects/甲.md' },
+    ])
+  })
+
+  it('drops self-links and keeps ambiguous names unresolved', async () => {
+    await put('entities/projects/甲.md', '---\ntype: project\n---\n\n自转 [[甲]]，歧义 [[重名]]\n')
+    await put('entities/areas/重名.md', '---\ntype: area\n---\n')
+    await put('entities/people/重名.md', '---\ntype: person\n---\n')
+    const graph = await linkGraphOf(kbRoot)
+    // [[甲]] resolves to the file itself — a self-link, dropped by design.
+    expect(graph.edges).toEqual([
+      { from: 'entities/projects/甲.md', target: '重名', to: null },
+    ])
+  })
+
+  it('resolves a dated meeting by its bare title, once per unique target', async () => {
+    await put('entities/meetings/2026-09-08 周会.md', '---\ntype: meeting\n---\n')
+    await put('entities/projects/甲.md', '---\ntype: project\n---\n\n会上 [[周会]] 又提 [[周会]]\n')
+    const graph = await linkGraphOf(kbRoot)
+    expect(graph.edges).toEqual([
+      { from: 'entities/projects/甲.md', target: '周会', to: 'entities/meetings/2026-09-08 周会.md' },
+      { from: 'entities/projects/甲.md', target: '周会', to: 'entities/meetings/2026-09-08 周会.md' },
+    ])
+  })
+
+  it('agrees with linksOf on every file it covers', async () => {
+    await put('entities/projects/甲.md', '---\ntype: project\n---\n\n依赖 [[乙]] 和 [[丙]]\n')
+    await put('entities/projects/乙.md', '---\ntype: project\n---\n\n引用 [[area:丙]]\n')
+    await put('entities/areas/丙.md', '---\ntype: area\n---\n')
+    const graph = await linkGraphOf(kbRoot)
+    for (const node of graph.nodes) {
+      const links = await linksOf(kbRoot, node)
+      const outs = graph.edges.filter(edge => edge.from === node)
+      expect(outs.map(({ target, to }) => ({ target, path: to }))).toEqual(links.outgoing)
+      const ins = graph.edges.filter(edge => edge.to === node)
+      expect(ins.map(({ from, target }) => ({ from, target }))).toEqual(links.incoming)
+    }
   })
 })

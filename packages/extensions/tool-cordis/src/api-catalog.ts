@@ -2962,15 +2962,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: '@Remote(\'intakeTree\') async intakeTree(): Promise<KbTree>',
-        description: 'The intake side of the KB: resources, meetings, and the todo singleton. Every section is present even when its directory is absent or empty.',
+        description: 'The intake side of the KB: resources and the todo singleton. Every section is present even when its directory is absent or empty.',
         parameters: [],
-        returns: 'the three intake sections in display order; a resource row pairs its companion note when one exists.',
+        returns: 'the two intake sections in display order; a resource row pairs its companion note when one exists.',
       },
       {
         signature: '@Remote(\'workspaceTree\') async workspaceTree(): Promise<KbTree>',
-        description: 'The workspace side of the KB: projects, areas, people.',
+        description: 'The workspace side of the KB: projects, areas, people, meetings.',
         parameters: [],
-        returns: 'the three workspace sections in display order, entity rows carrying archive and relation flags.',
+        returns: 'the four workspace sections in display order, entity rows carrying archive and relation flags.',
       },
       {
         signature: '@Remote(\'read\') async read(path: string): Promise<KbFileContent>',
@@ -2983,6 +2983,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Both halves of one file\'s `[[…]]` link graph (ADR-0015): what it links out to, resolved to entity files, and which files link back into it.\n\nThe scan lives here rather than in the Client because it reads every entity note — one round trip instead of one per file — and because resolution is a host-side rule (`类型:名字` locators, dated meetings).',
         parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }],
         returns: 'the file\'s outgoing and incoming links.',
+      },
+      {
+        signature: '@Remote(\'graph\') async graph(): Promise<KbGraphResult>',
+        description: 'The whole KB\'s `[[…]]` link graph in one payload (ADR-0035): every entity file as a node, every link as an edge with its resolution. The scan lives here for the same reason `links` does — it reads every entity note — and the 实体校验 gesture consumes it for its deterministic pre-scan (orphans, broken links); a future related-entities panel is its natural second consumer.',
+        parameters: [],
+        returns: 'every entity path plus every resolved-or-not edge.',
       },
       {
         signature: '@Remote(\'root\') root(): Promise<KbRootResult>',
@@ -4605,6 +4611,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KbFileContent',
     declaration: 'export interface KbFileContent {\n    readonly path: string;\n    readonly content: string;\n}',
+  },
+  {
+    name: 'KbGraphResult',
+    declaration: 'export interface KbGraphResult {\n    readonly nodes: readonly string[];\n    readonly edges: readonly KbGraphEdge[];\n}',
   },
   {
     name: 'KbLinksResult',

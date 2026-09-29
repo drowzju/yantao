@@ -7,8 +7,19 @@
  * continuation.
  */
 import { useState, type ReactElement } from 'react'
-import type { RefineRun } from './refine.ts'
+import type { RefineQuestion } from './refine.ts'
 import type { WorkbenchT } from './locales.ts'
+
+/**
+ * The dialog reads only the question-round face of a run — refine's
+ * (ADR-0030) and validate's (ADR-0035) both satisfy it — so neither runner's
+ * full type leaks in here.
+ */
+export interface QuestionRun {
+  readonly reason: string
+  readonly questions?: readonly RefineQuestion[]
+  readonly continueWithAnswers?: (answers: readonly string[]) => Promise<unknown>
+}
 
 const panelStyle = {
   position: 'absolute',
@@ -66,7 +77,7 @@ const buttonStyle = { padding: '4px 10px' } as const
  * @returns the dialog element.
  */
 export function QuestionDialog(props: {
-  readonly run: RefineRun
+  readonly run: QuestionRun
   readonly busy?: boolean
   readonly onSubmit: (answers: readonly string[]) => void
   readonly onAbort: () => void

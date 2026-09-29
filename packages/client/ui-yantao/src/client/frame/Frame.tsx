@@ -23,7 +23,8 @@ import type {
 import type { AnalysisStage, MailAnalyser } from '../mail-analysis.ts'
 import { createMailRun, useMailRun } from '../mail-run.ts'
 import type { RefineGesture, RefineRosterEntry, RefineRunner, RefineRun } from '../refine.ts'
-import type { TaskKind, TaskRow, TaskStatus } from '../task-view.ts'
+import type { ValidateRun, ValidateRunner, ValidateScope, ValidateStage } from '../validate.ts'
+import { formatElapsed, type TaskKind, type TaskRow, type TaskStatus } from '../task-view.ts'
 import type { SessionDetailLoader } from '../session-detail.ts'
 import { SessionDetailDrawer } from '../SessionDetailDrawer.tsx'
 import type { Proposal } from '../proposal.ts'
@@ -98,6 +99,8 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly analyseMail: MailAnalyser
   /** Run one refine analysis in a dsh session — both ADR-0029 gestures. */
   readonly refine: RefineRunner
+  /** Run one whole-KB validate pass in a dsh session (ADR-0035). */
+  readonly validate: ValidateRunner
   /** Copy one dropped file into `resources/` (ADR-0020). */
   readonly registerResource: ResourceRegistrar
   /** List the registered capabilities (ADR-0021). */
@@ -299,7 +302,7 @@ function DragHandle(props: {
  */
 export function Frame({
   t, renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
-  pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine,
+  pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine, validate,
   registerResource, capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
   promptSession, memoryList, memoryAdd, memoryDelete, sessionDetail, onKbRootChanged, mailDelete,
 }: FrameProps): ReactElement {
@@ -686,6 +689,87 @@ export function Frame({
     drainRefine()
   }, [drainRefine, taskBegin])
 
+  // ── the validate gesture (ADR-0035) ───────────────────────────────────────
+  // The fourth gesture, and the simplest run shape: no queue — at most ONE
+  // run at a time, guarded both by state (the buttons' enablement reads it)
+  // and by a synchronous ref (two clicks inside one tick must not slip past
+  // React's batching). No roster gathering (the runner prescans the graph
+  // itself), one session, one verdict. Stage reports ride the runner's
+  // onStage; the closing notice carries the stats tally home.
+  const [validateProposal, setValidateProposal] = useState<Proposal | null>(null)
+  const [validateQuestion, setValidateQuestion] = useState<{ run: ValidateRun; taskId: string } | null>(null)
+  const [validateContinuing, setValidateContinuing] = useState(false)
+  const validateAbort = useRef<AbortController | null>(null)
+  const validateCancelled = useRef(false)
+  const validateBusy = useRef(false)
+  const [validateActive, setValidateActive] = useState(false)
+
+  /** One validate run's end: the stats notice, then the card. */
+  const showValidateRun = useCallback((run: ValidateRun, taskId: string): void => {
+    taskEnd(taskId, 'done', '提议已出，待确认')
+    setCapabilityNotice(t('validate.notice', {
+      entities: run.stats.entities,
+      findings: run.stats.findings,
+      tokens: run.stats.tokens,
+      elapsed: formatElapsed(run.stats.elapsedMs),
+    }))
+    if (run.proposal !== undefined) setValidateProposal(run.proposal)
+  }, [t, taskEnd])
+
+  const runValidateGesture = useCallback((scope: ValidateScope): void => {
+    // One at a time: a running pass or an unanswered question round swallows
+    // any further trigger (the ref answers synchronously, within one tick).
+    if (validateBusy.current || validateQuestion !== null) return
+    validateBusy.current = true
+    setCapabilityNotice(null)
+    const aborter = new AbortController()
+    validateAbort.current = aborter
+    validateCancelled.current = false
+    setValidateActive(true)
+    const taskId = taskBegin('validate', t(scope === 'person' ? 'validate.task.person' : 'validate.task.project'), t('validate.stage.prescan'))
+    const stageOf = (stage: ValidateStage): string =>
+      stage === 'prescan' ? t('validate.stage.prescan') : stage === 'analyse' ? t('validate.stage.analyse') : t('validate.stage.proposal')
+    // Anchor the session onto the task row the instant it exists: 查看/详情
+    // then work while the run is in flight, and after a failure too.
+    void validate({
+      scope,
+      signal: aborter.signal,
+      onStage: (stage) => { taskPatch(taskId, { stage: stageOf(stage) }) },
+      onSession: (sessionId) => { taskPatch(taskId, { sessionId }) },
+    }).then((run) => {
+      validateBusy.current = false
+      setValidateActive(false)
+      // Belt and braces: onSession already anchored the session at creation;
+      // this patch covers runners that never fire it.
+      taskPatch(taskId, { sessionId: run.sessionId })
+      if (run.questions !== undefined && run.questions.length > 0) {
+        taskPatch(taskId, { status: 'waiting', stage: '有问题等你回答' })
+        setValidateQuestion({ run, taskId })
+        return
+      }
+      showValidateRun(run, taskId)
+    }, (failure: unknown) => {
+      validateBusy.current = false
+      setValidateActive(false)
+      setCapabilityNotice(validateCancelled.current
+        ? '实体校验已取消。'
+        : `实体校验失败：${remoteMessage(failure)}`)
+      taskEnd(taskId, validateCancelled.current ? 'cancelled' : 'failed',
+        validateCancelled.current ? '已取消' : `失败：${remoteMessage(failure)}`)
+    })
+  }, [showValidateRun, t, taskBegin, taskEnd, taskPatch, validate, validateQuestion])
+
+  /** Stop the running validate (or abandon its question round). */
+  const cancelValidate = useCallback((): void => {
+    if (validateQuestion !== null) {
+      setValidateQuestion(null)
+      taskEnd(validateQuestion.taskId, 'cancelled', '已放弃')
+      return
+    }
+    validateCancelled.current = true
+    validateAbort.current?.abort()
+  }, [taskEnd, validateQuestion])
+
   // ── the mail run (ADR-0031) ──────────────────────────────────────────────
   // The frame owns the mail run store now: the 任务 tab mirrors every
   // analysis as a row, so the store must live where the frame can watch it.
@@ -761,12 +845,29 @@ export function Frame({
     }
   }, [mailFetch, taskBegin, taskEnd])
 
+  // ADR-0033: the 任务 row's 「详情」 — a read-only drawer over the run's
+  // session log. The row anchors to a session only when its run made one
+  // (refine and mail analysis do; script capabilities are bare subprocesses),
+  // so TasksPane renders the verb only for those rows.
+  const [detailRow, setDetailRow] = useState<TaskRow | null>(null)
+  const onTaskDetail = useCallback((row: TaskRow): void => { setDetailRow(row) }, [])
+  const closeTaskDetail = useCallback((): void => { setDetailRow(null) }, [])
+
   // ADR-0031: the 任务 row's two verbs. 查看 goes to where the outcome
   // lives — refine speaks through the conversation's cards and notices, the
-  // other two through the intake rail's 能力 tab; 取消 reuses the exact
-  // cancel path each runner already owns.
+  // other two through the intake rail's 能力 tab. A validate row's outcome
+  // is the card, already popped here, so its 查看 opens the ADR-0033 detail
+  // drawer instead: the run's session log carries the prescan lists and the
+  // model's full judgement (they ride inside the prompt), which is the
+  // "more" a curious human wants. While the run has not anchored a session
+  // yet there is nothing to open. 取消 reuses the exact cancel path each
+  // runner already owns.
   const [connectorNonce, setConnectorNonce] = useState(0)
   const jumpTask = useCallback((row: TaskRow): void => {
+    if (row.kind === 'validate') {
+      if (row.sessionId !== null) setDetailRow(row)
+      return
+    }
     if (row.kind === 'refine') setTabs(state => activateTab(state, CONVERSATION_TAB))
     else {
       setIntakeOpen(true)
@@ -775,18 +876,11 @@ export function Frame({
   }, [])
   const cancelTask = useCallback((row: TaskRow): void => {
     if (row.kind === 'refine') cancelRefine()
+    else if (row.kind === 'validate') cancelValidate()
     else if (row.kind === 'mail' && row.id === mailFetchTaskId.current) mailFetchAbort.current?.abort()
     else if (row.kind === 'mail') mailRun.cancel()
     else cancelCapability()
-  }, [cancelRefine, cancelCapability, mailRun])
-
-  // ADR-0033: the 任务 row's 「详情」 — a read-only drawer over the run's
-  // session log. The row anchors to a session only when its run made one
-  // (refine and mail analysis do; script capabilities are bare subprocesses),
-  // so TasksPane renders the verb only for those rows.
-  const [detailRow, setDetailRow] = useState<TaskRow | null>(null)
-  const onTaskDetail = useCallback((row: TaskRow): void => { setDetailRow(row) }, [])
-  const closeTaskDetail = useCallback((): void => { setDetailRow(null) }, [])
+  }, [cancelRefine, cancelValidate, cancelCapability, mailRun])
 
   // ADR-0017: editing belongs to Obsidian, so this only hands the file over.
   // Without a root we still open the KB-relative path and let the host resolve
@@ -1130,6 +1224,7 @@ export function Frame({
           capabilityList={capabilityList}
           onRunCapability={runRowCapability}
           onRefine={runRefineGesture}
+          onValidate={runValidateGesture}
           kbRoot={kbRoot}
           t={t}
         />
@@ -1193,6 +1288,44 @@ export function Frame({
           t={t}
         />
       )}
+      {validateProposal !== null && (
+        <ProposalCard
+          proposal={validateProposal}
+          onConfirm={(ticked) => {
+            const proposal = validateProposal
+            setValidateProposal(null)
+            confirmProposal(proposal, ticked)
+          }}
+          onDismiss={() => { setValidateProposal(null) }}
+          t={t}
+        />
+      )}
+      {validateQuestion !== null && (
+        <QuestionDialog
+          run={validateQuestion.run}
+          busy={validateContinuing}
+          onSubmit={(answers) => {
+            const { run, taskId } = validateQuestion
+            setValidateContinuing(true)
+            taskPatch(taskId, { status: 'running', stage: '继续分析' })
+            void run.continueWithAnswers?.(answers).then((final) => {
+              setValidateQuestion(null)
+              setValidateContinuing(false)
+              showValidateRun(final, taskId)
+            }, (failure: unknown) => {
+              setValidateQuestion(null)
+              setValidateContinuing(false)
+              setCapabilityNotice(`实体校验失败：${remoteMessage(failure)}`)
+              taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
+            })
+          }}
+          onAbort={() => {
+            setValidateQuestion(null)
+            taskEnd(validateQuestion.taskId, 'cancelled', '已放弃')
+          }}
+          t={t}
+        />
+      )}
       {capabilityNotice !== null && (
         <div
           style={noticeStyle}
@@ -1203,7 +1336,7 @@ export function Frame({
           {capabilityNotice}
           {/* A running refine is cancellable right where it announces itself
               (ADR-0031): the chip stops the run and drops the queue. */}
-          {(refineActive || capabilityRunning) && (
+          {(refineActive || capabilityRunning || validateActive) && (
             <button
               type="button"
               style={{
@@ -1219,6 +1352,7 @@ export function Frame({
                 event.stopPropagation()
                 if (refineActive) cancelRefine()
                 if (capabilityRunning) cancelCapability()
+                if (validateActive) cancelValidate()
               }}
             >
               取消

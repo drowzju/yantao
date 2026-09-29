@@ -174,6 +174,20 @@ export interface ProposalHighlight {
   readonly why: string
 }
 
+/**
+ * One finding of the validate gesture (ADR-0035 决定 3): a pure display row
+ * on the card — never ticked, never an action. The fix, when the model
+ * proposed one, lives in the action groups on its own.
+ */
+export interface ProposalFinding {
+  /** What kind of finding: `orphan`, `broken-link`, `stale`, `contradiction`, `missing`. */
+  readonly kind: string
+  /** The entity or link the finding names. */
+  readonly subject: string
+  /** One line of why. */
+  readonly why: string
+}
+
 /** Everything one run proposes; the human ticks actions, not blocks. */
 export interface Proposal {
   /** The card's heading — which judgement these actions came from. */
@@ -194,6 +208,11 @@ export interface Proposal {
    * (ADR-0034 决定 4). Absent when the KB holds no areas.
    */
   readonly areas?: readonly string[]
+  /**
+   * The validate gesture's findings (ADR-0035 决定 3): informational rows
+   * above the action groups, never ticked. Absent when the run had none.
+   */
+  readonly findings?: readonly ProposalFinding[]
 }
 
 /** What one group of same-kind actions is called on the card — dictionary keys, translated at render. */
