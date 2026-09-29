@@ -32,11 +32,11 @@ Blocked by: 01
 
 ### 索引拼接机制
 
-修复动作行放在 `proposal.actions` **前部**（`actions: [...fixActions, ...proposal.actions]`），卡片按 `[...prescan.actions, ...proposal.actions]` 拼接序渲染扁平索引，`applyProposal` 用同一拼接序解析勾选索引。这样：
+**（2026-09-29 review 修订）**修复动作行**只住在 `prescan.actions`**，绝不重复进 `proposal.actions`：卡片按 `[...prescan.actions, ...proposal.actions]` 拼接序渲染扁平索引，`applyProposal` 用同一拼接序解析勾选索引——修复行的执行序前位由这条拼接本身给出。（初版曾把 fixActions 同时前置进 `proposal.actions`，review 抓出：卡片与 applier 都按两数组不相交处理，真实运行时每条修复行渲染两次、勾满双重写入；生产端修正 + 两处钉死重复的断言改写，见票 05。）这样：
 
 - `Frame`/`applyProposal` 对外签名零改动，部分批准语义原样继承；
 - 卡片渲染与 applier 各自独立推导拼接序，两侧公式一致（`prescan.actions.length` 作为模型行的偏移基数）；
-- 测试覆盖：勾 [0] 命中预扫修复行、勾 [1] 命中模型动作（`proposal-apply.client.spec.ts` 新 describe）。
+- 测试覆盖：勾 [0] 命中预扫修复行、勾 [1] 命中模型动作（`proposal-apply.client.spec.ts` 新 describe）；`verdictToValidateProposal` 断言 `actions` 不含修复行且拼接序首位是它。
 
 ### 视觉决策
 

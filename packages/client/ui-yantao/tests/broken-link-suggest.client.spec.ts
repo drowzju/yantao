@@ -255,8 +255,10 @@ describe('verdictToValidateProposal with the deterministic blocks', () => {
         findings: [{ kind: 'broken-link', subject: '[[坏名]]', why: '无可信修复候选' }],
       },
     })
-    // The fix rows lead the execution order; the model's rows follow.
-    expect(proposal.actions).toEqual([FIX_ACTION])
+    // The fix rows live solely in the prescan block — the model block's
+    // actions array stays the model's alone (repeating them there would
+    // render and apply each row twice).
+    expect(proposal.actions).toEqual([])
     expect(proposal.prescan).toEqual({
       orphans: [{ path: ZHANG_PATH, name: '张三', type: 'person', incoming: 0 }],
       findings: [{ kind: 'broken-link', subject: '[[坏名]]', why: '无可信修复候选' }],
@@ -267,15 +269,18 @@ describe('verdictToValidateProposal with the deterministic blocks', () => {
     expect(proposal.findings).toEqual([{ kind: 'stale', subject: '张三', why: '状态过期' }])
   })
 
-  it('puts the fix actions ahead of the model-built ones', () => {
+  it('keeps the fix actions out of the model block, with the concatenation fronting them', () => {
     const verdictWithTargets: ValidateVerdict = { ...VERDICT, targets: [{ entity: '李四', edits: [], links: [], log: 'l' }] }
     const proposal = verdictToValidateProposal(verdictWithTargets, { roster: viewsWith('# 张三\n') }, 't', {
       orphans: [],
       fixes: { actions: [FIX_ACTION], findings: [] },
     })
-    expect(proposal.actions[0]).toEqual(FIX_ACTION)
-    expect(proposal.actions.length).toBeGreaterThan(1)
     expect(proposal.prescan).toEqual({ orphans: [], findings: [], actions: [FIX_ACTION] })
+    expect(proposal.actions).not.toContainEqual(FIX_ACTION)
+    expect(proposal.actions.length).toBeGreaterThan(0)
+    // The applier resolves ticked indices over the concatenation, so the fix
+    // row is executed ahead of every model-built row without being repeated.
+    expect([...(proposal.prescan?.actions ?? []), ...proposal.actions][0]).toEqual(FIX_ACTION)
   })
 
   it('leaves the actions untouched when no blocks are handed over', () => {

@@ -371,10 +371,10 @@ export interface ValidateCardBlocks {
  * `edits` are stripped here, not only banned in the prompt (a target left
  * with nothing at all simply contributes no rows) — the check-up produces
  * links, never prose. The deterministic blocks ride separately: the fix
- * actions are placed at the FRONT of the execution order (the applier
- * resolves ticked indices against `[...prescan.actions, ...actions]`) and
- * packaged with the orphans and the degraded display rows into `prescan`,
- * so a prescan row and a model row can never meet in one array.
+ * actions live solely in `prescan.actions`, packaged with the orphans and
+ * the degraded display rows, so a prescan row and a model row can never
+ * meet in one array — and the applier's `[...prescan.actions, ...actions]`
+ * concatenation is what fronts them in the execution order.
  * @param verdict - what the model proposed.
  * @param views - the entities the target names resolve against.
  * @param title - the card's heading; the session's name.
@@ -396,10 +396,13 @@ export function verdictToValidateProposal(
     questions: [],
   }
   const proposal = verdictToProposal(refined, views, title)
-  const fixActions = blocks?.fixes.actions ?? []
+  // The fix rows live SOLELY in `prescan.actions`: the card and the applier
+  // both treat `prescan.actions` and `actions` as disjoint (the applier
+  // resolves ticked indices over `[...prescan.actions, ...actions]`), so
+  // repeating them in `actions` would render — and apply — each row twice.
+  // The execution front they need comes from that concatenation itself.
   return {
     ...proposal,
-    ...(fixActions.length > 0 ? { actions: [...fixActions, ...proposal.actions] } : {}),
     ...(blocks === undefined ? {} : {
       prescan: {
         orphans: blocks.orphans,
