@@ -33,6 +33,8 @@ import { proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
 import { capabilityGestureMessage } from '../capability-gesture.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
 import { QuestionDialog } from '../QuestionDialog.tsx'
+import { ConfigDialog } from '../ConfigDialog.tsx'
+import type { ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from '../model-config.ts'
 import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage } from '../remote.ts'
 import type { KbCapabilitySummary, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
@@ -123,6 +125,10 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
   readonly memoryAdd: MemoryAdder
   /** Forget one behavior rule by id (ADR-0032) — the 记忆 tab's delete. */
   readonly memoryDelete: MemoryDeleter
+  /** Read the model gateway's config view — the 配置 dialog's open read. */
+  readonly loadModelsConfig: () => Promise<ModelsConfigView>
+  /** Commit a 配置 dialog draft; the result separates conflict from refusal. */
+  readonly saveModelsConfig: (draft: ModelsConfigDraft) => Promise<ModelsConfigSaveResult>
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
   readonly onKbRootChanged: () => void
 }
@@ -152,6 +158,18 @@ const colStyle = { minWidth: 0, overflow: 'hidden' } as const
 const railColStyle = { ...colStyle, background: 'var(--yt-surface-primary)' } as const
 
 const overlayStyle = { position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' } as const
+
+/** The grid's reserved second row: a slim utility strip, button left-aligned. */
+const footerStripStyle = {
+  gridColumn: '1 / -1',
+  display: 'flex',
+  alignItems: 'center',
+  padding: '3px 10px',
+  borderTop: '1px solid var(--yt-border-subtle)',
+  background: 'var(--yt-surface-primary)',
+} as const
+
+const footerButtonStyle = { padding: '2px 10px', fontSize: 12 } as const
 
 /** The stack holding one file's two views; both stay mounted, one is shown. */
 const bothPanesStyle = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } as const
@@ -305,7 +323,9 @@ export function Frame({
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine, validate,
   registerResource, capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
   promptSession, memoryList, memoryAdd, memoryDelete, sessionDetail, onKbRootChanged, mailDelete,
+  loadModelsConfig, saveModelsConfig,
 }: FrameProps): ReactElement {
+  const [configOpen, setConfigOpen] = useState(false)
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
   const [intakeOpen, setIntakeOpen] = useState(true)
@@ -1231,9 +1251,24 @@ export function Frame({
           t={t}
         />
       </div>
+      {/* The reserved grid row: 配置 lives at the window's bottom-left, a
+          flow child so it survives intake collapse. */}
+      <div style={footerStripStyle}>
+        <button style={footerButtonStyle} data-config-button="true" onClick={() => { setConfigOpen(true) }}>
+          {t('config.open')}
+        </button>
+      </div>
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>
       {needsRoot && (
         <Onboarding setRoot={setRoot} pickDirectory={pickDirectory} onConfigured={onConfigured} t={t} />
+      )}
+      {configOpen && (
+        <ConfigDialog
+          t={t}
+          load={loadModelsConfig}
+          save={saveModelsConfig}
+          onClose={() => { setConfigOpen(false) }}
+        />
       )}
       {capabilityProposal !== null && (
         <ProposalCard
