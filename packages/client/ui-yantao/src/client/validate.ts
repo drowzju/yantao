@@ -9,15 +9,17 @@
  * honour the one thing a check-up owes the human. The prescan is pure graph
  * arithmetic on `yantaoKb.graph()`'s payload — orphans (incoming ≤ 1, the
  * todo singleton excluded as a structural singleton) and broken links (a
- * target resolving to nothing) — and doubles as the model's roadmap: its
- * budget goes to judgement, not to needle-searching.
+ * target resolving to nothing) — and reaches the card without passing the
+ * model at all (ADR-0036 决定 2).
  *
- * L1 (this module) may only create pages and links: the prompt pins targets'
- * `edits` to empty and the converter strips them regardless — `write-state`
- * is never on the whitelist, and `todos` are L2's unlock (ADR-0036). The
- * verdict reuses the v2 entry shapes wholesale: after peeling `findings` and
- * `todos` off, what remains maps one-to-one onto a `RefineVerdict`, so
- * `verdictToProposal` and the whole applier machinery run unchanged.
+ * The model is a narrow diagnostician (ADR-0036): the prescan's findings are
+ * shown to the human directly, so the prompt attaches the two lists only as
+ * context and tells the model not to recite them. Its whole budget goes to
+ * three semantic dimensions — stale / contradiction / missing — emitted as
+ * display-row findings plus link-only targets. Pages are not created here
+ * (that is the 提炼 gesture's craft) and prose is never touched: the verdict
+ * maps onto a `RefineVerdict` with `creates` empty, so `verdictToProposal`
+ * and the applier machinery run unchanged.
  * @module @deepseek-ai/dsh-client-ui-yantao/validate
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -26,13 +28,20 @@ import { cancelSessionTurnOnAbort, kbRemoteOf, sessionRemoteOf, unwrapRemote } f
 import { jsonRound } from './turn-answer.ts'
 import {
   answersPrompt, contentViewOf, ENTITY_CLIP, field, parseRefineVerdict, rows, verdictToProposal,
-  type RefineCreateVerdict, type RefineEntityView, type RefineQuestion, type RefineTargetVerdict, type RefineVerdict,
+  type RefineEntityView, type RefineQuestion, type RefineTargetVerdict, type RefineVerdict,
   type RefineViews,
 } from './refine.ts'
-import type { Proposal } from './proposal.ts'
+import type { Proposal, ProposalAction } from './proposal.ts'
+import { verifyValidateVerdict } from './validate-verify.ts'
+import { brokenLinkSectionFixes, suggestLinkFixes } from './broken-link-suggest.ts'
 
-/** The kinds a finding may name (ADR-0035 决定 3); anything else is dropped, not guessed. */
-const FINDING_KINDS: readonly string[] = ['orphan', 'broken-link', 'stale', 'contradiction', 'missing']
+/**
+ * The kinds a model finding may name (ADR-0036 决定 3): the semantic
+ * dimensions only — `orphan`/`broken-link` belong to the prescan, which
+ * reports them itself, so a model row carrying them is recitation, dropped
+ * by the parser here and verified away by the defence layer (ADR-0036 决定 5).
+ */
+const FINDING_KINDS: readonly string[] = ['stale', 'contradiction', 'missing']
 
 /** One finding: a pure display row on the card — the fix, if any, rides in the action groups. */
 export interface ValidateFinding {
@@ -43,21 +52,11 @@ export interface ValidateFinding {
   readonly why: string
 }
 
-/** One todo the verdict proposes (L2's unlock; L1's prompt pins the array empty). */
-export interface ValidateTodoVerdict {
-  readonly title: string
-  /** A `YYYY-MM-DD` due date, when the model saw one. */
-  readonly due?: string
-  readonly body: string
-}
-
-/** The validate verdict (ADR-0035 决定 3): findings and todos are the new species; the rest is v2 verbatim. */
+/** The validate verdict (ADR-0036 决定 1/3): a pure check-up — findings and link-only targets; no creates, no todos. */
 export interface ValidateVerdict {
   readonly reason: string
   readonly findings: readonly ValidateFinding[]
   readonly targets: readonly RefineTargetVerdict[]
-  readonly creates: readonly RefineCreateVerdict[]
-  readonly todos: readonly ValidateTodoVerdict[]
   readonly questions: readonly RefineQuestion[]
 }
 
@@ -92,6 +91,8 @@ export interface ValidatePreScan {
 export interface ValidateStats {
   readonly entities: number
   readonly findings: number
+  /** Rows the defence layer dropped before the card saw them (ADR-0036 决定 5). */
+  readonly filtered: number
   /** Summed `totalTokens` (input + output where the total is absent) over every step. */
   readonly tokens: number
   readonly elapsedMs: number
@@ -173,11 +174,14 @@ export function preScanOf(graph: KbGraphResult): ValidatePreScan {
 }
 
 /**
- * The validate prompt (L1): the prescan's two lists, the whole roster, and
- * the named entities' full text (each clipped at the roster clip). The JSON
- * shape pins L1's whitelist — targets' `edits` empty, `todos` empty — and
- * the converter strips both regardless, so a disobedient model cannot write
- * prose through the card.
+ * The diagnostic prompt (ADR-0036 决定 2/3/7): the prescan's two lists ride
+ * along as context only — the card already shows them, so the prompt says
+ * not to recite — plus the whole roster and the named entities' full text
+ * (each clipped at the roster clip). Three semantic dimensions, their
+ * criteria hard-coded line by line; the JSON shape pins the pure check-up —
+ * no creates, no todos, targets carry links only — and the converter strips
+ * edits regardless, so a disobedient model cannot write prose through the
+ * card.
  * @param args - the prescan, the roster (every entity's name and type), and
  *   the named entities' contents.
  * @returns the prompt text.
@@ -194,10 +198,10 @@ export function validatePrompt(args: {
     args.angle === undefined
       ? '你是个人知识库的整理助手。这是一次全库体检（实体校验）。'
       : `你是个人知识库的整理助手。这是一次实体校验，视角限定在「${args.angle}」类实体：预扫出的问题和点名实体都只来自这一类，但补链可以指向任何实体。`,
-    '下面先给出程序预扫出的确定性问题清单，然后是知识库的实体花名册，以及被点名实体的全文。请研判这些问题该怎么处置：',
-    '- 孤儿条目之间、孤儿与其它实体之间，是否该有双链；',
-    '- 失效双链原本想指向什么——能否通过新建一个实体让它解析；',
-    '- 是否有该建而未建的实体（比如多个孤儿共同指向一个还不存在的主题）。',
+    '下面先给出程序预扫出的确定性问题清单——这些系统已经直接呈现给用户，你不需要在回答里复述它们；然后是知识库的实体花名册，以及被点名实体的全文。你的任务是在这份清单之上做语义研判：',
+    '- 过期：点名实体的「状态」等小节声称的事，与该实体正文的其它部分或更近的内容相冲突；',
+    '- 矛盾：单个实体之内、或点名实体彼此之间，存在互相打架的陈述；',
+    '- 缺实体：多处指向一个还不存在的主语，值得为它建一个新实体——你只提示这件事，不要试图产出建页方案，建页由用户在「提炼」手势里完成。',
     '',
     `【预扫 · 孤儿条目（入链不超过 1）】共 ${preScan.orphans.length} 条`,
     ...(preScan.orphans.length === 0 ? ['（无）'] : preScan.orphans.map(orphan =>
@@ -216,32 +220,32 @@ export function validatePrompt(args: {
     '```json',
     '{',
     '  "reason": "一句话：这次体检的总体印象",',
-    '  "findings": [{ "kind": "orphan", "subject": "实体名或链接", "why": "一句话说明" }],',
-    '  "targets": [{ "entity": "已有实体名", "edits": [], "links": [{ "to": "另一实体名", "why": "为什么关联" }], "log": "追加到该实体流水的一句话" }],',
-    '  "creates": [{ "entityType": "project", "name": "新实体名", "why": "为什么要新建", "edits": [{ "section": "目标", "after": "该小节的正文", "why": "为什么这样写" }], "links": [], "log": "" }],',
-    '  "todos": [],',
+    '  "findings": [{ "kind": "stale", "subject": "实体名或链接", "why": "一句话说明" }],',
+    '  "targets": [{ "entity": "已有实体名", "links": [{ "to": "另一实体名", "why": "为什么关联" }], "log": "追加到该实体流水的一句话" }],',
     '  "questions": [{ "question": "想问用户的问题", "why": "为什么需要问" }]',
     '}',
     '```',
     '',
     '规则：',
-    '- findings 是给用户看的发现清单，kind 只能是 orphan（孤儿）/broken-link（失效双链）/stale（陈旧）/contradiction（矛盾）/missing（缺失）之一；没有发现就是空数组。',
-    '- 本次是 L1 标准体检：只建页、只建链。targets 的 edits 一律空数组——不许改任何已有实体的正文；todos 一律空数组。',
+    '- findings 是给用户看的语义发现，kind 只能是 stale（过期）/contradiction（矛盾）/missing（缺失）之一；孤儿与失效双链已由系统预扫并直接呈现，复述一律无效；没有发现就是空数组。',
+    '- 本次是纯体检：不建页、不改正文。没有 creates，没有 todos，targets 里也没有 edits——你只能通过 links 建议补链。',
     '- 每个建议补链的已有实体各给一个 targets 条目，entity 用花名册里的名字原文；名单里没有的不要猜，宁可漏掉。',
-    '- links 的 to 必须是花名册里的名字原文，或 creates 里的新实体名。',
-    '- 确实需要新建实体才能修复时才用 creates；entityType 只能是 project/area/person/meeting 之一；edits 里只写你要填的区段（常用小节：project 目标/下一步/状态；area 标准/检视/状态；person 状态/近期工作动态；meeting 状态/决议/待办）。',
-    '- 不要把 `流水` 写进 edits；不要碰 frontmatter。',
-    '- 有会影响处置方式的关键疑问才提问，最多三个；需要提问时 targets、creates、todos 都留空数组，等用户回答后再给最终结论。没有疑问 questions 就是空数组。',
+    '- links 的 to 必须是花名册里的名字原文。',
+    '- 不要把 `流水` 写进任何字段；不要碰 frontmatter。',
+    '- 有会影响处置方式的关键疑问才提问，最多三个；需要提问时 targets 留空数组，等用户回答后再给最终结论。没有疑问 questions 就是空数组。',
   ]
   return blocks.join('\n')
 }
 
 /**
- * Read the model's answer (ADR-0035 决定 3): `findings` and `todos` are this
- * verdict's new species; `targets`/`creates`/`questions` reuse the v2 parser
- * wholesale, so the same tolerance (empty rows dropped, unknown kinds
- * dropped, 宁可少不可错) governs everything. Unreadable JSON is an error the
- * caller shows — a silent empty verdict would look like "nothing to do".
+ * Read the model's answer (ADR-0036 决定 3/7): findings carry the semantic
+ * kinds only; `targets`/`questions` reuse the v2 parser wholesale, so the
+ * same tolerance (empty rows dropped, unknown kinds dropped, 宁可少不可错)
+ * governs everything. `creates`/`todos` keys, should a stale model emit
+ * them, are silently ignored — the pure check-up has no slot for them. A
+ * missing `targets` array falls back to the v2 parser's own reading.
+ * Unreadable JSON is an error the caller shows — a silent empty verdict
+ * would look like "nothing to do".
  * @param text - the assistant message's text.
  * @returns the verdict.
  */
@@ -266,54 +270,123 @@ export function parseValidateVerdict(text: string): ValidateVerdict {
     if (!FINDING_KINDS.includes(kind) || subject === '') return undefined
     return { kind, subject, why: field(row, 'why') }
   }).filter((finding): finding is ValidateFinding => finding !== undefined)
-  const todos = rows(value.todos).map((row): ValidateTodoVerdict | undefined => {
-    const title = field(row, 'title')
-    if (title === '') return undefined
-    const due = field(row, 'due')
-    return { title, ...(due !== '' ? { due } : {}), body: field(row, 'body') }
-  }).filter((todo): todo is ValidateTodoVerdict => todo !== undefined)
   return {
     reason: base.reason,
     findings,
     targets: base.targets,
-    creates: base.creates,
-    todos,
     questions: base.questions,
   }
 }
 
 /** The re-ask when the first answer is not readable JSON: JSON alone, nothing else. */
-const VALIDATE_REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 findings/targets/creates/todos/questions 字段），不要输出任何其它文字。'
+const VALIDATE_REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 findings/targets/questions 字段），不要输出任何其它文字。'
 
 /**
- * Turn a validate verdict into a proposal (ADR-0035 决定 3/4): peel
- * `findings` and `todos` off, map the rest onto the v2 verdict shape, and let
- * `verdictToProposal` build the card. L1's whitelist is enforced here, not
- * only in the prompt: targets' `edits` are stripped (a target left with
- * nothing at all simply contributes no rows) and `todos` never become
- * actions — L2's unlock, ADR-0036's business.
+ * The deterministic broken-link material one run attaches to the card
+ * (ADR-0036 决定 4): tickable `edit-section` rows for the links a roster
+ * candidate can repair, display-only rows for the rest — no candidate
+ * cleared the bar, or the link hides where code may not write (the
+ * append-only `流水`, frontmatter, the preamble).
+ */
+export interface BrokenLinkFixes {
+  readonly actions: readonly ProposalAction[]
+  readonly findings: readonly ValidateFinding[]
+}
+
+/**
+ * Turn the prescan's broken links into fix material: for each link, score
+ * the roster ({@link suggestLinkFixes}); a best candidate at or above the
+ * bar yields one `edit-section` action per affected section (except `流水`,
+ * which degrades to a display row — the append-only iron law outranks the
+ * fix), no candidate yields a 「无可信修复候选」 display row, and a link no
+ * section body holds degrades likewise. Duplicate (host, target) pairs —
+ * the same broken link written twice — collapse into one pass.
+ * @param preScan - the run's (scoped) prescan.
+ * @param views - every entity's name, path and full text.
+ * @param roster - every entity name, the candidates score against.
+ * @returns the actions and display rows, in prescan order.
+ */
+export function brokenLinkFixesOf(
+  preScan: ValidatePreScan,
+  views: readonly RefineEntityView[],
+  roster: readonly { readonly name: string }[],
+): BrokenLinkFixes {
+  const byPath = new Map(views.map(view => [view.path, view]))
+  const actions: ProposalAction[] = []
+  const findings: ValidateFinding[] = []
+  const seen = new Set<string>()
+  for (const link of preScan.broken) {
+    const key = `${link.host}\u0000${link.target}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const host = byPath.get(link.host)
+    if (host === undefined) continue
+    const candidates = suggestLinkFixes(link.target, roster)
+    const subject = `[[${link.target}]]`
+    const best = candidates.at(0)
+    if (best === undefined) {
+      findings.push({ kind: 'broken-link', subject, why: `无可信修复候选（位于 ${host.name}），请手工改写` })
+      continue
+    }
+    const fixes = brokenLinkSectionFixes(host.content, link.target, best.name)
+    if (fixes.length === 0) {
+      findings.push({ kind: 'broken-link', subject, why: `失链不在任何小节正文里（位于 ${host.name}），请手工改写` })
+      continue
+    }
+    for (const fix of fixes) {
+      if (fix.section === '流水') {
+        findings.push({ kind: 'broken-link', subject, why: `「流水」只增不改（位于 ${host.name}），这条失链请手工处理` })
+        continue
+      }
+      actions.push({
+        kind: 'edit-section',
+        path: host.path,
+        section: fix.section,
+        before: fix.before,
+        after: fix.after,
+        why: `将 [[${link.target}]]（位于 ${host.name}）改写为 [[${best.name}]]`,
+      })
+    }
+  }
+  return { actions, findings }
+}
+
+/**
+ * Turn a validate verdict into a proposal (ADR-0036 决定 1/4): peel
+ * `findings` off, map the rest onto the v2 verdict shape with `creates`
+ * pinned empty, and let `verdictToProposal` build the card. Targets' `edits`
+ * are stripped here, not only banned in the prompt (a target left with
+ * nothing at all simply contributes no rows) — the check-up produces links,
+ * never prose.
  * @param verdict - what the model proposed.
  * @param views - the entities the target names resolve against.
  * @param title - the card's heading; the session's name.
+ * @param fixes - the deterministic broken-link material
+ *   ({@link brokenLinkFixesOf}); its actions join the card's action groups
+ *   and its display rows trail the model's findings.
  * @returns the proposal, with the findings attached as its display rows.
  */
 export function verdictToValidateProposal(
   verdict: ValidateVerdict,
   views: RefineViews,
   title: string,
+  fixes?: BrokenLinkFixes,
 ): Proposal {
   const refined: RefineVerdict = {
     relevant: true,
     reason: verdict.reason,
-    // L1: prose edits to existing entities are out of the whitelist.
     targets: verdict.targets.map(target => ({ ...target, edits: [] })),
-    creates: verdict.creates,
+    creates: [],
     questions: [],
   }
   const proposal = verdictToProposal(refined, views, title)
+  const findings = [...verdict.findings, ...fixes?.findings ?? []]
   return {
     ...proposal,
-    ...(verdict.findings.length > 0 ? { findings: verdict.findings } : {}),
+    ...(fixes === undefined || fixes.actions.length === 0
+      ? {}
+      : { actions: [...proposal.actions, ...fixes.actions] }),
+    ...(findings.length > 0 ? { findings } : {}),
   }
 }
 
@@ -331,11 +404,11 @@ class TokenTally {
 }
 
 /**
- * Run one validate pass (ADR-0035): prescan the graph, read every entity,
- * create a session named 「实体校验 <日期>」, take one waited-out JSON turn,
- * and turn the verdict into a proposal — nothing here writes to the KB. A
- * verdict with questions pauses the run for the human's answers, continuing
- * in the same session (at most one round).
+ * Run one validate pass (ADR-0035/0036): prescan the graph, read every
+ * entity, create a session named 「实体校验 <日期>」, take one waited-out
+ * JSON turn, and turn the verdict into a proposal — nothing here writes to
+ * the KB. A verdict with questions pauses the run for the human's answers,
+ * continuing in the same session (at most one round).
  * @param options - the context, the session cwd, the abort signal, and the
  *   stage reporter.
  * @returns the run.
@@ -406,22 +479,37 @@ export async function runValidate(options: {
 
   const tally = new TokenTally()
   const onUsage = (usage: { inputTokens: number; outputTokens: number; totalTokens?: number }): void => { tally.add(usage) }
-  const stats = (findings: number): { entities: number; findings: number; tokens: number; elapsedMs: number } => ({
+  const stats = (findings: number, filtered: number): ValidateStats => ({
     entities: preScan.entities,
     findings,
+    filtered,
     tokens: tally.total,
     elapsedMs: Date.now() - startedAt,
   })
 
+  // Deterministic fix material (ADR-0036 决定 4): computed once, before the
+  // verdict even exists — the prescan's broken links never pass the model.
+  const linkFixes = brokenLinkFixesOf(preScan, views, roster)
+
   const finish = (final: ValidateVerdict): ValidateRun => {
     onStage?.('proposal')
-    const proposal = verdictToValidateProposal(final, { roster: views }, sessionName)
+    // Defence before display (ADR-0036 决定 5): the model's rows are checked
+    // against the roster, the named entities and the broken targets — what
+    // resolves to nothing never reaches the card.
+    const checked = verifyValidateVerdict({
+      verdict: final,
+      rosterNames: roster.map(entry => entry.name),
+      namedNames: [...namedNames],
+      brokenTargets: preScan.broken.map(link => link.target),
+    })
+    const filtered = checked.counts.findings + checked.counts.targets + checked.counts.links
+    const proposal = verdictToValidateProposal(checked.verdict, { roster: views }, sessionName, linkFixes)
     return {
       sessionId,
       title: sessionName,
-      reason: final.reason,
+      reason: checked.verdict.reason,
       preScan,
-      stats: stats(final.findings.length),
+      stats: stats(checked.verdict.findings.length, filtered),
       proposal,
     }
   }
@@ -443,7 +531,7 @@ export async function runValidate(options: {
       title: sessionName,
       reason: verdict.reason,
       preScan,
-      stats: stats(0),
+      stats: stats(0, 0),
       questions: asked,
       continueWithAnswers: async (answers: readonly string[]): Promise<ValidateRun> => {
         const second = await jsonRound({

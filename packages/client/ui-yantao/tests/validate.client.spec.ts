@@ -58,7 +58,7 @@ describe('preScanOf', () => {
 })
 
 describe('validatePrompt', () => {
-  it('carries the prescan lists, the roster, and the named entities, and pins the L1 whitelist', () => {
+  it('carries the prescan lists, the roster, and the named entities, and pins the pure check-up', () => {
     const text = validatePrompt({
       preScan: {
         entities: 3,
@@ -80,10 +80,18 @@ describe('validatePrompt', () => {
     expect(text).toContain('- 李四（person）')
     expect(text).toContain('【点名实体：孤岛】')
     expect(text).toContain('没有人和它相连。')
-    // The L1 whitelist is pinned twice: in the JSON shape and in the rules.
-    expect(text).toContain('"edits": []')
-    expect(text).toContain('todos 一律空数组')
-    expect(text).toContain('"todos": []')
+    // The prescan is context, not homework: the model must not recite it.
+    expect(text).toContain('不需要在回答里复述')
+    // The three semantic dimensions are named with their criteria…
+    expect(text).toContain('过期：')
+    expect(text).toContain('矛盾：')
+    expect(text).toContain('缺实体：')
+    // …and the pure check-up is pinned: no creates, no todos, no edits — links only.
+    expect(text).not.toContain('"creates"')
+    expect(text).not.toContain('"todos"')
+    expect(text).not.toContain('"edits"')
+    expect(text).toContain('不建页、不改正文')
+    expect(text).toContain('只能通过 links 建议补链')
   })
 
   it('prints （无） for an empty prescan list instead of nothing', () => {
@@ -109,55 +117,49 @@ describe('parseValidateVerdict', () => {
   /** A validate verdict as fenced JSON, overridable per test. */
   function verdict(overrides: Record<string, unknown> = {}): string {
     return `\`\`\`json\n${JSON.stringify({
-      reason: '整体健康，两处需要补链',
+      reason: '整体健康，一处陈述过期',
       findings: [
-        { kind: 'orphan', subject: '孤岛', why: '没有任何入链' },
-        { kind: 'broken-link', subject: '[[邮箱迁移]]', why: '指向不存在的实体' },
+        { kind: 'stale', subject: '飞书迁移', why: '状态声称已上线，正文仍在迁移中' },
+        { kind: 'contradiction', subject: '孤岛', why: '目标与状态互相打架' },
       ],
       targets: [{ entity: '飞书迁移', edits: [{ section: '状态', after: '不该出现', why: 'w' }], links: [{ to: '孤岛', why: '同域' }], log: '体检补链' }],
-      creates: [],
-      todos: [],
       questions: [],
       ...overrides,
     })}\n\`\`\``
   }
 
-  it('peels findings and todos off and hands the rest to the v2 parser', () => {
+  it('peels findings off and hands targets/questions to the v2 parser', () => {
     const parsed = parseValidateVerdict(verdict())
-    expect(parsed.reason).toBe('整体健康，两处需要补链')
+    expect(parsed.reason).toBe('整体健康，一处陈述过期')
     expect(parsed.findings).toEqual([
-      { kind: 'orphan', subject: '孤岛', why: '没有任何入链' },
-      { kind: 'broken-link', subject: '[[邮箱迁移]]', why: '指向不存在的实体' },
+      { kind: 'stale', subject: '飞书迁移', why: '状态声称已上线，正文仍在迁移中' },
+      { kind: 'contradiction', subject: '孤岛', why: '目标与状态互相打架' },
     ])
     expect(parsed.targets).toHaveLength(1)
-    expect(parsed.creates).toEqual([])
     expect(parsed.questions).toEqual([])
   })
 
   it('drops findings with an unknown kind or no subject, not guessing', () => {
     const parsed = parseValidateVerdict(verdict({
       findings: [
-        { kind: 'orphan', subject: '孤岛', why: 'w' },
+        { kind: 'stale', subject: '飞书迁移', why: 'w' },
+        { kind: 'orphan', subject: '孤岛', why: '预扫的地盘，模型复述即弃' },
+        { kind: 'broken-link', subject: '[[邮箱迁移]]', why: '同上' },
         { kind: 'catastrophe', subject: 'x', why: 'w' },
-        { kind: 'stale', subject: '', why: 'w' },
+        { kind: 'missing', subject: '', why: 'w' },
         { subject: '无种类', why: 'w' },
       ],
     }))
-    expect(parsed.findings).toEqual([{ kind: 'orphan', subject: '孤岛', why: 'w' }])
+    expect(parsed.findings).toEqual([{ kind: 'stale', subject: '飞书迁移', why: 'w' }])
   })
 
-  it('parses todos with a title and an optional due', () => {
+  it('silently ignores creates/todos keys a stale model may still emit', () => {
     const parsed = parseValidateVerdict(verdict({
-      todos: [
-        { title: '盘点陈旧条目', due: '2026-10-01', body: 'b' },
-        { title: '没有截止日的', body: 'b' },
-        { title: '', body: '无名的不算' },
-      ],
+      creates: [{ entityType: 'project', name: '邮箱迁移', why: '不该出现的建页提案' }],
+      todos: [{ title: '不该出现的待办', body: 'b' }],
     }))
-    expect(parsed.todos).toEqual([
-      { title: '盘点陈旧条目', due: '2026-10-01', body: 'b' },
-      { title: '没有截止日的', body: 'b' },
-    ])
+    expect(parsed).not.toHaveProperty('creates')
+    expect(parsed).not.toHaveProperty('todos')
   })
 
   it('throws on unreadable JSON — silence would read as nothing to do', () => {
@@ -173,14 +175,12 @@ describe('verdictToValidateProposal', () => {
     ],
   }
 
-  it('strips targets\' edits (L1) but keeps their links and log', () => {
+  it('strips targets\' edits (links only) but keeps their links and log', () => {
     const proposal = verdictToValidateProposal(
       {
         reason: 'r',
         findings: [],
         targets: [{ entity: '飞书迁移', edits: [{ section: '状态', after: '违禁改写', why: 'w' }], links: [{ to: '孤岛', why: '同域' }], log: '体检补链' }],
-        creates: [],
-        todos: [],
         questions: [],
       },
       VIEWS,
@@ -194,36 +194,18 @@ describe('verdictToValidateProposal', () => {
     expect(proposal.actions.some(action => action.kind === 'append-log')).toBe(true)
   })
 
-  it('attaches the findings as the card\'s display rows and never turns todos into actions', () => {
+  it('attaches the findings as the card\'s display rows and never creates entities', () => {
     const proposal = verdictToValidateProposal(
       {
         reason: 'r',
-        findings: [{ kind: 'orphan', subject: '孤岛', why: '没有入链' }],
+        findings: [{ kind: 'missing', subject: '邮箱迁移', why: '多处指向一个还不存在的主题' }],
         targets: [],
-        creates: [],
-        todos: [{ title: 'L2 才许做的事', body: 'b' }],
         questions: [],
       },
       VIEWS,
       't',
     )
-    expect(proposal.findings).toEqual([{ kind: 'orphan', subject: '孤岛', why: '没有入链' }])
-    expect(proposal.actions.some(action => action.kind === 'add-todo')).toBe(false)
-  })
-
-  it('still proposes new entities when the model called for them', () => {
-    const proposal = verdictToValidateProposal(
-      {
-        reason: 'r',
-        findings: [],
-        targets: [],
-        creates: [{ entityType: 'project', name: '邮箱迁移', why: '失效双链的本意', edits: [], links: [], log: '' }],
-        todos: [],
-        questions: [],
-      },
-      VIEWS,
-      't',
-    )
-    expect(proposal.actions[0]).toEqual({ kind: 'create-entity', entityType: 'project', name: '邮箱迁移', reason: '失效双链的本意' })
+    expect(proposal.findings).toEqual([{ kind: 'missing', subject: '邮箱迁移', why: '多处指向一个还不存在的主题' }])
+    expect(proposal.actions.some(action => action.kind === 'create-entity')).toBe(false)
   })
 })
