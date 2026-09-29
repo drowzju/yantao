@@ -42,6 +42,21 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"     # headless:
 # workbench: open the printed URL; the probe line shows `tree() ok: …`
 ```
 
+## 离线双机同步(A 外网 ↔ B 内网)
+
+用 git bundle 走 U 盘/共享目录,进度记账在标签 `pair/base`(双方都已持有的最后一个提交)上:
+
+```powershell
+# A 机出货(增量,通常几 MB);首次或给新机器播种用 -Full(全量约 190MB)
+powershell -File scripts\sync-out.ps1 [-Out 路径] [-Full]
+# B 机收货:校验 → 合并进 main → 回写 pair/base;有冲突时解决后重跑一遍即收尾
+powershell -File scripts\sync-in.ps1 -Bundle <bundle 路径>
+# 反方向同理:B 机 sync-out,A 机 sync-in
+```
+
+注意:bundle 只装已提交内容,`.env`/`lib/`/`temp/` 永不过境,两侧各自构建;B 无法直连 GitHub,
+上游 `master` 的升级也由 bundle 的 `--branches --tags` 一并捎带。
+
 测试:`pnpm vitest run packages/yantao/kb packages/api/yantao-kb-controller packages/client/ui-yantao`
 
 ## 门禁
