@@ -10,7 +10,7 @@
  */
 import { useState, type ReactElement } from 'react'
 import type { Proposal, ProposalAction } from './proposal.ts'
-import { GROUP_KEYS } from './proposal.ts'
+import { allProposalActions, GROUP_KEYS } from './proposal.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 
 const panelStyle = {
@@ -148,15 +148,15 @@ export function ProposalCard(props: {
     })
   }
 
+  // The canonical tick order (ADR-0036 决定 6): prescan fixes first, then
+  // the model's — the same sequence applyProposal resolves against.
+  const allActions = allProposalActions(proposal)
   const all = (): void => {
-    const total = proposal.actions.length + (proposal.prescan?.actions.length ?? 0)
-    setTicked(Array.from({ length: total }, (_, index) => index))
+    setTicked(allActions.map((_, index) => index))
   }
   const none = (): void => { setTicked([]) }
   const count = ticked.length
-  // Both blocks' rows count: the deterministic fix rows are actions like any
-  // other, only rendered apart (ADR-0036 决定 6).
-  const nothing = proposal.actions.length === 0 && (proposal.prescan?.actions.length ?? 0) === 0
+  const nothing = allActions.length === 0
 
   /**
    * One block's action groups, kind by kind; `base` shifts the row's flat
@@ -248,7 +248,7 @@ export function ProposalCard(props: {
             <div style={groupTitleStyle}>{t('proposal.prescanFindings')}</div>
             {prescan.orphans.map((orphan, index) => (
               <div key={`orphan-${index}`} style={detailStyle} data-proposal-orphan={orphan.name}>
-                {orphan.name}（{orphan.type}，入链 {orphan.incoming}）
+                {orphan.name}（{orphan.type}，{t('proposal.orphanIncoming', { count: orphan.incoming })}）
               </div>
             ))}
             {prescan.findings.map((finding, index) => (
@@ -272,7 +272,10 @@ export function ProposalCard(props: {
           </div>
         )}
         {nothing && <div style={{ ...detailStyle, marginTop: 10 }}>{t('proposal.empty')}</div>}
-        {renderGroups(proposal.actions, prescan?.actions.length ?? 0, 'model-')}
+        {/* The model block's base is where its rows start in the canonical
+            tick order — prescan length under the disjoint contract, derived
+            from the one concatenation rather than re-derived here. */}
+        {renderGroups(proposal.actions, allActions.length - proposal.actions.length, 'model-')}
         <div style={footerStyle}>
           <button type="button" style={buttonStyle} disabled={props.busy === true || nothing} onClick={all}>
             {t('proposal.acceptAll')}

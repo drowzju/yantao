@@ -226,6 +226,11 @@ export interface Proposal {
    * The model block's actions, in the order the applier executes them —
    * after any {@link Proposal.prescan} rows, which precede them in the
    * applier's resolution order.
+   *
+   * Invariant: these rows and `prescan.actions` must be disjoint — both the
+   * applier and the card resolve over `[...prescan.actions, ...actions]`
+   * (see {@link allProposalActions}), so a row carried in both arrays would
+   * render twice and execute twice.
    */
   readonly actions: readonly ProposalAction[]
   /**
@@ -252,6 +257,16 @@ export interface Proposal {
    * from — everything the model said. Absent for the other gestures.
    */
   readonly prescan?: ProposalPrescan
+}
+
+/**
+ * Every tickable row in the applier's execution order: prescan fixes first,
+ * then the model's. THE canonical concatenation — the card's tick indices
+ * and `applyProposal`'s resolution both read it, so the disjointness
+ * contract between the two arrays lives in exactly one place.
+ */
+export function allProposalActions(proposal: Proposal): readonly ProposalAction[] {
+  return [...(proposal.prescan?.actions ?? []), ...proposal.actions]
 }
 
 /** What one group of same-kind actions is called on the card — dictionary keys, translated at render. */

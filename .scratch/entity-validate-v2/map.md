@@ -12,6 +12,7 @@
 - **2026-09-29 票 05 resolved，五票收官**：跨包回归 41 文件/801 例全绿；完成通报改口径「实体 · 预扫 · 模型 · 滤除 · token · 耗时」（`ValidateStats` 增 `prescan` 计数）；TODO/CONTEXT/ADR-0036 落地注记三处台账齐；bundle 重建成功。两条环境教训：**改 tsx 后须补 `tsc -b packages/client/ui-yantao`**（vitest 不查类型，漏过一个 keyPrefix 误用）；本机全量 `yantao:refresh` 被上游包测试文件的陈年类型错误绊住，恢复路径是 `build:lib:host` → 窄构建 → 插件 bundle。手动冒烟（预扫→诊断→卡→批准补链一条龙）留待人验收。见票 05 Answer。
   - 同日提交台账：票 01–03 已随三笔提交入库（`16a35596` ADR+台账、`43bd2716` agent skills、`a7c6bbc2` 三票代码），票 04 随 `4794c7f9` 入库。
 - **2026-09-29 review 修正（票 04 缺陷）**：外部 review 抓出 `verdictToValidateProposal` 把修复动作同时放进 `prescan.actions` 与 `proposal.actions` 前部——卡片/applier 都按两数组不相交的拼接契约处理，真实运行时每条修复行渲染两次、勾满双重写入（正是待做的冒烟路径）。生产端修正：修复行只居 `prescan.actions`，执行序前位由 applier 拼接给出；两处钉死重复的断言改写为「actions 不含修复行 + 拼接序首位是它」。tsc + 428 例绿，bundle 重建。教训：拼接契约的三处消费方（prescan 文档/卡片/applier）都对了，唯独生产方违了约——**两端各自独立测试合不出来时，要有一条贯穿生产者的断言**。
+- **2026-09-29 review 二轮（针对 `4794c7f9`，4 条）**：#1 双写与前一轮同一问题，已修；#2 拼接契约三处手写 → 收敛为 `proposal.ts` 的 `allProposalActions()` 规范助手（applier/卡片 `all()`/`nothing()`/模型行偏移全部从它推导），越界索引补注释说明「卡片两侧同源，陈旧勾选丢弃不猜」；#3 孤儿行硬编码「入链」绕过 locale 层 → 新词条 `proposal.orphanIncoming`（入链 {count} / {count} incoming links）；#4 `Proposal.actions` 文档钉死与 `prescan.actions` 的不相交不变式。tsc + 428 例绿，bundle 重建。
 
 ## Decisions-so-far
 

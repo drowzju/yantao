@@ -24,7 +24,7 @@ import type {
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { isDuplicateMemory, type EntityCreator, type FileReader, type FileWriter, type MailDeleter, type MemoryAdder, type TodoLoader, type TodoWriter } from './remote.ts'
 import type { Proposal, ProposalAction } from './proposal.ts'
-import { stamp } from './proposal.ts'
+import { allProposalActions, stamp } from './proposal.ts'
 
 /** What the writes need of the KB: the same seams the panes already use. */
 export interface ProposalTarget {
@@ -175,11 +175,12 @@ export async function applyProposal(options: {
   readonly target: ProposalTarget
 }): Promise<ProposalApplyResult> {
   const { proposal, ticked, target } = options
-  // The validate card's deterministic fix rows precede the model's in the
-  // execution order (ADR-0036 决定 6): the card ticks indices over this same
-  // concatenation, so one resolution serves both blocks.
-  const allActions = [...(proposal.prescan?.actions ?? []), ...proposal.actions]
+  // The canonical concatenation (ADR-0036 决定 6): the card ticks indices
+  // over this same order, so one resolution serves both blocks.
+  const allActions = allProposalActions(proposal)
   const picked = ticked
+    // Out-of-range indices cannot arise from the card (both sides derive
+    // from the same arrays); a stale one is dropped, not guessed at.
     .map(index => ({ index, action: allActions[index] }))
     .filter((row): row is { index: number; action: ProposalAction } => row.action !== undefined)
   const written: string[] = []
