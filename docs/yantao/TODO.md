@@ -128,9 +128,9 @@
 
 设计裁定见 [ADR-0034](../adr/0034-mail-triage-v2.md)。行为记忆与执行层对齐:注入剥日期、清单分组清洗、注入围栏、focus 判据改合取+安全告警例外;schema 增 `newProjects`/`meetings`/`deletions` 三槽;提案扩展 create-project(领域勾选写 frontmatter);删除刀仅人通道(COM 移入已删除文件夹,agent 只有提名权)。实现分三批：~~① 提示词层~~(**已落地 2026-09-24**,ADR 落地注记;「主送/抄送含上级」以 `superiorInvolved` 旗标并入批次②) → ~~② 提案扩展~~(**已落地 2026-09-24**,ADR 落地注记二;`append-section` 为对决定 4「复用 edit-section」的有意偏离) → ~~③ 删除刀~~(**已落地 2026-09-24**,ADR 落地注记二;信道门禁走请求信封的宿主证词字段 `channel`,非独立能力;删除提名在提案卡上呈可勾选分组)。渐进加载/agentic 化记 deferred。
 
-### 实体校验(ADR-0035,2026-09-28)
+### 实体校验(ADR-0035/0036,2026-09-28)
 
-设计裁定见 [ADR-0035](../adr/0035-entity-validation.md)。第四手势「实体校验 (validate)」补上 Lint 一环:新 RPC `yantaoKb.graph()` 全库双链图 → 客户端确定性预扫(孤儿/失链)作线索 → `ValidateVerdict`(findings 纯展示 + targets/creates 复用 v2) → 提议卡。实现分两步:L1(标准档,建页建链 + 预扫 + 汇总统计)在本 ADR 下施工;L2(深度档,按类型分批接力、跨批合并、部分交付)已决策、施工另立 ADR-0036。
+设计裁定见 [ADR-0035](../adr/0035-entity-validation.md) 与 [ADR-0036](../adr/0036-entity-validation-v2-pure-diagnosis.md)。第四手势「实体校验 (validate)」补上 Lint 一环:新 RPC `yantaoKb.graph()` 全库双链图 → 客户端确定性预扫(孤儿/失链) → `ValidateVerdict` → 提议卡。~~L1 已按 ADR-0035 施工~~,**2026-09-29 起 L1 管线按 ADR-0036 重构为纯体检**:预扫直出确定性区块(不过模型)、`creates` 移除(建页归提炼手势)、诊断窄化为过期/矛盾/缺链机会、代码侧防御核验、卡分两区块。施工待拆票;L2(分批通读)前提已变,重新构想后另立 ADR。llm_wiki 对照分析见 `.scratch/entity-validate-v2/analysis.md`。
 
 ### 设计规则落地(design.md,2026-09-22 截图审视)
 
