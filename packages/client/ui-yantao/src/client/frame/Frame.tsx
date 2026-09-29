@@ -709,7 +709,9 @@ export function Frame({
     taskEnd(taskId, 'done', '提议已出，待确认')
     setCapabilityNotice(t('validate.notice', {
       entities: run.stats.entities,
+      prescan: run.stats.prescan,
       findings: run.stats.findings,
+      filtered: run.stats.filtered,
       tokens: run.stats.tokens,
       elapsed: formatElapsed(run.stats.elapsedMs),
     }))

@@ -1106,7 +1106,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     validate: () => Promise.resolve({
       sessionId: '', title: '', reason: '',
       preScan: { entities: 0, orphans: [], broken: [] },
-      stats: { entities: 0, findings: 0, tokens: 0, elapsedMs: 0 },
+      stats: { entities: 0, prescan: 0, findings: 0, filtered: 0, tokens: 0, elapsedMs: 0 },
     }),
     ...overrides,
   }
@@ -1334,7 +1334,7 @@ describe('Frame', () => {
         validate={() => Promise.resolve({
           sessionId: '', title: '', reason: '',
           preScan: { entities: 0, orphans: [], broken: [] },
-          stats: { entities: 0, findings: 0, tokens: 0, elapsedMs: 0 },
+          stats: { entities: 0, prescan: 0, findings: 0, filtered: 0, tokens: 0, elapsedMs: 0 },
         })}
         registerResource={() => Promise.resolve('resources/新资源.pdf')}
         memoryList={() => Promise.resolve({ groups: [] })}
@@ -1506,7 +1506,7 @@ describe('Frame', () => {
       validate: () => Promise.resolve({
         sessionId: 'sess-validate', title: '', reason: '',
         preScan: { entities: 3, orphans: [], broken: [] },
-        stats: { entities: 3, findings: 2, tokens: 456, elapsedMs: 1200 },
+        stats: { entities: 3, prescan: 0, findings: 2, filtered: 0, tokens: 456, elapsedMs: 1200 },
       }),
     }))
     // The scoped entry: the 人物 tab's 校验 button beside 新建.

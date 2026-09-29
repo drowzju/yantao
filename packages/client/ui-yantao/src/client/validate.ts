@@ -90,6 +90,8 @@ export interface ValidatePreScan {
 /** The run's closing tally (ADR-0035 决定 6): never persisted — the approved card lives in the 流水. */
 export interface ValidateStats {
   readonly entities: number
+  /** Deterministic rows the card's prescan block shows: orphans + degraded display rows + fix rows (ADR-0036 决定 6). */
+  readonly prescan: number
   readonly findings: number
   /** Rows the defence layer dropped before the card saw them (ADR-0036 决定 5). */
   readonly filtered: number
@@ -498,17 +500,20 @@ export async function runValidate(options: {
 
   const tally = new TokenTally()
   const onUsage = (usage: { inputTokens: number; outputTokens: number; totalTokens?: number }): void => { tally.add(usage) }
+
+  // Deterministic fix material (ADR-0036 决定 4): computed once, before the
+  // verdict even exists — the prescan's broken links never pass the model.
+  const blocks: ValidateCardBlocks = { orphans: preScan.orphans, fixes: brokenLinkFixesOf(preScan, views, roster) }
+  const prescanRows = blocks.orphans.length + blocks.fixes.findings.length + blocks.fixes.actions.length
+
   const stats = (findings: number, filtered: number): ValidateStats => ({
     entities: preScan.entities,
+    prescan: prescanRows,
     findings,
     filtered,
     tokens: tally.total,
     elapsedMs: Date.now() - startedAt,
   })
-
-  // Deterministic fix material (ADR-0036 决定 4): computed once, before the
-  // verdict even exists — the prescan's broken links never pass the model.
-  const blocks: ValidateCardBlocks = { orphans: preScan.orphans, fixes: brokenLinkFixesOf(preScan, views, roster) }
 
   const finish = (final: ValidateVerdict): ValidateRun => {
     onStage?.('proposal')

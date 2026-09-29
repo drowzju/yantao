@@ -170,7 +170,7 @@ export function ProposalCard(props: {
         .filter(row => row.action.kind === kind)
       if (rows.length === 0) return null
       return (
-        <div key={`${keyPrefix(kind)}${base}`}>
+        <div key={`${keyPrefix}${kind}-${base}`}>
           <div style={groupTitleStyle} data-proposal-group={kind}>{t(GROUP_KEYS[kind])}</div>
           {rows.map(({ action, index }) => (
             <div key={index} style={rowStyle} data-proposal-row={index}>
@@ -256,7 +256,7 @@ export function ProposalCard(props: {
                 {finding.subject} — {finding.why}
               </div>
             ))}
-            {renderGroups(prescan.actions, 0, kind => `prescan-${kind}`)}
+            {renderGroups(prescan.actions, 0, 'prescan-')}
           </div>
         )}
         {/* The model block: the diagnostician's semantic rows and link
@@ -272,7 +272,7 @@ export function ProposalCard(props: {
           </div>
         )}
         {nothing && <div style={{ ...detailStyle, marginTop: 10 }}>{t('proposal.empty')}</div>}
-        {renderGroups(proposal.actions, prescan?.actions.length ?? 0, kind => `model-${kind}`)}
+        {renderGroups(proposal.actions, prescan?.actions.length ?? 0, 'model-')}
         <div style={footerStyle}>
           <button type="button" style={buttonStyle} disabled={props.busy === true || nothing} onClick={all}>
             {t('proposal.acceptAll')}

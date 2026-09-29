@@ -130,7 +130,7 @@
 
 ### 实体校验(ADR-0035/0036,2026-09-28)
 
-设计裁定见 [ADR-0035](../adr/0035-entity-validation.md) 与 [ADR-0036](../adr/0036-entity-validation-v2-pure-diagnosis.md)。第四手势「实体校验 (validate)」补上 Lint 一环:新 RPC `yantaoKb.graph()` 全库双链图 → 客户端确定性预扫(孤儿/失链) → `ValidateVerdict` → 提议卡。~~L1 已按 ADR-0035 施工~~,**2026-09-29 起 L1 管线按 ADR-0036 重构为纯体检**:预扫直出确定性区块(不过模型)、`creates` 移除(建页归提炼手势)、诊断窄化为过期/矛盾/缺链机会、代码侧防御核验、卡分两区块。施工待拆票;L2(分批通读)前提已变,重新构想后另立 ADR。llm_wiki 对照分析见 `.scratch/entity-validate-v2/analysis.md`。
+设计裁定见 [ADR-0035](../adr/0035-entity-validation.md) 与 [ADR-0036](../adr/0036-entity-validation-v2-pure-diagnosis.md)。第四手势「实体校验 (validate)」补上 Lint 一环:新 RPC `yantaoKb.graph()` 全库双链图 → 客户端确定性预扫(孤儿/失链) → `ValidateVerdict` → 提议卡。~~L1 已按 ADR-0035 施工~~,**v2 纯体检已于 2026-09-29 落地**(五票施工完毕,`.scratch/entity-validate-v2/`):预扫直出确定性区块(不过模型)、`creates` 移除(建页归提炼手势)、诊断窄化为过期/矛盾/缺链机会、代码侧防御核验、失链修复候选由代码相似度生成、卡分确定性/模型两区块。L2(分批通读)前提已变,重新构想后另立 ADR。llm_wiki 对照分析见 `.scratch/entity-validate-v2/analysis.md`。
 
 ### 设计规则落地(design.md,2026-09-22 截图审视)
 
