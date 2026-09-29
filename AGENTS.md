@@ -59,3 +59,20 @@ twins, no `.i18n.yaml` records, no re-recording; the pairing gate still governs 
 
 Follow [AGENTS_dsh.md](AGENTS_dsh.md) and [docs/AGENTS.md](docs/AGENTS.md) instead — that is dsh's own documentation discipline, and
 it still applies to everything outside our packages.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as local markdown files under `.scratch/<feature>/` (no hosted tracker for this fork; `origin` is a local sync bundle).
+See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Uses the five canonical triage labels as-is (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`).
+See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Multi-context: root `CONTEXT-MAP.md` points to `docs/glossary.md` (dsh 平台) and `packages/yantao/CONTEXT.md` (yantao 工作台);
+ADRs live in `docs/adr/`. See `docs/agents/domain.md`.
