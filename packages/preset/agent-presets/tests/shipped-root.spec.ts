@@ -89,8 +89,9 @@ describe('the shipped preset root', () => {
     const ctx = await roster({ includeUserRoot: false })
 
     const listed = await ctx.agentPresets.list()
-    // 'yantao' is this fork's own shipped workbench preset (an empty
-    // composition; see packages/bundle/yantao/tests/persona.spec.ts).
+    // 'yantao' is this fork's own shipped workbench preset (no model-facing
+    // tools, only the compaction group; see
+    // packages/bundle/yantao/tests/persona.spec.ts).
     expect(listed.map(preset => preset.id).sort())
       .toEqual(['cordis', 'minimal', 'ptc', 'standard', 'yantao'])
     expect(listed.every(preset => preset.trust === 'system')).toBe(true)

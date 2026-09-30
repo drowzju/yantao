@@ -8,7 +8,7 @@
  * would shadow the deployment text with a second hand-copied copy, and the
  * copies did drift — workbench sessions kept reciting an overturned rule.
  * These gates pin it: the preset must not grow a persona row again without
- * consciously deleting this suite, the preset must stay a valid (empty)
+ * consciously deleting this suite, the preset must stay a valid
  * composition, and the deployment persona must stay stated.
  */
 
@@ -46,7 +46,7 @@ describe('yantao persona', () => {
     expect(presetRows().find(candidate => candidate.id === 'persona')).toBeUndefined()
   })
 
-  it('keeps the yantao preset a valid (empty) composition', () => {
+  it('keeps the yantao preset a valid composition', () => {
     expect(Array.isArray(presetRows())).toBe(true)
   })
 
