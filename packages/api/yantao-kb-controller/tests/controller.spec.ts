@@ -248,34 +248,52 @@ describe('yantaoKb.setRelation', () => {
   })
 })
 
-describe('yantaoKb.deleteFile', () => {
-  it('removes one entity file', async () => {
+describe('yantaoKb.archiveEntity / yantaoKb.restoreEntity (ADR-0041)', () => {
+  it('archives: flips the flag, appends one dated 归档 bullet, and answers { path, archived }', async () => {
     await seedKb()
-    const result = await ctx.yantaoKbController.deleteFile('entities/projects/dsh 学习.md')
-    expect(result).toEqual({ path: 'entities/projects/dsh 学习.md' })
-    await expect(readFile(join(kbRoot, 'entities/projects/dsh 学习.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    const result = await ctx.yantaoKbController.archiveEntity('project:dsh 学习')
+    expect(result).toEqual({ path: 'entities/projects/dsh 学习.md', archived: true })
+    const content = await readFile(join(kbRoot, 'entities/projects/dsh 学习.md'), 'utf8')
+    expect(content).toContain('archive: true')
+    expect(content).toContain(`- ${TODAY} 归档`)
   })
 
-  it('classifies a missing file as yantao-kb/not-found', async () => {
-    const failure = await ctx.yantaoKbController.deleteFile('entities/areas/不存在.md')
-      .catch((error: unknown) => error)
-    expect(remoteErrorOf(failure)).toMatchObject({
+  it('restores an archived entity: the flag comes off and a dated 还原 bullet lands', async () => {
+    await seedKb()
+    // 旧项目 is seeded already archived.
+    const result = await ctx.yantaoKbController.restoreEntity('project:旧项目')
+    expect(result).toEqual({ path: 'entities/projects/旧项目.md', archived: false })
+    const content = await readFile(join(kbRoot, 'entities/projects/旧项目.md'), 'utf8')
+    expect(content).not.toContain('archive:')
+    expect(content).toContain(`- ${TODAY} 还原`)
+  })
+
+  it('is idempotent: re-archiving an archived entity writes nothing, log included', async () => {
+    await seedKb()
+    await ctx.yantaoKbController.archiveEntity('project:dsh 学习')
+    const before = await readFile(join(kbRoot, 'entities/projects/dsh 学习.md'), 'utf8')
+    const again = await ctx.yantaoKbController.archiveEntity('project:dsh 学习')
+    expect(again).toEqual({ path: 'entities/projects/dsh 学习.md', archived: true })
+    expect(await readFile(join(kbRoot, 'entities/projects/dsh 学习.md'), 'utf8')).toBe(before)
+  })
+
+  it('maps a missing entity to not-found and refused locators to rejected', async () => {
+    await seedKb()
+    const missing = await ctx.yantaoKbController.archiveEntity('project:不存在').catch((error: unknown) => error)
+    expect(remoteErrorOf(missing)).toMatchObject({
       code: 'yantao-kb/not-found',
-      details: { path: 'entities/areas/不存在.md' },
+      details: { path: 'project:不存在' },
     })
-  })
 
-  it('rejects escape attempts without touching the filesystem', async () => {
-    await seedKb()
-    const outside = join(kbRoot, '..', 'delete-victim.md')
-    await writeFile(outside, 'untouched', 'utf8')
-    try {
-      const failure = await ctx.yantaoKbController.deleteFile('../delete-victim.md').catch((error: unknown) => error)
-      expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
-      expect(await readFile(outside, 'utf8')).toBe('untouched')
-    } finally {
-      await rm(outside, { force: true })
-    }
+    // The todo singleton has no archive semantics (ADR-0041 决定 2).
+    const singleton = await ctx.yantaoKbController.archiveEntity('todo:todos').catch((error: unknown) => error)
+    expect(remoteErrorOf(singleton)).toMatchObject({
+      code: 'yantao-kb/rejected',
+      details: { path: 'todo:todos' },
+    })
+
+    const escape = await ctx.yantaoKbController.archiveEntity('../escape-victim.md').catch((error: unknown) => error)
+    expect(remoteErrorOf(escape)).toMatchObject({ code: 'yantao-kb/rejected' })
   })
 })
 

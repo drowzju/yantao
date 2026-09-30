@@ -47,9 +47,10 @@ export const zh = {
 
   // Workbench frame and rails
   'workbench.archived': '· 已归档',
+  'workbench.archive': '归档',
+  'workbench.restore': '还原',
+  'workbench.archiveGroup': '归档',
   'workbench.capabilityLabel': '能力',
-  'workbench.deleteConfirm': '删除「{name}」',
-  'workbench.deleteIrreversible': '不可撤销，确认删除？',
   'workbench.delete': '删除',
   'workbench.expandIntake': '展开输入栏',
   'workbench.expandWorkspace': '展开工作栏',
@@ -316,9 +317,10 @@ export const en = {
 
   // Workbench frame and rails
   'workbench.archived': '· archived',
+  'workbench.archive': 'Archive',
+  'workbench.restore': 'Restore',
+  'workbench.archiveGroup': 'Archived',
   'workbench.capabilityLabel': 'Capability',
-  'workbench.deleteConfirm': 'Delete "{name}"',
-  'workbench.deleteIrreversible': 'This cannot be undone. Delete?',
   'workbench.delete': 'Delete',
   'workbench.expandIntake': 'Expand intake rail',
   'workbench.expandWorkspace': 'Expand workspace rail',

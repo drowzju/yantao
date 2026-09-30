@@ -14,8 +14,8 @@ import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
   CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, CapabilityRunner, DirectoryPicker,
-  EntityCreator,
-  ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader,
+  EntityArchiver, EntityCreator,
+  ExternalOpener, FileReader, FileWriter, LinksLoader,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceRegistrar, RevisionLoader, ShortcutFiller,
   RootLoader, RootSetter,
@@ -39,6 +39,7 @@ import { ConfigDialog } from '../ConfigDialog.tsx'
 import type { ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from '../model-config.ts'
 import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage } from '../remote.ts'
+import { frontmatterArchived } from '../markdown.ts'
 import type { KbCapabilitySummary, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
@@ -68,8 +69,10 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'fo
   readonly read: FileReader
   /** Write one KB file's content. */
   readonly write: FileWriter
-  /** Delete one KB file — the rails' right-click 「删除」 on an entity row. */
-  readonly deleteFile: FileDeleter
+  /** Archive one entity (ADR-0041 决定 7) — the entity gestures' 「归档」. */
+  readonly archiveEntity: EntityArchiver
+  /** Restore one archived entity (ADR-0041 决定 7) — the entity gestures' 「还原」. */
+  readonly restoreEntity: EntityArchiver
   /** Rewrite one person entity's relation — the 人物 row's 「关系」. */
   readonly setRelation: RelationSetter
   /** Create one entity and resolve its path. */
@@ -252,6 +255,17 @@ function rosterOfTrees(
   })
 }
 
+/**
+ * Whether one KB path is an archivable entity file (ADR-0041 决定 2): one of
+ * the four kinds under `entities/` — the todo singleton carries no archive
+ * semantics, and resources are not entities at all.
+ * @param path - KB-relative path with forward slashes.
+ * @returns true when the path names an entity the archive gesture accepts.
+ */
+function archivableEntityPath(path: string): boolean {
+  return /^entities\/(?:projects|areas|people|meetings)\/[^/]+\.md$/u.test(path)
+}
+
 /** One queued gesture plus its 任务 row (ADR-0031). */
 interface RefineQueued {
   readonly gesture: RefineGesture
@@ -333,7 +347,7 @@ function DragHandle(props: {
  * @returns the frame element.
  */
 export function Frame({
-  t, renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
+  t, renderSlot, panels, intake, workspace, read, write, archiveEntity, restoreEntity, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine, validate,
   registerResource, capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
   promptSession, memoryList, memoryAdd, memoryDelete, sessionDetail, onKbRootChanged, mailDelete, mailArchive,
@@ -965,6 +979,25 @@ export function Frame({
     })
   }, [kbRoot, openExternal])
 
+  // ADR-0041 决定 7: the detail view's 归档/还原 button — the primary
+  // gesture, sharing the row menu's RPC pair. The host rewrites the file, so
+  // an open editor's baseline goes stale exactly as after a row-menu relation
+  // write (its conflict bar is the guard); the button's own label is patched
+  // from the RPC's answer, since the draft still carries the old envelope.
+  const [archivedOverrides, setArchivedOverrides] = useState<Readonly<Record<string, boolean>>>({})
+  const [archiveBusy, setArchiveBusy] = useState(false)
+  const toggleArchive = useCallback((path: string, archived: boolean): void => {
+    setArchiveBusy(true)
+    void (archived ? archiveEntity(path) : restoreEntity(path)).then((result) => {
+      setArchivedOverrides(current => ({ ...current, [path]: result.archived }))
+      setTreeKey(key => key + 1)
+    }, (failure: unknown) => {
+      setCapabilityNotice(remoteMessage(failure))
+    }).finally(() => {
+      setArchiveBusy(false)
+    })
+  }, [archiveEntity, restoreEntity])
+
   // ── the selection right-click (ADR-0025 决定 5) ───────────────────────────
   // The menu's capability list: the instruction capabilities that opted in
   // through `appliesTo.selection: true` — the menu must not grow with every
@@ -1145,6 +1178,15 @@ export function Frame({
       }
       return next
     })
+    // The archive-flag override dies with the tab: a reopen derives the flag
+    // from a freshly read envelope.
+    setArchivedOverrides((current) => {
+      const next: Record<string, boolean> = {}
+      for (const [key, value] of Object.entries(current)) {
+        if (key !== path) next[key] = value
+      }
+      return next
+    })
   }, [])
 
   /** A new KB root: both rails reload, and the stale tabs' statuses go away. */
@@ -1173,13 +1215,13 @@ export function Frame({
           selection={selection}
           onExpand={() => { setIntakeOpen(true) }}
           onOpenFile={openFile}
-          onCloseFile={closeFile}
           loadTodos={todos}
           writeTodos={writeTodos}
           createEntity={createEntity}
           read={read}
           write={write}
-          deleteFile={deleteFile}
+          archiveEntity={archiveEntity}
+          restoreEntity={restoreEntity}
           setRelation={setRelation}
           workspace={workspace}
           mailFetch={bookedMailFetch}
@@ -1227,15 +1269,21 @@ export function Frame({
         viewMode={viewMode}
         onViewMode={setViewMode}
         renderConversation={() => renderSlot('conversation', {})}
-        renderFile={tab => tab.mode === 'read'
-          ? (
-            <ReadOnlyFile
-              path={tab.path}
-              read={read}
-              t={t}
-            />
-          )
-          : (
+        renderFile={(tab) => {
+          if (tab.mode === 'read') {
+            return (
+              <ReadOnlyFile
+                path={tab.path}
+                read={read}
+                t={t}
+              />
+            )
+          }
+          // ADR-0041 决定 7: an entity's detail view carries the archive
+          // gesture — 还原 when the envelope (or the last flip's answer) says
+          // archived, 归档 otherwise. Non-entity files get no button.
+          const archived = archivedOverrides[tab.path] ?? frontmatterArchived(drafts[tab.path] ?? '')
+          return (
             <div style={bothPanesStyle}>
               <div style={paneStyleFor(viewMode === 'read')}>
                 <MarkdownView
@@ -1251,6 +1299,13 @@ export function Frame({
                     })
                   }}
                   onUnresolved={() => { setViewMode('source') }}
+                  {...(archivableEntityPath(tab.path) ? {
+                    archive: {
+                      archived,
+                      busy: archiveBusy,
+                      onToggle: () => { toggleArchive(tab.path, !archived) },
+                    },
+                  } : {})}
                   t={t}
                 />
               </div>
@@ -1273,7 +1328,8 @@ export function Frame({
                 />
               </div>
             </div>
-          )}
+          )
+        }}
         t={t}
       />
       <div style={{ ...railColStyle, borderLeft: '1px solid var(--yt-border-subtle)' }}>
@@ -1284,13 +1340,13 @@ export function Frame({
           selection={selection}
           onExpand={() => { setWorkspaceOpen(true) }}
           onOpenFile={openFile}
-          onCloseFile={closeFile}
           loadTodos={todos}
           writeTodos={writeTodos}
           createEntity={createEntity}
           read={read}
           write={write}
-          deleteFile={deleteFile}
+          archiveEntity={archiveEntity}
+          restoreEntity={restoreEntity}
           setRelation={setRelation}
           workspace={workspace}
           mailFetch={bookedMailFetch}

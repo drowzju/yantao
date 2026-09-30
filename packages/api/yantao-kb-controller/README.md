@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-api-yantao-kb-controller` 是 yantao 工作台 UI 背后的 Typert Remote 控制器：`yantaoKb` 命名空间下的二十五个一元方法——`intakeTree`、`workspaceTree`、`read`、`write`、`deleteFile`、`setRelation`、`root`、`setRoot`、`createEntity`、`links`、`graph`、`revision`、`openExternal`、`todos`、`writeTodos`、`mailMarkRead`、`registerResource`、`capabilityList`、`capabilityRun`、`capabilityCreate`、`capabilityAdopt`、`capabilityRegister`、`memoryList`、`memoryAdd`、`memoryDelete`——让浏览器直接列出、编辑与扩充知识库。所有路径都是知识库相对路径，并被限制在 `yantao-kb` 插件以 `yantaoKb` 服务发布的 kbRoot 之内，因此控制器共享插件的唯一配置点，绝不重复配置；`setRoot` 则重新指向这个唯一的根目录。UI 是人类通道，所以 `write` 是整文件写入；ADR-0004 信任边界只约束 agent 的 `kb_` 工具，从不约束本表面。
+`dsh-api-yantao-kb-controller` 是 yantao 工作台 UI 背后的 Typert Remote 控制器：`yantaoKb` 命名空间下的二十六个一元方法——`intakeTree`、`workspaceTree`、`read`、`write`、`archiveEntity`、`restoreEntity`、`setRelation`、`root`、`setRoot`、`createEntity`、`links`、`graph`、`revision`、`openExternal`、`todos`、`writeTodos`、`mailMarkRead`、`registerResource`、`capabilityList`、`capabilityRun`、`capabilityCreate`、`capabilityAdopt`、`capabilityRegister`、`memoryList`、`memoryAdd`、`memoryDelete`——让浏览器直接列出、编辑与扩充知识库。所有路径都是知识库相对路径，并被限制在 `yantao-kb` 插件以 `yantaoKb` 服务发布的 kbRoot 之内，因此控制器共享插件的唯一配置点，绝不重复配置；`setRoot` 则重新指向这个唯一的根目录。UI 是人类通道，所以 `write` 是整文件写入；ADR-0004 信任边界只约束 agent 的 `kb_` 工具，从不约束本表面。
 
 ## 目录
 
@@ -33,7 +33,8 @@ kind: "package-reference"
 | `yantaoKb.workspaceTree` | `()` | 工作侧的小节（`projects`、`areas`、`people`、`meetings`）；实体行额外携带 `archived`，人物行还有 `relation` 与 `email` |
 | `yantaoKb.read` | `(path)` | `{ path, content }`——文件完整 UTF-8 内容 |
 | `yantaoKb.write` | `(path, content)` | `{ path }`——整文件写入，自动创建缺失的父目录 |
-| `yantaoKb.deleteFile` | `(path)` | `{ path }`——删除知识库内的一个文件；路径同样受根目录约束，文件不存在是 `not-found` |
+| `yantaoKb.archiveEntity` | `(locator)` | `{ path, archived }`——归档一个实体：frontmatter 置 `archive: true` 并在「流水」追加一条「归档」（ADR-0041 决定 6/10）；幂等，重复归档不写盘；实体永不删除，工作台没有删除入口（决定 8） |
+| `yantaoKb.restoreEntity` | `(locator)` | `{ path, archived }`——还原一个归档实体：去掉 frontmatter 标志并在「流水」追加一条「还原」；同样幂等 |
 | `yantaoKb.setRelation` | `({ path, relation })` | `{ path, relation }`——改写人物实体 frontmatter 里的 `relation`，文件其余部分逐字节保持原样 |
 | `yantaoKb.root` | `()` | `{ root, configured }`——当前生效的知识库根目录，以及人类是否已经选过 |
 | `yantaoKb.setRoot` | `(path)` | `{ root, configured, created, existing }`——把 `path` 初始化为知识库、设为当前根目录并记住它 |

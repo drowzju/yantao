@@ -520,7 +520,7 @@ export function apply(ctx: Context, config: Config): void {
 // Host-side consumers (the yantao-kb-controller Remote) reuse the filesystem
 // operations and path confinement through these public re-exports; the
 // plugin above remains the model-facing shell over the same operations.
-export { appendLog, createEntity, editSection, initKb, listEntities, readEntity, readResource, registerResource, registerResourceContent, writeResource, writeState } from './core.ts'
+export { appendLog, createEntity, editSection, initKb, listEntities, readEntity, readResource, registerResource, registerResourceContent, setEntityArchived, writeResource, writeState } from './core.ts'
 export type { InitKbResult, ListedEntity, ListedResource, ReadResourceResult } from './core.ts'
 export { entityDisplayPath, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
 export {

@@ -79,10 +79,12 @@ export interface KbSetRelationResult {
   readonly relation: PersonRelation
 }
 
-/** Result of `yantaoKb.deleteFile`. */
-export interface KbDeleteFileResult {
-  /** The KB-relative path that was deleted. */
+/** Result of `yantaoKb.archiveEntity` / `yantaoKb.restoreEntity` (ADR-0041 决定 6). */
+export interface KbSetEntityArchivedResult {
+  /** The KB-relative path of the entity whose flag flipped. */
   readonly path: string
+  /** The archive flag now in effect: true after archiving, false after restoring. */
+  readonly archived: boolean
 }
 
 /** One `[[…]]` link a file writes out, and where it lands (ADR-0015). */

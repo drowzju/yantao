@@ -23,7 +23,7 @@
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
  */
 
-import { mkdir, readdir, readFile, rm, stat, unlink, writeFile, cp } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, stat, writeFile, cp } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -37,7 +37,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
   createEntity, entityDisplayPath, initKb, KbError, linkGraphOf, linksOf, listEntities, parseFrontmatter,
   parseTodoFile, PERSON_RELATIONS, readCapabilityRecord, readCapabilityState,
-  registerResourceContent, resolveWithinKb, serializeTodoFile, todayStamp,
+  registerResourceContent, resolveWithinKb, serializeTodoFile, setEntityArchived, todayStamp,
   writeCapabilityState, writeMailWatermark,
   appendMemoryEntry, listMemoryScopes, readMemoryScope, removeMemoryEntry, renderCapabilityMemoryBlock,
   loadSectionText, renderGlobalMemorySection, readGlobalMemoryEntries, YANTAO_SECTIONS,
@@ -64,7 +64,6 @@ import type {
   KbCapabilityRunArgs,
   KbCapabilityRunResult,
   KbCapabilitySummary,
-  KbDeleteFileResult,
   KbFileContent,
   KbGraphResult,
   KbLinksResult,
@@ -84,6 +83,7 @@ import type {
   KbRegisterResourceResult,
   KbRevisionResult,
   KbRootResult,
+  KbSetEntityArchivedResult,
   KbSetRelationArgs,
   KbSetRelationResult,
   KbSetRootResult,
@@ -673,33 +673,48 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
-   * Delete one KB file — the workbench's right-click 「删除」 on an entity row.
+   * Archive one entity — the workbench's 「归档」 gesture (ADR-0041 决定 6/8).
    *
-   * The human channel owns the KB's files, so this is a real unlink and not an
-   * archive: a row the human created and no longer wants is gone. The path is
-   * confined like every other one, and a missing file is
-   * `yantao-kb/not-found` rather than a silent success, so the UI can tell
-   * "already deleted" from "deleted just now".
-   * @param path - KB-relative path with forward slashes.
-   * @returns the deleted path.
+   * Entities are never deleted: archiving flips the frontmatter's
+   * `archive: true`, which retires the entity from the active roster
+   * (`listEntities` hides it by default) while the file — and every link
+   * into it — stays put. The kb layer appends one dated 「归档」 bullet to
+   * the entity's own 流水 section; the flip is idempotent, so archiving an
+   * archived entity writes nothing. The todo singleton has no archive
+   * semantics and is refused (ADR-0041 决定 2).
+   * @param locator - entity locator: `type:name` or an entity file path, resolved exactly like the kb layer's.
+   * @returns the KB-relative path and the flag now in effect.
    */
-  @Remote('deleteFile')
-  async deleteFile(path: string): Promise<KbDeleteFileResult> {
-    const target = this.confine(path, path)
+  @Remote('archiveEntity')
+  async archiveEntity(locator: string): Promise<KbSetEntityArchivedResult> {
+    return this.setArchived(locator, true)
+  }
+
+  /**
+   * Restore one archived entity — the same mechanism, the other direction
+   * (ADR-0041 决定 6): the frontmatter flag comes off and the entity rejoins
+   * the active roster, one dated 「还原」 bullet appended to its 流水.
+   * Idempotent like archiving: restoring an active entity writes nothing.
+   * @param locator - entity locator: `type:name` or an entity file path.
+   * @returns the KB-relative path and the flag now in effect.
+   */
+  @Remote('restoreEntity')
+  async restoreEntity(locator: string): Promise<KbSetEntityArchivedResult> {
+    return this.setArchived(locator, false)
+  }
+
+  /** Flip an entity's archive flag through the kb layer, mapping its failures to the wire vocabulary. */
+  private async setArchived(locator: string, archived: boolean): Promise<KbSetEntityArchivedResult> {
     try {
-      await unlink(target)
-      return { path }
+      return await setEntityArchived(this.kbRoot, locator, archived)
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      if (code === 'ENOENT') {
-        throw new RemoteError('yantao-kb/not-found', `找不到知识库文件：${path}`, { path }, { cause: error })
+      if (error instanceof KbError && error.code === 'entity-not-found') {
+        throw new RemoteError('yantao-kb/not-found', `找不到知识库文件：${locator}`, { path: locator }, { cause: error })
       }
-      throw new RemoteError(
-        'yantao-kb/rejected',
-        `无法删除知识库文件 ${path}：${(error as Error).message}`,
-        { path },
-        { cause: error },
-      )
+      const message = error instanceof KbError
+        ? error.message
+        : `无法${archived ? '归档' : '还原'}实体 ${locator}：${(error as Error).message}`
+      throw new RemoteError('yantao-kb/rejected', message, { path: locator }, { cause: error })
     }
   }
 

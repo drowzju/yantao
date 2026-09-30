@@ -173,6 +173,18 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('root') root(): Promise<KbRootResult>
 
 /**
+ * The yantao layer's own share of the system prompt, for the workbench's
+ * context meter (ADR-0039): the four static discipline sections priced from
+ * the same files the plugin registers, plus the dynamic global behavior-
+ * memory section priced from the live store. Priced with the meter's fixed
+ * density heuristic (4 characters per token) so the figures speak the same
+ * vocabulary as the `contextBreakdown` projection's system bucket, of which
+ * they are the yantao-attributable slice.
+ * @returns the static and behavior-memory shares, in heuristic tokens.
+ */
+@Remote('promptInjection') promptInjection(): Promise<KbPromptInjectionResult>
+
+/**
  * Choose the knowledge base: initialize `path` as a KB and hand it to the
  * `yantaoKb` service, which makes it the live root for every host-side
  * consumer and persists it as the root override.
@@ -226,17 +238,29 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('setRelation') async setRelation(args: KbSetRelationArgs): Promise<KbSetRelationResult>
 
 /**
- * Delete one KB file — the workbench's right-click 「删除」 on an entity row.
+ * Archive one entity — the workbench's 「归档」 gesture (ADR-0041 决定 6/8).
  *
- * The human channel owns the KB's files, so this is a real unlink and not an
- * archive: a row the human created and no longer wants is gone. The path is
- * confined like every other one, and a missing file is
- * `yantao-kb/not-found` rather than a silent success, so the UI can tell
- * "already deleted" from "deleted just now".
- * @param path - KB-relative path with forward slashes.
- * @returns the deleted path.
+ * Entities are never deleted: archiving flips the frontmatter's
+ * `archive: true`, which retires the entity from the active roster
+ * (`listEntities` hides it by default) while the file — and every link
+ * into it — stays put. The kb layer appends one dated 「归档」 bullet to
+ * the entity's own 流水 section; the flip is idempotent, so archiving an
+ * archived entity writes nothing. The todo singleton has no archive
+ * semantics and is refused (ADR-0041 决定 2).
+ * @param locator - entity locator: `type:name` or an entity file path, resolved exactly like the kb layer's.
+ * @returns the KB-relative path and the flag now in effect.
  */
-@Remote('deleteFile') async deleteFile(path: string): Promise<KbDeleteFileResult>
+@Remote('archiveEntity') async archiveEntity(locator: string): Promise<KbSetEntityArchivedResult>
+
+/**
+ * Restore one archived entity — the same mechanism, the other direction
+ * (ADR-0041 决定 6): the frontmatter flag comes off and the entity rejoins
+ * the active roster, one dated 「还原」 bullet appended to its 流水.
+ * Idempotent like archiving: restoring an active entity writes nothing.
+ * @param locator - entity locator: `type:name` or an entity file path.
+ * @returns the KB-relative path and the flag now in effect.
+ */
+@Remote('restoreEntity') async restoreEntity(locator: string): Promise<KbSetEntityArchivedResult>
 
 /**
  * The structured todo board (ADR-0018): the `entities/todos.md` singleton
@@ -334,6 +358,27 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * @returns the scope's path.
  */
 @Remote('memoryDelete') async memoryDelete(args: KbMemoryDeleteArgs): Promise<KbMemoryDeleteResult>
+
+/**
+ * The prompt-shortcut store's listing (ADR-0040): the human's favorite
+ * slash aliases in display order. The `/` menu's shortcut group and the
+ * capability tab's home list both read through this; the agent's own view
+ * is the injected prompt section, never this RPC.
+ * @returns the shortcuts as stored.
+ */
+@Remote('promptShortcutList') async promptShortcutList(): Promise<KbPromptShortcutListResult>
+
+/**
+ * Save the whole shortcut list (ADR-0040): the UI edits a handful of rows,
+ * so a full-list replace keeps reorder and delete trivially correct.
+ * Human-channel only — the agent has no tool into this surface. An alias
+ * that would shadow a registered skill or capability is refused (ADR-0040
+ * 决定 8): the host pre-step claims skill names first, so such a shortcut
+ * could never fire, and a confusing duplicate is worse than a refusal.
+ * @param args - the complete new list, in display order.
+ * @returns the list as stored (normalized).
+ */
+@Remote('promptShortcutSave') async promptShortcutSave(args: KbPromptShortcutSaveArgs): Promise<KbPromptShortcutSaveResult>
 
 /**
  * Run one capability's host entry (ADR-0021) — the human channel's execution

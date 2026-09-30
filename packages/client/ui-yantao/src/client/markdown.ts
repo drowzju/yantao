@@ -300,3 +300,14 @@ export function frontmatterSummary(fields: readonly FrontmatterField[]): string 
     .map(field => `${field.key}: ${field.value}`)
     .join(' · ')
 }
+
+/**
+ * Whether one markdown file's envelope declares it archived (ADR-0041 决定
+ * 1): the frontmatter `archive: true` flag is the single authoritative
+ * signal — the detail view's 归档/还原 button reads it from the draft.
+ * @param text - the file's full content.
+ * @returns true when the envelope carries `archive: true`.
+ */
+export function frontmatterArchived(text: string): boolean {
+  return splitFrontmatter(text).fields.some(field => field.key === 'archive' && field.value === 'true')
+}

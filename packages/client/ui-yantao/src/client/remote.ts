@@ -30,13 +30,13 @@ import type {
   KbCapabilityListResult,
   KbCapabilityRegisterArgs, KbCapabilityRegisterResult,
   KbCapabilityRunArgs, KbCapabilityRunResult, KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
-  KbDeleteFileResult, KbFileContent, KbGraphResult, KbLinksResult,
+  KbFileContent, KbGraphResult, KbLinksResult,
   KbMailDeleteArgs, KbMailDeleteResult, KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
   KbMemoryAddArgs, KbMemoryAddResult, KbMemoryDeleteArgs, KbMemoryDeleteResult, KbMemoryListResult,
   KbOpenExternalResult, KbPersonRelation, KbPromptInjectionResult, KbPromptShortcutListResult,
   KbPromptShortcutSaveArgs, KbPromptShortcutSaveResult,
   KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
-  KbRootResult, KbSetRelationArgs, KbSetRelationResult,
+  KbRootResult, KbSetEntityArchivedResult, KbSetRelationArgs, KbSetRelationResult,
   KbSetRootResult, KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
@@ -50,7 +50,10 @@ export interface KbRemote {
   /** The whole KB's link graph in one payload (ADR-0035) — the validate gesture's prescan. */
   graph(): Promise<RemoteResult<KbGraphResult>>
   write(path: string, content: string): Promise<RemoteResult<KbWriteResult>>
-  deleteFile(path: string): Promise<RemoteResult<KbDeleteFileResult>>
+  /** Archive one entity (ADR-0041 决定 6): frontmatter `archive: true` plus one dated 流水 line. */
+  archiveEntity(locator: string): Promise<RemoteResult<KbSetEntityArchivedResult>>
+  /** Restore one archived entity (ADR-0041 决定 6) — the same mechanism, the other direction. */
+  restoreEntity(locator: string): Promise<RemoteResult<KbSetEntityArchivedResult>>
   setRelation(args: KbSetRelationArgs): Promise<RemoteResult<KbSetRelationResult>>
   root(): Promise<RemoteResult<KbRootResult>>
   setRoot(path: string): Promise<RemoteResult<KbSetRootResult>>
@@ -117,8 +120,12 @@ export type FileReader = (path: string) => Promise<string>
 /** Write one KB file's full content; rejects with the Remote's own message. */
 export type FileWriter = (path: string, content: string) => Promise<void>
 
-/** Delete one KB file; rejects with the Remote's own message. */
-export type FileDeleter = (path: string) => Promise<void>
+/**
+ * Archive or restore one entity (ADR-0041 决定 7) — the rails' right-click
+ * 「归档」/「还原」 and the detail view's button, both directions of the same
+ * mechanism. Resolves the path and the flag now in effect.
+ */
+export type EntityArchiver = (locator: string) => Promise<KbSetEntityArchivedResult>
 
 /** Rewrite one person entity's relation; rejects with the Remote's own message. */
 export type RelationSetter = (path: string, relation: KbPersonRelation) => Promise<void>
@@ -324,17 +331,31 @@ export async function writeFile(ctx: Context, path: string, content: string): Pr
 }
 
 /**
- * Delete one KB file — the rails' right-click 「删除」 on an entity row. The
- * host refuses an absent file, so a row already gone elsewhere is reported
- * rather than silently accepted.
+ * Archive one entity — the workbench's 「归档」 gesture (ADR-0041 决定 6/7).
+ * The entity retires from the active roster but stays linkable and restorable;
+ * the host appends one dated 流水 line and is idempotent on a repeat archive.
  * @param ctx - client root context.
- * @param path - KB-relative path.
- * @returns a rejected promise carrying the reason on failure.
+ * @param locator - entity locator: `type:name` or the entity's KB-relative path.
+ * @returns the path and the flag now in effect, or a rejected promise carrying the reason.
  */
-export async function deleteFile(ctx: Context, path: string): Promise<void> {
+export async function archiveEntity(ctx: Context, locator: string): Promise<KbSetEntityArchivedResult> {
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
-  unwrapRemote(await kb.deleteFile(path))
+  return unwrapRemote(await kb.archiveEntity(locator))
+}
+
+/**
+ * Restore one archived entity — the workbench's 「还原」 gesture (ADR-0041
+ * 决定 6/7): the same mechanism, the other direction. Zero-cost reversible is
+ * what makes archiving safe to use.
+ * @param ctx - client root context.
+ * @param locator - entity locator: `type:name` or the entity's KB-relative path.
+ * @returns the path and the flag now in effect, or a rejected promise carrying the reason.
+ */
+export async function restoreEntity(ctx: Context, locator: string): Promise<KbSetEntityArchivedResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.restoreEntity(locator))
 }
 
 /**

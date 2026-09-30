@@ -30,9 +30,9 @@ _Avoid_: 任务清单、TODO.md
 
 _Avoid_: 连接（旧称，已被能力取代，见 ADR-0021）、集成、插件
 
-**Archive**: Entity 的一种 frontmatter 状态标签，不是目录。
+**Archive**: Entity 的一种 frontmatter 状态标签（`archive: true`），不是目录——归档的实体永不删除、随时可还原（去掉标志即还原）。归档 = 退出活跃：提炼花名册默认隐藏它，关联/校验图谱过滤它的节点连同边；但指向它的 `[[链接]]` 保留解析，历史文档仍可读可跳转，人类指引下 agent 仍可读取它（可作为输入被引用）。写面非对称：agent 的 kb_edit_section / kb_write_state / kb_append_log 对归档实体拒绝（「已归档，先还原」），人通过 UI 不受限；agent 无归档工具，只有纯文本提名权，归档/还原由人经 UI 执行，各在「流水」留一条。实体没有删除入口（ADR-0041 废弃了右键删除与 deleteFile RPC），终极删除只能人在文件系统层动手。
 
-_Avoid_: 归档目录
+_Avoid_: 归档目录（ADR-0041 否决了「移动到 resources/归档/」路线——全库死链、agent 写面丧失、与邮件域「归档」(ADR-0037) 撞词）
 
 **People**: relation 为 self / subordinate / superior / peer / external 的实体；「我自己」(relation: self) 在首次运行时自动创建。
 

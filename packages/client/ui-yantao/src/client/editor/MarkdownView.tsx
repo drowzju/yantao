@@ -140,6 +140,19 @@ export interface MarkdownViewProps {
   readonly onOpen?: (path: string) => void
   /** Hand this file to the desktop's own editor — "在 Obsidian 中打开" (ADR-0017). */
   readonly onOpenExternal?: () => void
+  /**
+   * The archive gesture (ADR-0041 决定 7) — the detail view's button, present
+   * for entity files only: 归档 on an active entity, 还原 on an archived one.
+   * Absent for every other file.
+   */
+  readonly archive?: {
+    /** The flag now in effect; the button offers the opposite direction. */
+    readonly archived: boolean
+    /** True while the flip is in flight. */
+    readonly busy: boolean
+    /** Flip the flag through the host's RPC. */
+    readonly onToggle: () => void
+  } | undefined
 }
 
 /**
@@ -153,7 +166,7 @@ export interface MarkdownViewProps {
  * @returns the reading view.
  */
 export function MarkdownView({
-  t, content, onEdit, onUnresolved, links, onOpen, onOpenExternal,
+  t, content, onEdit, onUnresolved, links, onOpen, onOpenExternal, archive,
 }: MarkdownViewProps): ReactElement {
   const [open, setOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
@@ -236,7 +249,7 @@ export function MarkdownView({
   return (
     <div style={wrapStyle}>
       {(split.hasFrontmatter || outline.length > 1 || (links?.incoming.length ?? 0) > 0
-        || onOpenExternal !== undefined) && (
+        || onOpenExternal !== undefined || archive !== undefined) && (
         <div style={barStyle}>
           {split.hasFrontmatter && (
             <button
@@ -271,6 +284,17 @@ export function MarkdownView({
               onClick={() => { onOpenExternal() }}
             >
               {t('md.openInObsidian')}
+            </button>
+          )}
+          {archive !== undefined && (
+            <button
+              type="button"
+              style={toggleStyle}
+              disabled={archive.busy}
+              data-archive-toggle="true"
+              onClick={() => { archive.onToggle() }}
+            >
+              {archive.archived ? t('workbench.restore') : t('workbench.archive')}
             </button>
           )}
           {(links?.incoming.length ?? 0) > 0 && (

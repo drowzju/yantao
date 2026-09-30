@@ -59,11 +59,12 @@ import { capabilityGestureSource } from './capability-gesture.ts'
 import { promptShortcutSource } from './prompt-shortcut-gesture.ts'
 import { WORKBENCH_NS, en, zh } from './locales.ts'
 import {
-  addMemory, adoptCapability, archiveMails, createCapability, createEntity, deleteFile, deleteMemory, deleteMails,
+  addMemory, adoptCapability, archiveEntity, archiveMails, createCapability, createEntity, deleteMemory, deleteMails,
   fetchMail, fillComposerWithShortcut, listMemory,
   loadCapabilities, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
   loadRevision, loadRoot, loadTodos,
-  loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, runCapability, savePromptShortcuts, setKbRoot,
+  loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, restoreEntity, runCapability,
+  savePromptShortcuts, setKbRoot,
   setRelation, writeFile, writeTodos,
 } from './remote.ts'
 import type { CapabilityRegisterReach } from './remote.ts'
@@ -172,7 +173,11 @@ export function apply(ctx: Context): void {
       workspace: () => loadWorkspace(ctx),
       read: (path: string) => readFile(ctx, path),
       write: (path: string, content: string) => writeFile(ctx, path, content),
-      deleteFile: (path: string) => deleteFile(ctx, path),
+      // ADR-0041 决定 7/8: the archive gestures — entities are never deleted,
+      // so the face offers the two directions of the archive mechanism and no
+      // delete at all.
+      archiveEntity: (locator: string) => archiveEntity(ctx, locator),
+      restoreEntity: (locator: string) => restoreEntity(ctx, locator),
       setRelation: (path: string, relation: KbPersonRelation) => setRelation(ctx, path, relation),
       createEntity: (type: KbCreatableEntityType, name: string, relation?: KbPersonRelation, email?: string) =>
         createEntity(ctx, {

@@ -23,6 +23,7 @@ import { existsSync } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { ENTITY_DIRS, ENTITY_TYPES, KbError, SINGLETON_FILES } from './types.ts'
+import { parseFrontmatter } from './frontmatter.ts'
 import { resolveEntityLocator } from './paths.ts'
 
 /** One `[[…]]` occurrence as written. */
@@ -243,8 +244,12 @@ export async function linksOf(kbRoot: string, path: string): Promise<KbLinks> {
  * resolution reproduces {@link byName}'s rules exactly — a dated meeting
  * answers to its bare title, and a name matching several files stays
  * unresolved — so an edge here agrees with what `linksOf` reports per file.
+ * Archived entities (frontmatter `archive: true`) leave the graph entirely
+ * (ADR-0041 决定 3): the node and every edge touching it, outgoing and
+ * incoming alike, are excluded — unlike {@link linksOf}, which keeps
+ * resolving links that point at an archived entity for the reading view.
  * @param kbRoot - the knowledge-base root directory.
- * @returns the nodes (every entity file) and the edges.
+ * @returns the nodes (every active entity file) and the edges.
  */
 export async function linkGraphOf(kbRoot: string): Promise<KbGraph> {
   const files = await entityFiles(kbRoot)
@@ -257,6 +262,18 @@ export async function linkGraphOf(kbRoot: string): Promise<KbGraph> {
       // One unreadable note contributes no edges, like linksOf's scan.
     }
   }
+  // ADR-0041 决定 3: the archive flag rides the same frontmatter listEntities
+  // already parses; an unreadable or malformed file keeps its place, matching
+  // the read-tolerant scan above.
+  const archived = new Set<string>()
+  for (const [path, text] of contents) {
+    try {
+      if (parseFrontmatter(text, path).data.archive === true) archived.add(path)
+    } catch (error) {
+      if (!(error instanceof KbError)) throw error
+    }
+  }
+  const nodes = files.filter(path => !archived.has(path))
   // Bare-name index, mirroring byName: the stem itself, plus a dated
   // meeting's title half. Several files answering one name stay ambiguous.
   const byStem = new Map<string, string[]>()
@@ -285,11 +302,13 @@ export async function linkGraphOf(kbRoot: string): Promise<KbGraph> {
   }
   const edges: KbGraphEdge[] = []
   for (const [from, text] of contents) {
+    if (archived.has(from)) continue
     for (const link of wikilinks(text)) {
       const to = await resolveTarget(link.target)
       if (to === from) continue
+      if (to !== null && archived.has(to)) continue
       edges.push({ from, target: link.target, to })
     }
   }
-  return { nodes: files, edges }
+  return { nodes, edges }
 }

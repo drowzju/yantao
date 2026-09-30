@@ -39,6 +39,18 @@ async function readEntityFile(kbRoot: string, absolute: string): Promise<{ conte
   return { content, display }
 }
 
+/**
+ * Refuse the write when the entity is archived (ADR-0041 决定 5): the
+ * frontmatter `archive: true` flag is the single authority, and every agent
+ * write path freezes for an archived entity until a human restores it.
+ * @param data - the entity's decoded frontmatter mapping.
+ */
+function assertNotArchived(data: Record<string, unknown>): void {
+  if (data.archive === true) {
+    throw new KbError('entity-archived', '实体已归档，请先还原')
+  }
+}
+
 /** Outcome of {@link initKb}: what the run created versus what was already there. */
 export interface InitKbResult {
   kbRoot: string
@@ -207,7 +219,7 @@ export async function createEntity(
  * Append one dated bullet to an entity's `## 流水` section. The entity is
  * located by `type:name` or by path; the frontmatter must parse and the
  * anchor must exist exactly once — everything else about the file stays
- * byte-for-byte intact.
+ * byte-for-byte intact. An archived entity is refused (ADR-0041 决定 5).
  * @param kbRoot - the knowledge-base root the entity lives under.
  * @param locator - entity locator: `type:name` (plural spellings accepted) or an entity file path.
  * @param text - the log text; continuation lines are indented two spaces.
@@ -217,7 +229,7 @@ export async function appendLog(kbRoot: string, locator: string, text: string): 
   const root = resolveWithinKb(kbRoot)
   const target = resolveEntityLocator(root, locator)
   const { content, display } = await readEntityFile(root, target)
-  parseFrontmatter(content, display)
+  assertNotArchived(parseFrontmatter(content, display).data)
   if (text.trim() === '') throw new KbError('empty-append', '追加的日志文本不能为空')
   const bullet = logBullet(todayStamp(), text)
   const next = appendToLogSection(content, bullet, display)
@@ -231,6 +243,7 @@ export async function appendLog(kbRoot: string, locator: string, text: string): 
  * located like {@link appendLog}; the frontmatter must parse and the anchor
  * must exist exactly once. The `## 流水` section below and everything above
  * the anchor survive byte-for-byte; an empty `text` empties the section.
+ * An archived entity is refused (ADR-0041 决定 5).
  * @param kbRoot - the knowledge-base root the entity lives under.
  * @param locator - entity locator: `type:name` (plural spellings accepted) or an entity file path.
  * @param text - the new State section body; newlines become plain markdown lines.
@@ -240,7 +253,7 @@ export async function writeState(kbRoot: string, locator: string, text: string):
   const root = resolveWithinKb(kbRoot)
   const target = resolveEntityLocator(root, locator)
   const { content, display } = await readEntityFile(root, target)
-  parseFrontmatter(content, display)
+  assertNotArchived(parseFrontmatter(content, display).data)
   const next = replaceStateSection(content, text, display)
   await writeFile(target, next, 'utf8')
   return { path: display, state: text }
@@ -253,6 +266,7 @@ export async function writeState(kbRoot: string, locator: string, text: string):
  * layer: history is append-only for every writer, and `kb_append_log` is its
  * only door. The frontmatter is never touched; a missing or duplicated anchor
  * is an error, never a rebuild; the todo singleton has no sections at all.
+ * An archived entity is refused (ADR-0041 决定 5).
  * @param kbRoot - the knowledge-base root the entity lives under.
  * @param locator - entity locator: `type:name` (plural spellings accepted) or an entity file path.
  * @param section - the section anchor, `目标` or `## 目标` form.
@@ -272,10 +286,79 @@ export async function editSection(kbRoot: string, locator: string, section: stri
       throw new KbError('singleton-entity', `「${display}」是单例文件，没有区段结构，不能用区段工具编辑`)
     }
   }
-  parseFrontmatter(content, display)
+  assertNotArchived(parseFrontmatter(content, display).data)
   const next = replaceSection(content, section, text, display)
   await writeFile(target, next, 'utf8')
   return { path: display, section: section.trim(), state: text }
+}
+
+/** A top-level `archive` key line inside the frontmatter envelope. */
+const ARCHIVE_KEY_LINE = /^archive[ \t]*:/
+
+/**
+ * Flip the frontmatter `archive` flag as a pure line splice — the
+ * frontmatter is hand-owned, so like every other tool this edits the
+ * envelope textually instead of re-emitting YAML: archiving writes
+ * `archive: true` (replacing a stale `archive:` line when one sits there),
+ * restoring removes the key line outright (never `archive: false`). Every
+ * other key and the body survive byte-for-byte.
+ * @param content - the complete current file text; its envelope must parse.
+ * @param archived - true to set the flag, false to remove it.
+ * @returns the complete new file text.
+ */
+function spliceArchiveFlag(content: string, archived: boolean): string {
+  const rows = content.split('\n')
+  // rows[0] is the opening fence; the envelope was validated by
+  // parseFrontmatter, so the closing fence is always found.
+  let close = -1
+  for (let index = 1; index < rows.length; index += 1) {
+    if (/^---[ \t\r]*$/.test(rows[index] as string)) {
+      close = index
+      break
+    }
+  }
+  const keyIndex = rows.findIndex((row, index) => index > 0 && index < close && ARCHIVE_KEY_LINE.test(row))
+  if (archived) {
+    if (keyIndex === -1) rows.splice(close, 0, 'archive: true')
+    else rows[keyIndex] = 'archive: true'
+  } else if (keyIndex !== -1) {
+    rows.splice(keyIndex, 1)
+  }
+  return rows.join('\n')
+}
+
+/**
+ * Flip an entity's archive flag — the host's half of ADR-0041 决定 6/10.
+ * Archiving sets frontmatter `archive: true`; restoring removes the key
+ * (never `archive: false`). Each direction appends one dated bullet
+ * (「归档」/「还原」) to the `## 流水` section, so the entity carries its own
+ * archive history. The flip is idempotent: setting the state the entity
+ * already has is a no-op that writes nothing, log entry included. The
+ * locator resolves exactly like {@link appendLog}'s; the todo singleton has
+ * no archive semantics (ADR-0041 决定 2) and is refused.
+ * @param kbRoot - the knowledge-base root the entity lives under.
+ * @param locator - entity locator: `type:name` (plural spellings accepted) or an entity file path.
+ * @param archived - true to archive, false to restore.
+ * @returns the KB-relative path and the flag now in effect.
+ */
+export async function setEntityArchived(kbRoot: string, locator: string, archived: boolean): Promise<{
+  path: string
+  archived: boolean
+}> {
+  const root = resolveWithinKb(kbRoot)
+  const target = resolveEntityLocator(root, locator)
+  const { content, display } = await readEntityFile(root, target)
+  for (const singleton of Object.values(SINGLETON_FILES)) {
+    if (display === `entities/${singleton}`) {
+      throw new KbError('singleton-entity', `「${display}」是单例文件，一次性任务行没有归档语义，不能归档`)
+    }
+  }
+  const current = parseFrontmatter(content, display).data.archive === true
+  if (current === archived) return { path: display, archived: current }
+  const bullet = logBullet(todayStamp(), archived ? '归档' : '还原')
+  const next = appendToLogSection(spliceArchiveFlag(content, archived), bullet, display)
+  await writeFile(target, next, 'utf8')
+  return { path: display, archived }
 }
 
 /**

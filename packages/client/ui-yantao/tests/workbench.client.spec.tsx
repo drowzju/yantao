@@ -10,7 +10,7 @@ import { Frame } from '../src/client/frame/Frame.tsx'
 import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveColumns } from '../src/client/frame/columns.ts'
 import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
 import type {
-  CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader,
+  CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityArchiver, EntityCreator, ExternalOpener, FileReader,
   FileWriter, LinksLoader, MailFetcher, MailMarker, PromptShortcutLister, PromptShortcutSaver, RelationSetter,
   RevisionLoader, RootLoader, RootSetter, SessionPrompter, ShortcutFiller, TodoLoader, TodoWriter,
 } from '../src/client/remote.ts'
@@ -89,13 +89,13 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     selection: null,
     onExpand: () => {},
     onOpenFile: () => {},
-    onCloseFile: () => {},
     loadTodos: () => Promise.resolve(TODOS),
     writeTodos: () => Promise.resolve({ path: 'entities/todos.md', text: TODO_FILE }),
     createEntity: () => Promise.resolve('entities/areas/新实体.md'),
     read: () => Promise.resolve(''),
     write: () => Promise.resolve(),
-    deleteFile: () => Promise.resolve(),
+    archiveEntity: locator => Promise.resolve({ path: locator, archived: true }),
+    restoreEntity: locator => Promise.resolve({ path: locator, archived: false }),
     setRelation: () => Promise.resolve(),
     workspace: loader(workspace),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
@@ -321,7 +321,10 @@ describe('IntakeRail', () => {
     const onRefine = vi.fn()
     render(<IntakeRail {...railProps({ onRefine })} />)
     fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
-    expect(await screen.findByText('删除「周报.eml」')).toBeTruthy()
+    // A resource row is not an entity (ADR-0041 决定 2): no archive gesture —
+    // and entities being undeletable (决定 8) leaves no delete either.
+    expect(await screen.findByText('拷贝链接')).toBeTruthy()
+    expect(screen.queryByText('归档')).toBeNull()
     expect(screen.queryByText('提炼')).toBeNull()
     fireEvent.click(screen.getByText('提炼到实体'))
     // The name comes from the path's tail, not the row's (stripped) label.
@@ -486,20 +489,40 @@ describe('WorkspaceRail', () => {
     expect(onOpenFile).toHaveBeenCalledWith('entities/projects/新项目.md', 'edit')
   })
 
-  it('deletes a project row from its right-click menu', async () => {
+  it('archives a project row from its right-click menu, without a confirmation step (ADR-0041 决定 6/7)', async () => {
     const load = vi.fn(loader(workspace))
-    const deleteFile = vi.fn(() => Promise.resolve())
-    const onCloseFile = vi.fn()
-    render(<WorkspaceRail {...railProps({ load, deleteFile, onCloseFile })} />)
+    const archiveEntity = vi.fn((locator: string) => Promise.resolve({ path: locator, archived: true }))
+    render(<WorkspaceRail {...railProps({ load, archiveEntity })} />)
     fireEvent.click(await screen.findByText('项目'))
     fireEvent.contextMenu(await screen.findByText('dsh 学习'), { clientX: 40, clientY: 60 })
-    fireEvent.click(await screen.findByText('删除「dsh 学习」'))
     await act(async () => {
-      fireEvent.click(screen.getByText('删除'))
+      fireEvent.click(await screen.findByText('归档'))
     })
-    expect(deleteFile).toHaveBeenCalledWith('entities/projects/dsh 学习.md')
+    expect(archiveEntity).toHaveBeenCalledWith('entities/projects/dsh 学习.md')
+    // The flip only moves the row into the section's 归档 group: the tree
+    // reloads, and there is no tab to drop — the file still exists.
     expect(load).toHaveBeenCalledTimes(2)
-    expect(onCloseFile).toHaveBeenCalledWith('entities/projects/dsh 学习.md')
+  })
+
+  it('folds archived entities into the section\'s own 归档 group, collapsed by default (ADR-0041 决定 7)', async () => {
+    const mixed: KbTreeSection[] = workspace.map(section =>
+      section.id === 'projects'
+        ? {
+          ...section,
+          files: [...section.files, { name: '旧项目', path: 'entities/projects/旧项目.md', archived: true }],
+        }
+        : section)
+    render(<WorkspaceRail {...railProps({ load: loader(mixed) })} />)
+    fireEvent.click(await screen.findByText('项目'))
+    // The active row shows directly; the archived one stays inside its own
+    // type's section, folded into the group at its bottom.
+    expect(await screen.findByText('dsh 学习')).toBeTruthy()
+    expect(screen.queryByText('旧项目')).toBeNull()
+    const group = await screen.findByText(/^▸ 归档（1）$/)
+    expect(group.getAttribute('data-archive-group')).toBe('projects')
+    fireEvent.click(group)
+    expect(await screen.findByText('旧项目')).toBeTruthy()
+    expect(screen.getByText(/^▾ 归档（1）$/)).toBeTruthy()
   })
 
   it('creates a person with the relation the row offers, 同事 by default', async () => {
@@ -579,7 +602,7 @@ describe('WorkspaceRail', () => {
     render(<WorkspaceRail {...railProps({ load: loader(workspace), setRelation })} />)
     fireEvent.click(await screen.findByText('领域'))
     fireEvent.contextMenu(await screen.findByText('健康'), { clientX: 40, clientY: 60 })
-    expect(await screen.findByText('删除「健康」')).toBeTruthy()
+    expect(await screen.findByText('归档')).toBeTruthy()
     expect(screen.queryByText('同事')).toBeNull()
   })
 
@@ -732,29 +755,45 @@ describe('WorkspaceRail', () => {
     expect(createEntity).not.toHaveBeenCalled()
   })
 
-  it('deletes a meeting row from its right-click menu', async () => {
+  it('archives a meeting row from its right-click menu (ADR-0041 决定 2: meetings are entities too)', async () => {
     const load = vi.fn(loader(workspace))
-    const deleteFile = vi.fn(() => Promise.resolve())
-    const onCloseFile = vi.fn()
-    render(<WorkspaceRail {...railProps({ load, deleteFile, onCloseFile })} />)
+    const archiveEntity = vi.fn((locator: string) => Promise.resolve({ path: locator, archived: true }))
+    render(<WorkspaceRail {...railProps({ load, archiveEntity })} />)
     fireEvent.click(screen.getByText('会议'))
     fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
-    fireEvent.click(await screen.findByText('删除「周会」'))
     await act(async () => {
-      fireEvent.click(screen.getByText('删除'))
+      fireEvent.click(await screen.findByText('归档'))
     })
-    expect(deleteFile).toHaveBeenCalledWith('entities/meetings/周会.md')
+    expect(archiveEntity).toHaveBeenCalledWith('entities/meetings/周会.md')
     expect(load).toHaveBeenCalledTimes(2)
-    expect(onCloseFile).toHaveBeenCalledWith('entities/meetings/周会.md')
+  })
+
+  it('restores an archived entity from its row menu — the same seam, the other direction (ADR-0041 决定 6)', async () => {
+    const archivedWorkspace: KbTreeSection[] = workspace.map(section =>
+      section.id === 'meetings'
+        ? { ...section, files: section.files.map(file => ({ ...file, archived: true })) }
+        : section)
+    const load = vi.fn(loader(archivedWorkspace))
+    const restoreEntity = vi.fn((locator: string) => Promise.resolve({ path: locator, archived: false }))
+    render(<WorkspaceRail {...railProps({ load, restoreEntity })} />)
+    fireEvent.click(screen.getByText('会议'))
+    // The archived row lives inside the section's folded 归档 group.
+    fireEvent.click(await screen.findByText(/^▸ 归档/))
+    fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
+    await act(async () => {
+      fireEvent.click(await screen.findByText('还原'))
+    })
+    expect(restoreEntity).toHaveBeenCalledWith('entities/meetings/周会.md')
+    expect(load).toHaveBeenCalledTimes(2)
   })
 
   it('closes a meeting row\'s menu on Escape', async () => {
     render(<WorkspaceRail {...railProps({ load: loader(workspace) })} />)
     fireEvent.click(screen.getByText('会议'))
     fireEvent.contextMenu(await screen.findByText('周会'), { clientX: 40, clientY: 60 })
-    expect(await screen.findByText('删除「周会」')).toBeTruthy()
+    expect(await screen.findByText('归档')).toBeTruthy()
     fireEvent.keyDown(document.body, { key: 'Escape' })
-    expect(screen.queryByText('删除「周会」')).toBeNull()
+    expect(screen.queryByText('归档')).toBeNull()
   })
 
   it('offers the matching capability on a meeting row\'s menu', async () => {
@@ -1085,7 +1124,8 @@ describe('CapabilityPanel', () => {
 interface FrameFaces {
   readonly read: FileReader
   readonly write: FileWriter
-  readonly deleteFile: FileDeleter
+  readonly archiveEntity: EntityArchiver
+  readonly restoreEntity: EntityArchiver
   readonly setRelation: RelationSetter
   readonly todos: TodoLoader
   readonly writeTodos: TodoWriter
@@ -1116,7 +1156,8 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     links: path => Promise.resolve({ path, outgoing: [], incoming: [] }),
     read: () => Promise.resolve(TODO_FILE),
     write: () => Promise.resolve(),
-    deleteFile: () => Promise.resolve(),
+    archiveEntity: locator => Promise.resolve({ path: locator, archived: true }),
+    restoreEntity: locator => Promise.resolve({ path: locator, archived: false }),
     setRelation: () => Promise.resolve(),
     todos: () => Promise.resolve(TODOS),
     writeTodos: () => Promise.resolve({ path: 'entities/todos.md', text: TODO_FILE }),
@@ -1158,7 +1199,8 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       workspace={loader(workspace)}
       read={kb.read}
       write={kb.write}
-      deleteFile={kb.deleteFile}
+      archiveEntity={kb.archiveEntity}
+      restoreEntity={kb.restoreEntity}
       setRelation={kb.setRelation}
       createEntity={kb.createEntity}
       root={kb.root}
@@ -1235,6 +1277,38 @@ describe('Frame', () => {
     expect(within(tab).getAllByText('我改了一半').length).toBeGreaterThan(0)
     fireEvent.click(screen.getByText('源码'))
     expect((tab.querySelector('textarea') as HTMLTextAreaElement).value).toBe('我改了一半')
+  })
+
+  it('archives an open entity from its detail view, flipping the button to 还原 (ADR-0041 决定 7)', async () => {
+    const archiveEntity = vi.fn((locator: string) => Promise.resolve({ path: locator, archived: true }))
+    const { container } = render(renderFrame({ archiveEntity }))
+    fireEvent.click(await screen.findByText('健康'))
+    const tab = container.querySelector('[data-tab="entities/areas/健康.md"]') as HTMLElement
+    // The button rides the reading view's own bar, next to 在 Obsidian 中打开.
+    const button = await within(tab).findByText('归档')
+    expect(button.getAttribute('data-archive-toggle')).toBe('true')
+    await act(async () => {
+      fireEvent.click(button)
+    })
+    expect(archiveEntity).toHaveBeenCalledWith('entities/areas/健康.md')
+    // The label flips from the RPC's answer — the draft's envelope is stale.
+    expect(await within(tab).findByText('还原')).toBeTruthy()
+  })
+
+  it('shows 还原 on an archived entity\'s detail view and restores it', async () => {
+    const restoreEntity = vi.fn((locator: string) => Promise.resolve({ path: locator, archived: false }))
+    const { container } = render(renderFrame({
+      restoreEntity,
+      read: () => Promise.resolve('---\ntype: area\ncreated: 2026-09-08\narchive: true\n---\n\n## 状态\n\n旧\n'),
+    }))
+    fireEvent.click(await screen.findByText('健康'))
+    const tab = container.querySelector('[data-tab="entities/areas/健康.md"]') as HTMLElement
+    const button = await within(tab).findByText('还原')
+    await act(async () => {
+      fireEvent.click(button)
+    })
+    expect(restoreEntity).toHaveBeenCalledWith('entities/areas/健康.md')
+    expect(await within(tab).findByText('归档')).toBeTruthy()
   })
 
   it('flips a checkbox in the reading view and saves the file', async () => {
@@ -1353,7 +1427,8 @@ describe('Frame', () => {
         workspace={loader(workspace)}
         read={kb.read}
         write={kb.write}
-        deleteFile={kb.deleteFile}
+        archiveEntity={kb.archiveEntity}
+        restoreEntity={kb.restoreEntity}
         setRelation={kb.setRelation}
         createEntity={kb.createEntity}
         root={kb.root}

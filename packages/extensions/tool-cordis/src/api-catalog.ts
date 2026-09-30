@@ -2997,6 +2997,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the root in force and `configured` — true when a persisted root override exists.',
       },
       {
+        signature: '@Remote(\'promptInjection\') promptInjection(): Promise<KbPromptInjectionResult>',
+        description: 'The yantao layer\'s own share of the system prompt, for the workbench\'s context meter (ADR-0039): the four static discipline sections priced from the same files the plugin registers, plus the dynamic global behavior- memory section priced from the live store. Priced with the meter\'s fixed density heuristic (4 characters per token) so the figures speak the same vocabulary as the `contextBreakdown` projection\'s system bucket, of which they are the yantao-attributable slice.',
+        parameters: [],
+        returns: 'the static and behavior-memory shares, in heuristic tokens.',
+      },
+      {
         signature: '@Remote(\'setRoot\') async setRoot(path: string): Promise<KbSetRootResult>',
         description: 'Choose the knowledge base: initialize `path` as a KB and hand it to the `yantaoKb` service, which makes it the live root for every host-side consumer and persists it as the root override.',
         parameters: [{ name: 'path', description: 'absolute path of the knowledge-base root directory.' }],
@@ -3027,10 +3033,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the path and the relation it now carries.',
       },
       {
-        signature: '@Remote(\'deleteFile\') async deleteFile(path: string): Promise<KbDeleteFileResult>',
-        description: 'Delete one KB file — the workbench\'s right-click 「删除」 on an entity row.\n\nThe human channel owns the KB\'s files, so this is a real unlink and not an archive: a row the human created and no longer wants is gone. The path is confined like every other one, and a missing file is `yantao-kb/not-found` rather than a silent success, so the UI can tell "already deleted" from "deleted just now".',
-        parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }],
-        returns: 'the deleted path.',
+        signature: '@Remote(\'archiveEntity\') async archiveEntity(locator: string): Promise<KbSetEntityArchivedResult>',
+        description: 'Archive one entity — the workbench\'s 「归档」 gesture (ADR-0041 决定 6/8).\n\nEntities are never deleted: archiving flips the frontmatter\'s `archive: true`, which retires the entity from the active roster (`listEntities` hides it by default) while the file — and every link into it — stays put. The kb layer appends one dated 「归档」 bullet to the entity\'s own 流水 section; the flip is idempotent, so archiving an archived entity writes nothing. The todo singleton has no archive semantics and is refused (ADR-0041 决定 2).',
+        parameters: [{ name: 'locator', description: 'entity locator: `type:name` or an entity file path, resolved exactly like the kb layer\'s.' }],
+        returns: 'the KB-relative path and the flag now in effect.',
+      },
+      {
+        signature: '@Remote(\'restoreEntity\') async restoreEntity(locator: string): Promise<KbSetEntityArchivedResult>',
+        description: 'Restore one archived entity — the same mechanism, the other direction (ADR-0041 决定 6): the frontmatter flag comes off and the entity rejoins the active roster, one dated 「还原」 bullet appended to its 流水. Idempotent like archiving: restoring an active entity writes nothing.',
+        parameters: [{ name: 'locator', description: 'entity locator: `type:name` or an entity file path.' }],
+        returns: 'the KB-relative path and the flag now in effect.',
       },
       {
         signature: '@Remote(\'todos\') async todos(): Promise<KbTodosResult>',
@@ -3079,6 +3091,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Forget one behavior rule (ADR-0032): removal is human-only, addressed by the entry\'s id. A stale id — the human edited the line meanwhile — is a `not-found`, and the caller refreshes rather than guessing.',
         parameters: [{ name: 'args', description: 'the scope and the entry\'s id.' }],
         returns: 'the scope\'s path.',
+      },
+      {
+        signature: '@Remote(\'promptShortcutList\') async promptShortcutList(): Promise<KbPromptShortcutListResult>',
+        description: 'The prompt-shortcut store\'s listing (ADR-0040): the human\'s favorite slash aliases in display order. The `/` menu\'s shortcut group and the capability tab\'s home list both read through this; the agent\'s own view is the injected prompt section, never this RPC.',
+        parameters: [],
+        returns: 'the shortcuts as stored.',
+      },
+      {
+        signature: '@Remote(\'promptShortcutSave\') async promptShortcutSave(args: KbPromptShortcutSaveArgs): Promise<KbPromptShortcutSaveResult>',
+        description: 'Save the whole shortcut list (ADR-0040): the UI edits a handful of rows, so a full-list replace keeps reorder and delete trivially correct. Human-channel only — the agent has no tool into this surface. An alias that would shadow a registered skill or capability is refused (ADR-0040 决定 8): the host pre-step claims skill names first, so such a shortcut could never fire, and a confusing duplicate is worse than a refusal.',
+        parameters: [{ name: 'args', description: 'the complete new list, in display order.' }],
+        returns: 'the list as stored (normalized).',
       },
       {
         signature: '@Remote(\'capabilityRun\') async capabilityRun(args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<KbCapabilityRunResult>',
@@ -4605,10 +4629,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbCreateEntityResult {\n    readonly path: string;\n}',
   },
   {
-    name: 'KbDeleteFileResult',
-    declaration: 'export interface KbDeleteFileResult {\n    readonly path: string;\n}',
-  },
-  {
     name: 'KbFileContent',
     declaration: 'export interface KbFileContent {\n    readonly path: string;\n    readonly content: string;\n}',
   },
@@ -4661,6 +4681,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbOpenExternalResult {\n    readonly target: string;\n}',
   },
   {
+    name: 'KbPromptInjectionResult',
+    declaration: 'export interface KbPromptInjectionResult {\n    readonly staticTokens: number;\n    readonly behaviorMemoryTokens: number;\n}',
+  },
+  {
+    name: 'KbPromptShortcut',
+    declaration: 'export interface KbPromptShortcut {\n    readonly alias: string;\n    readonly text: string;\n}',
+  },
+  {
+    name: 'KbPromptShortcutListResult',
+    declaration: 'export interface KbPromptShortcutListResult {\n    readonly shortcuts: readonly KbPromptShortcut[];\n}',
+  },
+  {
+    name: 'KbPromptShortcutSaveArgs',
+    declaration: 'export interface KbPromptShortcutSaveArgs {\n    readonly shortcuts: readonly KbPromptShortcut[];\n}',
+  },
+  {
+    name: 'KbPromptShortcutSaveResult',
+    declaration: 'export interface KbPromptShortcutSaveResult {\n    readonly shortcuts: readonly KbPromptShortcut[];\n    readonly path: string;\n}',
+  },
+  {
     name: 'KbRegisterResourceArgs',
     declaration: 'export interface KbRegisterResourceArgs {\n    readonly name: string;\n    readonly contentBase64: string;\n}',
   },
@@ -4675,6 +4715,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KbRootResult',
     declaration: 'export interface KbRootResult {\n    readonly root: string;\n    readonly configured: boolean;\n}',
+  },
+  {
+    name: 'KbSetEntityArchivedResult',
+    declaration: 'export interface KbSetEntityArchivedResult {\n    readonly path: string;\n    readonly archived: boolean;\n}',
   },
   {
     name: 'KbSetRelationArgs',

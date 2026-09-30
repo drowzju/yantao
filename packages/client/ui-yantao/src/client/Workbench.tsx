@@ -10,7 +10,7 @@ import type {
   KbCapabilitySummary, KbPersonRelation, KbTreeFile, KbTreeSection, KbTreeSectionId,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type {
-  CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, EntityCreator, FileDeleter, FileReader,
+  CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, EntityArchiver, EntityCreator, FileReader,
   FileWriter,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceRegistrar, ShortcutFiller,
@@ -314,11 +314,17 @@ function Section({
   /** Make every row a drop target (ADR-0029 决定 2). */
   drop?: ((file: KbTreeFile, event: React.DragEvent<HTMLButtonElement>) => void) | undefined
 }): ReactElement {
+  // ADR-0041 决定 7: archived entities stay inside their own type's section,
+  // folded into a 归档 group at its bottom — collapsed by default, and the
+  // fold is session-only, like the resource tree's directories.
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  const active = section?.files.filter(file => file.archived !== true) ?? []
+  const archived = section?.files.filter(file => file.archived === true) ?? []
   return (
     <div>
       {showHeading && <div style={titleStyle}>{t(SECTION_KEYS[id])}</div>}
       {section === undefined && <div style={{ color: 'var(--yt-text-muted)', padding: '4px 6px' }}>{t('common.empty')}</div>}
-      {section?.files.map(file => (
+      {active.map(file => (
         <FileRow
           key={file.path}
           t={t}
@@ -330,6 +336,31 @@ function Section({
           drop={drop}
         />
       ))}
+      {archived.length > 0 && (
+        <div>
+          <button
+            type="button"
+            style={{ ...rowStyle, color: 'var(--yt-text-secondary)' }}
+            data-archive-group={id}
+            aria-expanded={archiveOpen}
+            onClick={() => { setArchiveOpen(open => !open) }}
+          >
+            {archiveOpen ? '▾' : '▸'} {t('workbench.archiveGroup')}（{archived.length}）
+          </button>
+          {archiveOpen && archived.map(file => (
+            <FileRow
+              key={file.path}
+              t={t}
+              file={file}
+              selection={selection}
+              onSelect={onSelect}
+              onMenu={onMenu}
+              drag={drag}
+              drop={drop}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -472,6 +503,8 @@ interface MenuTarget {
   readonly name: string
   /** The person's relation as the file carries it, so the menu can tick it. */
   readonly relation?: string
+  /** Present (and true) when the row's entity is archived — the menu offers 还原. */
+  readonly archived?: boolean
   readonly x: number
   readonly y: number
 }
@@ -556,14 +589,18 @@ function useMenuDismiss(ref: React.RefObject<HTMLDivElement | null>, onClose: ()
 }
 
 /**
- * The row menu: a person's relations, each set the moment it is picked, and
- * 删除 below, which asks once before the file goes. Escape or a click anywhere
- * else dismisses it; the `mousedown` that opened it has already been
+ * The row menu: a person's relations, each set the moment it is picked; the
+ * entity gestures (能力, 提炼, 归档/还原); and 拷贝链接. Escape or a click
+ * anywhere else dismisses it; the `mousedown` that opened it has already been
  * dispatched, so it cannot close itself the moment it appears.
  *
  * `relations` is the whole story the rail tells about the row: absent for a
  * row that has no relation at all, empty for the KB's owner (whose relation is
  * not the workbench's to change), and the four pickable ones otherwise.
+ * `onArchive` is present only for entity rows (ADR-0041 决定 7): 归档 on an
+ * active entity, 还原 on an archived one — no confirmation, the flip is
+ * zero-cost reversible (决定 6). Entities are never deleted (决定 8), so the
+ * menu carries no delete.
  * @param props - the targeted row, the busy flag, and the actions.
  * @returns the menu element.
  */
@@ -585,11 +622,11 @@ function RowMenu(props: {
   onDistill?: ((path: string, name: string) => void) | undefined
   /** The absolute KB root, for 「拷贝链接」; empty or absent copies the relative path. */
   kbRoot?: string
-  onDelete: (path: string) => void
+  /** Flip the row entity's archive flag (ADR-0041 决定 7); absent for non-entity rows. */
+  onArchive?: ((path: string, archived: boolean) => void) | undefined
   onClose: () => void
 }): ReactElement {
-  const { t, target, busy, relations, onRelate, capabilities, onRunCapability, onRefine, onDistill, kbRoot = '', onDelete, onClose } = props
-  const [confirming, setConfirming] = useState(false)
+  const { t, target, busy, relations, onRelate, capabilities, onRunCapability, onRefine, onDistill, kbRoot = '', onArchive, onClose } = props
   const ref = useRef<HTMLDivElement | null>(null)
   useMenuDismiss(ref, onClose)
 
@@ -665,19 +702,16 @@ function RowMenu(props: {
       >
         {t('workbench.copyLink')}
       </button>
-      {!confirming && (
-        <button type="button" style={menuItemStyle} disabled={busy} onClick={() => { setConfirming(true) }}>
-          {t('workbench.deleteConfirm', { name: target.name })}
+      {onArchive !== undefined && (
+        <button
+          type="button"
+          style={menuItemStyle}
+          disabled={busy}
+          data-row-archive="true"
+          onClick={() => { onArchive(target.path, target.archived !== true) }}
+        >
+          {target.archived === true ? t('workbench.restore') : t('workbench.archive')}
         </button>
-      )}
-      {confirming && (
-        <div>
-          <div style={menuNoteStyle}>{t('workbench.deleteIrreversible')}</div>
-          <button type="button" style={menuItemStyle} disabled={busy} onClick={() => { onDelete(target.path) }}>
-            {t('workbench.delete')}
-          </button>
-          <button type="button" style={menuItemStyle} onClick={onClose}>{t('common.cancel')}</button>
-        </div>
       )}
     </div>
   )
@@ -719,28 +753,30 @@ function DirMenu(props: {
 /** What a rail needs from its row menu: the open menu, and the actions behind it. */
 interface RowMenuHost {
   readonly menu: MenuTarget | null
-  /** True while a delete or a relation change is in flight. */
+  /** True while an archive flip or a relation change is in flight. */
   readonly busy: boolean
   /** Open the menu on one row, at the pointer. */
   readonly open: (file: KbTreeFile, x: number, y: number) => void
   readonly close: () => void
-  readonly remove: (path: string) => Promise<void>
+  /** Flip one entity's archive flag (`archived` is the direction) and reload the tree. */
+  readonly archive: (path: string, archived: boolean) => Promise<void>
   /** Write a person's relation and reload the tree. */
   readonly relate: (path: string, relation: KbPersonRelation) => Promise<void>
 }
 
 /**
  * Own one rail's row menu: opening, dismissing, and the two writes behind it.
- * A delete goes through the host and then drops the centre pane's tab; a
- * relation change only rewrites the field, so the tab stays open.
+ * An archive flip (ADR-0041 决定 7) only moves the row between the active
+ * list and the section's 归档 group — the file stays, so its centre-pane tab
+ * stays open; a relation change likewise only rewrites one field.
  * @param args - the write channels and the callbacks they report to.
  * @returns the menu state and its actions.
  */
 function useRowMenu(args: {
-  readonly deleteFile: FileDeleter
+  readonly archiveEntity: EntityArchiver
+  readonly restoreEntity: EntityArchiver
   readonly setRelation: RelationSetter
   readonly refresh: () => Promise<void>
-  readonly onCloseFile: (path: string) => void
   readonly onError: (message: string) => void
 }): RowMenuHost {
   const [menu, setMenu] = useState<MenuTarget | null>(null)
@@ -749,12 +785,11 @@ function useRowMenu(args: {
   // write paths reach them through a ref.
   const latest = useRef(args)
   latest.current = args
-  const remove = useCallback(async (path: string): Promise<void> => {
+  const archive = useCallback(async (path: string, archived: boolean): Promise<void> => {
     setBusy(true)
     try {
-      await latest.current.deleteFile(path)
+      await (archived ? latest.current.archiveEntity(path) : latest.current.restoreEntity(path))
       await latest.current.refresh()
-      latest.current.onCloseFile(path)
       setMenu(null)
     } catch (failure: unknown) {
       latest.current.onError(remoteMessage(failure))
@@ -779,12 +814,13 @@ function useRowMenu(args: {
       path: file.path,
       name: file.name,
       ...file.relation !== undefined ? { relation: file.relation } : {},
+      ...file.archived === true ? { archived: true } : {},
       x,
       y,
     })
   }, [])
   const close = useCallback((): void => { setMenu(null) }, [])
-  return { menu, busy, open, close, remove, relate }
+  return { menu, busy, open, close, archive, relate }
 }
 
 /**
@@ -851,8 +887,6 @@ export interface RailProps {
   readonly onExpand: () => void
   /** Open a KB file in the centre pane. */
   readonly onOpenFile: (path: string, mode: TabMode) => void
-  /** Drop a KB file's centre-pane tab — the half of a delete the rail owes the frame. */
-  readonly onCloseFile: (path: string) => void
   /** Read the todo singleton as structured items (ADR-0018). */
   readonly loadTodos: TodoLoader
   /** Write the todo singleton's whole item list (ADR-0018). */
@@ -863,8 +897,10 @@ export interface RailProps {
   readonly read: FileReader
   /** Write one KB file's content (ADR-0019). */
   readonly write: FileWriter
-  /** Delete one KB file — the row menu's 「删除」. */
-  readonly deleteFile: FileDeleter
+  /** Archive one entity (ADR-0041 决定 7) — the entity row menu's 「归档」. */
+  readonly archiveEntity: EntityArchiver
+  /** Restore one archived entity (ADR-0041 决定 7) — the archived row menu's 「还原」. */
+  readonly restoreEntity: EntityArchiver
   /** Rewrite one person entity's relation — the row menu's 「关系」. */
   readonly setRelation: RelationSetter
   /** Load the workspace side, so the mail analysis can name what exists (ADR-0019). */
@@ -1010,8 +1046,8 @@ async function dropOnEntity(args: {
  */
 export function IntakeRail(props: IntakeRailProps): ReactElement {
   const {
-    t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, loadTodos, writeTodos, createEntity,
-    read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource, onRefine,
+    t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, loadTodos, writeTodos, createEntity,
+    read, write, archiveEntity, restoreEntity, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource, onRefine,
     capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, onRunCapability, kbRoot = '',
     memoryList, memoryAdd, memoryDelete,
     promptShortcutList, promptShortcutSave, fillShortcut,
@@ -1032,7 +1068,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const [actionError, setActionError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [dropping, setDropping] = useState(false)
-  const rowMenu = useRowMenu({ deleteFile, setRelation, refresh, onCloseFile, onError: setActionError })
+  const rowMenu = useRowMenu({ archiveEntity, restoreEntity, setRelation, refresh, onError: setActionError })
   // ADR-0030: the resource directory's right-click menu — one distill gesture
   // per file under the directory, however nested, handed to the frame's queue.
   const [dirMenu, setDirMenu] = useState<{ dir: string; x: number; y: number } | null>(null)
@@ -1223,7 +1259,8 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
             ? (path) => { onRefine({ mode: 'distill', resource: { path, name: path.split('/').pop() ?? path } }) }
             : undefined}
           kbRoot={kbRoot}
-          onDelete={(path) => { void rowMenu.remove(path) }}
+          // ADR-0041 决定 2/8: a resource row is not an entity — no archive
+          // gesture, and entities being undeletable leaves no delete either.
           onClose={rowMenu.close}
         />
       )}
@@ -1248,7 +1285,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
  */
 export function WorkspaceRail(props: RailProps): ReactElement {
   const {
-    t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, onCloseFile, createEntity, deleteFile,
+    t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, createEntity, archiveEntity, restoreEntity,
     setRelation: writeRelation, registerResource, onRefine, onValidate, capabilityList, onRunCapability, kbRoot = '',
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
@@ -1257,7 +1294,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
   const [actionError, setActionError] = useState<string | null>(null)
   /** The relation a new person gets; 同事 unless the human picks another. */
   const [relation, setRelation] = useState<KbPersonRelation>(DEFAULT_RELATION)
-  const rowMenu = useRowMenu({ deleteFile, setRelation: writeRelation, refresh, onCloseFile, onError: setActionError })
+  const rowMenu = useRowMenu({ archiveEntity, restoreEntity, setRelation: writeRelation, refresh, onError: setActionError })
   // Same reveal as the intake rail: a selection this rail owns pulls its tab
   // forward, one it does not own is left to the other rail — and only a *new*
   // selection reveals, so a tree reload cannot yank the tab back.
@@ -1383,7 +1420,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
             ? undefined
             : (path, name) => { onRefine({ mode: 'refine', entityPath: path, entityName: name, entityType: kind }) }}
           kbRoot={kbRoot}
-          onDelete={(path) => { void rowMenu.remove(path) }}
+          onArchive={(path, archived) => { void rowMenu.archive(path, archived) }}
           onClose={rowMenu.close}
         />
       )}
