@@ -186,7 +186,7 @@ export function ConfigDialog(props: ConfigDialogProps): ReactElement {
 
   return (
     <div style={backdropStyle} onClick={onClose} data-config-backdrop="true">
-      <div style={cardStyle} role="dialog" aria-label={t('config.title')} onClick={event => event.stopPropagation()}>
+      <div style={cardStyle} role="dialog" aria-label={t('config.title')} onClick={(event) => { event.stopPropagation() }}>
         <header style={headerStyle}>
           <span style={titleStyle}>{t('config.title')}</span>
           <button style={ghostStyle} onClick={onClose}>{t('config.close')}</button>
@@ -221,20 +221,20 @@ export function ConfigDialog(props: ConfigDialogProps): ReactElement {
                 <div key={`${row.id}-${index}`} style={rowStyle}>
                   <input style={{ ...inputStyle, flex: 1 }} value={row.id} placeholder={t('config.modelId')}
                     aria-label={t('config.modelId')} disabled={busy}
-                    onChange={event => setRows(rows.map((candidate, at) => at === index
+                    onChange={(event) => { setRows(rows.map((candidate, at) => at === index
                       ? { ...candidate, id: event.target.value }
-                      : candidate))} />
+                      : candidate)) }} />
                   <input style={{ ...inputStyle, flex: 1 }} value={row.name} placeholder={t('config.modelName')}
                     aria-label={t('config.modelName')} disabled={busy}
-                    onChange={event => setRows(rows.map((candidate, at) => at === index
+                    onChange={(event) => { setRows(rows.map((candidate, at) => at === index
                       ? { ...candidate, name: event.target.value }
-                      : candidate))} />
+                      : candidate)) }} />
                   <button style={ghostStyle} disabled={busy} aria-label={t('config.modelRemove')}
-                    onClick={() => setRows(rows.filter((_, at) => at !== index))}>{t('config.modelRemove')}</button>
+                    onClick={() => { setRows(rows.filter((_, at) => at !== index)) }}>{t('config.modelRemove')}</button>
                 </div>
               ))}
               <button style={ghostStyle} disabled={busy}
-                onClick={() => setRows([...rows, { id: '', name: '' }])}>{t('config.modelAdd')}</button>
+                onClick={() => { setRows([...rows, { id: '', name: '' }]) }}>{t('config.modelAdd')}</button>
             </fieldset>
             <label style={fieldStyle}>
               {t('config.defaultModel')}

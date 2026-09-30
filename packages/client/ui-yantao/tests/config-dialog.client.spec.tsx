@@ -45,7 +45,7 @@ describe('ConfigDialog', () => {
   it('loads on mount and paints the gateway view', async () => {
     const load = vi.fn<Loader>().mockResolvedValue(VIEW)
     renderDialog(load, vi.fn<Saver>())
-    await waitFor(() => expect(screen.getByDisplayValue('内网模型网关')).toBeTruthy())
+    await waitFor(() => { expect(screen.getByDisplayValue('内网模型网关')).toBeTruthy() })
     expect(screen.getByDisplayValue('https://gateway.internal/v1')).toBeTruthy()
     expect(screen.getByDisplayValue('inner-glm5.1')).toBeTruthy()
     // A configured key shows only its state, never a value.
@@ -56,7 +56,7 @@ describe('ConfigDialog', () => {
   it('reports a load failure as an alert', async () => {
     const load = vi.fn<Loader>().mockRejectedValue(new Error('命名空间未挂载'))
     renderDialog(load, vi.fn<Saver>())
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('配置读取失败'))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('配置读取失败') })
   })
 
   it('sends the typed key and keeps the endpoint as typed; a saved run clears the key field', async () => {
@@ -68,7 +68,7 @@ describe('ConfigDialog', () => {
     const keyInput = screen.getByPlaceholderText('已配置（留空保持不变）')
     fireEvent.change(keyInput, { target: { value: 'r92c-secret' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
-    await waitFor(() => expect(screen.getByText('已保存')).toBeTruthy())
+    await waitFor(() => { expect(screen.getByText('已保存')).toBeTruthy() })
     expect(save).toHaveBeenCalledTimes(1)
     const sent = save.mock.calls[0]?.[0] as ModelsConfigDraft
     expect(sent.baseURL).toBe('https://h/x/v1/chat/completions') // truncation is the saver's job
@@ -83,7 +83,7 @@ describe('ConfigDialog', () => {
     const save = vi.fn<Saver>().mockResolvedValue({ kind: 'saved' })
     renderDialog(load, save)
     fireEvent.click(await screen.findByRole('button', { name: '保存' }))
-    await waitFor(() => expect(save).toHaveBeenCalled())
+    await waitFor(() => { expect(save).toHaveBeenCalled() })
     expect((save.mock.calls[0]?.[0] as ModelsConfigDraft).apiKey).toBe('')
   })
 
@@ -92,7 +92,7 @@ describe('ConfigDialog', () => {
     const save = vi.fn<Saver>().mockResolvedValue({ kind: 'conflict' })
     renderDialog(load, save)
     fireEvent.click(await screen.findByRole('button', { name: '保存' }))
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('已被其他地方修改'))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('已被其他地方修改') })
     expect(load).toHaveBeenCalledTimes(2)
   })
 
@@ -101,7 +101,7 @@ describe('ConfigDialog', () => {
     const save = vi.fn<Saver>().mockResolvedValue({ kind: 'refused', message: '网关拒绝了这次写入' })
     renderDialog(load, save)
     fireEvent.click(await screen.findByRole('button', { name: '保存' }))
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('网关拒绝了这次写入'))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('网关拒绝了这次写入') })
     expect(screen.getByDisplayValue('内网模型网关')).toBeTruthy()
   })
 
