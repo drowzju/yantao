@@ -50,3 +50,13 @@ status: accepted
 - `packages/client/ui-yantao`：KB 树各节底部「归档」折叠分组；详情页归档/还原按钮；右键菜单「删除」替换为「归档」； locales 中英成对。
 - 文档：`CONTEXT.md` Archive 词条扩写（排除边界、非对称冻结、提名权、留痕、删除入口废弃；"Avoid: 归档目录" 保留）；本 ADR 入索引。
 - 测试：kb 层写面拒绝与图谱过滤、controller 层 RPC 与流水、UI 层手势与分组，随施工补齐。
+
+## 落地注记（2026-10-01）
+
+十项决定当日全部落地（83cf768c52，20 文件 +827/−187）。
+
+- **kb**：`assertNotArchived` 接入 appendLog/writeState/editSection 三写面（KbError `entity-archived`「实体已归档，请先还原」）；`setEntityArchived` 以纯行拼接翻 frontmatter 标志（不重发 YAML、永不写 `archive: false`、陈旧 `archive:` 行原位替换），归档/还原各按 logBullet 格式向「流水」追加一条，幂等（目标状态即现状时不落盘不写流水），todos 单例以 `singleton-entity` 拒绝；`linkGraphOf` 过滤归档节点连同其边（未解析的 null 边保留），`linksOf` 阅读视图不动。新增 `tests/archive.spec.ts` 13 例。
+- **controller**：`deleteFile` RPC 连同 `KbDeleteFileResult` 删除；`archiveEntity`/`restoreEntity` 双 RPC（入参 locator、返回 `{path, archived}`、KbError 按 not-found/rejected 惯例映射、details 只带 `{path}`）；typert 产物再生成。
+- **ui-yantao**：右键「删除+二次确认」整块换为单项「归档/还原」（可逆故无确认，资源行无此项）；详情页 MarkdownView 栏加归档/还原按钮（仅 entities/ 四类实体路径，`frontmatterArchived()` 解析初值 + RPC 返回打 override）；KB 树各类型节底「归档（N）」折叠分组（session-only 折叠态）；locale 键中英成对（archive/restore/archiveGroup）；remotes 聚合层 `lib/client.js` 窄重建（ADR-0040 排障教训的既定动作）。
+- **门禁连带修复**：`gen-cordis-catalog.ts` EXEMPTIONS 换 `KbDeleteFileResult → KbSetEntityArchivedResult` 并补齐 ADR-0040 遗留的 `KbPromptShortcut*`/`KbPromptInjectionResult`，`verify-cordis-catalog` 由红转绿（api-catalog.ts 与 docs/subsystems/yantao.md 生成区同步）。
+- **验证**：kb/controller/ui-yantao 三包 vitest 883/883 全绿（其间修复 mail-analysis 标题断言的 UTC/本地跨零点 flake，f43b95b627）；三包 tsc -b 干净；oxlint 0/0；client bundle 与 frontend build 通过；CONTEXT.md Archive 词条同步扩写。
