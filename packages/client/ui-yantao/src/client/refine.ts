@@ -443,7 +443,8 @@ export function refinePrompt(args: {
     '- 洞见的落点：影响目标的进 `目标`，可执行的进 `下一步`，事实性的进 `状态`；area 用 `标准`/`检视`，person 的近况用 `近期工作动态`。不要发明模板之外的新小节。',
     '- 不要把 `流水` 写进 edits（它只增不改）；要记录的动态写进 log。',
     '- 不要碰 frontmatter（文件开头的 --- 块）。',
-    '- after 是该小节替换后的完整正文：既有内容要保留的原样带上，新增的接在后面；与其它实体的关联直接写成 [[实体名]]。',
+    '- after 是该小节替换后的完整正文：既有内容要保留的原样带上，新增的接在后面；与其它实体的关联织进正文、带上关系说明（如「上级[[李争艳]]」「负责 [[某某项目]]」），不要写成孤立的一行 [[实体名]]——裸链接没有上下文，等于没写。',
+    '- links 数组只用于确实只需一行纯关联的场合（确认后作为独立一行写进该实体的「状态」区）；能用正文一句话讲清的关系（上下级、负责、参与、对接等），优先写进 edits 的 after，不要靠 links 凑数。',
     '- links 的 to 也必须是已有实体名，或 creates 里的新实体名。',
     ...(distill
       ? ['- 资源里的工作进展涉及其中的「人」时，也给该人一个 targets 条目：在其「近期工作动态」小节追加一行带日期的简述（既有内容原样保留、新行接在后面；该小节不存在就当作新建）。与进展无关的人不要动。']
@@ -535,12 +536,23 @@ function resolveTarget(entity: string, views: RefineViews): RefineEntityView | u
  * line becomes the fixed `append-log` row — ticked or not with everything
  * else, never written on its own authority. A target the roster cannot
  * resolve is dropped, not guessed.
+ *
+ * `omitEmptyLogs` (the validate gesture's strict bar, ADR-0036): a target
+ * whose `log` is empty contributes no `append-log` row at all — the default
+ * 「提炼「name」」 filler is exactly the noise-free proposal forbids. The
+ * refine gestures keep the filler.
  * @param verdict - what the model proposed.
  * @param views - the entities the names resolve against.
  * @param title - the card's heading; the session's name.
+ * @param options - `omitEmptyLogs`: skip the append-log row for a log-less target.
  * @returns the proposal.
  */
-export function verdictToProposal(verdict: RefineVerdict, views: RefineViews, title: string): Proposal {
+export function verdictToProposal(
+  verdict: RefineVerdict,
+  views: RefineViews,
+  title: string,
+  options?: { readonly omitEmptyLogs?: boolean },
+): Proposal {
   const actions: ProposalAction[] = []
   for (const create of verdict.creates) {
     actions.push({
@@ -601,13 +613,15 @@ export function verdictToProposal(verdict: RefineVerdict, views: RefineViews, ti
         reason: link.why,
       })
     }
-    actions.push({
-      kind: 'append-log',
-      entityPath: view.path,
-      entityName: view.name,
-      text: target.log !== '' ? target.log : `提炼「${view.name}」`,
-      reason: '提炼记录',
-    })
+    if (target.log !== '' || options?.omitEmptyLogs !== true) {
+      actions.push({
+        kind: 'append-log',
+        entityPath: view.path,
+        entityName: view.name,
+        text: target.log !== '' ? target.log : `提炼「${view.name}」`,
+        reason: '提炼记录',
+      })
+    }
   }
   return { title, actions }
 }

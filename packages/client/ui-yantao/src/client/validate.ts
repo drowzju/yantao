@@ -15,11 +15,20 @@
  * The model is a narrow diagnostician (ADR-0036): the prescan's findings are
  * shown to the human directly, so the prompt attaches the two lists only as
  * context and tells the model not to recite them. Its whole budget goes to
- * three semantic dimensions — stale / contradiction / missing — emitted as
+ * three semantic dimensions — stale / contradiction / missing / bare (the
+ * last added 2026-09-30 for link hygiene) — emitted as
  * display-row findings plus link-only targets. Pages are not created here
  * (that is the 提炼 gesture's craft) and prose is never touched: the verdict
  * maps onto a `RefineVerdict` with `creates` empty, so `verdictToProposal`
  * and the applier machinery run unchanged.
+ *
+ * The card is a conversation, not a verdict dump (2026-09-30 修订): the
+ * prescan block folds into a one-line summary, the model's suggestions
+ * render grouped by target entity, and a free-input box at the bottom sends
+ * the human's instruction back into the same session for a revised verdict —
+ * as many rounds as the human wants. Behavior rules the human teaches along
+ * the way land in the validate scope's capability memory (ADR-0032), read at
+ * the start of every run and injected into the prompt.
  * @module @deepseek-ai/dsh-client-ui-yantao/validate
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -34,14 +43,17 @@ import {
 import type { Proposal, ProposalAction } from './proposal.ts'
 import { verifyValidateVerdict } from './validate-verify.ts'
 import { brokenLinkSectionFixes, suggestLinkFixes } from './broken-link-suggest.ts'
+import { listMemory } from './remote.ts'
 
 /**
  * The kinds a model finding may name (ADR-0036 决定 3): the semantic
  * dimensions only — `orphan`/`broken-link` belong to the prescan, which
  * reports them itself, so a model row carrying them is recitation, dropped
  * by the parser here and verified away by the defence layer (ADR-0036 决定 5).
+ * `bare` (2026-09-30 实体检查的反补) names a link hygiene defect the prescan
+ * cannot see: a `[[…]]` stranded on its own line, without prose context.
  */
-const FINDING_KINDS: readonly string[] = ['stale', 'contradiction', 'missing']
+const FINDING_KINDS: readonly string[] = ['stale', 'contradiction', 'missing', 'bare']
 
 /** One finding: a pure display row on the card — the fix, if any, rides in the action groups. */
 export interface ValidateFinding {
@@ -52,12 +64,22 @@ export interface ValidateFinding {
   readonly why: string
 }
 
+/** One behavior rule the model distilled from the human's correction (ADR-0032's 会话裁决协议, validate face). */
+export interface ValidateMemory {
+  /** The rule, one sentence, able to stand alone beyond this run. */
+  readonly text: string
+  /** One line of why it is worth remembering. */
+  readonly why: string
+}
+
 /** The validate verdict (ADR-0036 决定 1/3): a pure check-up — findings and link-only targets; no creates, no todos. */
 export interface ValidateVerdict {
   readonly reason: string
   readonly findings: readonly ValidateFinding[]
   readonly targets: readonly RefineTargetVerdict[]
   readonly questions: readonly RefineQuestion[]
+  /** Behavior rules to remember in the validate scope; the card proposes them as `add-memory` rows. */
+  readonly memories: readonly ValidateMemory[]
 }
 
 /** One orphan the prescan found: an entity few or no others point at. */
@@ -112,6 +134,13 @@ export interface ValidateRun {
   /** The model's questions, when it asked before proposing (at most one round, ADR-0030's semantics). */
   readonly questions?: readonly RefineQuestion[]
   readonly continueWithAnswers?: (answers: readonly string[]) => Promise<ValidateRun>
+  /**
+   * The card's free-input continuation: the human's instruction goes back
+   * into the same session, one more turn lands a revised verdict, and the
+   * returned run carries its own `continueWithInstruction` again — the loop
+   * spins until the human confirms or dismisses the card.
+   */
+  readonly continueWithInstruction?: (text: string) => Promise<ValidateRun>
 }
 
 /** The coarse stages the frame's task row reports (ADR-0035 决定 6). */
@@ -145,7 +174,7 @@ function entityTypeOf(path: string): string {
 }
 
 /** The display name of one entity path: the stem (a dated meeting keeps its full stem — it is unique). */
-function entityNameOf(path: string): string {
+export function entityNameOf(path: string): string {
   const base = path.split('/').pop() ?? path
   return base.endsWith('.md') ? base.slice(0, -'.md'.length) : base
 }
@@ -179,7 +208,7 @@ export function preScanOf(graph: KbGraphResult): ValidatePreScan {
  * The diagnostic prompt (ADR-0036 决定 2/3/7): the prescan's two lists ride
  * along as context only — the card already shows them, so the prompt says
  * not to recite — plus the whole roster and the named entities' full text
- * (each clipped at the roster clip). Three semantic dimensions, their
+ * (each clipped at the roster clip). Four semantic dimensions, their
  * criteria hard-coded line by line; the JSON shape pins the pure check-up —
  * no creates, no todos, targets carry links only — and the converter strips
  * edits regardless, so a disobedient model cannot write prose through the
@@ -194,16 +223,22 @@ export function validatePrompt(args: {
   readonly named: readonly { readonly name: string; readonly content: string }[]
   /** The run's angle, e.g. 「人物」 — absent means the whole KB. */
   readonly angle?: string
+  /** The validate scope's remembered behavior rules (ADR-0032), already rendered as bullets. */
+  readonly memory?: readonly string[]
 }): string {
   const { preScan } = args
   const blocks = [
     args.angle === undefined
       ? '你是个人知识库的整理助手。这是一次全库体检（实体校验）。'
       : `你是个人知识库的整理助手。这是一次实体校验，视角限定在「${args.angle}」类实体：预扫出的问题和点名实体都只来自这一类，但补链可以指向任何实体。`,
+    ...(args.memory !== undefined && args.memory.length > 0
+      ? ['【行为记忆】人在以往校验中沉淀的规则（历次纠正的累积），本次校验遵守：', ...args.memory.map(rule => `- ${rule}`), '']
+      : []),
     '下面先给出程序预扫出的确定性问题清单——这些系统已经直接呈现给用户，你不需要在回答里复述它们；然后是知识库的实体花名册，以及被点名实体的全文。你的任务是在这份清单之上做语义研判：',
     '- 过期：点名实体的「状态」等小节声称的事，与该实体正文的其它部分或更近的内容相冲突；',
     '- 矛盾：单个实体之内、或点名实体彼此之间，存在互相打架的陈述；',
     '- 缺实体：多处指向一个还不存在的主语，值得为它建一个新实体——你只提示这件事，不要试图产出建页方案，建页由用户在「提炼」手势里完成。',
+    '- 裸链接：单独成行、没有任何上下文说明的 [[实体名]]（常见于文件末尾，或错误地落在「流水」里）——报 kind 为 bare 的 finding，subject 写所在实体名，why 里指出裸行的位置；修复（把链接织进相关小节的正文并带上关系说明，如「上级[[李争艳]]」）要走「提炼」，本次体检不产出修复动作，「流水」里的裸行只能提示人工处理。',
     '',
     `【预扫 · 孤儿条目（入链不超过 1）】共 ${preScan.orphans.length} 条`,
     ...(preScan.orphans.length === 0 ? ['（无）'] : preScan.orphans.map(orphan =>
@@ -223,17 +258,21 @@ export function validatePrompt(args: {
     '{',
     '  "reason": "一句话：这次体检的总体印象",',
     '  "findings": [{ "kind": "stale", "subject": "实体名或链接", "why": "一句话说明" }],',
-    '  "targets": [{ "entity": "已有实体名", "links": [{ "to": "另一实体名", "why": "为什么关联" }], "log": "追加到该实体流水的一句话" }],',
-    '  "questions": [{ "question": "想问用户的问题", "why": "为什么需要问" }]',
+    '  "targets": [{ "entity": "已有实体名", "links": [{ "to": "另一实体名", "why": "为什么关联" }], "log": "追加到该实体流水的一句话，没有实质新信息就留空" }],',
+    '  "questions": [{ "question": "想问用户的问题", "why": "为什么需要问" }],',
+    '  "memories": [{ "text": "要记住的行为规则（一句话）", "why": "为什么值得记" }]',
     '}',
     '```',
     '',
     '规则：',
-    '- findings 是给用户看的语义发现，kind 只能是 stale（过期）/contradiction（矛盾）/missing（缺失）之一；孤儿与失效双链已由系统预扫并直接呈现，复述一律无效；没有发现就是空数组。',
+    '- findings 是给用户看的语义发现，kind 只能是 stale（过期）/contradiction（矛盾）/missing（缺失）/bare（裸链接）之一；孤儿与失效双链已由系统预扫并直接呈现，复述一律无效；没有发现就是空数组。',
     '- 本次是纯体检：不建页、不改正文。没有 creates，没有 todos，targets 里也没有 edits——你只能通过 links 建议补链。',
+    '- 严格门槛：只在确实从记录里挖出了新信息或新关联时才给该实体一个 targets 条目；没有实质收获就不要列——宁可空着，也不要为了凑数给每个实体都安排动作。',
+    '- log 只写这次挖出的实质新信息，一句话；没有新信息就留空字符串，不要写客套话或复述已知内容。',
     '- 每个建议补链的已有实体各给一个 targets 条目，entity 用花名册里的名字原文；名单里没有的不要猜，宁可漏掉。',
     '- links 的 to 必须是花名册里的名字原文。',
     '- 不要把 `流水` 写进任何字段；不要碰 frontmatter。',
+    '- memories 只收可泛化的行为规则或偏好：用户纠正过的校验方式、下次遇到同类情况应当直接照做的规则（例如「没有新信息就不要建议提炼」）。只在有确凿依据时输出；每条一句话，写法要能脱离这次校验单独成立。没有就是空数组。',
     '- 有会影响处置方式的关键疑问才提问，最多三个；需要提问时 targets 留空数组，等用户回答后再给最终结论。没有疑问 questions 就是空数组。',
   ]
   return blocks.join('\n')
@@ -272,16 +311,59 @@ export function parseValidateVerdict(text: string): ValidateVerdict {
     if (!FINDING_KINDS.includes(kind) || subject === '') return undefined
     return { kind, subject, why: field(row, 'why') }
   }).filter((finding): finding is ValidateFinding => finding !== undefined)
+  const memories = rows(value.memories).map((row): ValidateMemory | undefined => {
+    const text = field(row, 'text')
+    // A memory without a text is noise, not a rule (宁可少，不可错).
+    if (text === '') return undefined
+    return { text, why: field(row, 'why') }
+  }).filter((memory): memory is ValidateMemory => memory !== undefined)
   return {
     reason: base.reason,
     findings,
     targets: base.targets,
     questions: base.questions,
+    memories,
   }
 }
 
 /** The re-ask when the first answer is not readable JSON: JSON alone, nothing else. */
-const VALIDATE_REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 findings/targets/questions 字段），不要输出任何其它文字。'
+const VALIDATE_REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 findings/targets/questions/memories 字段），不要输出任何其它文字。'
+
+/** The behavior-memory scope the validate gesture reads and remembers into (ADR-0032 能力域). */
+export const VALIDATE_MEMORY_SCOPE = 'validate'
+
+/**
+ * The validate scope's behavior memory (ADR-0032): read once per run and
+ * injected into the prompt — the mail closed-loop's client-driven wiring,
+ * copied. A read failure degrades to no memory, never a broken run.
+ * @param ctx - the client root context.
+ * @returns the scope's remembered rules as prompt bullets.
+ */
+async function validateMemoryOf(ctx: Context): Promise<readonly string[]> {
+  try {
+    const { groups } = await listMemory(ctx)
+    return groups.find(group => group.scope === VALIDATE_MEMORY_SCOPE)?.entries.map(entry => entry.text) ?? []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The follow-up prompt when the human types an instruction into the card's
+ * free-input box: the same JSON shape again, no more questions — and the
+ * gate that decides which instructions deserve to become memory.
+ * @param text - the human's verbatim instruction.
+ * @returns the prompt text.
+ */
+export function validateInstructionPrompt(text: string): string {
+  return [
+    '用户对上面的校验结论提出了补充意见。请结合这条意见修订你的结论，重新输出完整的 JSON（字段格式与之前相同），不要再提问：',
+    '',
+    `【用户意见】${text}`,
+    '',
+    '规则：若意见里包含可泛化的行为规则或偏好（下次校验也应当照做的），把它写进 memories；仅针对本次结果的要求不要写进 memories。修订后的 targets 仍受同样的严格门槛约束：没有实质新信息就不要列。',
+  ].join('\n')
+}
 
 /**
  * The deterministic broken-link material one run attaches to the card
@@ -327,17 +409,21 @@ export function brokenLinkFixesOf(
     const subject = `[[${link.target}]]`
     const best = candidates.at(0)
     if (best === undefined) {
-      findings.push({ kind: 'broken-link', subject, why: `无可信修复候选（位于 ${host.name}），请手工改写` })
+      findings.push({ kind: 'broken-link', subject, why: `写在 ${host.name}；知识库里找不到相近的实体，请手工改写这条链接，或为它新建实体` })
       continue
     }
     const fixes = brokenLinkSectionFixes(host.content, link.target, best.name)
     if (fixes.length === 0) {
-      findings.push({ kind: 'broken-link', subject, why: `失链不在任何小节正文里（位于 ${host.name}），请手工改写` })
+      findings.push({ kind: 'broken-link', subject, why: `写在 ${host.name}；失链不在任何可改写的小节正文里，请手工处理` })
       continue
     }
     for (const fix of fixes) {
       if (fix.section === '流水') {
-        findings.push({ kind: 'broken-link', subject, why: `「流水」只增不改（位于 ${host.name}），这条失链请手工处理` })
+        findings.push({
+          kind: 'broken-link',
+          subject,
+          why: `写在 ${host.name} 的「流水」里；[[${link.target}]] 这个实体不存在，现存相近的是 [[${best.name}]]。「流水」只增不改，请手动修正这一行`,
+        })
         continue
       }
       actions.push({
@@ -395,7 +481,17 @@ export function verdictToValidateProposal(
     creates: [],
     questions: [],
   }
-  const proposal = verdictToProposal(refined, views, title)
+  // omitEmptyLogs: the strict bar — a target without a substantive log line
+  // contributes no 「提炼记录」 filler row (the refine gestures keep theirs).
+  const proposal = verdictToProposal(refined, views, title, { omitEmptyLogs: true })
+  // The validate scope's memories become add-memory rows, the scope pinned
+  // here exactly as the mail analysis pins its own (ADR-0032 批次③).
+  const memoryRows: readonly ProposalAction[] = verdict.memories.map(memory => ({
+    kind: 'add-memory',
+    scope: VALIDATE_MEMORY_SCOPE,
+    text: memory.text,
+    reason: memory.why,
+  }))
   // The fix rows live SOLELY in `prescan.actions`: the card and the applier
   // both treat `prescan.actions` and `actions` as disjoint (the applier
   // resolves ticked indices over `[...prescan.actions, ...actions]`), so
@@ -403,6 +499,7 @@ export function verdictToValidateProposal(
   // The execution front they need comes from that concatenation itself.
   return {
     ...proposal,
+    ...(memoryRows.length > 0 ? { actions: [...proposal.actions, ...memoryRows] } : {}),
     ...(blocks === undefined ? {} : {
       prescan: {
         orphans: blocks.orphans,
@@ -538,13 +635,27 @@ export async function runValidate(options: {
       preScan,
       stats: stats(checked.verdict.findings.length, filtered),
       proposal,
+      // The instruction loop hangs off every final run; each continuation
+      // lands in the same session and returns a run with its own continuation.
+      continueWithInstruction: async (text: string): Promise<ValidateRun> => {
+        const next = await jsonRound({
+          session,
+          sessionId,
+          prompt: validateInstructionPrompt(text),
+          reask: VALIDATE_REASK,
+          parse: parseValidateVerdict,
+          onUsage,
+          ...signal !== undefined ? { signal } : {},
+        })
+        return finish(next)
+      },
     }
   }
 
   const verdict = await jsonRound({
     session,
     sessionId,
-    prompt: validatePrompt({ preScan, roster, named, angle }),
+    prompt: validatePrompt({ preScan, roster, named, angle, memory: await validateMemoryOf(ctx) }),
     reask: VALIDATE_REASK,
     parse: parseValidateVerdict,
     onUsage,

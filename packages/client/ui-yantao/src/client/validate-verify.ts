@@ -48,8 +48,8 @@ export interface VerifyCounts {
 
 /**
  * Verify a parsed verdict against reality (ADR-0036 决定 5):
- * - `stale`/`contradiction` findings must name an entity the model actually
- *   saw (the prescan's named entities) or one of its broken links —
+ * - `stale`/`contradiction`/`bare` findings must name an entity the model
+ *   actually saw (the prescan's named entities) or one of its broken links —
  *   anything else is invention;
  * - `missing` findings name an absence, so the check inverts: a subject the
  *   roster already holds is not missing — dropped;
@@ -75,9 +75,14 @@ export function verifyValidateVerdict(args: {
   let droppedFindings = 0
   const findings = args.verdict.findings.filter((finding) => {
     const target = normalizeEntityName(subjectTargetOf(finding.subject))
+    // `bare` (2026-09-30 link hygiene) rides with stale/contradiction: its
+    // subject is the host entity whose full text the model saw, so the same
+    // seen-it check applies — a bare link in an entity the model never read
+    // is invention, and one in a named entity is real.
     const alive = finding.kind === 'missing'
       ? !roster.has(target)
-      : (finding.kind === 'stale' || finding.kind === 'contradiction') && (named.has(target) || broken.has(target))
+      : (finding.kind === 'stale' || finding.kind === 'contradiction' || finding.kind === 'bare')
+        && (named.has(target) || broken.has(target))
     if (!alive) droppedFindings += 1
     return alive
   })

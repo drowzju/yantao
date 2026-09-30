@@ -58,6 +58,22 @@ describe('verifyValidateVerdict', () => {
     expect(counts.findings).toBe(3)
   })
 
+  it('keeps bare findings on named subjects, drops the unseen ones', () => {
+    const { verdict: checked, counts } = verifyValidateVerdict({
+      verdict: verdict({
+        findings: [
+          { kind: 'bare', subject: '孤岛', why: '文件末尾的裸链接，模型读过它' },
+          { kind: 'bare', subject: '李四', why: '在花名册但没被点名——模型没读过' },
+        ],
+      }),
+      rosterNames: ROSTER, namedNames: NAMED, brokenTargets: BROKEN,
+    })
+    expect(checked.findings).toEqual([
+      { kind: 'bare', subject: '孤岛', why: '文件末尾的裸链接，模型读过它' },
+    ])
+    expect(counts.findings).toBe(1)
+  })
+
   it('resolves bracketed aliases; width folding never widens the named set', () => {
     const { verdict: checked } = verifyValidateVerdict({
       verdict: verdict({

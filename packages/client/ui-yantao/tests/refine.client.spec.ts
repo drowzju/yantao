@@ -153,6 +153,15 @@ describe('refinePrompt', () => {
     expect(text).toContain('targets 至多一条')
   })
 
+  it('demands woven, described links — never a bare standalone line (2026-09-30 反补)', () => {
+    const text = refinePrompt({ ...base, resource: { name: 'r', content: 'c' } })
+    expect(text).toContain('织进正文、带上关系说明')
+    expect(text).toContain('不要写成孤立的一行 [[实体名]]')
+    expect(text).toContain('links 数组只用于确实只需一行纯关联的场合')
+    // The old blanket licence for bare links is gone.
+    expect(text).not.toContain('关联直接写成 [[实体名]]')
+  })
+
   it('shows the whole distill roster and asks for a many-to-many mapping', () => {
     const text = refinePrompt({
       mode: 'distill',

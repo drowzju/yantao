@@ -718,6 +718,9 @@ export function Frame({
   // onStage; the closing notice carries the stats tally home.
   const [validateProposal, setValidateProposal] = useState<Proposal | null>(null)
   const [validateQuestion, setValidateQuestion] = useState<{ run: ValidateRun; taskId: string } | null>(null)
+  // The run behind the shown card: the free-input box's continuation hangs
+  // off it (2026-09-30 修订) — each instruction round replaces both.
+  const [validateLive, setValidateLive] = useState<{ run: ValidateRun; taskId: string } | null>(null)
   const [validateContinuing, setValidateContinuing] = useState(false)
   const validateAbort = useRef<AbortController | null>(null)
   const validateCancelled = useRef(false)
@@ -735,8 +738,41 @@ export function Frame({
       tokens: run.stats.tokens,
       elapsed: formatElapsed(run.stats.elapsedMs),
     }))
-    if (run.proposal !== undefined) setValidateProposal(run.proposal)
+    if (run.proposal !== undefined) {
+      setValidateProposal(run.proposal)
+      setValidateLive({ run, taskId })
+    }
   }, [t, taskEnd])
+
+  /** One instruction round from the card's free-input box: revise in place. */
+  const sendValidateInstruction = useCallback((text: string): Promise<void> => {
+    const live = validateLive
+    if (live === null || live.run.continueWithInstruction === undefined) return Promise.resolve()
+    // A continuation occupies the same slot a fresh pass would: gate it with
+    // the same busy flag, or a second validate could run alongside it
+    // (OCR review 2026-09-30).
+    validateBusy.current = true
+    setValidateActive(true)
+    setValidateContinuing(true)
+    taskPatch(live.taskId, { status: 'running', stage: '正在按意见修订…', endedAt: null })
+    return live.run.continueWithInstruction(text).then((final) => {
+      showValidateRun(final, live.taskId)
+    }, (failure: unknown) => {
+      if (validateCancelled.current) {
+        setCapabilityNotice('实体校验修订已取消。')
+        taskEnd(live.taskId, 'cancelled', '已取消')
+        return
+      }
+      setCapabilityNotice(`实体校验修订失败：${remoteMessage(failure)}`)
+      taskEnd(live.taskId, 'failed', `失败：${remoteMessage(failure)}`)
+      // Rethrow so the card's free-input box keeps the draft for retry.
+      throw failure
+    }).finally(() => {
+      validateBusy.current = false
+      setValidateActive(false)
+      setValidateContinuing(false)
+    })
+  }, [showValidateRun, taskEnd, taskPatch, validateLive])
 
   const runValidateGesture = useCallback((scope: ValidateScope): void => {
     // One at a time: a running pass or an unanswered question round swallows
@@ -1331,9 +1367,15 @@ export function Frame({
           onConfirm={(ticked) => {
             const proposal = validateProposal
             setValidateProposal(null)
+            setValidateLive(null)
             confirmProposal(proposal, ticked)
           }}
-          onDismiss={() => { setValidateProposal(null) }}
+          onDismiss={() => {
+            setValidateProposal(null)
+            setValidateLive(null)
+          }}
+          onInstruction={sendValidateInstruction}
+          busy={validateContinuing}
           t={t}
         />
       )}

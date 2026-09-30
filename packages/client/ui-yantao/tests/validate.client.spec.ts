@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { KbGraphResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import { parseValidateVerdict, preScanOf, validatePrompt, verdictToValidateProposal } from '../src/client/validate.ts'
+import {
+  parseValidateVerdict, preScanOf, validateInstructionPrompt, validatePrompt, verdictToValidateProposal,
+  VALIDATE_MEMORY_SCOPE,
+} from '../src/client/validate.ts'
 
 /** A graph builder: nodes are entity paths, edges are `[from, target, to]` triples (to=null ⇒ broken). */
 function graph(nodes: readonly string[], edges: readonly (readonly [string, string, string | null])[]): KbGraphResult {
@@ -92,11 +95,32 @@ describe('validatePrompt', () => {
     expect(text).not.toContain('"edits"')
     expect(text).toContain('不建页、不改正文')
     expect(text).toContain('只能通过 links 建议补链')
+    // The strict bar (2026-09-30): no filler targets, no filler logs, and
+    // the memory slot is part of the shape.
+    expect(text).toContain('严格门槛')
+    expect(text).toContain('没有新信息就留空字符串')
+    expect(text).toContain('"memories"')
+    expect(text).toContain('可泛化的行为规则或偏好')
   })
 
   it('prints （无） for an empty prescan list instead of nothing', () => {
     const text = validatePrompt({ preScan: { entities: 0, orphans: [], broken: [] }, roster: [], named: [] })
     expect(text).toContain('（无）')
+  })
+
+  it('opens with the remembered behavior rules when the validate scope has memory', () => {
+    const text = validatePrompt({
+      preScan: { entities: 0, orphans: [], broken: [] },
+      roster: [],
+      named: [],
+      memory: ['没有新信息就不要建议提炼', '补链前先核对双方页面'],
+    })
+    expect(text).toContain('【行为记忆】人在以往校验中沉淀的规则')
+    expect(text).toContain('- 没有新信息就不要建议提炼')
+    expect(text).toContain('- 补链前先核对双方页面')
+    // A run without memory carries no memory block at all.
+    const bare = validatePrompt({ preScan: { entities: 0, orphans: [], broken: [] }, roster: [], named: [] })
+    expect(bare).not.toContain('【行为记忆】')
   })
 
   it('frames a scoped run: the angle narrows the prescan, links may still go anywhere', () => {
@@ -139,6 +163,24 @@ describe('parseValidateVerdict', () => {
     expect(parsed.questions).toEqual([])
   })
 
+  it('keeps a bare-link finding — the 2026-09-30 link-hygiene dimension', () => {
+    const parsed = parseValidateVerdict(verdict({
+      findings: [{ kind: 'bare', subject: '王泽', why: '文件末尾有一行孤立的 [[我自己]]' }],
+    }))
+    expect(parsed.findings).toEqual([{ kind: 'bare', subject: '王泽', why: '文件末尾有一行孤立的 [[我自己]]' }])
+  })
+
+  it('asks the model to hunt stranded bare links and route the fix to 提炼', () => {
+    const text = validatePrompt({
+      preScan: { entities: 0, orphans: [], broken: [] },
+      roster: [],
+      named: [{ name: '王泽', content: '## 流水\n\n- 2026-09-17 创建 王泽\n[[我自己]]' }],
+    })
+    expect(text).toContain('裸链接')
+    expect(text).toContain('bare')
+    expect(text).toContain('要走「提炼」')
+  })
+
   it('drops findings with an unknown kind or no subject, not guessing', () => {
     const parsed = parseValidateVerdict(verdict({
       findings: [
@@ -162,8 +204,32 @@ describe('parseValidateVerdict', () => {
     expect(parsed).not.toHaveProperty('todos')
   })
 
+  it('parses memories, dropping the textless rows', () => {
+    const parsed = parseValidateVerdict(verdict({
+      memories: [
+        { text: '没有新信息就不要建议提炼', why: '用户 0930 明确要求' },
+        { text: '', why: '空规则不是规则' },
+        { why: '没有正文' },
+      ],
+    }))
+    expect(parsed.memories).toEqual([{ text: '没有新信息就不要建议提炼', why: '用户 0930 明确要求' }])
+  })
+
+  it('defaults memories to empty when the model omits the key', () => {
+    expect(parseValidateVerdict(verdict()).memories).toEqual([])
+  })
+
   it('throws on unreadable JSON — silence would read as nothing to do', () => {
     expect(() => parseValidateVerdict('这不是 JSON')).toThrow()
+  })
+})
+
+describe('validateInstructionPrompt', () => {
+  it('carries the verbatim instruction and the memory gate', () => {
+    const text = validateInstructionPrompt('以后别推荐没有新信息的提炼')
+    expect(text).toContain('【用户意见】以后别推荐没有新信息的提炼')
+    expect(text).toContain('写进 memories')
+    expect(text).toContain('严格门槛')
   })
 })
 
@@ -182,6 +248,7 @@ describe('verdictToValidateProposal', () => {
         findings: [],
         targets: [{ entity: '飞书迁移', edits: [{ section: '状态', after: '违禁改写', why: 'w' }], links: [{ to: '孤岛', why: '同域' }], log: '体检补链' }],
         questions: [],
+        memories: [],
       },
       VIEWS,
       '实体校验 2026-09-29',
@@ -194,6 +261,39 @@ describe('verdictToValidateProposal', () => {
     expect(proposal.actions.some(action => action.kind === 'append-log')).toBe(true)
   })
 
+  it('skips the 提炼记录 filler for a log-less target — the strict bar', () => {
+    const proposal = verdictToValidateProposal(
+      {
+        reason: 'r',
+        findings: [],
+        targets: [{ entity: '飞书迁移', edits: [], links: [{ to: '孤岛', why: '同域' }], log: '' }],
+        questions: [],
+        memories: [],
+      },
+      VIEWS,
+      't',
+    )
+    expect(proposal.actions.some(action => action.kind === 'append-log')).toBe(false)
+    expect(proposal.actions.some(action => action.kind === 'create-link')).toBe(true)
+  })
+
+  it('maps memories onto add-memory rows pinned to the validate scope', () => {
+    const proposal = verdictToValidateProposal(
+      {
+        reason: 'r',
+        findings: [],
+        targets: [],
+        questions: [],
+        memories: [{ text: '没有新信息就不要建议提炼', why: '用户要求' }],
+      },
+      VIEWS,
+      't',
+    )
+    expect(proposal.actions).toEqual([
+      { kind: 'add-memory', scope: VALIDATE_MEMORY_SCOPE, text: '没有新信息就不要建议提炼', reason: '用户要求' },
+    ])
+  })
+
   it('attaches the findings as the card\'s display rows and never creates entities', () => {
     const proposal = verdictToValidateProposal(
       {
@@ -201,6 +301,7 @@ describe('verdictToValidateProposal', () => {
         findings: [{ kind: 'missing', subject: '邮箱迁移', why: '多处指向一个还不存在的主题' }],
         targets: [],
         questions: [],
+        memories: [],
       },
       VIEWS,
       't',

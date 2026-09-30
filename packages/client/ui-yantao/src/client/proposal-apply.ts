@@ -95,6 +95,26 @@ export function insertIntoSection(content: string, heading: string, text: string
 }
 
 /**
+ * Write one line into an entity's `## 状态`, creating the section when the
+ * file does not carry it — ahead of `## 流水` (the append-only journal stays
+ * last), or at the end when there is no `## 流水` either. The naive fallback
+ * (dumping the line at the file's end) is what stranded bare `[[…]]` links
+ * after the 流水 of entities whose template predates the 状态 section
+ * (2026-09-30 实体检查): a state line must never land outside a section.
+ * @param content - the file's current content.
+ * @param text - the line to write.
+ * @returns the new content.
+ */
+export function insertIntoStateSection(content: string, text: string): string {
+  const lines = content.replace(/\s*$/, '').split('\n')
+  if (lines.some(line => line.trim() === '## 状态')) return insertIntoSection(content, '## 状态', text)
+  const block = ['', '## 状态', '', text, '']
+  const flow = lines.findIndex(line => line.trim() === '## 流水')
+  if (flow === -1) return [...lines, ...block].join('\n')
+  return [...lines.slice(0, flow), ...block, ...lines.slice(flow)].join('\n')
+}
+
+/**
  * Replace one markdown section's body: everything between the section's
  * heading and the next heading of the same or higher level becomes `after`.
  * A heading the file does not carry creates the section at the end of the
@@ -358,10 +378,11 @@ export async function applyProposal(options: {
         await target.write(entityPath, appendLog(content, action.text))
       } else {
         // Domain data, not UI copy: `## 状态` is the KB's own section heading
-        // (the glossary's 状态), independent of the workbench locale.
-        const stateSection = '## 状态'
+        // (the glossary's 状态), independent of the workbench locale. A file
+        // without the section gets it created (ahead of `## 流水`) — never a
+        // bare line stranded at the file's end.
         const line = action.kind === 'create-link' ? action.link : action.text
-        await target.write(entityPath, insertIntoSection(content, stateSection, line))
+        await target.write(entityPath, insertIntoStateSection(content, line))
       }
       written.push(writtenLine(action))
     } catch (error) {

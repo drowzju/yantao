@@ -190,7 +190,7 @@ describe('brokenLinkFixesOf', () => {
     })
     // 同一条失链还出现在流水里——那一处降级为展示行，动作行只管状态节。
     expect(fixes.findings).toEqual([
-      { kind: 'broken-link', subject: '[[油箱迁移]]', why: '「流水」只增不改（位于 张三），这条失链请手工处理' },
+      { kind: 'broken-link', subject: '[[油箱迁移]]', why: '写在 张三 的「流水」里；[[油箱迁移]] 这个实体不存在，现存相近的是 [[邮箱迁移]]。「流水」只增不改，请手动修正这一行' },
     ])
   })
 
@@ -199,7 +199,7 @@ describe('brokenLinkFixesOf', () => {
     const fixes = brokenLinkFixesOf(preScanWith(ZHANG_PATH, '油箱迁移'), viewsWith(content), ROSTER)
     expect(fixes.actions).toEqual([])
     expect(fixes.findings).toEqual([
-      { kind: 'broken-link', subject: '[[油箱迁移]]', why: '「流水」只增不改（位于 张三），这条失链请手工处理' },
+      { kind: 'broken-link', subject: '[[油箱迁移]]', why: '写在 张三 的「流水」里；[[油箱迁移]] 这个实体不存在，现存相近的是 [[邮箱迁移]]。「流水」只增不改，请手动修正这一行' },
     ])
   })
 
@@ -208,7 +208,7 @@ describe('brokenLinkFixesOf', () => {
     const fixes = brokenLinkFixesOf(preScanWith(ZHANG_PATH, '凭空捏造'), viewsWith(content), ROSTER)
     expect(fixes.actions).toEqual([])
     expect(fixes.findings).toEqual([
-      { kind: 'broken-link', subject: '[[凭空捏造]]', why: '无可信修复候选（位于 张三），请手工改写' },
+      { kind: 'broken-link', subject: '[[凭空捏造]]', why: '写在 张三；知识库里找不到相近的实体，请手工改写这条链接，或为它新建实体' },
     ])
   })
 
@@ -217,7 +217,7 @@ describe('brokenLinkFixesOf', () => {
     const fixes = brokenLinkFixesOf(preScanWith(ZHANG_PATH, '邮箱迁移'), viewsWith(content), ROSTER)
     expect(fixes.actions).toEqual([])
     expect(fixes.findings).toEqual([
-      { kind: 'broken-link', subject: '[[邮箱迁移]]', why: '失链不在任何小节正文里（位于 张三），请手工改写' },
+      { kind: 'broken-link', subject: '[[邮箱迁移]]', why: '写在 张三；失链不在任何可改写的小节正文里，请手工处理' },
     ])
   })
 
@@ -244,6 +244,7 @@ describe('verdictToValidateProposal with the deterministic blocks', () => {
     findings: [{ kind: 'stale', subject: '张三', why: '状态过期' }],
     targets: [],
     questions: [],
+    memories: [],
   }
   const FIX_ACTION = { kind: 'edit-section', path: ZHANG_PATH, section: '状态', before: 'a', after: 'b', why: 'w' } as const
 
@@ -353,7 +354,7 @@ describe('end-to-end: a fix action lands through the applier', () => {
     const fixes = brokenLinkFixesOf(preScanWith(ZHANG_PATH, '油箱迁移'), viewsWith(FIXTURE), ROSTER)
     expect(fixes.actions).toHaveLength(1)
     expect(fixes.findings).toEqual([
-      { kind: 'broken-link', subject: '[[油箱迁移]]', why: '「流水」只增不改（位于 张三），这条失链请手工处理' },
+      { kind: 'broken-link', subject: '[[油箱迁移]]', why: '写在 张三 的「流水」里；[[油箱迁移]] 这个实体不存在，现存相近的是 [[邮箱迁移]]。「流水」只增不改，请手动修正这一行' },
     ])
     const result = await applyProposal({
       proposal: { title: 't', actions: [...fixes.actions] },

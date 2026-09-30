@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { KbTodosResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { Proposal } from '../src/client/proposal.ts'
 import type { ProposalTarget } from '../src/client/proposal-apply.ts'
-import { applyProposal, insertIntoSection, replaceSection } from '../src/client/proposal-apply.ts'
+import { applyProposal, insertIntoSection, insertIntoStateSection, replaceSection } from '../src/client/proposal-apply.ts'
 
 const TODOS_PATH = 'entities/todos.md'
 const TEXT = '- [ ] 已有的待办\n'
@@ -458,6 +458,52 @@ describe('replaceSection', () => {
   it('refuses a heading the file carries twice instead of picking one', () => {
     const content = '## 状态\n\n一\n\n## 状态\n\n二\n'
     expect(() => replaceSection(content, '## 状态', '三')).toThrow(/2 次/)
+  })
+})
+
+describe('insertIntoStateSection (2026-09-30 反补)', () => {
+  it('inserts into the 状态 section the file already carries', () => {
+    const content = '# 王泽\n\n## 状态\n\n系分方向\n\n## 流水\n\n- 2026-09-17 创建\n'
+    const next = insertIntoStateSection(content, '[[我自己]]')
+    expect(next).toContain('[[我自己]]')
+    expect(next.indexOf('[[我自己]]')).toBeGreaterThan(next.indexOf('系分方向'))
+    expect(next.indexOf('[[我自己]]')).toBeLessThan(next.indexOf('## 流水'))
+  })
+
+  it('creates the 状态 section ahead of 流水 when the file lacks it', () => {
+    const content = '# 王泽\n\n## 基本信息\n\n员工ID 119219\n\n## 流水\n\n- 2026-09-17 创建\n'
+    const next = insertIntoStateSection(content, '[[我自己]]')
+    expect(next).toContain('## 状态')
+    expect(next).toContain('[[我自己]]')
+    // 流水 stays the last section; the fresh 状态 sits before it.
+    expect(next.indexOf('## 状态')).toBeGreaterThan(next.indexOf('## 基本信息'))
+    expect(next.indexOf('## 状态')).toBeLessThan(next.indexOf('## 流水'))
+    expect(next.indexOf('- 2026-09-17 创建')).toBeGreaterThan(next.indexOf('## 流水'))
+  })
+
+  it('appends the section at the end when there is no 流水 either', () => {
+    const content = '# 李争艳\n\nPQA同事。\n'
+    const next = insertIntoStateSection(content, '[[我自己]]')
+    expect(next).toContain('## 状态')
+    expect(next).toContain('[[我自己]]')
+    expect(next.indexOf('## 状态')).toBeGreaterThan(next.indexOf('PQA同事'))
+  })
+
+  it('a create-link into a 状态-less file lands in a fresh section, not a bare trailing line', async () => {
+    const content = '# 王泽\n\n## 基本信息\n\n员工ID 119219\n\n## 流水\n\n- 2026-09-17 创建\n'
+    const t = target({ read: vi.fn(async () => content) })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{
+        kind: 'create-link', entityPath: 'entities/people/王泽.md', entityName: '王泽',
+        link: '[[我自己]]', reason: 'r',
+      }],
+    }
+    await applyProposal({ proposal, ticked: [0], target: t })
+    const [, written] = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
+    expect(written).toContain('## 状态')
+    expect(written).toContain('[[我自己]]')
+    expect(written.indexOf('## 状态')).toBeLessThan(written.indexOf('## 流水'))
   })
 })
 
