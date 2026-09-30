@@ -23,7 +23,7 @@ import { readCitedEntries } from './cited.ts'
 import { appendLog, createEntity, editSection, initKb, listEntities, readEntity, readResource, registerResource, writeResource, writeState } from './core.ts'
 import { kbMentions, renderKbMentions } from './mentions.ts'
 import { importLegacyRootState } from './root-store.ts'
-import { registerBehaviorMemorySection, registerPromptSections } from './sections.ts'
+import { registerBehaviorMemorySection, registerPromptSections, registerPromptShortcutsSection } from './sections.ts'
 import { ENTITY_TYPES, PERSON_RELATIONS } from './types.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -179,6 +179,10 @@ export function apply(ctx: Context, config: Config): void {
   // The dynamic section (ADR-0032 批次②): the global behavior memory rides
   // the system prompt, re-read from the KB on every assembly.
   registerBehaviorMemorySection(ctx, () => liveRoot.root)
+
+  // The prompt-shortcuts section (ADR-0040 决定 5): the human's favorite slash
+  // aliases, the agent-side expansion authority for every entry point.
+  registerPromptShortcutsSection(ctx, () => liveRoot.root)
 
   // `@` mentions: the composer inserts a KB-relative path, and nothing else in
   // this profile tells the model what one is. Read the cited files and hand
@@ -532,12 +536,17 @@ export {
   serializeMemoryFile,
 } from './memory.ts'
 export type { MemoryEntry, MemoryFile, MemoryScope } from './memory.ts'
+export {
+  normalizePromptShortcuts, PROMPT_SHORTCUTS_DISPLAY_PATH, PROMPT_SHORTCUTS_SOFT_CAP,
+  readPromptShortcuts, renderPromptShortcutsSection, writePromptShortcuts,
+} from './prompt-shortcuts.ts'
+export type { PromptShortcut, PromptShortcutFile } from './prompt-shortcuts.ts'
 export { linksOf, linkGraphOf, resolveWikiLink, wikilinks } from './links.ts'
 export type { KbGraph, KbGraphEdge, KbLinkSource, KbLinkTarget, KbLinks, WikiLink } from './links.ts'
 // The prompt-section layer's vocabulary, for host-side consumers that price
 // the yantao injection (the controller's context meter): the section roster
 // and its text loader are the exact source the plugin registers from.
-export { BEHAVIOR_MEMORY_SECTION, loadSectionText, YANTAO_SECTIONS } from './sections.ts'
+export { BEHAVIOR_MEMORY_SECTION, PROMPT_SHORTCUTS_SECTION, loadSectionText, YANTAO_SECTIONS } from './sections.ts'
 export type { YantaoSection } from './sections.ts'
 export { parseFrontmatter } from './frontmatter.ts'
 export type { Frontmatter } from './frontmatter.ts'

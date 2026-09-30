@@ -702,3 +702,31 @@ export interface KbMemoryDeleteResult {
   /** KB-relative path of the scope's markdown file. */
   readonly path: string
 }
+
+/** One saved favorite (ADR-0040): the slash alias and the text it expands to. */
+export interface KbPromptShortcut {
+  /** The alias as typed after `/` — one token, no whitespace or slash. */
+  readonly alias: string
+  /** The expansion the agent performs when it sees `/alias`. */
+  readonly text: string
+}
+
+/** Result of `yantaoKb.promptShortcutList` (ADR-0040). */
+export interface KbPromptShortcutListResult {
+  /** The shortcuts in display (stored) order. */
+  readonly shortcuts: readonly KbPromptShortcut[]
+}
+
+/** Parameters of `yantaoKb.promptShortcutSave` (ADR-0040): full-list replace. */
+export interface KbPromptShortcutSaveArgs {
+  /** The complete new list, in display order; validation refuses bad aliases. */
+  readonly shortcuts: readonly KbPromptShortcut[]
+}
+
+/** Result of `yantaoKb.promptShortcutSave` (ADR-0040). */
+export interface KbPromptShortcutSaveResult {
+  /** The list as stored (normalized). */
+  readonly shortcuts: readonly KbPromptShortcut[]
+  /** KB-relative path of the store, for the UI's error copy. */
+  readonly path: string
+}

@@ -19,7 +19,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 // Type-only: pulls the `conversation.hero.brand.mark` slot-name merge
 // (ui-conversation owns the declaration) — the hero mark is the one piece of
-// the borrowed middle column we replace.
+// the borrowed middle column we replace. Also the `ctx.conversation` service
+// merge: ADR-0040's composer fill reaches the current session's input face
+// through it.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls the `ctx.workspaces` service merge (the workspace
 // controller owns the declaration) — ADR-0013 points it at the KB root.
@@ -36,7 +38,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 // through it.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {
-  KbCapabilityRunArgs, KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation, KbWriteTodosArgs,
+  KbCapabilityRunArgs, KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation,
+  KbPromptShortcutSaveArgs, KbWriteTodosArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
@@ -53,12 +56,14 @@ import { YantaoMark } from './brand/YantaoMark.tsx'
 import { alignWorkspace } from './kb-workspace.ts'
 import { kbReferenceSource } from './kb-reference.ts'
 import { capabilityGestureSource } from './capability-gesture.ts'
+import { promptShortcutSource } from './prompt-shortcut-gesture.ts'
 import { WORKBENCH_NS, en, zh } from './locales.ts'
 import {
-  addMemory, adoptCapability, archiveMails, createCapability, createEntity, deleteFile, deleteMemory, deleteMails, fetchMail, listMemory,
-  loadCapabilities, loadIntake, loadLinks, loadPromptInjection,
+  addMemory, adoptCapability, archiveMails, createCapability, createEntity, deleteFile, deleteMemory, deleteMails,
+  fetchMail, fillComposerWithShortcut, listMemory,
+  loadCapabilities, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
   loadRevision, loadRoot, loadTodos,
-  loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, runCapability, setKbRoot,
+  loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, runCapability, savePromptShortcuts, setKbRoot,
   setRelation, writeFile, writeTodos,
 } from './remote.ts'
 import type { CapabilityRegisterReach } from './remote.ts'
@@ -87,7 +92,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 // the model gateway's profile and the credential store the raw key lands in.
 export const inject = [
   'slots', 'theme', 'locale', 'remote', 'remote.yantaoKb', 'remote.session', 'remote.settings', 'remote.credentials',
-  'sessions', 'uiWorkspace', 'workspaces', 'inputTriggers',
+  'sessions', 'uiWorkspace', 'workspaces', 'inputTriggers', 'conversation',
 ]
 
 /**
@@ -237,6 +242,11 @@ export function apply(ctx: Context): void {
       promptSession: async (text: string) => {
         await promptCurrentSession(ctx, text, await kbCwd())
       },
+      // ADR-0040: the 惯用提示词 surface — the 能力 tab's first-screen list
+      // reads/writes the store, and clicking a row fills the composer.
+      promptShortcutList: () => loadPromptShortcuts(ctx),
+      promptShortcutSave: (args: KbPromptShortcutSaveArgs) => savePromptShortcuts(ctx, args),
+      fillShortcut: (alias: string) =>{  fillComposerWithShortcut(ctx, alias) },
       // ADR-0032 批次③: the behavior-memory surface — the 记忆 tab's
       // management view, the mail panel's direct write, and the proposal
       // card's 记忆 rows all land on these three.
@@ -292,4 +302,9 @@ export function apply(ctx: Context): void {
   // match hooks, so ui-commands keeps its enter/space adjudication.
   ctx.effect(() => ctx.inputTriggers.registerSource(capabilityGestureSource(() => loadCapabilities(ctx))),
     'ui-yantao: / capability source')
+
+  // ADR-0040: `/` also completes a 惯用项 — order −10 pins the group above
+  // the capability inventory (order 0) and skills (order 2).
+  ctx.effect(() => ctx.inputTriggers.registerSource(promptShortcutSource(() => loadPromptShortcuts(ctx))),
+    'ui-yantao: / prompt-shortcut source')
 }

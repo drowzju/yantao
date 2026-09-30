@@ -13,6 +13,10 @@
 // Type-only: pulls the `ctx.remote.session` merge the session controller owns
 // (ADR-0019's mail analysis drives a real dsh session from the browser).
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+// Type-only: the conversation service's input resolver — the composer fill
+// reaches the current session's draft through it (ADR-0040).
+import type { SessionInputResolver } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -29,7 +33,9 @@ import type {
   KbDeleteFileResult, KbFileContent, KbGraphResult, KbLinksResult,
   KbMailDeleteArgs, KbMailDeleteResult, KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
   KbMemoryAddArgs, KbMemoryAddResult, KbMemoryDeleteArgs, KbMemoryDeleteResult, KbMemoryListResult,
-  KbOpenExternalResult, KbPersonRelation, KbPromptInjectionResult, KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
+  KbOpenExternalResult, KbPersonRelation, KbPromptInjectionResult, KbPromptShortcutListResult,
+  KbPromptShortcutSaveArgs, KbPromptShortcutSaveResult,
+  KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
   KbRootResult, KbSetRelationArgs, KbSetRelationResult,
   KbSetRootResult, KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
@@ -75,6 +81,10 @@ export interface KbRemote {
   memoryDelete(args: KbMemoryDeleteArgs): Promise<RemoteResult<KbMemoryDeleteResult>>
   /** The yantao layer's own system-prompt share, heuristically priced (ADR-0039). */
   promptInjection(): Promise<RemoteResult<KbPromptInjectionResult>>
+  /** The prompt-shortcut store's listing (ADR-0040), in display order. */
+  promptShortcutList(): Promise<RemoteResult<KbPromptShortcutListResult>>
+  /** Replace the whole prompt-shortcut list (ADR-0040); a shadowed alias is refused. */
+  promptShortcutSave(args: KbPromptShortcutSaveArgs): Promise<RemoteResult<KbPromptShortcutSaveResult>>
 }
 
 /**
@@ -191,6 +201,19 @@ export type ResourceRegistrar = (name: string, contentBase64: string) => Promise
 
 /** List the registered capabilities (ADR-0021). */
 export type CapabilityLoader = () => Promise<KbCapabilityListResult>
+
+/** List the prompt shortcuts (ADR-0040). */
+export type PromptShortcutLister = () => Promise<KbPromptShortcutListResult>
+
+/** Replace the whole prompt-shortcut list (ADR-0040). */
+export type PromptShortcutSaver = (args: KbPromptShortcutSaveArgs) => Promise<KbPromptShortcutSaveResult>
+
+/**
+ * Fill the current conversation's composer with `/alias ` without sending
+ * (ADR-0040 决定 5) — the 能力 tab row's click. Throws when no session is
+ * open; the caller renders the message.
+ */
+export type ShortcutFiller = (alias: string) => void
 
 /** Run one capability with the caller's input (ADR-0021; agent channel ADR-0023); the signal cancels the subprocess (ADR-0031). */
 export type CapabilityRunner = (args: KbCapabilityRunArgs, signal?: AbortSignal) => Promise<KbCapabilityRunResult>
@@ -679,6 +702,56 @@ export async function loadPromptInjection(ctx: Context): Promise<KbPromptInjecti
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.promptInjection())
+}
+
+/**
+ * List the prompt shortcuts (ADR-0040) — the 能力 tab's 惯用提示词 first
+ * screen and the `/` menu's 惯用 group.
+ * @param ctx - client root context.
+ * @returns the shortcuts in display order, or a rejected promise carrying
+ *   the reason.
+ */
+export async function loadPromptShortcuts(ctx: Context): Promise<KbPromptShortcutListResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.promptShortcutList())
+}
+
+/**
+ * Replace the whole prompt-shortcut list (ADR-0040): the tab edits a handful
+ * of rows, so a full-list save keeps add, edit, delete and reorder one seam.
+ * The host validates aliases (shape, duplicates, shadowing a skill name).
+ * @param ctx - client root context.
+ * @param args - the complete new list, in display order.
+ * @returns the list as stored, or a rejected promise carrying the reason.
+ */
+export async function savePromptShortcuts(ctx: Context, args: KbPromptShortcutSaveArgs): Promise<KbPromptShortcutSaveResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.promptShortcutSave(args))
+}
+
+/**
+ * Fill the current conversation's composer with `/alias ` without sending
+ * (ADR-0040 决定 5): the tab row's click lands the same text a menu pick
+ * would, through the conversation service's public input face. The draft is
+ * appended to, not replaced.
+ * @param ctx - client root context (`sessions` and `conversation` injected).
+ * @param alias - the shortcut's alias.
+ * @throws when no session is open or the input face is unreachable.
+ */
+export function fillComposerWithShortcut(ctx: Context, alias: string): void {
+  const sessions: ISessions = ctx.sessions
+  const sessionId = sessions.list.getSnapshot().current
+  if (sessionId === undefined) throw new Error('没有打开的会话，无法填入。')
+  const actx = sessions.scope(sessionId)
+  if (actx === undefined) throw new Error('会话作用域不存在，无法填入。')
+  const conversation = (ctx as { conversation?: { input?: SessionInputResolver } }).conversation
+  if (conversation?.input === undefined) throw new Error('会话输入面不可用，无法填入。')
+  const input = conversation.input.for(actx)
+  const draft = input.state.getSnapshot().draft
+  const glue = draft === '' || /\s$/u.test(draft) ? '' : ' '
+  input.setDraft(`${draft}${glue}/${alias} `)
 }
 
 /**

@@ -10,6 +10,7 @@
 import { readFileSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import { readGlobalMemoryEntries, renderGlobalMemorySection } from './memory.ts'
+import { readPromptShortcutsSync, renderPromptShortcutsSection } from './prompt-shortcuts.ts'
 
 /** One prompt section this plugin contributes. */
 export interface YantaoSection {
@@ -57,6 +58,14 @@ export function loadSectionText(file: string): string {
 export const BEHAVIOR_MEMORY_SECTION = { name: 'yantao:behavior-memory', order: 150 } as const
 
 /**
+ * The prompt-shortcuts section (ADR-0040 决定 5): the human's favorite slash
+ * aliases, injected so the agent — the expansion authority for every entry
+ * point — recognizes a hand-typed `/alias` too. Placement follows the
+ * behavior memory (150), before the skills discipline (160).
+ */
+export const PROMPT_SHORTCUTS_SECTION = { name: 'yantao:prompt-shortcuts', order: 155 } as const
+
+/**
  * Register the dynamic behavior-memory section. The provider reads
  * `<kbRoot>/.dsh/yantao/memory/global.md` through the live-root getter on
  * every assembly, so a `setRoot` retarget is honored without re-registering.
@@ -71,6 +80,33 @@ export function registerBehaviorMemorySection(ctx: Context, root: () => string):
       text: () => renderGlobalMemorySection(readGlobalMemoryEntries(root())),
     }),
     `yantao-kb: register dynamic prompt section ${BEHAVIOR_MEMORY_SECTION.name}`,
+  )
+}
+
+/**
+ * Register the prompt-shortcuts section (ADR-0040 决定 5). Like the behavior
+ * memory, the provider re-reads `<kbRoot>/.dsh/yantao/prompt-shortcuts.json`
+ * on every assembly, so a UI save lands on the agent's next step. A corrupt
+ * store degrades to an empty section — the prompt must not die because the
+ * human's hand edit broke the JSON; the UI's own read reports the error
+ * loudly instead.
+ * @param ctx - the mounting plugin context (needs `effect` and `systemPrompt`).
+ * @param root - the live KB root, read per assembly.
+ */
+export function registerPromptShortcutsSection(ctx: Context, root: () => string): void {
+  ctx.effect(
+    () => ctx.systemPrompt.section({
+      name: PROMPT_SHORTCUTS_SECTION.name,
+      order: PROMPT_SHORTCUTS_SECTION.order,
+      text: () => {
+        try {
+          return renderPromptShortcutsSection(readPromptShortcutsSync(root()))
+        } catch {
+          return ''
+        }
+      },
+    }),
+    `yantao-kb: register dynamic prompt section ${PROMPT_SHORTCUTS_SECTION.name}`,
   )
 }
 

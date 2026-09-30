@@ -11,8 +11,8 @@ import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveCol
 import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
 import type {
   CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityCreator, ExternalOpener, FileDeleter, FileReader,
-  FileWriter, LinksLoader, MailFetcher, MailMarker, RelationSetter, RevisionLoader, RootLoader, RootSetter,
-  SessionPrompter, TodoLoader, TodoWriter,
+  FileWriter, LinksLoader, MailFetcher, MailMarker, PromptShortcutLister, PromptShortcutSaver, RelationSetter,
+  RevisionLoader, RootLoader, RootSetter, SessionPrompter, ShortcutFiller, TodoLoader, TodoWriter,
 } from '../src/client/remote.ts'
 import type { MailAnalyser } from '../src/client/mail-analysis.ts'
 import type { RefineRunner } from '../src/client/refine.ts'
@@ -109,6 +109,9 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     capabilityCreate: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     capabilityAdopt: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     capabilityRegister: () => Promise.resolve({ path: '.dsh/skills/yantao.json' }),
+    promptShortcutList: () => Promise.resolve({ shortcuts: [] }),
+    promptShortcutSave: () => Promise.resolve({ shortcuts: [], path: '.dsh/yantao/prompt-shortcuts.json' }),
+    fillShortcut: () => {},
     onRunCapability: () => {},
     onRefine: () => {},
     ...overrides,
@@ -169,6 +172,7 @@ describe('IntakeRail', () => {
     const capabilityList = vi.fn(() => Promise.resolve({ capabilities: CAPABILITIES, unregistered: [] }))
     render(<IntakeRail {...railProps({ capabilityList })} />)
     fireEvent.click(screen.getByText('能力'))
+    await unfoldInventory()
     expect(await screen.findByText('mail')).toBeTruthy()
     // Twice: once at mount for the row menus' 能力 group, once when the tab
     // renders the panel.
@@ -865,13 +869,25 @@ function capabilityProps(overrides: Partial<Parameters<typeof CapabilityPanel>[0
     adopt: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     register: () => Promise.resolve({ path: '.dsh/skills/yantao.json' }),
     mail: () => <div data-mail-stub="true">邮件面板</div>,
+    loadShortcuts: () => Promise.resolve({ shortcuts: [] }),
+    saveShortcuts: () => Promise.resolve({ shortcuts: [], path: '.dsh/yantao/prompt-shortcuts.json' }),
+    fillShortcut: () => {},
     ...overrides,
   }
+}
+
+/**
+ * Unfold the capability inventory (ADR-0040: the 能力 tab's first screen is
+ * the 惯用提示词 list; the inventory sits behind this toggle by default).
+ */
+async function unfoldInventory(): Promise<void> {
+  fireEvent.click(await screen.findByRole('button', { name: /能力清单/ }))
 }
 
 describe('CapabilityPanel', () => {
   it('lists the registered capabilities with their descriptions', async () => {
     render(<CapabilityPanel {...capabilityProps()} />)
+    await unfoldInventory()
     expect(await screen.findByText('mail')).toBeTruthy()
     expect(screen.getByText('读 Outlook 邮件')).toBeTruthy()
     expect(screen.getByText('paper-digest')).toBeTruthy()
@@ -880,6 +896,7 @@ describe('CapabilityPanel', () => {
 
   it('opens the mail capability\'s detail with the connector panel embedded', async () => {
     render(<CapabilityPanel {...capabilityProps()} />)
+    await unfoldInventory()
     fireEvent.click(await screen.findByText('mail'))
     expect(await screen.findByText('邮件面板')).toBeTruthy()
     expect(screen.getByText('← 返回清单')).toBeTruthy()
@@ -889,6 +906,7 @@ describe('CapabilityPanel', () => {
     const capabilities = [{ ...CAPABILITIES[0]!, state: { lastReadAt: '2026-01-31T00:00:00+00:00' } }]
     const mail = vi.fn(() => <div data-mail-stub="true">邮件面板</div>)
     render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities, unregistered: [] }), mail })} />)
+    await unfoldInventory()
     fireEvent.click(await screen.findByText('mail'))
     await screen.findByText('邮件面板')
     expect(mail).toHaveBeenCalledWith({ lastReadAt: '2026-01-31T00:00:00+00:00' })
@@ -896,6 +914,7 @@ describe('CapabilityPanel', () => {
 
   it('returns to the list from a detail', async () => {
     render(<CapabilityPanel {...capabilityProps()} />)
+    await unfoldInventory()
     fireEvent.click(await screen.findByText('paper-digest'))
     fireEvent.click(await screen.findByText('← 返回清单'))
     expect(await screen.findByText('mail')).toBeTruthy()
@@ -909,6 +928,7 @@ describe('CapabilityPanel', () => {
       return Promise.resolve({ path: `.dsh/skills/${name}` })
     })
     render(<CapabilityPanel {...capabilityProps({ load, create })} />)
+    await unfoldInventory()
     fireEvent.click(await screen.findByText('+ 新建能力'))
     const input = screen.getByPlaceholderText('能力名称（如 paper-digest）')
     await act(async () => {
@@ -923,6 +943,7 @@ describe('CapabilityPanel', () => {
   it('surfaces a refused scaffold as the row\'s error', async () => {
     const create = vi.fn(() => Promise.reject(new Error('能力名称不合规范')))
     render(<CapabilityPanel {...capabilityProps({ create })} />)
+    await unfoldInventory()
     fireEvent.click(await screen.findByText('+ 新建能力'))
     const input = screen.getByPlaceholderText('能力名称（如 paper-digest）')
     await act(async () => {
@@ -961,6 +982,7 @@ describe('CapabilityPanel', () => {
       unregistered({ name: 'hidden', userInvocable: false }),
     ]
     render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }) })} />)
+    await unfoldInventory()
     expect(await screen.findByText('未注册技能（ADR-0025）')).toBeTruthy()
     expect(screen.getByText('notes-helper')).toBeTruthy()
     expect(screen.getByText('扁平单文件技能不支持采纳')).toBeTruthy()
@@ -977,6 +999,7 @@ describe('CapabilityPanel', () => {
     const capabilities: KbCapabilitySummary[] = []
     const load = vi.fn(() => Promise.resolve({ capabilities, unregistered: [unregistered()] }))
     render(<CapabilityPanel {...capabilityProps({ load, adopt })} />)
+    await unfoldInventory()
     fireEvent.click(await screen.findByText('notes-helper'))
     expect(await screen.findByText(/采纳「notes-helper」/)).toBeTruthy()
     expect(screen.getByText(/\.dsh\/skills\/notes-helper\//)).toBeTruthy()
@@ -989,6 +1012,7 @@ describe('CapabilityPanel', () => {
   it('warns in the confirm when the source carries its own declaration', async () => {
     const rows = [unregistered({ sidecar: { entry: 'run.py', invocation: ['human', 'agent'] } })]
     render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }) })} />)
+    await unfoldInventory()
     fireEvent.click(await screen.findByText('notes-helper'))
     expect(await screen.findByText(/外带声明不会静默生效/)).toBeTruthy()
   })
@@ -1002,6 +1026,7 @@ describe('CapabilityPanel', () => {
     const rows = [unregistered({ inKb: true, reason: '能力「notes-helper」没有能力声明（yantao.json 或 SKILL.md 的 metadata.yantao 段）。' })]
     const load = vi.fn(() => Promise.resolve({ capabilities, unregistered: rows }))
     render(<CapabilityPanel {...capabilityProps({ load, register })} />)
+    await unfoldInventory()
     expect(await screen.findByText(/没有能力声明/)).toBeTruthy()
     fireEvent.click(screen.getByText('notes-helper'))
     expect(await screen.findByText(/注册「notes-helper」为能力/)).toBeTruthy()
@@ -1015,6 +1040,7 @@ describe('CapabilityPanel', () => {
     const register = vi.fn(() => Promise.resolve({ path: '.dsh/skills/yantao.json' }))
     const rows = [unregistered({ name: 'scripted', inKb: true, reason: '能力「scripted」没有能力声明。' })]
     render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }), register })} />)
+    await unfoldInventory()
     fireEvent.click(await screen.findByText('scripted'))
     await screen.findByText(/注册「scripted」为能力/)
     fireEvent.click(screen.getByRole('checkbox', { name: /允许 agent 调用/ }))
@@ -1035,6 +1061,7 @@ describe('CapabilityPanel', () => {
       reason: '插件仓库：顶层没有 SKILL.md，注册将在中央路由 .dsh/skills/yantao.json 为内含技能各写一条路由',
     })]
     render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }), register })} />)
+    await unfoldInventory()
     fireEvent.click(await screen.findByText('diagram-design-repo'))
     expect(await screen.findByText(/注册「diagram-design-repo」为能力/)).toBeTruthy()
     expect(screen.getByText(/这是插件仓库：注册将在/)).toBeTruthy()
@@ -1046,6 +1073,7 @@ describe('CapabilityPanel', () => {
   it('never opens the register dialog for a greyed in-KB row', async () => {
     const rows = [flatUnregistered('quick', { inKb: true, reason: '能力「quick」没有能力声明。' })]
     render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }) })} />)
+    await unfoldInventory()
     await screen.findByText('未注册技能（ADR-0025）')
     expect(screen.getByText('扁平单文件技能没有自己的目录，无法注册为能力')).toBeTruthy()
     fireEvent.click(screen.getByText('quick'))
@@ -1071,6 +1099,9 @@ interface FrameFaces {
   readonly promptSession: SessionPrompter
   readonly capabilityList: CapabilityLoader
   readonly capabilityRun: CapabilityRunner
+  readonly promptShortcutList: PromptShortcutLister
+  readonly promptShortcutSave: PromptShortcutSaver
+  readonly fillShortcut: ShortcutFiller
   readonly mailFetch: MailFetcher
   readonly mailMarkRead: MailMarker
   readonly analyseMail: MailAnalyser
@@ -1099,6 +1130,9 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     sessionDetail: () => Promise.resolve({ items: [], usage: null }),
     capabilityList: () => Promise.resolve({ capabilities: [], unregistered: [] }),
     capabilityRun: () => Promise.resolve({ name: '', runAt: '', artifacts: [] }),
+    promptShortcutList: () => Promise.resolve({ shortcuts: [] }),
+    promptShortcutSave: () => Promise.resolve({ shortcuts: [], path: '.dsh/yantao/prompt-shortcuts.json' }),
+    fillShortcut: () => {},
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
     analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [] } }),
@@ -1149,6 +1183,9 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       capabilityRegister={() => Promise.resolve({ path: '.dsh/skills/yantao.json' })}
       capabilityRun={kb.capabilityRun}
       promptSession={kb.promptSession}
+      promptShortcutList={kb.promptShortcutList}
+      promptShortcutSave={kb.promptShortcutSave}
+      fillShortcut={kb.fillShortcut}
       sessionDetail={kb.sessionDetail}
       writeTodos={kb.writeTodos}
       onKbRootChanged={onKbRootChanged}
@@ -1553,6 +1590,7 @@ describe('Frame', () => {
       mailFetch,
     }))
     fireEvent.click(screen.getByText('能力'))
+    await unfoldInventory()
     fireEvent.click(await screen.findByText('mail'))
     fireEvent.click(await screen.findByText('往后 →'))
 
@@ -1609,6 +1647,7 @@ describe('Frame', () => {
       }),
     }))
     fireEvent.click(screen.getByText('能力'))
+    await unfoldInventory()
     fireEvent.click(await screen.findByText('mail'))
     fireEvent.click(await screen.findByText('往后 →'))
     await screen.findByText(/1 封 · /)

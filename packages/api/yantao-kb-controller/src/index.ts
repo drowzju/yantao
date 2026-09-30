@@ -41,6 +41,7 @@ import {
   writeCapabilityState, writeMailWatermark,
   appendMemoryEntry, listMemoryScopes, readMemoryScope, removeMemoryEntry, renderCapabilityMemoryBlock,
   loadSectionText, renderGlobalMemorySection, readGlobalMemoryEntries, YANTAO_SECTIONS,
+  readPromptShortcuts, writePromptShortcuts, PROMPT_SHORTCUTS_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities } from './capability/builtin.ts'
@@ -73,6 +74,9 @@ import type {
   KbMemoryAddResult,
   KbMemoryDeleteArgs,
   KbMemoryDeleteResult,
+  KbPromptShortcutListResult,
+  KbPromptShortcutSaveArgs,
+  KbPromptShortcutSaveResult,
   KbMemoryListResult,
   KbOpenExternalResult,
   KbPromptInjectionResult,
@@ -949,6 +953,79 @@ export class YantaoKbController extends TypertRemoteService {
         'yantao-kb/rejected',
         '还没有选择知识库目录，记忆无处存放。',
         { path: '.dsh/yantao/memory' },
+      )
+    }
+  }
+
+  /**
+   * The prompt-shortcut store's listing (ADR-0040): the human's favorite
+   * slash aliases in display order. The `/` menu's shortcut group and the
+   * capability tab's home list both read through this; the agent's own view
+   * is the injected prompt section, never this RPC.
+   * @returns the shortcuts as stored.
+   */
+  @Remote('promptShortcutList')
+  async promptShortcutList(): Promise<KbPromptShortcutListResult> {
+    this.requireKbRootForShortcuts()
+    try {
+      return { shortcuts: await readPromptShortcuts(this.kbRoot) }
+    } catch (error: unknown) {
+      throw this.shortcutError(error)
+    }
+  }
+
+  /**
+   * Save the whole shortcut list (ADR-0040): the UI edits a handful of rows,
+   * so a full-list replace keeps reorder and delete trivially correct.
+   * Human-channel only — the agent has no tool into this surface. An alias
+   * that would shadow a registered skill or capability is refused (ADR-0040
+   * 决定 8): the host pre-step claims skill names first, so such a shortcut
+   * could never fire, and a confusing duplicate is worse than a refusal.
+   * @param args - the complete new list, in display order.
+   * @returns the list as stored (normalized).
+   */
+  @Remote('promptShortcutSave')
+  async promptShortcutSave(args: KbPromptShortcutSaveArgs): Promise<KbPromptShortcutSaveResult> {
+    this.requireKbRootForShortcuts()
+    const taken = new Set<string>((await this.ctx.skills.list({ cwd: this.kbRoot })).map(summary => summary.name))
+    for (const shortcut of args.shortcuts) {
+      if (typeof shortcut.alias === 'string' && taken.has(shortcut.alias)) {
+        throw new RemoteError(
+          'yantao-kb/rejected',
+          `别名「${shortcut.alias}」已被技能占用，换一个名字。`,
+          { path: PROMPT_SHORTCUTS_DISPLAY_PATH },
+        )
+      }
+    }
+    const shortcuts = args.shortcuts.map(shortcut => ({ alias: shortcut.alias, text: shortcut.text }))
+    try {
+      await writePromptShortcuts(this.kbRoot, shortcuts)
+      return { shortcuts: await readPromptShortcuts(this.kbRoot), path: PROMPT_SHORTCUTS_DISPLAY_PATH }
+    } catch (error: unknown) {
+      throw this.shortcutError(error)
+    }
+  }
+
+  /** Map a kb-side shortcut failure to a RemoteError the UI shows verbatim. */
+  private shortcutError(error: unknown): RemoteError {
+    if (error instanceof KbError) {
+      return new RemoteError('yantao-kb/rejected', error.message, { path: PROMPT_SHORTCUTS_DISPLAY_PATH }, { cause: error })
+    }
+    return new RemoteError(
+      'yantao-kb/rejected',
+      `惯用提示词保存失败：${(error as Error).message}`,
+      { path: PROMPT_SHORTCUTS_DISPLAY_PATH },
+      { cause: error instanceof Error ? error : undefined },
+    )
+  }
+
+  /** Refuse shortcut calls before a KB root exists — the store lives beside it. */
+  private requireKbRootForShortcuts(): void {
+    if (!this.ctx.yantaoKb.configured) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        '还没有选择知识库目录，惯用提示词无处存放。',
+        { path: PROMPT_SHORTCUTS_DISPLAY_PATH },
       )
     }
   }

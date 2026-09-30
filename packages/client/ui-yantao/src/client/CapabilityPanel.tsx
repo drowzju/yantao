@@ -1,6 +1,10 @@
 /**
- * The 能力 tab (ADR-0021 决定 8): 清单 + 详情 two states. The list names every
- * registered capability — the built-in mail one plus anything the
+ * The 能力 tab (ADR-0021 决定 8; ADR-0040 reshaped its first screen). The
+ * first screen is now the 惯用提示词 list: the human's saved `/alias`
+ * favorites — click a row to fill the conversation's composer with the token
+ * without sending, add/edit rows inline, reorder with 上移/下移. The
+ * capability inventory folds beneath it: the list names every registered
+ * capability — the built-in mail one plus anything the
  * human copied into `.dsh/skills/` or scaffolded through 「新建能力」. Under it
  * sits the 未注册 group (ADR-0025 决定 1): skills that are not capabilities
  * yet, greyed rows carrying their reason. Out-of-KB rows are adoption
@@ -12,8 +16,13 @@
  * read-only.
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import type { KbCapabilitySummary, KbUnregisteredSkill } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar } from './remote.ts'
+import type {
+  KbCapabilitySummary, KbPromptShortcut, KbUnregisteredSkill,
+} from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type {
+  CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, PromptShortcutLister,
+  PromptShortcutSaver, ShortcutFiller,
+} from './remote.ts'
 import { remoteMessage } from './remote.ts'
 import { NewEntityRow } from './NewEntityRow.tsx'
 import type { WorkbenchT } from './locales.ts'
@@ -32,6 +41,12 @@ export interface CapabilityPanelProps {
   readonly register: CapabilityRegistrar
   /** The mail capability's detail: the connector panel, transport and all; handed the capability's persisted state. */
   readonly mail: (state: unknown) => ReactElement
+  /** List the prompt shortcuts (ADR-0040). */
+  readonly loadShortcuts: PromptShortcutLister
+  /** Replace the whole prompt-shortcut list (ADR-0040). */
+  readonly saveShortcuts: PromptShortcutSaver
+  /** Fill the conversation's composer with `/alias ` without sending (ADR-0040 决定 5). */
+  readonly fillShortcut: ShortcutFiller
 }
 
 const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' } as const
@@ -168,12 +183,234 @@ function CapabilityRow({
   )
 }
 
+const shortcutRowStyle = { display: 'flex', alignItems: 'flex-start', gap: 2, margin: '1px 0' } as const
+
+const shortcutMainStyle = {
+  ...rowStyle,
+  flex: 1,
+  minWidth: 0,
+} as const
+
+const shortcutToolStyle = {
+  border: 'none',
+  background: 'transparent',
+  cursor: 'pointer',
+  padding: '4px 3px',
+  color: 'var(--yt-text-muted)',
+  fontSize: 'var(--yt-type-label)',
+} as const
+
+const shortcutFormStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  padding: 8,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'var(--yt-border-strong)',
+  borderRadius: 4,
+  background: 'var(--yt-surface-secondary)',
+} as const
+
+const inputStyle = {
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: '3px 6px',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'var(--yt-border-subtle)',
+  borderRadius: 4,
+  fontFamily: 'inherit',
+  fontSize: 'var(--yt-type-label)',
+} as const
+
+const textareaStyle = {
+  ...inputStyle,
+  minHeight: 56,
+  resize: 'vertical',
+} as const
+
+/** Which shortcut row the inline form is editing: an index, or the add form. */
+type ShortcutEditing = number | 'new'
+
+/**
+ * The 惯用提示词 first screen (ADR-0040 决定 3/6/9): the human's saved
+ * `/alias` favorites in display order. A row click fills the conversation's
+ * composer with the token without sending (决定 5 — expansion authority is
+ * the agent's, so the entry point only ever places the token); rows edit
+ * inline, and 上移/下移 reorder — the store order IS the display and
+ * injection order. Saves are full-list replaces through the host, which
+ * validates aliases (shape, duplicates, shadowing a skill name).
+ * @param props - the translate face and the three remote faces.
+ * @returns the section element.
+ */
+function ShortcutSection({
+  t,
+  load,
+  save,
+  fill,
+}: {
+  t: WorkbenchT
+  load: PromptShortcutLister
+  save: PromptShortcutSaver
+  fill: ShortcutFiller
+}): ReactElement {
+  const [shortcuts, setShortcuts] = useState<readonly KbPromptShortcut[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState<ShortcutEditing | null>(null)
+  const [alias, setAlias] = useState('')
+  const [text, setText] = useState('')
+  // Fresh closures from the inject face: read through a ref, like the panel.
+  const latest = useRef({ load, save, fill })
+  latest.current = { load, save, fill }
+
+  const refresh = useCallback(async (): Promise<void> => {
+    try {
+      setShortcuts((await latest.current.load()).shortcuts)
+      setError(null)
+    } catch (failure: unknown) {
+      setError(remoteMessage(failure))
+    }
+  }, [])
+
+  useEffect(() => { void refresh() }, [refresh])
+
+  /** Persist one full-list mutation; the host's normalized answer is the truth. */
+  const persist = async (next: readonly KbPromptShortcut[]): Promise<boolean> => {
+    try {
+      const result = await latest.current.save({ shortcuts: next })
+      setShortcuts(result.shortcuts)
+      setError(null)
+      return true
+    } catch (failure: unknown) {
+      setError(remoteMessage(failure))
+      return false
+    }
+  }
+
+  const openAdd = (): void => {
+    setEditing('new')
+    setAlias('')
+    setText('')
+  }
+
+  const openEdit = (index: number): void => {
+    const shortcut = shortcuts?.[index]
+    if (shortcut === undefined) return
+    setEditing(index)
+    setAlias(shortcut.alias)
+    setText(shortcut.text)
+  }
+
+  const submitEdit = async (): Promise<void> => {
+    if (shortcuts === null || editing === null) return
+    const entry: KbPromptShortcut = { alias: alias.trim(), text: text.replace(/\s+$/u, '') }
+    if (entry.alias === '' || entry.text === '') return
+    const next = editing === 'new'
+      ? [...shortcuts, entry]
+      : shortcuts.map((shortcut, index) => (index === editing ? entry : shortcut))
+    if (await persist(next)) setEditing(null)
+  }
+
+  const remove = async (index: number): Promise<void> => {
+    if (shortcuts === null) return
+    await persist(shortcuts.filter((_, at) => at !== index))
+  }
+
+  const move = async (index: number, delta: number): Promise<void> => {
+    if (shortcuts === null) return
+    const to = index + delta
+    if (to < 0 || to >= shortcuts.length) return
+    const picked = shortcuts[index]
+    const target = shortcuts[to]
+    if (picked === undefined || target === undefined) return
+    const next = shortcuts.map((shortcut, at) => (at === index ? target : at === to ? picked : shortcut))
+    await persist(next)
+  }
+
+  /** The inline add/edit form, shared by both modes. */
+  const form = (
+    <div style={shortcutFormStyle} data-shortcut-form="true">
+      <input
+        style={inputStyle}
+        value={alias}
+        placeholder={t('shortcut.aliasPlaceholder')}
+        onChange={(event) => { setAlias(event.target.value) }}
+      />
+      <textarea
+        style={textareaStyle}
+        value={text}
+        placeholder={t('shortcut.textPlaceholder')}
+        onChange={(event) => { setText(event.target.value) }}
+      />
+      <div style={confirmButtonRowStyle}>
+        <button type="button" style={buttonStyle} onClick={() => { void submitEdit() }}>{t('shortcut.save')}</button>
+        <button type="button" style={buttonStyle} onClick={() => { setEditing(null) }}>{t('common.cancel')}</button>
+      </div>
+    </div>
+  )
+
+  return (
+    <div data-shortcut-section="true">
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <div style={titleStyle}>{t('shortcut.heading')}</div>
+        {editing === null && (
+          <button type="button" style={{ ...buttonStyle, marginLeft: 'auto' }} onClick={openAdd}>
+            {t('shortcut.add')}
+          </button>
+        )}
+      </div>
+      {error !== null && <div style={errorStyle} data-shortcut-error="true">{error}</div>}
+      {shortcuts !== null && shortcuts.length === 0 && editing === null && (
+        <div style={mutedStyle}>{t('shortcut.empty')}</div>
+      )}
+      {shortcuts?.map((shortcut, index) => (
+        editing === index ? form : (
+          <div key={shortcut.alias} style={shortcutRowStyle} data-shortcut-row={shortcut.alias}>
+            <button
+              type="button"
+              style={shortcutMainStyle}
+              title={`${t('shortcut.clickHint')}\n${shortcut.text}`}
+              onClick={() => {
+                try {
+                  fill(shortcut.alias)
+                  setError(null)
+                } catch (failure: unknown) {
+                  setError(remoteMessage(failure))
+                }
+              }}
+            >
+              <span style={nameStyle}>/{shortcut.alias}</span>
+              <div style={mutedStyle}>{shortcut.text}</div>
+            </button>
+            <button type="button" style={shortcutToolStyle} disabled={index === 0} title={t('shortcut.up')}
+              onClick={() => { void move(index, -1) }}
+            >↑</button>
+            <button type="button" style={shortcutToolStyle} disabled={index === shortcuts.length - 1} title={t('shortcut.down')}
+              onClick={() => { void move(index, 1) }}
+            >↓</button>
+            <button type="button" style={shortcutToolStyle} title={t('shortcut.edit')}
+              onClick={() => { openEdit(index) }}
+            >{t('shortcut.edit')}</button>
+            <button type="button" style={shortcutToolStyle} title={t('shortcut.delete')}
+              onClick={() => { void remove(index) }}
+            >{t('shortcut.delete')}</button>
+          </div>
+        )
+      ))}
+      {editing === 'new' && form}
+    </div>
+  )
+}
+
 /**
  * Render the 能力 panel.
  * @param props - see {@link CapabilityPanelProps}.
  * @returns the panel element.
  */
-export function CapabilityPanel({ t, load, create, adopt, register, mail }: CapabilityPanelProps): ReactElement {
+export function CapabilityPanel({
+  t, load, create, adopt, register, mail, loadShortcuts, saveShortcuts, fillShortcut,
+}: CapabilityPanelProps): ReactElement {
   const [capabilities, setCapabilities] = useState<readonly KbCapabilitySummary[] | null>(null)
   const [unregistered, setUnregistered] = useState<readonly KbUnregisteredSkill[]>([])
   const [confirming, setConfirming] = useState<KbUnregisteredSkill | null>(null)
@@ -181,6 +418,9 @@ export function CapabilityPanel({ t, load, create, adopt, register, mail }: Capa
   const [registerReach, setRegisterReach] = useState<RegisterReach>(DEFAULT_REGISTER_REACH)
   const [selected, setSelected] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // ADR-0040 决定 6: the first screen is the 惯用提示词 list; the capability
+  // inventory folds beneath it. Session-only fold state.
+  const [inventoryOpen, setInventoryOpen] = useState(false)
   // The loader is a fresh closure on every render (inject face), so the
   // effect reads it through a ref instead of taking it as a dependency.
   const latest = useRef({ load, create, adopt, register })
@@ -247,120 +487,134 @@ export function CapabilityPanel({ t, load, create, adopt, register, mail }: Capa
       {error !== null && <div style={errorStyle} data-capability-error="true">{error}</div>}
       {current === undefined && (
         <>
-          {capabilities !== null && capabilities.length === 0 && (
-            <div style={mutedStyle}>{t('capability.empty')}</div>
-          )}
-          {capabilities?.map(capability => (
-            <CapabilityRow
-              key={capability.name}
-              name={capability.name}
-              description={capability.description}
-              onSelect={setSelected}
-            />
-          ))}
-          {unregistered.length > 0 && (
+          <ShortcutSection t={t} load={loadShortcuts} save={saveShortcuts} fill={fillShortcut} />
+          <button
+            type="button"
+            style={{ ...buttonStyle, marginTop: 8 }}
+            data-capability-inventory-toggle="true"
+            aria-expanded={inventoryOpen}
+            onClick={() => { setInventoryOpen(open => !open) }}
+          >
+            {inventoryOpen ? '▾ ' : '▸ '}{t('capability.inventoryHeading')}
+          </button>
+          {inventoryOpen && (
             <>
-              <div style={titleStyle}>{t('capability.unregisteredHeading')}</div>
-              {unregistered.map((skill) => {
-                const reason = greyReasonOf(skill)
-                return (
-                  <button
-                    key={skill.name}
-                    type="button"
-                    style={rowStyle}
-                    onClick={() => {
-                      if (reason !== undefined) return
-                      if (skill.inKb === true) openRegister(skill)
-                      else setConfirming(skill)
-                    }}
-                    title={reason ?? skill.directory}
-                  >
-                    <span style={reason === undefined ? nameStyle : greyedNameStyle}>{skill.name}</span>
-                    {skill.description !== '' && <div style={mutedStyle}>{skill.description}</div>}
-                    {skill.inKb === true && skill.reason !== undefined && (
-                      <div style={mutedStyle}>{skill.reason}</div>
-                    )}
-                    {reason !== undefined && <div style={mutedStyle}>{reason}</div>}
-                  </button>
-                )
-              })}
+              {capabilities !== null && capabilities.length === 0 && (
+                <div style={mutedStyle}>{t('capability.empty')}</div>
+              )}
+              {capabilities?.map(capability => (
+                <CapabilityRow
+                  key={capability.name}
+                  name={capability.name}
+                  description={capability.description}
+                  onSelect={setSelected}
+                />
+              ))}
+              {unregistered.length > 0 && (
+                <>
+                  <div style={titleStyle}>{t('capability.unregisteredHeading')}</div>
+                  {unregistered.map((skill) => {
+                    const reason = greyReasonOf(skill)
+                    return (
+                      <button
+                        key={skill.name}
+                        type="button"
+                        style={rowStyle}
+                        onClick={() => {
+                          if (reason !== undefined) return
+                          if (skill.inKb === true) openRegister(skill)
+                          else setConfirming(skill)
+                        }}
+                        title={reason ?? skill.directory}
+                      >
+                        <span style={reason === undefined ? nameStyle : greyedNameStyle}>{skill.name}</span>
+                        {skill.description !== '' && <div style={mutedStyle}>{skill.description}</div>}
+                        {skill.inKb === true && skill.reason !== undefined && (
+                          <div style={mutedStyle}>{skill.reason}</div>
+                        )}
+                        {reason !== undefined && <div style={mutedStyle}>{reason}</div>}
+                      </button>
+                    )
+                  })}
+                </>
+              )}
+              {confirming !== null && (
+                <div style={confirmStyle} data-capability-confirm="true">
+                  <div style={nameStyle}>{t('capability.adoptTitle', { name: confirming.name })}</div>
+                  <div style={mutedStyle}>
+                    {t('capability.adoptCopyTo', { path: `.dsh/skills/${confirming.name}/` })}
+                  </div>
+                  <div style={mutedStyle}>
+                    {t('capability.adoptRouteTo', { path: '.dsh/skills/yantao.json' })}
+                    <span style={codeStyle}>{JSON.stringify({ path: confirming.name, invocation: ['human'] })}</span>
+                  </div>
+                  {declaresMore(confirming) && (
+                    <div style={warnStyle}>
+                      {t('capability.adoptSidecarNote')}
+                    </div>
+                  )}
+                  <div style={confirmButtonRowStyle}>
+                    <button type="button" style={buttonStyle} onClick={() => { void adoptSkill(confirming.name) }}>{t('capability.adoptConfirm')}</button>
+                    <button type="button" style={buttonStyle} onClick={() => { setConfirming(null) }}>{t('common.cancel')}</button>
+                  </div>
+                </div>
+              )}
+              {registering !== null && (
+                <div style={confirmStyle} data-capability-register="true">
+                  <div style={nameStyle}>{t('capability.registerTitle', { name: registering.name })}</div>
+                  {registering.plugin === true ? (
+                    <div style={mutedStyle}>
+                      {t('capability.registerRepoNote', {
+                        path: '.dsh/skills/yantao.json',
+                        names: registering.pluginSkills?.join('、') ?? '',
+                      })}
+                    </div>
+                  ) : (
+                    <div style={mutedStyle}>
+                      {t('capability.registerSimpleNote', { path: '.dsh/skills/yantao.json' })}
+                    </div>
+                  )}
+                  <label style={mutedStyle}>
+                    <input
+                      type="checkbox"
+                      checked={registerReach.agentInvoke}
+                      onChange={(event) => { setRegisterReach(reach => ({ ...reach, agentInvoke: event.target.checked })) }}
+                    />{' '}
+                    {t('capability.reachAgent')}
+                  </label>
+                  <label style={mutedStyle}>
+                    <input
+                      type="checkbox"
+                      checked={registerReach.resourceMenu}
+                      onChange={(event) => { setRegisterReach(reach => ({ ...reach, resourceMenu: event.target.checked })) }}
+                    />{' '}
+                    {t('capability.reachAllResources')}
+                  </label>
+                  <label style={mutedStyle}>
+                    <input
+                      type="checkbox"
+                      checked={registerReach.selectionMenu}
+                      onChange={(event) => { setRegisterReach(reach => ({ ...reach, selectionMenu: event.target.checked })) }}
+                    />{' '}
+                    {t('capability.reachSelection')}
+                  </label>
+                  <div style={mutedStyle}>
+                    {t('capability.routePreview')}<span style={codeStyle}>{registerPreview(registering, registerReach)}</span>
+                  </div>
+                  <div style={confirmButtonRowStyle}>
+                    <button type="button" style={buttonStyle} onClick={() => { void registerSkill(registering) }}>{t('capability.registerConfirm')}</button>
+                    <button type="button" style={buttonStyle} onClick={() => { setRegistering(null) }}>{t('common.cancel')}</button>
+                  </div>
+                </div>
+              )}
+              <NewEntityRow
+                t={t}
+                label={t('capability.newButton')}
+                placeholder={t('capability.namePlaceholder')}
+                submit={name => scaffold(name)}
+              />
             </>
           )}
-          {confirming !== null && (
-            <div style={confirmStyle} data-capability-confirm="true">
-              <div style={nameStyle}>{t('capability.adoptTitle', { name: confirming.name })}</div>
-              <div style={mutedStyle}>
-                {t('capability.adoptCopyTo', { path: `.dsh/skills/${confirming.name}/` })}
-              </div>
-              <div style={mutedStyle}>
-                {t('capability.adoptRouteTo', { path: '.dsh/skills/yantao.json' })}
-                <span style={codeStyle}>{JSON.stringify({ path: confirming.name, invocation: ['human'] })}</span>
-              </div>
-              {declaresMore(confirming) && (
-                <div style={warnStyle}>
-                  {t('capability.adoptSidecarNote')}
-                </div>
-              )}
-              <div style={confirmButtonRowStyle}>
-                <button type="button" style={buttonStyle} onClick={() => { void adoptSkill(confirming.name) }}>{t('capability.adoptConfirm')}</button>
-                <button type="button" style={buttonStyle} onClick={() => { setConfirming(null) }}>{t('common.cancel')}</button>
-              </div>
-            </div>
-          )}
-          {registering !== null && (
-            <div style={confirmStyle} data-capability-register="true">
-              <div style={nameStyle}>{t('capability.registerTitle', { name: registering.name })}</div>
-              {registering.plugin === true ? (
-                <div style={mutedStyle}>
-                  {t('capability.registerRepoNote', {
-                    path: '.dsh/skills/yantao.json',
-                    names: registering.pluginSkills?.join('、') ?? '',
-                  })}
-                </div>
-              ) : (
-                <div style={mutedStyle}>
-                  {t('capability.registerSimpleNote', { path: '.dsh/skills/yantao.json' })}
-                </div>
-              )}
-              <label style={mutedStyle}>
-                <input
-                  type="checkbox"
-                  checked={registerReach.agentInvoke}
-                  onChange={(event) => { setRegisterReach(reach => ({ ...reach, agentInvoke: event.target.checked })) }}
-                />{' '}
-                {t('capability.reachAgent')}
-              </label>
-              <label style={mutedStyle}>
-                <input
-                  type="checkbox"
-                  checked={registerReach.resourceMenu}
-                  onChange={(event) => { setRegisterReach(reach => ({ ...reach, resourceMenu: event.target.checked })) }}
-                />{' '}
-                {t('capability.reachAllResources')}
-              </label>
-              <label style={mutedStyle}>
-                <input
-                  type="checkbox"
-                  checked={registerReach.selectionMenu}
-                  onChange={(event) => { setRegisterReach(reach => ({ ...reach, selectionMenu: event.target.checked })) }}
-                />{' '}
-                {t('capability.reachSelection')}
-              </label>
-              <div style={mutedStyle}>
-                {t('capability.routePreview')}<span style={codeStyle}>{registerPreview(registering, registerReach)}</span>
-              </div>
-              <div style={confirmButtonRowStyle}>
-                <button type="button" style={buttonStyle} onClick={() => { void registerSkill(registering) }}>{t('capability.registerConfirm')}</button>
-                <button type="button" style={buttonStyle} onClick={() => { setRegistering(null) }}>{t('common.cancel')}</button>
-              </div>
-            </div>
-          )}
-          <NewEntityRow
-            t={t}
-            label={t('capability.newButton')}
-            placeholder={t('capability.namePlaceholder')}
-            submit={name => scaffold(name)}
-          />
         </>
       )}
       {current !== undefined && (

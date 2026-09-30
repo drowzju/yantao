@@ -12,7 +12,8 @@ import type {
 import type {
   CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, EntityCreator, FileDeleter, FileReader,
   FileWriter,
-  MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, RelationSetter, ResourceRegistrar,
+  MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, PromptShortcutLister,
+  PromptShortcutSaver, RelationSetter, ResourceRegistrar, ShortcutFiller,
   TodoLoader, TodoWriter, Archiver,
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
@@ -934,6 +935,12 @@ export interface IntakeRailProps extends RailProps {
   readonly memoryAdd: MemoryAdder
   /** Forget one behavior rule by id (ADR-0032) — the 记忆 tab's delete. */
   readonly memoryDelete: MemoryDeleter
+  /** List the prompt shortcuts (ADR-0040) — the 能力 tab's 惯用提示词 first screen. */
+  readonly promptShortcutList: PromptShortcutLister
+  /** Replace the whole prompt-shortcut list (ADR-0040). */
+  readonly promptShortcutSave: PromptShortcutSaver
+  /** Fill the conversation's composer with `/alias ` without sending (ADR-0040 决定 5). */
+  readonly fillShortcut: ShortcutFiller
 }
 
 /** The rail's error marker: it is the only thing left above the tab strip. */
@@ -1007,6 +1014,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     read, write, deleteFile, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource, onRefine,
     capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, onRunCapability, kbRoot = '',
     memoryList, memoryAdd, memoryDelete,
+    promptShortcutList, promptShortcutSave, fillShortcut,
   } = props
   const mailDelete = props.mailDelete
   const mailArchive = props.mailArchive
@@ -1165,6 +1173,9 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           create={capabilityCreate}
           adopt={capabilityAdopt}
           register={capabilityRegister}
+          loadShortcuts={promptShortcutList}
+          saveShortcuts={promptShortcutSave}
+          fillShortcut={fillShortcut}
           mail={state => (
             <MailPanel
               t={t}

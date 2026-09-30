@@ -134,6 +134,20 @@ export const zh = {
   'capability.openedToAgent': '已对 agent 开放（kb_run_capability）',
   'capability.accepts': '接受：',
   'capability.lastRun': '上次运行：',
+  'capability.inventoryHeading': '能力清单',
+
+  // Prompt shortcuts (ADR-0040) — the 能力 tab's 惯用提示词 first screen.
+  'shortcut.heading': '惯用提示词',
+  'shortcut.add': '＋ 添加',
+  'shortcut.aliasPlaceholder': '别名（/ 后输入的词，如 周报）',
+  'shortcut.textPlaceholder': '展开文本：agent 看到 /别名 后执行的完整指令',
+  'shortcut.save': '保存',
+  'shortcut.edit': '改',
+  'shortcut.delete': '删',
+  'shortcut.up': '上移',
+  'shortcut.down': '下移',
+  'shortcut.clickHint': '点击填入对话输入框（不发送）',
+  'shortcut.empty': '还没有惯用提示词。把常用的「/技能 指令」组合存成一条，点一下就填进输入框。',
 
   // Mail panel
   'mail.stage.creatingSession': '正在创建会话…',
@@ -389,6 +403,20 @@ export const en = {
   'capability.openedToAgent': 'Opened to the agent (kb_run_capability)',
   'capability.accepts': 'Accepts:',
   'capability.lastRun': 'Last run:',
+  'capability.inventoryHeading': 'Capability inventory',
+
+  // Prompt shortcuts (ADR-0040) — the 能力 tab's favorites first screen.
+  'shortcut.heading': 'Prompt shortcuts',
+  'shortcut.add': '+ Add',
+  'shortcut.aliasPlaceholder': 'Alias (the word after /, e.g. weekly)',
+  'shortcut.textPlaceholder': 'Expansion: the full instruction the agent performs on /alias',
+  'shortcut.save': 'Save',
+  'shortcut.edit': 'Edit',
+  'shortcut.delete': 'Del',
+  'shortcut.up': 'Move up',
+  'shortcut.down': 'Move down',
+  'shortcut.clickHint': 'Click to fill the composer (without sending)',
+  'shortcut.empty': 'No prompt shortcuts yet. Save a frequent "/skill instruction" combo and fill it with one click.',
 
   // Mail panel
   'mail.stage.creatingSession': 'Creating the session…',

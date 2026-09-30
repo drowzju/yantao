@@ -16,7 +16,8 @@ import type {
   CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, CapabilityRunner, DirectoryPicker,
   EntityCreator,
   ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader,
-  MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, RelationSetter, ResourceRegistrar, RevisionLoader,
+  MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, PromptShortcutLister,
+  PromptShortcutSaver, RelationSetter, ResourceRegistrar, RevisionLoader, ShortcutFiller,
   RootLoader, RootSetter,
   Archiver,
   SessionPrompter, TodoLoader, TodoWriter,
@@ -132,6 +133,12 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'fo
   readonly memoryAdd: MemoryAdder
   /** Forget one behavior rule by id (ADR-0032) — the 记忆 tab's delete. */
   readonly memoryDelete: MemoryDeleter
+  /** List the prompt shortcuts (ADR-0040) — the 能力 tab's 惯用提示词 first screen. */
+  readonly promptShortcutList: PromptShortcutLister
+  /** Replace the whole prompt-shortcut list (ADR-0040). */
+  readonly promptShortcutSave: PromptShortcutSaver
+  /** Fill the conversation's composer with `/alias ` without sending (ADR-0040 决定 5). */
+  readonly fillShortcut: ShortcutFiller
   /** Read the model gateway's config view — the 配置 dialog's open read. */
   readonly loadModelsConfig: () => Promise<ModelsConfigView>
   /** Commit a 配置 dialog draft; the result separates conflict from refusal. */
@@ -330,6 +337,7 @@ export function Frame({
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine, validate,
   registerResource, capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
   promptSession, memoryList, memoryAdd, memoryDelete, sessionDetail, onKbRootChanged, mailDelete, mailArchive,
+  promptShortcutList, promptShortcutSave, fillShortcut,
   loadModelsConfig, saveModelsConfig,
 }: FrameProps): ReactElement {
   const [configOpen, setConfigOpen] = useState(false)
@@ -1189,6 +1197,9 @@ export function Frame({
           memoryList={memoryList}
           memoryAdd={memoryAdd}
           memoryDelete={memoryDelete}
+          promptShortcutList={promptShortcutList}
+          promptShortcutSave={promptShortcutSave}
+          fillShortcut={fillShortcut}
           onRunCapability={runRowCapability}
           onRefine={runRefineGesture}
           kbRoot={kbRoot}
