@@ -311,7 +311,12 @@ describe('runMailAnalysis', () => {
   it('names the session after the day, so it can be found again', async () => {
     const { session } = fakeSession(verdict(1))
     const run = await runMailAnalysis({ ctx: ctxWith(session), mails: [mail()], known: KNOWN })
-    expect(run.title).toBe(`邮件分析 ${new Date().toISOString().slice(0, 10)}`)
+    // The title is stamped in the human's own timezone (mail-analysis.ts
+    // stamp()); asserting with toISOString (UTC) flakes around local
+    // midnight, so compute the expectation with local getters too.
+    const now = new Date()
+    const day = `${now.getFullYear()}-${`${now.getMonth() + 1}`.padStart(2, '0')}-${`${now.getDate()}`.padStart(2, '0')}`
+    expect(run.title).toBe(`邮件分析 ${day}`)
     expect(run.sessionId).toBe(SESSION)
     expect(run.analysis.verdicts[0]?.mail).toBe(1)
     expect(run.analysis.todos[0]?.title).toBe('待办 1')
