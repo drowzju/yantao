@@ -17,7 +17,7 @@ import type {
 import type { MailAnalyser } from '../src/client/mail-analysis.ts'
 import type { RefineRunner } from '../src/client/refine.ts'
 import type { ValidateRunner } from '../src/client/validate.ts'
-import type { SessionDetailLoader, DetailItem } from '../src/client/session-detail.ts'
+import type { SessionDetailLoader, SessionDetail } from '../src/client/session-detail.ts'
 import { CapabilityPanel } from '../src/client/CapabilityPanel.tsx'
 import { RESOURCE_DRAG_TYPE } from '../src/client/refine.ts'
 import type { Proposal } from '../src/client/proposal.ts'
@@ -1096,7 +1096,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     revision: () => Promise.resolve({ root: '/kb', revision: 0 }),
     openExternal: () => Promise.resolve({ target: '' }),
     promptSession: () => Promise.resolve(),
-    sessionDetail: () => Promise.resolve([]),
+    sessionDetail: () => Promise.resolve({ items: [], usage: null }),
     capabilityList: () => Promise.resolve({ capabilities: [], unregistered: [] }),
     capabilityRun: () => Promise.resolve({ name: '', runAt: '', artifacts: [] }),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
@@ -1346,7 +1346,7 @@ describe('Frame', () => {
         capabilityRegister={() => Promise.resolve({ path: '.dsh/skills/yantao.json' })}
         capabilityRun={() => Promise.resolve({ name: '', runAt: '', artifacts: [] })}
         promptSession={kb.promptSession}
-        sessionDetail={() => Promise.resolve([])}
+        sessionDetail={() => Promise.resolve({ items: [], usage: null })}
         onKbRootChanged={onKbRootChanged}
       />,
     )
@@ -1498,9 +1498,12 @@ describe('Frame', () => {
   })
 
   it('opens the validate run\'s detail drawer from its 查看 verb (ADR-0035)', async () => {
-    const sessionDetail = vi.fn((): Promise<readonly DetailItem[]> => Promise.resolve([
-      { kind: 'user', seq: 0, turn: 1, text: '【预扫 · 孤儿条目（入链不超过 1）】', injected: true },
-    ]))
+    const sessionDetail = vi.fn((): Promise<SessionDetail> => Promise.resolve({
+      items: [
+        { kind: 'user', seq: 0, turn: 1, text: '【预扫 · 孤儿条目（入链不超过 1）】', injected: true },
+      ],
+      usage: null,
+    }))
     render(renderFrame({
       sessionDetail,
       validate: () => Promise.resolve({

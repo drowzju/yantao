@@ -29,7 +29,7 @@ import type {
   KbDeleteFileResult, KbFileContent, KbGraphResult, KbLinksResult,
   KbMailDeleteArgs, KbMailDeleteResult, KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
   KbMemoryAddArgs, KbMemoryAddResult, KbMemoryDeleteArgs, KbMemoryDeleteResult, KbMemoryListResult,
-  KbOpenExternalResult, KbPersonRelation, KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
+  KbOpenExternalResult, KbPersonRelation, KbPromptInjectionResult, KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
   KbRootResult, KbSetRelationArgs, KbSetRelationResult,
   KbSetRootResult, KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
@@ -73,6 +73,8 @@ export interface KbRemote {
   memoryAdd(args: KbMemoryAddArgs): Promise<RemoteResult<KbMemoryAddResult>>
   /** Forget one behavior rule by id (ADR-0032); a stale id is a not-found. */
   memoryDelete(args: KbMemoryDeleteArgs): Promise<RemoteResult<KbMemoryDeleteResult>>
+  /** The yantao layer's own system-prompt share, heuristically priced (ADR-0039). */
+  promptInjection(): Promise<RemoteResult<KbPromptInjectionResult>>
 }
 
 /**
@@ -662,6 +664,21 @@ export async function deleteMemory(ctx: Context, scope: string, id: string): Pro
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   unwrapRemote(await kb.memoryDelete({ scope, id }))
+}
+
+/**
+ * Price the yantao layer's own system-prompt share (ADR-0039): the static
+ * yantao sections plus the rendered behavior memory, heuristically priced
+ * on the host with the meter's fixed density. The footer context status
+ * bar calls this when its detail panel opens.
+ * @param ctx - client root context.
+ * @returns the two heuristic token figures, or a rejected promise carrying
+ *   the reason.
+ */
+export async function loadPromptInjection(ctx: Context): Promise<KbPromptInjectionResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.promptInjection())
 }
 
 /**

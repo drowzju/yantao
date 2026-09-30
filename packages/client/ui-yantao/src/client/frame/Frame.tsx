@@ -53,8 +53,8 @@ import type { PanelToggles } from './layout.ts'
 import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
 import type { WorkbenchT } from '../locales.ts'
 
-/** Full props: the render share for the two seats this frame declares, plus the panel-action seat. */
-export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
+/** Full props: the render share for the three seats this frame declares, plus the panel-action seat. */
+export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'footer.status'> & {
   /** The workbench dictionary's bound translator. */
   readonly t: WorkbenchT
   /** Mutable seat the frame fills with its own toggles on mount. */
@@ -1297,11 +1297,13 @@ export function Frame({
         />
       </div>
       {/* The reserved grid row: 配置 lives at the window's bottom-left, a
-          flow child so it survives intake collapse. */}
+          flow child so it survives intake collapse. The context status bar
+          (ADR-0039) rides beside it through the session-scoped child slot. */}
       <div style={footerStripStyle}>
         <button style={footerButtonStyle} data-config-button="true" onClick={() => { setConfigOpen(true) }}>
           {t('config.open')}
         </button>
+        {renderSlot('footer.status', {})}
       </div>
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>
       {needsRoot && (

@@ -137,6 +137,19 @@ export interface KbRootResult {
   readonly configured: boolean
 }
 
+/**
+ * Result of `yantaoKb.promptInjection`: the yantao layer's own share of the
+ * system prompt, heuristically priced (the meter's fixed 4-characters-per-
+ * token density). Figures are composition references, never a total — the
+ * provider-anchored occupancy lives in the `contextPressure` projection.
+ */
+export interface KbPromptInjectionResult {
+  /** The four static discipline sections (`prompt/sections/*.md`), priced once. */
+  readonly staticTokens: number
+  /** The dynamic global behavior-memory section, priced from the live store. */
+  readonly behaviorMemoryTokens: number
+}
+
 /** Result of `yantaoKb.setRoot`. */
 export interface KbSetRootResult {
   /** The knowledge-base root now in force. */

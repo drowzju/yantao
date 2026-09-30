@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionPage, SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionRemote } from '../src/client/remote.ts'
-import { detailFromEvents, loadSessionDetail } from '../src/client/session-detail.ts'
+import { detailFromEvents, loadSessionDetail, usageFromEvents } from '../src/client/session-detail.ts'
 
 /** One durable event, shaped like the wire journal's. */
 function event(type: string, seq: number, data: Record<string, unknown>): SessionWireEvent {
@@ -96,6 +96,33 @@ function fakeRemote(options: {
   return { remote: remote as unknown as SessionRemote, pageRequests, openerAborted: () => openerAbortedFlag }
 }
 
+describe('usageFromEvents', () => {
+  it('sums the per-step provider usage and keeps the last step and capacity', () => {
+    const usage = usageFromEvents([
+      event('request/context', 1, { provider: 'mock', model: 'm', contextWindow: 131_072 }),
+      event('assistant/message', 2, { message: { content: [] }, usage: { inputTokens: 12_000, outputTokens: 300 } }),
+      event('assistant/message', 3, { message: { content: [] }, usage: { inputTokens: 12_800, outputTokens: 150 } }),
+      event('request/context', 4, { provider: 'mock', model: 'm2', contextWindow: 262_144 }),
+    ])
+    expect(usage).toEqual({
+      inputTokens: 24_800,
+      outputTokens: 450,
+      steps: 2,
+      lastInputTokens: 12_800,
+      contextWindow: 262_144,
+    })
+  })
+
+  it('returns null before the first model step, and ignores malformed envelopes', () => {
+    expect(usageFromEvents([
+      event('user/message', 1, { content: [{ type: 'text', text: '问' }], source: { kind: 'user' } }),
+      event('assistant/message', 2, { message: { content: [{ type: 'text', text: '无用量' }] } }),
+      event('assistant/message', 3, { usage: { inputTokens: 'many', outputTokens: null } }),
+      event('request/context', 4, { contextWindow: 0 }),
+    ])).toBeNull()
+  })
+})
+
 describe('loadSessionDetail', () => {
   it('takes the follow snapshot, abandons the stream, and pages backwards while older history remains', async () => {
     const older = [
@@ -109,12 +136,13 @@ describe('loadSessionDetail', () => {
       snapshot: { cursor: 3, events: newer, hasMore: true },
       pages: [{ records: older.map(evt => ({ type: 'event' as const, event: evt })), hasMore: false }],
     })
-    const items = await loadSessionDetail(remote, 's1')
+    const detail = await loadSessionDetail(remote, 's1')
     expect(openerAborted()).toBe(true)
     expect(pageRequests).toEqual([
       { address: { kind: 'session', sessionId: 's1' }, throughSeq: 3, beforeSeq: 2, maxMessages: 200 },
     ])
-    expect(items.map(item => (item as { text?: string }).text)).toEqual(['最早的提问', '后来的提问', '答'])
+    expect(detail.items.map(item => (item as { text?: string }).text)).toEqual(['最早的提问', '后来的提问', '答'])
+    expect(detail.usage).toBeNull()
   })
 
   it('stops paging when the snapshot says the window is the whole log', async () => {
@@ -125,14 +153,32 @@ describe('loadSessionDetail', () => {
         hasMore: false,
       },
     })
-    const items = await loadSessionDetail(remote, 's1')
+    const detail = await loadSessionDetail(remote, 's1')
     expect(pageRequests).toEqual([])
-    expect(items).toHaveLength(1)
+    expect(detail.items).toHaveLength(1)
   })
 
   it('renders nothing for a session whose log is empty', async () => {
     const { remote } = fakeRemote({ snapshot: { cursor: 0, events: [], hasMore: false } })
-    const items = await loadSessionDetail(remote, 's1')
-    expect(items).toEqual([])
+    const detail = await loadSessionDetail(remote, 's1')
+    expect(detail.items).toEqual([])
+    expect(detail.usage).toBeNull()
+  })
+
+  it('carries the folded usage alongside the transcript', async () => {
+    const { remote } = fakeRemote({
+      snapshot: {
+        cursor: 2,
+        events: [
+          event('request/context', 1, { provider: 'mock', model: 'm', contextWindow: 1000 }),
+          event('assistant/message', 2, { message: { content: [{ type: 'text', text: '答' }] }, usage: { inputTokens: 40, outputTokens: 8 } }),
+        ],
+        hasMore: false,
+      },
+    })
+    const detail = await loadSessionDetail(remote, 's1')
+    expect(detail.usage).toEqual({
+      inputTokens: 40, outputTokens: 8, steps: 1, lastInputTokens: 40, contextWindow: 1000,
+    })
   })
 })

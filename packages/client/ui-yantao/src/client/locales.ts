@@ -99,6 +99,18 @@ export const zh = {
   'config.modelIdRequired': '模型 ID 不能为空',
   'config.defaultMissing': '默认模型必须是模型列表中的一行',
 
+  // Context status bar（左下角配置按钮旁；ADR-0039）
+  'context.aria': '上下文已用 {percent}%',
+  'context.noSession': '暂无会话',
+  'context.title': '上下文分布',
+  'context.system': '系统提示',
+  'context.yantao': '├ 其中 yantao 注入',
+  'context.tools': '工具定义',
+  'context.messages': '对话历史',
+  'context.remaining': '剩余可用',
+  'context.estimated': '首轮前为启发式估算（~），首轮后为模型实测',
+  'context.unavailable': '尚无占用数据',
+
   // Capability panel
   'capability.empty': '还没有能力。把能力目录拷进 .dsh/skills/，或新建一个。',
   'capability.unregisteredHeading': '未注册技能（ADR-0025）',
@@ -341,6 +353,18 @@ export const en = {
   'config.conflict': 'The configuration changed elsewhere; reloaded — please retry',
   'config.modelIdRequired': 'A model ID cannot be empty',
   'config.defaultMissing': 'The default model must be one of the listed rows',
+
+  // Context status bar (bottom-left, beside the config button; ADR-0039)
+  'context.aria': 'Context {percent}% used',
+  'context.noSession': 'No session',
+  'context.title': 'Context composition',
+  'context.system': 'System prompt',
+  'context.yantao': '├ of which yantao injection',
+  'context.tools': 'Tool definitions',
+  'context.messages': 'Conversation',
+  'context.remaining': 'Remaining',
+  'context.estimated': 'Heuristic estimate (~) before the first turn, provider-measured after',
+  'context.unavailable': 'No occupancy data yet',
 
   // Capability panel
   'capability.empty': 'No capabilities yet. Copy a capability directory into .dsh/skills/, or create one.',

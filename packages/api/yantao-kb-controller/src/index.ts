@@ -40,6 +40,7 @@ import {
   registerResourceContent, resolveWithinKb, serializeTodoFile, todayStamp,
   writeCapabilityState, writeMailWatermark,
   appendMemoryEntry, listMemoryScopes, readMemoryScope, removeMemoryEntry, renderCapabilityMemoryBlock,
+  loadSectionText, renderGlobalMemorySection, readGlobalMemoryEntries, YANTAO_SECTIONS,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities } from './capability/builtin.ts'
@@ -74,6 +75,7 @@ import type {
   KbMemoryDeleteResult,
   KbMemoryListResult,
   KbOpenExternalResult,
+  KbPromptInjectionResult,
   KbRegisterResourceArgs,
   KbRegisterResourceResult,
   KbRevisionResult,
@@ -480,6 +482,29 @@ export class YantaoKbController extends TypertRemoteService {
   @Remote('root')
   root(): Promise<KbRootResult> {
     return Promise.resolve({ root: this.kbRoot, configured: this.ctx.yantaoKb.configured })
+  }
+
+  /**
+   * The yantao layer's own share of the system prompt, for the workbench's
+   * context meter (ADR-0039): the four static discipline sections priced from
+   * the same files the plugin registers, plus the dynamic global behavior-
+   * memory section priced from the live store. Priced with the meter's fixed
+   * density heuristic (4 characters per token) so the figures speak the same
+   * vocabulary as the `contextBreakdown` projection's system bucket, of which
+   * they are the yantao-attributable slice.
+   * @returns the static and behavior-memory shares, in heuristic tokens.
+   */
+  @Remote('promptInjection')
+  promptInjection(): Promise<KbPromptInjectionResult> {
+    const price = (text: string): number => Math.ceil(text.length / 4)
+    const staticTokens = YANTAO_SECTIONS.reduce(
+      (sum, section) => sum + price(loadSectionText(section.file)),
+      0,
+    )
+    const behaviorMemoryTokens = this.ctx.yantaoKb.configured
+      ? price(renderGlobalMemorySection(readGlobalMemoryEntries(this.kbRoot)))
+      : 0
+    return Promise.resolve({ staticTokens, behaviorMemoryTokens })
   }
 
   /**

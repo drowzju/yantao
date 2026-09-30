@@ -33,7 +33,6 @@ import { ComposerContentEditable } from '../input/editor/ComposerContentEditable
 import { DecoratorPortals } from '../input/editor/DecoratorPortals.tsx'
 import { registerComposerKeymap } from '../input/editor/keymap.ts'
 import { attachmentErrorText, imageSizeText } from '../image-labels.ts'
-import { ContextMeter } from './ContextMeter.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import css from './InputBar.module.css'
 
@@ -508,7 +507,6 @@ export const InputBar = memo(function InputBar({
               ? null
               : renderSlot('conversation.input.right', {})}
             {sessionId === undefined ? null : renderSlot('conversation.input.model', { locked: modelSeatLocked })}
-            <ContextMeter useProjection={useProjection} t={t} />
             {interruptible && (
               <Tooltip label={t('input.stop')} side="top" delayMs={500}>
                 <button

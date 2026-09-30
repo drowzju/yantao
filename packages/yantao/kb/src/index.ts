@@ -534,6 +534,11 @@ export {
 export type { MemoryEntry, MemoryFile, MemoryScope } from './memory.ts'
 export { linksOf, linkGraphOf, resolveWikiLink, wikilinks } from './links.ts'
 export type { KbGraph, KbGraphEdge, KbLinkSource, KbLinkTarget, KbLinks, WikiLink } from './links.ts'
+// The prompt-section layer's vocabulary, for host-side consumers that price
+// the yantao injection (the controller's context meter): the section roster
+// and its text loader are the exact source the plugin registers from.
+export { BEHAVIOR_MEMORY_SECTION, loadSectionText, YANTAO_SECTIONS } from './sections.ts'
+export type { YantaoSection } from './sections.ts'
 export { parseFrontmatter } from './frontmatter.ts'
 export type { Frontmatter } from './frontmatter.ts'
 export { addTodo, parseTodoFile, removeTodo, serializeTodoFile, toggleTodo, updateTodo } from './todo.ts'

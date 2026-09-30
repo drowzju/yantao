@@ -1,0 +1,122 @@
+/* Footer context status bar (ADR-0039): trigger sits in the footer strip,
+ * the detail popover opens upward from it. */
+
+.root {
+  position: relative;
+  display: inline-flex;
+  margin-left: 10px;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--yt-text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.trigger:hover {
+  background: var(--yt-surface-secondary);
+}
+
+/* The 72×4 segmented bar; the fill carries the tone color. */
+.bar {
+  display: block;
+  width: 72px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--yt-border-subtle);
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--yt-accent);
+  transition: width 0.2s ease;
+}
+
+.reading {
+  min-width: 34px;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.idle .reading {
+  color: var(--yt-text-tertiary);
+}
+
+.warning .fill {
+  background: var(--yt-warning);
+}
+
+.warning .reading {
+  color: var(--yt-warning-text);
+}
+
+.danger .fill {
+  background: var(--yt-error);
+}
+
+.danger .reading {
+  color: var(--yt-error);
+}
+
+/* Opens upward: the footer strip is the window's bottom edge. */
+.panel {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 46;
+  min-width: 260px;
+  padding: 10px 12px;
+  background: var(--yt-surface-raised);
+  border: 1px solid var(--yt-border-strong);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgb(28 26 22 / 15%);
+  font-size: 12px;
+}
+
+.panelTitle {
+  margin: 0 0 8px;
+  color: var(--yt-text-primary);
+  font-weight: 600;
+}
+
+.rows {
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 0;
+}
+
+.rowDt {
+  color: var(--yt-text-secondary);
+}
+
+.subRow {
+  padding-left: 14px;
+  color: var(--yt-text-tertiary);
+}
+
+.rowDd {
+  color: var(--yt-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.footnote {
+  margin: 8px 0 0;
+  color: var(--yt-text-tertiary);
+  font-size: 11px;
+}

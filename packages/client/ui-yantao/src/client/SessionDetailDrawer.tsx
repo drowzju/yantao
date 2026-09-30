@@ -10,7 +10,8 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/SessionDetailDrawer
  */
 import { useEffect, useState, type CSSProperties, type ReactElement } from 'react'
-import type { DetailItem, SessionDetailLoader } from './session-detail.ts'
+import { formatTokens } from './ContextStatusBar.tsx'
+import type { DetailItem, SessionDetailLoader, SessionUsage } from './session-detail.ts'
 import type { TaskRow } from './task-view.ts'
 import type { WorkbenchT } from './locales.ts'
 
@@ -172,6 +173,24 @@ const errorTagStyle: CSSProperties = {
   fontWeight: 600,
 }
 
+const usageStripStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '2px 14px',
+  padding: '6px 10px',
+  margin: '0 0 8px',
+  border: '1px solid var(--yt-border-subtle)',
+  borderRadius: 6,
+  background: 'var(--yt-surface-raised)',
+  color: 'var(--yt-text-secondary)',
+  fontSize: 11,
+  fontVariantNumeric: 'tabular-nums',
+}
+
+const usageLabelStyle: CSSProperties = {
+  color: 'var(--yt-text-tertiary)',
+}
+
 /** The 「详情」 drawer over one task run's session log (ADR-0033). */
 export function SessionDetailDrawer(props: {
   readonly row: TaskRow
@@ -181,6 +200,7 @@ export function SessionDetailDrawer(props: {
 }): ReactElement {
   const { row, load, onClose } = props
   const [items, setItems] = useState<readonly DetailItem[] | null>(null)
+  const [usage, setUsage] = useState<SessionUsage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [openTools, setOpenTools] = useState<ReadonlySet<number>>(new Set())
 
@@ -189,10 +209,13 @@ export function SessionDetailDrawer(props: {
   useEffect(() => {
     const controller = new AbortController()
     setItems(null)
+    setUsage(null)
     setError(null)
     load(row.sessionId as string, controller.signal)
       .then((loaded) => {
-        if (!controller.signal.aborted) setItems(loaded)
+        if (controller.signal.aborted) return
+        setItems(loaded.items)
+        setUsage(loaded.usage)
       })
       .catch((failure: unknown) => {
         if (controller.signal.aborted) return
@@ -281,6 +304,27 @@ export function SessionDetailDrawer(props: {
           <button type="button" style={closeButtonStyle} onClick={onClose} aria-label="关闭">✕</button>
         </div>
         <div style={bodyStyle}>
+          {usage !== null && (
+            <div style={usageStripStyle} data-task-usage="true">
+              <span>
+                <span style={usageLabelStyle}>用量 </span>
+                {`输入 ${formatTokens(usage.inputTokens)} · 输出 ${formatTokens(usage.outputTokens)} · 共 ${formatTokens(usage.inputTokens + usage.outputTokens)} tokens（${usage.steps} 步）`}
+              </span>
+              {usage.lastInputTokens !== null && usage.contextWindow !== null && (() => {
+                const percent = Math.min(100, Math.round(usage.lastInputTokens / usage.contextWindow * 100))
+                const tone = percent > 95
+                  ? 'var(--yt-error)'
+                  : percent > 80 ? 'var(--yt-warning-text)' : undefined
+                return (
+                  <span>
+                    <span style={usageLabelStyle}>末次上下文 </span>
+                    {`${formatTokens(usage.lastInputTokens)} / ${formatTokens(usage.contextWindow)}`}
+                    <span style={tone !== undefined ? { color: tone, fontWeight: 600 } : undefined}>{`（${percent}%）`}</span>
+                  </span>
+                )
+              })()}
+            </div>
+          )}
           {error !== null && <div style={errorStyle}>{`读取失败：${error}`}</div>}
           {error === null && items === null && <div style={noticeStyle}>读取中…</div>}
           {error === null && items !== null && rendered.length === 0 && (

@@ -53,13 +53,39 @@ export type DetailItem =
 /** One session's shaped transcript, oldest first. */
 export interface SessionDetail {
   readonly items: readonly DetailItem[]
+  /**
+   * The run's token accounting, folded from the same events (ADR-0039 落地注记
+   * 补遗): the provider-reported per-step usage rides each `assistant/message`,
+   * and the route capacity rides `request/context`. Null before the first
+   * model step — a session that never reached the model has nothing to bill.
+   */
+  readonly usage: SessionUsage | null
+}
+
+/**
+ * One side-session's token accounting (ADR-0039 落地注记 补遗): the burn is
+ * the provider's own per-step reports summed, not an estimate; the final
+ * context figure is the last step's input size — what the next request's
+ * prompt would roughly weigh — against the newest known route capacity.
+ */
+export interface SessionUsage {
+  /** Σ prompt tokens across every step that reported usage. */
+  readonly inputTokens: number
+  /** Σ completion tokens across every step that reported usage. */
+  readonly outputTokens: number
+  /** How many steps reported usage (the burn's sample count). */
+  readonly steps: number
+  /** The last reported step's prompt size — the closest thing to "current context". */
+  readonly lastInputTokens: number | null
+  /** The newest `request/context` capacity, when the log carried one. */
+  readonly contextWindow: number | null
 }
 
 /** Read one session's transcript back — the drawer's injected seam (ADR-0033). */
 export type SessionDetailLoader = (
   sessionId: string,
   signal?: AbortSignal,
-) => Promise<readonly DetailItem[]>
+) => Promise<SessionDetail>
 
 /** How much of one user or assistant message the drawer keeps. */
 const TEXT_CLIP = 16_000
@@ -188,6 +214,42 @@ export function detailFromEvents(events: readonly SessionWireEvent[]): readonly 
   return items
 }
 
+/**
+ * Fold one session's durable events into the token accounting (ADR-0039 落地
+ * 注记 补遗): the per-step usage rides each `assistant/message` (the same wire
+ * shape `askTurn` reads), the route capacity rides `request/context`. All
+ * reads are defensive — this arrived as wire JSON.
+ * @param events - the session's durable events, oldest first.
+ * @returns the accounting, or null when no step ever reported usage.
+ */
+export function usageFromEvents(events: readonly SessionWireEvent[]): SessionUsage | null {
+  let inputTokens = 0
+  let outputTokens = 0
+  let steps = 0
+  let lastInputTokens: number | null = null
+  let contextWindow: number | null = null
+  for (const evt of events) {
+    if (evt.type === 'request/context') {
+      const window = (evt.data as { contextWindow?: unknown } | null)?.contextWindow
+      if (typeof window === 'number' && window > 0) contextWindow = window
+      continue
+    }
+    if (evt.type !== 'assistant/message') continue
+    const usage = (evt.data as { usage?: unknown } | null)?.usage
+    if (typeof usage !== 'object' || usage === null) continue
+    const input = (usage as { inputTokens?: unknown }).inputTokens
+    const output = (usage as { outputTokens?: unknown }).outputTokens
+    if (typeof input !== 'number' || typeof output !== 'number') continue
+    inputTokens += input
+    outputTokens += output
+    steps += 1
+    lastInputTokens = input
+  }
+  return steps === 0
+    ? null
+    : { inputTokens, outputTokens, steps, lastInputTokens, contextWindow }
+}
+
 /** How many messages one backwards page asks for — few round trips for a task-sized log. */
 const PAGE_MESSAGES = 200
 
@@ -200,13 +262,13 @@ const PAGE_MESSAGES = 200
  * @param session - the session namespace.
  * @param sessionId - the session to read.
  * @param signal - the drawer's cancel line (closed drawer stops the read).
- * @returns the shaped transcript, oldest first.
+ * @returns the shaped transcript with the run's token accounting, oldest first.
  */
 export async function loadSessionDetail(
   session: SessionRemote,
   sessionId: string,
   signal?: AbortSignal,
-): Promise<readonly DetailItem[]> {
+): Promise<SessionDetail> {
   // The wire id is a plain string; the Remote face brands it (turn-answer's precedent).
   const address: SessionAddress = { kind: 'session', sessionId: sessionId as SessionId }
   // The follow is only opened for its snapshot: abort as soon as it lands.
@@ -240,5 +302,5 @@ export async function loadSessionDetail(
     events = [...page.records.map(record => record.event), ...events]
     hasMore = page.hasMore
   }
-  return detailFromEvents(events)
+  return { items: detailFromEvents(events), usage: usageFromEvents(events) }
 }

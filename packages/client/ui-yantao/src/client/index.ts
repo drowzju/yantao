@@ -56,15 +56,26 @@ import { capabilityGestureSource } from './capability-gesture.ts'
 import { WORKBENCH_NS, en, zh } from './locales.ts'
 import {
   addMemory, adoptCapability, archiveMails, createCapability, createEntity, deleteFile, deleteMemory, deleteMails, fetchMail, listMemory,
-  loadCapabilities, loadIntake, loadLinks,
+  loadCapabilities, loadIntake, loadLinks, loadPromptInjection,
   loadRevision, loadRoot, loadTodos,
   loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, runCapability, setKbRoot,
   setRelation, writeFile, writeTodos,
 } from './remote.ts'
 import type { CapabilityRegisterReach } from './remote.ts'
 import type { MailMessage } from './remote.ts'
+import { ContextStatusBar } from './ContextStatusBar.tsx'
 
 export const name = 'ui-yantao'
+
+// ADR-0039: the footer's context status bar seat. Declared here because the
+// slot is yantao's own — the frame (root registration) declares it as a child
+// and this plugin fills it; the `session-maybe` scope makes the slot
+// machinery thread the current session's projection seat through.
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    'footer.status': { kind: 'list'; scope: 'session-maybe' }
+  }
+}
 // Cordis forbids reading an undeclared service, and a Remote namespace counts
 // as one of its own: both the `remote` face and this namespace must be listed
 // or the accessor throws "cannot get property remote.yantaoKb without inject".
@@ -145,6 +156,9 @@ export function apply(ctx: Context): void {
     children: {
       'conversation': { kind: 'single', scope: 'session-maybe' },
       'shell.overlay': { kind: 'list', scope: 'root' },
+      // ADR-0039: the footer's context status bar — session-scoped so the
+      // slot machinery hands it the current session's projection seat.
+      'footer.status': { kind: 'list', scope: 'session-maybe' },
     },
     inject: () => ({
       t,
@@ -250,6 +264,21 @@ export function apply(ctx: Context): void {
   // slot only exists while ui-conversation is mounted.
   ctx.effect(() => ctx.slots.inject('conversation.hero.brand.mark', () =>
     ctx.slots.register({ name: 'conversation.hero.brand.mark' }, YantaoMark)), 'ui-yantao: hero brand mark')
+
+  // ADR-0039: the footer's context status bar. The frame declared the
+  // `footer.status` child slot with the `session-maybe` scope, so the slot
+  // machinery threads the current session's useProjection/sessionId through;
+  // the inject face carries only the yantao-share pricer, which reads the
+  // KB remote on demand (panel open), not on every render.
+  ctx.effect(() => ctx.slots.inject('footer.status', () =>
+    ctx.slots.register({
+      name: 'footer.status',
+      id: 'yantao-context',
+      locale: WORKBENCH_NS,
+      inject: () => ({
+        promptInjection: () => loadPromptInjection(ctx),
+      }),
+    }, ContextStatusBar)), 'ui-yantao: footer context status bar')
 
   // `@` offers the KB's own entities; without this the menu lists only files
   // and sessions from the (unused) workspace.
