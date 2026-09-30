@@ -52,6 +52,50 @@ function turnEndKind(data: unknown): string | undefined {
 }
 
 /**
+ * The `turn/end` error variant's structured failure (`LlmFailure`), read
+ * defensively — the durable log always carries it, but the wire envelope may
+ * be anything.
+ * @param data - the `turn/end` event's `data`.
+ * @returns the failure's code and message, when both are strings.
+ */
+function turnEndError(data: unknown): { code?: string; message?: string } {
+  if (typeof data !== 'object' || data === null) return {}
+  const reason = (data as { reason?: unknown }).reason
+  if (typeof reason !== 'object' || reason === null) return {}
+  const error = (reason as { error?: unknown }).error
+  if (typeof error !== 'object' || error === null) return {}
+  const code = (error as { code?: unknown }).code
+  const message = (error as { message?: unknown }).message
+  const failure: { code?: string; message?: string } = {}
+  if (typeof code === 'string') failure.code = code
+  if (typeof message === 'string') failure.message = message
+  return failure
+}
+
+/** The known failure codes worth translating into something a human can act on. */
+const TURN_FAILURE_HINTS: Readonly<Record<string, string>> = {
+  CONTEXT_WINDOW_EXCEEDED: '原因是模型的上下文窗口装不下这一回合的内容。请减少一次性提交的内容量（例如缩小批次或缩短正文）后重试。',
+  MISSING_CREDENTIAL: '原因是模型网关的凭据没有配置：请在「设置 → 模型」里写入 API 密钥，或在环境中导出对应变量后重试。',
+}
+
+/**
+ * The failure text for one non-completed turn end: the mechanical fact, plus
+ * the structured failure's own words (and a hint when the code is one we know)
+ * — the durable log has the detail, but the panel should not send the human
+ * hunting for it.
+ * @param kind - the `turn/end` reason's kind.
+ * @param data - the `turn/end` event's `data`.
+ * @returns the error message to surface.
+ */
+function turnFailureText(kind: string | undefined, data: unknown): string {
+  const head = `会话回合没有正常完成（${kind ?? '原因未知'}），没有拿到完整回答。`
+  const { code, message } = turnEndError(data)
+  const hint = code !== undefined ? TURN_FAILURE_HINTS[code] : undefined
+  if (hint !== undefined) return `${head}${hint}${message !== undefined ? `（${message}）` : ''}`
+  return message !== undefined ? `${head}${message}` : head
+}
+
+/**
  * One step's token accounting, as the `assistant/message` event carries it —
  * the same wire shape the adapter reported, read defensively by the caller.
  */
@@ -111,7 +155,7 @@ export async function askTurn(options: {
     }
     if (frame.event.type === 'turn/end') {
       if (turnEndKind(frame.event.data) !== 'completed') {
-        throw new Error(`会话回合没有正常完成（${turnEndKind(frame.event.data) ?? '原因未知'}），没有拿到完整回答。`)
+        throw new Error(turnFailureText(turnEndKind(frame.event.data), frame.event.data))
       }
       return answer
     }

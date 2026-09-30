@@ -456,7 +456,73 @@ describe('ProposalCard 校验卡的实体分组与自由输入 (2026-09-30)', ()
     // 失败不清空草稿：人可以直接改字重试。
     await vi.waitFor(() => {
       expect(input.value).toBe('意见')
-      expect((screen.getByText('发送') as HTMLButtonElement).disabled).toBe(false)
+      expect(screen.getByText('发送').disabled).toBe(false)
     })
+  })
+})
+
+describe('ProposalCard 邮件卡可用性 (ADR-0038)', () => {
+  const MAIL_PROPOSAL: Proposal = {
+    title: '邮件分析 2026-09-30',
+    actions: [
+      { kind: 'create-entity', entityType: 'meeting', name: '评审会', reason: '需要跟进', mail: 1, mailSubject: '立项评审' },
+      { kind: 'append-section', path: '', section: '决议', text: '通过立项', why: '需要跟进', afterCreate: '评审会', mail: 1, mailSubject: '立项评审' },
+      { kind: 'create-entity', entityType: 'person', name: '张三', reason: '合作方', mail: 2, mailSubject: '名片交换' },
+      { kind: 'append-section', path: 'entities/meetings/周会.md', section: '待办', text: '张三出方案', why: '有结论', mail: 2, mailSubject: '名片交换' },
+    ],
+    digest: [
+      { sender: '系统', subject: '邮催', why: '自动提醒' },
+      { sender: 'IT', subject: '停机通知', why: '例行' },
+    ],
+  }
+
+  it('folds the digest block to a count line, opening on demand (ADR-0038 决定 1)', () => {
+    render(<ProposalCard proposal={MAIL_PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
+    expect(screen.getByText('日常通知（汇总）')).toBeTruthy()
+    expect(screen.getByText('共 2 条')).toBeTruthy()
+    expect(screen.queryByText('系统：邮催 — 自动提醒')).toBeNull()
+    fireEvent.click(screen.getByText('展开明细'))
+    expect(screen.getByText('系统：邮催 — 自动提醒')).toBeTruthy()
+    expect(screen.getByText('IT：停机通知 — 例行')).toBeTruthy()
+    fireEvent.click(screen.getByText('收起'))
+    expect(screen.queryByText('系统：邮催 — 自动提醒')).toBeNull()
+  })
+
+  it('layers creation groups per source mail with a select-all sub-header (ADR-0038 决定 7)', () => {
+    render(<ProposalCard proposal={MAIL_PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
+    expect(screen.getByText('立项评审')).toBeTruthy()
+    expect(screen.getByText('名片交换')).toBeTruthy()
+    // The layer's checkbox ticks its mail's rows together: the 评审会 create
+    // plus its merged supplement.
+    fireEvent.click(screen.getByLabelText('立项评审'))
+    expect(screen.getByText('确认写入（2）')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('立项评审'))
+    expect(screen.getByText('确认写入（0）')).toBeTruthy()
+  })
+
+  it('merges an afterCreate supplement into its creation row, one checkbox ticking both (ADR-0038 决定 8)', () => {
+    const onConfirm = vi.fn()
+    render(<ProposalCard proposal={MAIL_PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} t={t} />)
+    expect(screen.getByText('并补充决议：通过立项')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('评审会'))
+    fireEvent.click(screen.getByText('确认写入（2）'))
+    expect(onConfirm).toHaveBeenCalledWith([0, 1], undefined)
+  })
+
+  it('labels a standalone supplement 实体名 · 章节 and shows the actual text (ADR-0038 决定 8/9)', () => {
+    render(<ProposalCard proposal={MAIL_PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
+    expect(screen.getByText('周会 · 待办')).toBeTruthy()
+    expect(screen.getByText('来自「名片交换」：张三出方案')).toBeTruthy()
+  })
+
+  it('gives every group a three-state select-all header (ADR-0038 决定 10)', () => {
+    render(<ProposalCard proposal={MAIL_PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
+    // The 章节补充 group's header checkbox ticks its one standalone row.
+    fireEvent.click(screen.getByLabelText('章节补充'))
+    expect(screen.getByText('确认写入（1）')).toBeTruthy()
+    // The 新建实体 group's header ticks all three of its indices: the merged
+    // create+supplement pair and 张三.
+    fireEvent.click(screen.getByLabelText('新建实体'))
+    expect(screen.getByText('确认写入（4）')).toBeTruthy()
   })
 })

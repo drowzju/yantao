@@ -20,9 +20,9 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/proposal-apply
  */
 import type {
-  KbMailDeleteResult, KbTodoItem, KbTodosResult, KbWriteTodosResult,
+  KbMailArchiveResult, KbMailDeleteResult, KbTodoItem, KbTodosResult, KbWriteTodosResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import { isDuplicateMemory, type EntityCreator, type FileReader, type FileWriter, type MailDeleter, type MemoryAdder, type TodoLoader, type TodoWriter } from './remote.ts'
+import { isDuplicateMemory, type Archiver, type EntityCreator, type FileReader, type FileWriter, type MailDeleter, type MemoryAdder, type TodoLoader, type TodoWriter } from './remote.ts'
 import type { Proposal, ProposalAction } from './proposal.ts'
 import { allProposalActions, stamp } from './proposal.ts'
 
@@ -47,6 +47,13 @@ export interface ProposalTarget {
    * instead of executing them somewhere unseen.
    */
   readonly deleteMails?: MailDeleter
+  /**
+   * Archive nominated mails as `.eml` originals plus monthly index rows
+   * (ADR-0037 决定 2) — optional, same reason as `deleteMails`: only the
+   * human channel carries the archive; a caller without it (the refine
+   * loop's target) skips archive-mails rows honestly.
+   */
+  readonly archiveMails?: Archiver
 }
 
 /** What one confirmed card produced. */
@@ -165,6 +172,7 @@ function writtenLine(action: ProposalAction): string {
     case 'append-section': return `章节 ${action.section}（${action.path !== '' ? action.path : action.afterCreate ?? ''}）`
     case 'add-memory': return `记忆（${action.scope}）${action.text}`
     case 'delete-mails': return `删除邮件 ${action.subject}`
+    case 'archive-mails': return `归档邮件 ${action.subject}`
   }
 }
 
@@ -205,6 +213,7 @@ export async function applyProposal(options: {
     .filter((row): row is { index: number; action: ProposalAction } => row.action !== undefined)
   const written: string[] = []
   const skipped: string[] = []
+  const reportedWarnings = new Set<string>()
 
   const todos = picked
     .map(row => row.action)
@@ -302,6 +311,41 @@ export async function applyProposal(options: {
         } else {
           const failure = outcome.failed.find(entry => entry.id === action.entryId)
           skipped.push(`${writtenLine(action)}：${failure?.message ?? '未知原因'}`)
+        }
+        continue
+      }
+      if (action.kind === 'archive-mails') {
+        // ADR-0037 决定 2: the agent nominated, the human ticked; the archive
+        // itself is the controller's human-channel-only archive verb. One
+        // mail per call keeps the report per-row, same as the delete knife.
+        const archiver = target.archiveMails
+        if (archiver === undefined) {
+          skipped.push(`${writtenLine(action)}：这条通道没有挂归档动词`)
+          continue
+        }
+        const outcome: KbMailArchiveResult = await archiver([{ entryId: action.entryId, summary: action.summary }])
+        const saved = outcome.saved.find(entry => entry.entryId === action.entryId)
+        if (saved !== undefined) {
+          const suffix = saved.remark !== '' ? `（${saved.remark}）` : ''
+          written.push(`${writtenLine(action)} → ${saved.path}${suffix}`)
+        } else if (outcome.oversized.some(entry => entry.entryId === action.entryId)) {
+          // Over the 25 MB cap: refused on disk, but the index row was
+          // written (决定 9) — the human asked for a record, and got one.
+          written.push(`${writtenLine(action)}：过大未存（已记入索引）`)
+        } else if (outcome.missing.includes(action.entryId)) {
+          skipped.push(`${writtenLine(action)}：邮箱里找不到这封邮件（可能已被移走）`)
+        } else {
+          const skip = outcome.skipped.find(entry => entry.id === action.entryId)
+          const failure = outcome.failed.find(entry => entry.id === action.entryId)
+          skipped.push(`${writtenLine(action)}：${skip?.reason ?? failure?.message ?? '未知原因'}`)
+        }
+        // 降级/环境类提示（缺转换器、单封降级）是给人看的批级信息，此前落
+        // 在结果里无人消费；并入报告且去重，避免同一条提示随行重复刷屏。
+        for (const warning of outcome.warnings) {
+          if (!reportedWarnings.has(warning)) {
+            reportedWarnings.add(warning)
+            skipped.push(warning)
+          }
         }
         continue
       }

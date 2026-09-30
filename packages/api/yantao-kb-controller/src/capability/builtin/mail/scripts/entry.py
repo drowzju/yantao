@@ -4,9 +4,10 @@
 对象——`{name, kbRoot, input, state, channel}` 进，`{ok, result}` 或
 `{ok: false, kind, message, hint}` 出。按 `input.verb` 分派：缺省是取数
 （本体在 `read_outlook.py` 的 `fetch_messages`，可独立命令行运行），`delete`
-是把勾选邮件移入已删除文件夹的删除刀（ADR-0034 决定 5，仅人通道）。本脚本
-只做翻译与分发：把 input/state 翻译成取数窗口或删除清单、调用核心、把结果
-与失败分类翻成能力协议。
+是把勾选邮件移入已删除文件夹的删除刀（ADR-0034 决定 5，仅人通道），`archive`
+是把勾选邮件存成 .eml 原件并维护月度索引的归档动词（ADR-0037，仅人通道，
+本体在 `archive_mail.py`）。本脚本只做翻译与分发：把 input/state 翻译成取数
+窗口、删除清单或归档清单、调用核心、把结果与失败分类翻成能力协议。
 
 断点（state.lastReadAt）由工作台持久化，本脚本只读：推进水印发生在人批准
 写库之后，是另一个动作，不是取数的一部分。
@@ -16,6 +17,7 @@ import json
 import sys
 from datetime import datetime, timedelta, timezone
 
+import archive_mail
 import read_outlook
 from read_outlook import OutlookError, delete_messages, fetch_messages
 
@@ -138,6 +140,47 @@ def run_delete(caller_input, channel):
     emit({"ok": True, "result": outcome})
 
 
+def run_archive(caller_input, channel, kb_root):
+    """
+    归档动词（ADR-0037）：把勾选的高价值邮件存成自包含 .eml 原件并维护月度
+    索引。与删除刀同一闸——只对人通道开放：提案卡上人勾选批准后才执行，
+    agent 通道（kb_run_capability）在此被拒；input 是调用方自报的，不作数。
+    """
+    if channel != "human":
+        emit({
+            "ok": False,
+            "kind": "not-invocable",
+            "message": "邮件归档只对人的确认开放：请在工作台的提案卡上勾选后再执行。",
+            "hint": "这是有意的设计（ADR-0037 决定 2）：agent 没有自主归档权。",
+        })
+        return
+    raw_mails = caller_input.get("mails")
+    mails = []
+    if isinstance(raw_mails, list):
+        for entry in raw_mails:
+            if isinstance(entry, dict) and str(entry.get("entryId") or ""):
+                mails.append({"entryId": str(entry.get("entryId")), "summary": str(entry.get("summary") or "")})
+    if not mails:
+        emit({
+            "ok": False,
+            "kind": "other",
+            "message": "归档动词需要非空的 mails（{entryId, summary} 列表）。",
+            "hint": HINTS["other"],
+        })
+        return
+    try:
+        outcome = archive_mail.archive_messages(str(kb_root or ""), mails)
+    except OutlookError as error:
+        emit({
+            "ok": False,
+            "kind": error.kind,
+            "message": error.message,
+            "hint": HINTS.get(error.kind, HINTS["other"]),
+        })
+        return
+    emit({"ok": True, "result": outcome})
+
+
 def main():
     try:
         request = json.loads(sys.stdin.read() or "{}")
@@ -162,6 +205,9 @@ def main():
     verb = caller_input.get("verb") or "fetch"
     if verb == "delete":
         run_delete(caller_input, channel)
+        return
+    if verb == "archive":
+        run_archive(caller_input, channel, request.get("kbRoot"))
         return
     run_fetch(caller_input, state)
 

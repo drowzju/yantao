@@ -369,6 +369,48 @@ export interface KbMailDeleteResult {
   readonly failed: readonly { readonly id: string; readonly message: string }[]
 }
 
+/**
+ * One mail the archive verb should keep (ADR-0037 决定 2): the EntryID
+ * locates the original in Outlook, the summary lands in the index's 摘要
+ * column. Everything else (headers, recipients, attachments) the script
+ * re-reads from Outlook itself.
+ */
+export interface KbMailArchiveItem {
+  /** The mail's Outlook EntryID, from the analysed batch. */
+  readonly entryId: string
+  /** The analysis's summary for the index; empty when the model gave none. */
+  readonly summary?: string
+}
+
+/** Input of the mail capability's archive verb (ADR-0037). Human-channel-only, like the delete knife. */
+export interface KbMailArchiveArgs {
+  /** The mail capability's verb selector. */
+  readonly verb: 'archive'
+  /** The mails to archive, each located by EntryID. */
+  readonly mails: readonly KbMailArchiveItem[]
+}
+
+/** Result of the mail capability's archive verb (ADR-0037 决定 7): per-mail outcomes, serial semantics. */
+export interface KbMailArchiveResult {
+  /** The mails that landed, each with its `resources/`-relative path and the format it took (`eml` or the `msg` fallback). */
+  readonly saved: readonly { readonly id: string; readonly entryId: string; readonly path: string; readonly format: 'eml' | 'msg'; readonly remark: string }[]
+  /** The mails over the 25 MB cap: refused on disk, recorded in the index as 过大未存 (决定 9). */
+  readonly oversized: readonly { readonly id: string; readonly entryId: string; readonly title: string }[]
+  /**
+   * The mails skipped without a write (already archived, not a mail item, no receivable time), each with the reason.
+   * Note the `id` caliber differs per bucket: skipped/failed carry the raw Outlook EntryID, while
+   * saved/oversized carry the stable mail_id hash (with the raw EntryID alongside in `entryId`);
+   * `missing` is a bare EntryID array (评审 2026-09-30 注记).
+   */
+  readonly skipped: readonly { readonly id: string; readonly reason: string }[]
+  /** The EntryIDs Outlook could not resolve (already gone, store rebuilt). */
+  readonly missing: readonly string[]
+  /** The EntryIDs whose archive failed, each with the reason. */
+  readonly failed: readonly { readonly id: string; readonly message: string }[]
+  /** Batch-level hints for the human (converter missing, per-mail degradations). */
+  readonly warnings: readonly string[]
+}
+
 /** Result of `yantaoKb.mailMarkRead` (ADR-0019). */
 export interface KbMailMarkReadResult {
   /** The watermark as it now stands. */

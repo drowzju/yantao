@@ -55,7 +55,7 @@ import { kbReferenceSource } from './kb-reference.ts'
 import { capabilityGestureSource } from './capability-gesture.ts'
 import { WORKBENCH_NS, en, zh } from './locales.ts'
 import {
-  addMemory, adoptCapability, createCapability, createEntity, deleteFile, deleteMemory, deleteMails, fetchMail, listMemory,
+  addMemory, adoptCapability, archiveMails, createCapability, createEntity, deleteFile, deleteMemory, deleteMails, fetchMail, listMemory,
   loadCapabilities, loadIntake, loadLinks,
   loadRevision, loadRoot, loadTodos,
   loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, runCapability, setKbRoot,
@@ -173,6 +173,8 @@ export function apply(ctx: Context): void {
       mailFetch: (args: KbMailFetchArgs) => fetchMail(ctx, args),
       mailMarkRead: (args: KbMailMarkReadArgs) => markMailRead(ctx, args),
       mailDelete: (ids: readonly string[]) => deleteMails(ctx, ids),
+      // ADR-0037: the archive arm — same human channel as the delete knife.
+      mailArchive: (mails: readonly { entryId: string; summary?: string }[]) => archiveMails(ctx, mails),
       analyseMail: async (
         mails: readonly MailMessage[],
         known: KnownEntities,

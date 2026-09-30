@@ -117,6 +117,16 @@ describe('mailPrompt', () => {
     expect(text).toContain('删除提名')
   })
 
+  it('asks each proposal row to cite its source mail, and keeps digest whys short (ADR-0038)', () => {
+    const text = mailPrompt([mail()], KNOWN)
+    // Six slots carry the citation: people, todos, projects, newProjects,
+    // meetings — plus resources, which always had it.
+    expect(text.match(/"mail": 来自哪封邮件的编号或 null/g)).toHaveLength(6)
+    expect(text).toContain('出自哪封邮件的编号')
+    expect(text).toContain('不超过 20 字')
+    expect(text).toContain('不许复述')
+  })
+
   it('marks a mail whose recipients hit a superior address (ADR-0034 批次②)', () => {
     const flagged = mailPrompt([mail({ superiorInvolved: true })], KNOWN)
     // The per-mail marker is its own line; the focus criterion (a) also names
@@ -136,6 +146,16 @@ describe('mailPrompt', () => {
     const text = mailPrompt([mail()], KNOWN)
     expect(text).toContain('<<<邮件正文·开始>>>\n这是正文\n<<<邮件正文·结束>>>')
     expect(text).toContain('不可信数据')
+  })
+
+  it('caps each body at 4000 chars, so one long mail cannot blow the context window', () => {
+    const long = '长'.repeat(9000)
+    const text = mailPrompt([mail({ body: long })], KNOWN)
+    expect(text).toContain('长'.repeat(4000))
+    expect(text).not.toContain('长'.repeat(4001))
+    expect(text).toContain('判定只需开头')
+    const short = mailPrompt([mail()], KNOWN)
+    expect(short).toContain('<<<邮件正文·开始>>>\n这是正文\n<<<邮件正文·结束>>>')
   })
 
   it('numbers mails globally across chunks', () => {
@@ -256,6 +276,24 @@ describe('parseAnalysis', () => {
     expect(analysis.deletions).toEqual([{ mail: 2, reason: '广告' }])
   })
 
+  it('reads the source-mail citation from the five proposal slots (ADR-0038)', () => {
+    const analysis = parseAnalysis(JSON.stringify({
+      people: [{ name: '张三', reason: '一起做汇报', mail: 2 }, { name: '李四', reason: '编号不是数字', mail: 'x' }],
+      todos: [{ title: '发汇报', body: '', mail: 1 }],
+      projects: [{ name: '飞书迁移', note: '对方确认了时间', mail: 3 }],
+      newProjects: [{ name: '机房迁移', why: '三次事故同源', mail: 4 }],
+      meetings: [{ name: '周会', new: false, why: '有结论', mail: 5 }],
+    }))
+    expect(analysis.people).toEqual([
+      { name: '张三', reason: '一起做汇报', mail: 2 },
+      { name: '李四', reason: '编号不是数字' },
+    ])
+    expect(analysis.todos).toEqual([{ title: '发汇报', body: '', mail: 1 }])
+    expect(analysis.projects).toEqual([{ name: '飞书迁移', note: '对方确认了时间', mail: 3 }])
+    expect(analysis.newProjects).toEqual([{ name: '机房迁移', why: '三次事故同源', mail: 4 }])
+    expect(analysis.meetings).toEqual([{ name: '周会', isNew: false, why: '有结论', mail: 5 }])
+  })
+
   it('says the model did not answer rather than returning an empty verdict', () => {
     expect(() => parseAnalysis('我觉得这些邮件都不重要。')).toThrow(/JSON/)
   })
@@ -287,11 +325,11 @@ describe('runMailAnalysis', () => {
   })
 
   it('rides the scope\'s behavior memory into every chunk\'s prompt (ADR-0032 批次④)', async () => {
-    const mails = Array.from({ length: 12 }, (_value, index) => mail({ id: `m${index}`, subject: `第 ${index + 1} 封` }))
+    const mails = Array.from({ length: 7 }, (_value, index) => mail({ id: `m${index}`, subject: `第 ${index + 1} 封` }))
     const { session, asked } = fakeSession((turn) => {
-      const first = turn === 1 ? 1 : 11
+      const first = turn === 1 ? 1 : 6
       return JSON.stringify({
-        verdicts: Array.from({ length: turn === 1 ? 10 : 2 }, (_v, i) => ({ mail: first + i, importance: 'normal', why: '' })),
+        verdicts: Array.from({ length: turn === 1 ? 5 : 2 }, (_v, i) => ({ mail: first + i, importance: 'normal', why: '' })),
         people: [], todos: [], projects: [], resources: [], memories: [],
       })
     })
@@ -304,26 +342,28 @@ describe('runMailAnalysis', () => {
     expect(asked.prompts[1]).toContain('汇报先发给直属上级')
   })
 
-  it('walks the batch in chunks of ten, numbering mails globally', async () => {
+  it('walks the batch in chunks of five, numbering mails globally', async () => {
     const mails = Array.from({ length: 12 }, (_value, index) => mail({ id: `m${index}`, subject: `第 ${index + 1} 封` }))
     const { session, asked } = fakeSession((turn) => {
-      const first = turn === 1 ? 1 : 11
+      const first = turn === 1 ? 1 : turn === 2 ? 6 : 11
+      const count = turn === 3 ? 2 : 5
       return JSON.stringify({
-        verdicts: Array.from({ length: turn === 1 ? 10 : 2 }, (_v, i) => ({ mail: first + i, importance: 'normal', why: '' })),
+        verdicts: Array.from({ length: count }, (_v, i) => ({ mail: first + i, importance: 'normal', why: '' })),
         people: [], todos: [], projects: [], resources: [],
       })
     })
     const progress: AnalysisProgress[] = []
     const run = await runMailAnalysis({ ctx: ctxWith(session), mails, known: KNOWN, onProgress: p => progress.push(p) })
-    expect(asked.prompts).toHaveLength(2)
-    expect(asked.prompts[0]).toContain('编号 1 到 10')
-    expect(asked.prompts[1]).toContain('编号 11 到 12')
+    expect(asked.prompts).toHaveLength(3)
+    expect(asked.prompts[0]).toContain('编号 1 到 5')
+    expect(asked.prompts[1]).toContain('编号 6 到 10')
+    expect(asked.prompts[2]).toContain('编号 11 到 12')
     expect(run.analysis.verdicts).toHaveLength(12)
     expect(run.analysis.verdicts[10]?.mail).toBe(11)
     const answer = progress.filter(entry => entry.stage === 'answer')
-    expect(answer.map(entry => entry.done)).toEqual([10, 12])
-    expect(answer[1]?.total).toBe(12)
-    expect(answer[1]?.verdicts).toHaveLength(12)
+    expect(answer.map(entry => entry.done)).toEqual([5, 10, 12])
+    expect(answer[2]?.total).toBe(12)
+    expect(answer[2]?.verdicts).toHaveLength(12)
   })
 
   it('reports the host\'s refusal to create a session', async () => {
@@ -341,6 +381,21 @@ describe('runMailAnalysis', () => {
     const silent = { ...session, follow: () => (async function* () { /* nothing */ })() } as unknown as SessionRemote
     await expect(runMailAnalysis({ ctx: ctxWith(silent), mails: [mail()], known: KNOWN }))
       .rejects.toThrow(/没有给出回答/)
+  })
+
+  it('translates a context-overflow turn failure into something a human can act on', async () => {
+    const { session } = fakeSession(verdict(1))
+    const overflowing = {
+      ...session,
+      follow: () => (async function* () {
+        yield {
+          type: 'event',
+          event: { type: 'turn/end', seq: 1, time: 0, data: { turn: 1, reason: { kind: 'error', error: { message: 'pi-ai detected context overflow for model "GLM5.1"', code: 'CONTEXT_WINDOW_EXCEEDED' } } } },
+        }
+      })(),
+    } as unknown as SessionRemote
+    await expect(runMailAnalysis({ ctx: ctxWith(overflowing), mails: [mail()], known: KNOWN }))
+      .rejects.toThrow(/上下文窗口装不下/)
   })
 
   it('reports a missing session namespace instead of throwing on undefined', async () => {
@@ -374,6 +429,7 @@ describe('analysisToProposal', () => {
     meetings: [],
     deletions: [],
     resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
+    archives: [],
     memories: [],
   }
 
@@ -432,6 +488,23 @@ describe('analysisToProposal', () => {
     )
     expect(proposal.actions.filter(action => action.kind === 'delete-mails')).toEqual([
       { kind: 'delete-mails', entryId: 'entry', sender: '系统', subject: '邮催：请处理工单', reason: '广告' },
+    ])
+  })
+
+  it('deduplicates archive nominees pointing at the same mail (评审 2026-09-30)', () => {
+    const proposal = analysisToProposal(
+      {
+        ...ANALYSIS,
+        archives: [
+          { mail: 1, summary: '有价值' },
+          { mail: 1, summary: '模型提了两遍' },
+          { mail: 99, summary: '不在批次里' },
+        ],
+      },
+      ENTITIES, 't', MAILS,
+    )
+    expect(proposal.actions.filter(action => action.kind === 'archive-mails')).toEqual([
+      { kind: 'archive-mails', entryId: 'entry', sender: '老板', subject: '周报截止', summary: '有价值', reason: '有价值' },
     ])
   })
 
@@ -534,6 +607,65 @@ describe('analysisToProposal', () => {
     )
     expect(proposal.highlights).toBeUndefined()
     expect(proposal.digest).toBeUndefined()
+  })
+
+  it('attaches the source mail and its subject to the actions that cite one (ADR-0038 决定 6)', () => {
+    const proposal = analysisToProposal(
+      {
+        ...ANALYSIS,
+        people: [{ name: '张三', relation: 'peer', reason: '一起做汇报', email: 'zhangsan@example.com', mail: 1 }],
+        todos: [{ title: '发汇报', due: '2026-09-12', body: '给张三', mail: 2 }],
+        projects: [{ name: '飞书迁移', note: '对方确认了时间', mail: 1 }],
+        newProjects: [{ name: '机房迁移', why: '三次事故同源', mail: 2 }],
+        meetings: [{ name: '周会', isNew: false, decision: '改用方案 B', why: '有结论', mail: 1 }],
+      },
+      ENTITIES, 't', MAILS,
+    )
+    expect(proposal.actions[0]).toMatchObject({ kind: 'create-entity', name: '张三', mail: 1, mailSubject: '周报截止' })
+    expect(proposal.actions[1]).toMatchObject({ kind: 'add-todo', title: '发汇报', mail: 2, mailSubject: '邮催：请处理工单' })
+    expect(proposal.actions[2]).toMatchObject({ kind: 'append-log', entityName: '飞书迁移', mail: 1, mailSubject: '周报截止' })
+    expect(proposal.actions.find(action => action.kind === 'create-project'))
+      .toMatchObject({ name: '机房迁移', mail: 2, mailSubject: '邮催：请处理工单' })
+    expect(proposal.actions.filter(action => action.kind === 'append-section')[0])
+      .toMatchObject({ path: 'entities/meetings/周会.md', section: '决议', mail: 1, mailSubject: '周报截止' })
+  })
+
+  it('leaves actions without a citable source clean (ADR-0038 决定 6)', () => {
+    const proposal = analysisToProposal(ANALYSIS, ENTITIES, 't', MAILS)
+    expect(proposal.actions[0]).not.toHaveProperty('mail')
+    expect(proposal.actions[0]).not.toHaveProperty('mailSubject')
+  })
+
+  it('excludes deletion-nominated mails from the digest block (ADR-0038 决定 2)', () => {
+    const proposal = analysisToProposal(
+      {
+        ...ANALYSIS,
+        verdicts: [{ mail: 2, importance: 'digest', why: '系统邮催' }],
+        deletions: [{ mail: 2, reason: '广告' }],
+      },
+      ENTITIES, 't', MAILS,
+    )
+    expect(proposal.digest).toBeUndefined()
+    expect(proposal.actions.some(action => action.kind === 'delete-mails')).toBe(true)
+  })
+
+  it('merges digest mails by sender and bare subject across different conversation ids (ADR-0038 决定 3)', () => {
+    const proposal = analysisToProposal(
+      {
+        ...ANALYSIS,
+        verdicts: [
+          { mail: 1, importance: 'digest', why: '第一条' },
+          { mail: 2, importance: 'digest', why: '第二条' },
+        ],
+      },
+      ENTITIES,
+      't',
+      [
+        mail({ id: 'm1', senderName: '系统', senderAddress: 'push@example.com', subject: '邮催：工单', conversationId: 'CA', conversationTopic: '邮催：工单' }),
+        mail({ id: 'm2', senderName: '系统', senderAddress: 'push@example.com', subject: '邮催：工单', conversationId: 'CB', conversationTopic: '邮催：工单' }),
+      ],
+    )
+    expect(proposal.digest).toEqual([{ sender: '系统', subject: '邮催：工单 ×2', why: '第一条；第二条' }])
   })
 })
 

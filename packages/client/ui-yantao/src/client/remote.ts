@@ -22,7 +22,7 @@ import type {
   SessionRenameRequest, SessionRenameValue,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {
-  KbCapabilityAdoptArgs, KbCapabilityAdoptResult, KbCapabilityCreateArgs, KbCapabilityCreateResult,
+  KbMailArchiveArgs, KbMailArchiveResult, KbCapabilityAdoptArgs, KbCapabilityAdoptResult, KbCapabilityCreateArgs, KbCapabilityCreateResult,
   KbCapabilityListResult,
   KbCapabilityRegisterArgs, KbCapabilityRegisterResult,
   KbCapabilityRunArgs, KbCapabilityRunResult, KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
@@ -169,6 +169,20 @@ export type MailMarker = (args: KbMailMarkReadArgs) => Promise<KbMailMarkReadRes
  * grows a delete.
  */
 export type MailDeleter = (ids: readonly string[]) => Promise<KbMailDeleteResult>
+
+/**
+ * One mail the archive verb should keep (ADR-0037): the EntryID locates the
+ * original, the summary lands in the index's 摘要 column.
+ */
+export type ArchiveMail = { readonly entryId: string; readonly summary?: string }
+
+/**
+ * Arm the archive (ADR-0037 决定 2): keep nominated mails as self-contained
+ * `.eml` originals plus monthly index rows, through the `mail` capability's
+ * human-channel-only `verb: 'archive'`. The agent only nominates — the
+ * human's tick on the proposal card is what arms it, same as the delete knife.
+ */
+export type Archiver = (mails: readonly ArchiveMail[]) => Promise<KbMailArchiveResult>
 
 /** Copy one dropped file into `resources/` and resolve its path (ADR-0020). */
 export type ResourceRegistrar = (name: string, contentBase64: string) => Promise<string>
@@ -499,6 +513,23 @@ export async function deleteMails(ctx: Context, ids: readonly string[], signal?:
   const args: KbMailDeleteArgs = { verb: 'delete', ids }
   const run = await runCapability(ctx, { name: 'mail', input: args } as unknown as KbCapabilityRunArgs, signal)
   return run.result as unknown as KbMailDeleteResult
+}
+
+/**
+ * Keep nominated mails as `.eml` originals plus monthly index rows (ADR-0037),
+ * through the `mail` capability's archive verb. The generic `capabilityRun`
+ * RPC hardcodes the human invoker, and the controller testifies that channel
+ * in the request envelope — the entry script refuses the verb to anyone else.
+ * @param ctx - client root context.
+ * @param mails - the nominated mails, each located by EntryID with the
+ *   analysis's summary for the index.
+ * @param signal - the human channel's cancel line (ADR-0031).
+ * @returns the per-mail outcome buckets, or a rejected promise carrying the reason.
+ */
+export async function archiveMails(ctx: Context, mails: readonly ArchiveMail[], signal?: AbortSignal): Promise<KbMailArchiveResult> {
+  const args: KbMailArchiveArgs = { verb: 'archive', mails }
+  const run = await runCapability(ctx, { name: 'mail', input: args } as unknown as KbCapabilityRunArgs, signal)
+  return run.result as unknown as KbMailArchiveResult
 }
 
 /**

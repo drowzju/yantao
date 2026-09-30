@@ -18,6 +18,7 @@ import type {
   ExternalOpener, FileDeleter, FileReader, FileWriter, LinksLoader,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, RelationSetter, ResourceRegistrar, RevisionLoader,
   RootLoader, RootSetter,
+  Archiver,
   SessionPrompter, TodoLoader, TodoWriter,
 } from '../remote.ts'
 import type { AnalysisStage, MailAnalyser } from '../mail-analysis.ts'
@@ -97,6 +98,12 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay'> & {
    * the face still render the card — its delete-mails rows then skip honestly.
    */
   readonly mailDelete?: MailDeleter
+  /**
+   * Arm the mail archive (ADR-0037 决定 2); optional for the same reason as
+   * `mailDelete` — embedders without the face still render the card, whose
+   * archive-mails rows then skip honestly.
+   */
+  readonly mailArchive?: Archiver
   /** Run one mail analysis in a dsh session (ADR-0019). */
   readonly analyseMail: MailAnalyser
   /** Run one refine analysis in a dsh session — both ADR-0029 gestures. */
@@ -322,7 +329,7 @@ export function Frame({
   t, renderSlot, panels, intake, workspace, read, write, deleteFile, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine, validate,
   registerResource, capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
-  promptSession, memoryList, memoryAdd, memoryDelete, sessionDetail, onKbRootChanged, mailDelete,
+  promptSession, memoryList, memoryAdd, memoryDelete, sessionDetail, onKbRootChanged, mailDelete, mailArchive,
   loadModelsConfig, saveModelsConfig,
 }: FrameProps): ReactElement {
   const [configOpen, setConfigOpen] = useState(false)
@@ -1170,6 +1177,7 @@ export function Frame({
           mailFetch={bookedMailFetch}
           mailMarkRead={mailMarkRead}
           {...(mailDelete !== undefined ? { mailDelete } : {})}
+          {...(mailArchive !== undefined ? { mailArchive } : {})}
           analyseMail={analyseMail}
           registerResource={registerResource}
           capabilityList={capabilityList}
@@ -1277,6 +1285,7 @@ export function Frame({
           mailFetch={bookedMailFetch}
           mailMarkRead={mailMarkRead}
           {...(mailDelete !== undefined ? { mailDelete } : {})}
+          {...(mailArchive !== undefined ? { mailArchive } : {})}
           analyseMail={analyseMail}
           registerResource={registerResource}
           capabilityList={capabilityList}

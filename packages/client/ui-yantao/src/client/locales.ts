@@ -222,6 +222,8 @@ export const zh = {
   // Proposal card
   'proposal.highlight': '重点提醒',
   'proposal.digest': '日常通知（汇总）',
+  'proposal.digestSummary': '共 {count} 条',
+  'proposal.withSupplement': '并补充{section}：{text}',
   'proposal.prescanFindings': '系统预扫（确定性）',
   'proposal.modelFindings': '模型发现',
   'proposal.orphanIncoming': '入链 {count}',
@@ -254,6 +256,7 @@ export const zh = {
   'group.appendSection': '章节补充',
   'group.memory': '记忆',
   'group.deleteMails': '删除邮件（移入已删除）',
+  'group.archiveMails': '归档邮件（.eml 原件）',
 } satisfies Record<string, string>
 
 /** Workbench locale key union. */
@@ -462,6 +465,8 @@ export const en = {
   // Proposal card
   'proposal.highlight': 'Key reminders',
   'proposal.digest': 'Routine notices (digest)',
+  'proposal.digestSummary': '{count} in total',
+  'proposal.withSupplement': 'plus {section}: {text}',
   'proposal.prescanFindings': 'System prescan (deterministic)',
   'proposal.modelFindings': 'Model findings',
   'proposal.orphanIncoming': '{count} incoming links',
@@ -494,4 +499,5 @@ export const en = {
   'group.appendSection': 'Section additions',
   'group.memory': 'Memories',
   'group.deleteMails': 'Mail deletions (move to Deleted)',
+  'group.archiveMails': 'Mail archives (.eml originals)',
 } satisfies Record<WorkbenchLocaleKey, string>

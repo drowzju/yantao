@@ -111,6 +111,8 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0034 | 邮件三分拣 v2:行为记忆与执行层对齐——注入剥日期(存储保留)、清单分组清洗(项目/领域分列、去 self、无邮箱标注)、注入围栏(正文定界符+不可信声明)、focus 判据改合取(主送我或含 superior+真人发件+严重内容语义判定)+安全告警例外;schema 增 `newProjects`/`meetings`/`deletions` 三槽(`projects` 收紧为只挂已存在),提案扩展 create-project 带领域勾选写 frontmatter;删除刀仅人通道(COM 移入已删除文件夹,agent 只有提名权,kb_* 保持十一);渐进加载/agentic 化记 deferred |
 | 0035 | 实体校验(validate 手势):第四手势补上 Ingest/Query 之外的 Lint——新 RPC `yantaoKb.graph()` 全库双链图,客户端确定性预扫(孤儿条目/失效双链)作模型研判线索;`ValidateVerdict`(findings 纯展示行 + targets/creates 复用 v2 条目形状 + todos + questions 两段式);L1 只许建页建链、L2 解锁 edit-section/add-todo(write-state 永不在白名单);L2=超集、按类型分批接力、失败部分交付,施工另立 ADR-0036;只弹卡不落盘、无调度无口令、等级不持久化;汇总给 token/耗时 |
 | 0036 | 实体校验 v2 回归纯体检:ADR-0035 决定 3/4 被取代——预扫(孤儿/失链)绕过模型直出确定性区块,`creates` 移除(建页归提炼手势,validate 只发现+补链);诊断调用窄化为过期/矛盾/缺链机会三维度(规则硬编码,冗余检测暂缓);代码侧防御核验(findings/targets 引用对花名册与图校验,解析不到即弃);失链修复候选由代码相似度匹配生成;提议卡分确定性/模型两区块不混排;协议保持 JSON verdict+reask;L2 重构想另立 ADR。设计背景见 `.scratch/entity-validate-v2/analysis.md`(llm_wiki 对照) |
+| 0037 | 邮件原文归档:高价值邮件存自包含 `.eml`(COM SaveAs `.msg`→本地转 MIME,失败降级 `.msg` 兜底)落 `resources/mails/YYYY/MM/`,月度索引 `mail-index/mailsYYYYMM.md`(八列表,收件人完整入档是对 ADR-0019 的显式例外);能力脚本直写资源=ADR-0026 遗留首个落地,沿用提案批准流,幂等去重、逐封串行、25MB 封顶,零新工具零新 RPC |
+| 0038 | 提案卡易用性修订:汇总块默认折叠+剔除删除提名+合并键降级(发件人+裸主题)+digest why 限 20 字;分析 schema 五槽位增 `mail` 溯源,实体组按来源邮件分层子标题全选;新建实体的决议/待办补充行与创建行同框一个复选框(依赖可见,不再静默跳过);章节补充行 label=`实体名·章节`、detail 显实际文本、提示词禁复述 why;分组级全选三态;「点开 Outlook 原邮件」列为未来独立 ADR 候选 |
 
 ## 5. 快速上手
 
@@ -142,7 +144,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 | [development.md](development.md) | 构建、运行、停止、测试、门禁、坑 |
 | [design.md](design.md) | UI 设计规则:`--yt-*` token、排版与间距阶梯、表面与构图纪律、迁移路径 |
 | [TODO.md](TODO.md) | 待办:done / next / deferred(每个搁置项都带原因) |
-| [../adr/](../adr/) | ADR 0001–0036(索引见第 4 节) |
+| [../adr/](../adr/) | ADR 0001–0038(索引见第 4 节) |
 | [../subsystems/yantao.md](../subsystems/yantao.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | 上下文地图:yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | 词汇表(规范用词) |

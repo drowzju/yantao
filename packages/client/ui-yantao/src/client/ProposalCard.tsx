@@ -36,9 +36,26 @@ const cardStyle = {
   boxShadow: '0 12px 32px rgba(28, 26, 22, 0.25)',
 } as const
 
-const groupTitleStyle = { margin: '12px 0 4px', fontSize: 'var(--yt-type-label)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
+// 层级秩序（2026-09-30 展示修订）：片区有物理边界，组头是全卡最大的字，
+// 来源分层是胶囊，行文本与其下的 detail 靠字号与颜色自然分层——父级永远
+// 比子级大且深，不再倒挂。
+const groupContainerStyle = {
+  border: '1px solid var(--yt-border-subtle)',
+  borderRadius: 8,
+  padding: '8px 10px',
+  marginTop: 10,
+} as const
 
-const focusTitleStyle = { margin: '12px 0 4px', fontSize: 'var(--yt-type-label)', fontWeight: 700, color: 'var(--yt-error)' } as const
+const groupTitleStyle = { margin: '0 0 6px', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-primary)' } as const
+
+/** A section title sitting outside any group envelope (findings, suggestions). */
+const sectionTitleStyle = { ...groupTitleStyle, margin: '12px 0 4px' } as const
+
+/** A folded block's title inside the flex header row (digest, prescan): no margins —
+    the row's own alignment decides. */
+const foldTitleStyle = { ...groupTitleStyle, margin: 0 } as const
+
+const focusTitleStyle = { margin: '12px 0 4px', fontSize: 'var(--yt-type-section)', fontWeight: 700, color: 'var(--yt-error)' } as const
 
 const focusRowStyle = {
   display: 'flex',
@@ -50,7 +67,7 @@ const focusRowStyle = {
   fontSize: 'var(--yt-type-label)',
 } as const
 
-const rowStyle = { display: 'flex', gap: 8, alignItems: 'flex-start', padding: '3px 0' } as const
+const rowStyle = { display: 'flex', gap: 8, alignItems: 'flex-start', padding: '4px 0' } as const
 
 const detailStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
 
@@ -66,6 +83,23 @@ const toggleStyle = {
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
   cursor: 'pointer',
+} as const
+
+/** A per-mail layer's sub-header inside a creation group (ADR-0038 决定 7) —
+    a chip, so the middle layer can neither pass for the group header above
+    nor for the detail lines below. */
+const subHeaderStyle = {
+  display: 'inline-flex',
+  gap: 6,
+  alignItems: 'center',
+  margin: '2px 0 4px',
+  padding: '1px 8px',
+  fontSize: 'var(--yt-type-label)',
+  fontWeight: 600,
+  color: 'var(--yt-text-secondary)',
+  background: 'var(--yt-accent-bg)',
+  border: '1px solid var(--yt-accent-border)',
+  borderRadius: 10,
 } as const
 
 const instructionStyle = {
@@ -99,7 +133,7 @@ const footerStyle = {
 
 /** The kinds in the order the card lists their groups. */
 const GROUP_ORDER: readonly ProposalAction['kind'][] = [
-  'create-entity', 'create-project', 'add-todo', 'append-log', 'write-state', 'edit-section', 'append-section', 'create-link', 'save-resource', 'add-memory', 'delete-mails',
+  'create-entity', 'create-project', 'add-todo', 'append-log', 'write-state', 'edit-section', 'append-section', 'create-link', 'save-resource', 'add-memory', 'delete-mails', 'archive-mails',
 ]
 
 /** A person action's relation, as the row's detail names it (self is never proposed). */
@@ -124,14 +158,32 @@ function labelOf(action: ProposalAction): string {
     case 'append-section': return action.section
     case 'add-memory': return action.text
     case 'delete-mails': return action.subject
+    case 'archive-mails': return action.subject
   }
+}
+
+/**
+ * One row's main text, with the append-section override (ADR-0038 决定 8):
+ * the label names the entity it lands in — resolved path, or the after-create
+ * companion when the creation row carries it — followed by the section.
+ */
+function rowLabelOf(action: ProposalAction): string {
+  if (action.kind !== 'append-section') return labelOf(action)
+  const entityName = entityNameOf(action.path)
+  const owner = entityName !== '' ? entityName : action.afterCreate ?? action.path
+  return `${owner} · ${action.section}`
 }
 
 /** One row's explanation — why the agent proposes this. */
 function detailOf(action: ProposalAction, t: WorkbenchT): string {
   if (action.kind === 'edit-section') return `${action.path}：${action.why}`
-  if (action.kind === 'append-section') return `${action.path}：${action.why}`
+  // ADR-0038 决定 9: the supplement's detail is the text that would land, not
+  // the why (which repeats the creation's reason); the source mail rides ahead.
+  if (action.kind === 'append-section') {
+    return action.mailSubject !== undefined ? `来自「${action.mailSubject}」：${action.text}` : action.text
+  }
   if (action.kind === 'delete-mails') return `${action.sender}：${action.reason}`
+  if (action.kind === 'archive-mails') return `${action.sender}：${action.summary || action.reason}`
   if (action.kind === 'create-project') {
     const areas = action.areas !== undefined && action.areas.length > 0 ? `关联领域：${action.areas.join('、')}。` : ''
     return `${areas}${action.reason}`
@@ -190,6 +242,9 @@ export function ProposalCard(props: {
   // The validate card's prescan folds away: the summary line stands, the
   // detail opens on demand.
   const [prescanOpen, setPrescanOpen] = useState(false)
+  // The digest block folds too (ADR-0038 决定 1): routine notices summarize
+  // to a count line; the rows open on demand.
+  const [digestOpen, setDigestOpen] = useState(false)
   // The free-input box's draft and its in-flight state.
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -199,14 +254,8 @@ export function ProposalCard(props: {
     setTicked([])
     setAreaPicks({})
     setPrescanOpen(false)
+    setDigestOpen(false)
   }, [proposal])
-
-  /** Tick or untick one row. */
-  const toggle = (index: number): void => {
-    setTicked(state => state.includes(index)
-      ? state.filter(entry => entry !== index)
-      : [...state, index].sort((left, right) => left - right))
-  }
 
   /** Tick or untick one area of one create-project row. */
   const toggleArea = (index: number, area: string, areas: readonly string[]): void => {
@@ -348,7 +397,7 @@ export function ProposalCard(props: {
       else groups[groups.indexOf(group)] = { ...group, rows: [...group.rows, row] }
     }
     return groups.map((group, at) => (
-      <div key={`${keyPrefix}group-${at}`}>
+      <div key={`${keyPrefix}group-${at}`} style={groupContainerStyle}>
         <div style={groupTitleStyle} data-proposal-entity-group={group.title}>{group.title}</div>
         {group.rows.map((row, rowIndex) => (
           <div key={rowIndex} style={rowStyle} data-proposal-row={row.indices.at(0)}>
@@ -382,61 +431,139 @@ export function ProposalCard(props: {
    * One block's action groups, kind by kind; `base` shifts the row's flat
    * index — the deterministic rows occupy 0..n-1, the model's follow (the
    * applier resolves ticked indices over the same concatenation).
+   *
+   * ADR-0038 reshapes the mail face three ways. 决定 8: an `append-section`
+   * row that trails a creation merges into that creation's row — one checkbox
+   * ticks both, because the create decision is what makes the supplement
+   * meaningful. 决定 7: the creation groups layer per source mail, each layer
+   * headed by a select-all checkbox over the subject it came from. 决定 10:
+   * every group header carries a three-state select-all.
    */
-  const renderGroups = (actions: readonly ProposalAction[], base: number, keyPrefix: string): (ReactElement | null)[] =>
-    GROUP_ORDER.map((kind) => {
+  const renderGroups = (actions: readonly ProposalAction[], base: number, keyPrefix: string): (ReactElement | null)[] => {
+    // 决定 8: pair each afterCreate supplement with its creation row; the
+    // swallowed rows leave the 章节补充 group and render inside their create.
+    const supplementsOf = new Map<number, { readonly section: string; readonly text: string; readonly index: number }[]>()
+    const swallowed = new Set<number>()
+    actions.forEach((action, index) => {
+      if (action.kind !== 'append-section' || action.afterCreate === undefined) return
+      const createAt = actions.findIndex(other =>
+        (other.kind === 'create-entity' || other.kind === 'create-project') && other.name === action.afterCreate)
+      if (createAt < 0) return
+      swallowed.add(index)
+      const lines = supplementsOf.get(createAt) ?? []
+      supplementsOf.set(createAt, [...lines, { section: action.section, text: action.text, index: base + index }])
+    })
+    return GROUP_ORDER.map((kind) => {
       const rows = actions
         .map((action, index) => ({ action, index: base + index }))
-        .filter(row => row.action.kind === kind)
+        .filter(row => row.action.kind === kind && !swallowed.has(row.index - base))
       if (rows.length === 0) return null
+      // 决定 7: creation rows layer per source mail, in first-seen order;
+      // rows without provenance fall into one unheaded layer.
+      const layers: { readonly subject: string | undefined; readonly rows: typeof rows }[] = []
+      for (const row of rows) {
+        const subject = (row.action.kind === 'create-entity' || row.action.kind === 'create-project') && row.action.mailSubject !== undefined
+          ? row.action.mailSubject
+          : undefined
+        const layer = layers.find(candidate => candidate.subject === subject)
+        if (layer === undefined) layers.push({ subject, rows: [row] })
+        else layers[layers.indexOf(layer)] = { ...layer, rows: [...layer.rows, row] }
+      }
+      const groupIndices = rows.flatMap(row => [row.index, ...(supplementsOf.get(row.index - base) ?? []).map(line => line.index)])
+      const allOn = groupIndices.every(index => ticked.includes(index))
+      const someOn = groupIndices.some(index => ticked.includes(index))
       return (
-        <div key={`${keyPrefix}${kind}-${base}`}>
-          <div style={groupTitleStyle} data-proposal-group={kind}>{t(GROUP_KEYS[kind])}</div>
-          {rows.map(({ action, index }) => (
-            <div key={index} style={rowStyle} data-proposal-row={index}>
-              <input
-                type="checkbox"
-                aria-label={labelOf(action)}
-                checked={ticked.includes(index)}
-                onChange={() => { toggle(index) }}
-              />
-              <div style={{ minWidth: 0 }}>
-                <div>{labelOf(action)}</div>
-                {detailOf(action, t) !== '' && <div style={detailStyle}>{detailOf(action, t)}</div>}
-                {/* ADR-0034 决定 4: the create-project row's 领域勾选 — the
-                    human adjusts the association before it is written. */}
-                {action.kind === 'create-project' && proposal.areas !== undefined && proposal.areas.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 2 }} data-proposal-areas={index}>
-                    {proposal.areas.map((area) => {
-                      const current = areaPicks[index] ?? action.areas ?? []
-                      const on = current.includes(area)
-                      return (
-                        <label key={area} style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 'var(--yt-type-label)' }}>
-                          <input
-                            type="checkbox"
-                            aria-label={`${action.name}·${area}`}
-                            checked={on}
-                            onChange={() => { toggleArea(index, area, action.areas ?? []) }}
-                          />
-                          {area}
-                        </label>
-                      )
-                    })}
+        <div key={`${keyPrefix}${kind}-${base}`} style={groupContainerStyle}>
+          <div style={groupTitleStyle} data-proposal-group={kind}>
+            {/* 决定 10: three-state select-all over the whole group. */}
+            <input
+              type="checkbox"
+              aria-label={t(GROUP_KEYS[kind])}
+              checked={allOn}
+              ref={(el) => { if (el !== null) el.indeterminate = !allOn && someOn }}
+              onChange={() => { toggleRow(groupIndices) }}
+            />
+            {t(GROUP_KEYS[kind])}
+          </div>
+          {layers.map((layer, layerAt) => {
+            const linesOf = (row: { readonly index: number }): readonly number[] =>
+              (supplementsOf.get(row.index - base) ?? []).map(line => line.index)
+            const layerIndices = layer.rows.flatMap(row => [row.index, ...linesOf(row)])
+            const layerAllOn = layerIndices.every(index => ticked.includes(index))
+            const layerSomeOn = layerIndices.some(index => ticked.includes(index))
+            return (
+              <div key={layerAt}>
+                {layer.subject !== undefined && (
+                  <div style={subHeaderStyle} data-proposal-mail-layer={layer.subject}>
+                    <input
+                      type="checkbox"
+                      aria-label={layer.subject}
+                      checked={layerAllOn}
+                      ref={(el) => { if (el !== null) el.indeterminate = !layerAllOn && layerSomeOn }}
+                      onChange={() => { toggleRow(layerIndices) }}
+                    />
+                    {layer.subject}
                   </div>
                 )}
+                {layer.rows.map(({ action, index }) => {
+                  const supplements = supplementsOf.get(index - base) ?? []
+                  const rowIndices = [index, ...supplements.map(line => line.index)]
+                  const label = rowLabelOf(action)
+                  return (
+                    <div key={index} style={rowStyle} data-proposal-row={index}>
+                      <input
+                        type="checkbox"
+                        aria-label={label}
+                        checked={rowIndices.every(entry => ticked.includes(entry))}
+                        onChange={() => { toggleRow(rowIndices) }}
+                      />
+                      <div style={{ minWidth: 0 }}>
+                        <div>{label}</div>
+                        {detailOf(action, t) !== '' && <div style={detailStyle}>{detailOf(action, t)}</div>}
+                        {supplements.map((line, lineAt) => (
+                          <div key={lineAt} style={detailStyle} data-proposal-supplement={line.section}>
+                            {t('proposal.withSupplement', { section: line.section, text: line.text })}
+                          </div>
+                        ))}
+                        {/* ADR-0034 决定 4: the create-project row's 领域勾选 — the
+                            human adjusts the association before it is written. */}
+                        {action.kind === 'create-project' && proposal.areas !== undefined && proposal.areas.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 2 }} data-proposal-areas={index}>
+                            {proposal.areas.map((area) => {
+                              const current = areaPicks[index] ?? action.areas ?? []
+                              const on = current.includes(area)
+                              return (
+                                <label key={area} style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 'var(--yt-type-label)' }}>
+                                  <input
+                                    type="checkbox"
+                                    aria-label={`${action.name}·${area}`}
+                                    checked={on}
+                                    onChange={() => { toggleArea(index, area, action.areas ?? []) }}
+                                  />
+                                  {area}
+                                </label>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )
     })
+  }
 
   const prescan = proposal.prescan
 
   return (
     <div style={panelStyle} data-proposal-card="true">
       <div style={cardStyle}>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>{proposal.title}</div>
+        <div style={{ fontSize: 'var(--yt-type-title)', fontWeight: 600 }}>{proposal.title}</div>
         {proposal.note !== undefined && <div style={{ ...detailStyle, marginTop: 2 }}>{proposal.note}</div>}
         {proposal.highlights !== undefined && proposal.highlights.length > 0 && (
           <div data-proposal-highlights="true">
@@ -449,11 +576,26 @@ export function ProposalCard(props: {
             ))}
           </div>
         )}
+        {/* ADR-0038 决定 1: routine notices fold to a count line — the rows
+            open on demand, the same calm pattern the prescan block uses. */}
         {proposal.digest !== undefined && proposal.digest.length > 0 && (
           <div data-proposal-digest="true">
-            <div style={groupTitleStyle}>{t('proposal.digest')}</div>
-            {proposal.digest.map((entry, index) => (
-              <div key={index} style={detailStyle}>
+            <div style={summaryRowStyle}>
+              <div style={foldTitleStyle}>{t('proposal.digest')}</div>
+              <span style={summaryTextStyle} data-proposal-digest-count="true">
+                {t('proposal.digestSummary', { count: proposal.digest.length })}
+              </span>
+              <button
+                type="button"
+                style={toggleStyle}
+                data-proposal-digest-toggle="true"
+                onClick={() => { setDigestOpen(open => !open) }}
+              >
+                {digestOpen ? t('proposal.collapse') : t('proposal.expand')}
+              </button>
+            </div>
+            {digestOpen && proposal.digest.map((entry, index) => (
+              <div key={index} style={detailStyle} data-proposal-digest-row={index}>
                 {entry.sender}：{entry.subject} — {entry.why}
               </div>
             ))}
@@ -468,7 +610,7 @@ export function ProposalCard(props: {
         {prescan !== undefined && (prescan.orphans.length > 0 || prescan.findings.length > 0 || prescan.actions.length > 0) && (
           <div data-proposal-prescan="true">
             <div style={summaryRowStyle}>
-              <div style={groupTitleStyle}>{t('proposal.prescanFindings')}</div>
+              <div style={foldTitleStyle}>{t('proposal.prescanFindings')}</div>
               <span style={summaryTextStyle} data-proposal-prescan-summary="true">
                 {t('proposal.prescanSummary', {
                   orphans: prescan.orphans.length,
@@ -506,7 +648,7 @@ export function ProposalCard(props: {
             suggestions, in the findings style the card always had. */}
         {proposal.findings !== undefined && proposal.findings.length > 0 && (
           <div data-proposal-findings="true">
-            <div style={groupTitleStyle}>{t('proposal.modelFindings')}</div>
+            <div style={sectionTitleStyle}>{t('proposal.modelFindings')}</div>
             {proposal.findings.map((finding, index) => (
               <div key={index} style={detailStyle} data-proposal-finding={finding.kind}>
                 {finding.subject} — {finding.why}
@@ -523,7 +665,7 @@ export function ProposalCard(props: {
         {prescan !== undefined
           ? (
             <>
-              {proposal.actions.length > 0 && <div style={groupTitleStyle}>{t('proposal.suggestions')}</div>}
+              {proposal.actions.length > 0 && <div style={sectionTitleStyle}>{t('proposal.suggestions')}</div>}
               {renderEntityGroups(proposal.actions, allActions.length - proposal.actions.length, 'model-')}
             </>
           )

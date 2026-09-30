@@ -13,7 +13,7 @@ import type {
   CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, EntityCreator, FileDeleter, FileReader,
   FileWriter,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, RelationSetter, ResourceRegistrar,
-  TodoLoader, TodoWriter,
+  TodoLoader, TodoWriter, Archiver,
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
 import type { MailAnalyser } from './mail-analysis.ts'
@@ -878,6 +878,12 @@ export interface RailProps {
    * rows that skip honestly instead of executing unseen.
    */
   readonly mailDelete?: MailDeleter
+  /**
+   * Archive nominated mails as .eml originals into resources/ (ADR-0037) —
+   * optional, same honest-skip contract as mailDelete for embedders
+   * without the face.
+   */
+  readonly mailArchive?: Archiver
   /** Run one mail analysis in a dsh session (ADR-0019). */
   readonly analyseMail: MailAnalyser
   /** Copy one dropped file into `resources/` — both rails' entity rows accept OS drops (ADR-0029 决定 2). */
@@ -1003,6 +1009,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     memoryList, memoryAdd, memoryDelete,
   } = props
   const mailDelete = props.mailDelete
+  const mailArchive = props.mailArchive
   const { sections, error, refresh } = useRail(load, refreshKey)
   const capabilities = useCapabilities(capabilityList, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector' | 'memory'>('resources')
@@ -1069,6 +1076,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const mailTarget: ProposalTarget = {
     createEntity, read, write, todos: loadTodos, writeTodos, memoryAdd,
     ...(mailDelete !== undefined ? { deleteMails: mailDelete } : {}),
+    ...(mailArchive !== undefined ? { archiveMails: mailArchive } : {}),
   }
 
   // ADR-0020: dropping files onto the rail registers them — a pure copy into

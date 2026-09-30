@@ -48,6 +48,30 @@ SKILL.md 保持纯净，方便直接复用开源 skill 目录。
   EntryID 列表，`failed` 是 `{id, message}`；单封失败不影响其余。
 - 失败：与取数同词表（python-missing / outlook-unavailable / other）。
 
+### 归档（`verb: 'archive'`，仅人通道，ADR-0037）
+
+- `input`：`{verb: 'archive', mails: [{entryId, summary}, …]}`——要归档的
+  邮件的 Outlook EntryID（定位原件）与分析摘要（落索引「摘要」列），来自
+  提案卡上人勾选的归档提案。本体在 `scripts/archive_mail.py`。
+- `channel` 必须是人通道，同删除刀（ADR-0037 决定 2：agent 无自主归档权）。
+- 每封的处理：COM `SaveAs` 导出 .msg → 重组为自包含 .eml（正文、头字段、
+  内嵌图片、附件全在一个文件里；依赖 `pip install extract-msg`，缺库或重组
+  失败时降级存 .msg，索引备注「msg 兜底」）→ 落
+  `<kbRoot>/resources/mails/YYYY/MM/YYYY-MM-DD_HHMM_主题_发件人.eml` →
+  立刻往 `<kbRoot>/resources/mail-index/mailsYYYYMM.md` 追加一行八列索引
+  （标题｜发件人｜收件人｜时间｜保存路径｜摘要｜线程｜备注）。逐封串行，
+  单封失败不拖垮整批（决定 7）。
+- 幂等与撞名（决定 5/6）：同名同信（解析既有 .eml 头字段验身）整封跳过；
+  确属另一封才追加 mail_id 前 8 位短哈希；.msg 兜底件一律按已归档跳过。
+- 上限（决定 9）：.eml 序列化后超 25MB 拒绝落盘，索引记一行「过大未存」。
+- 收件人完整列表（主送＋抄送）只在此动词读取、只落入经人批准的索引——
+  对 ADR-0019 取数通道纪律的显式例外（决定 8）。
+- 成功：`{ok: true, result: {saved, oversized, skipped, missing, failed,
+  warnings}}`——`saved` 每项 `{id, entryId, path, format, remark}`（path 相对
+  `resources/`），`oversized`/`skipped` 带明细，`missing` 是 EntryID 列表，
+  `failed` 是 `{id, message}`，`warnings` 是整批提示。
+- 失败：与取数同词表，外加 KB 根未设置的 other。
+
 两类动词共用的失败：`{ok: false, kind, message, hint}`，kind ∈
 python-missing / outlook-unavailable / folder-missing / not-invocable / other。
 

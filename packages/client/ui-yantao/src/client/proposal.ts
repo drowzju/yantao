@@ -10,7 +10,7 @@
  */
 import type { KbMailMessage, KbPersonRelation } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { MailAnalysis } from './mail-analysis.ts'
-import { bareSubject, threadKey } from './mail-threads.ts'
+import { bareSubject } from './mail-threads.ts'
 import type { MailEntities } from './mail-apply.ts'
 import type { WorkbenchLocaleKey } from './locales.ts'
 
@@ -33,6 +33,14 @@ export type ProposalAction =
     readonly relation?: KbPersonRelation
     /** The person's e-mail address, written into the frontmatter `email:` field. */
     readonly email?: string
+    /**
+     * Which analysed mail this came from (ADR-0038): the 1-based batch number,
+     * with the mail's subject beside it — the card groups creation rows per
+     * source mail, so the human sees which mail asked for which entity.
+     */
+    readonly mail?: number
+    /** That mail's subject line, as the group subtitle the card shows. */
+    readonly mailSubject?: string
   }
   | {
     /**
@@ -47,6 +55,10 @@ export type ProposalAction =
     readonly reason: string
     /** Suggested area names, already filtered to ones the KB holds. */
     readonly areas?: readonly string[]
+    /** Which analysed mail this came from — 1-based batch number (ADR-0038). */
+    readonly mail?: number
+    /** That mail's subject line, as the group subtitle the card shows. */
+    readonly mailSubject?: string
   }
   | {
     /** Append one dated bullet to an entity's `## 流水` (the append-only section). */
@@ -61,6 +73,10 @@ export type ProposalAction =
      * the create must be ticked and succeed, or the row is skipped.
      */
     readonly afterCreate?: string
+    /** Which analysed mail this came from — 1-based batch number (ADR-0038). */
+    readonly mail?: number
+    /** That mail's subject line, shown on the row's detail (ADR-0038). */
+    readonly mailSubject?: string
   }
   | {
     /** Append one line to an entity's `## 状态`. */
@@ -94,6 +110,10 @@ export type ProposalAction =
     readonly due?: string
     readonly body: string
     readonly reason: string
+    /** Which analysed mail this came from — 1-based batch number (ADR-0038). */
+    readonly mail?: number
+    /** That mail's subject line, shown on the row's detail (ADR-0038). */
+    readonly mailSubject?: string
   }
   | {
     /**
@@ -135,6 +155,10 @@ export type ProposalAction =
     readonly why: string
     /** Same create-follows-create resolution as `edit-section`'s (ADR-0030). */
     readonly afterCreate?: string
+    /** Which analysed mail this came from — 1-based batch number (ADR-0038). */
+    readonly mail?: number
+    /** That mail's subject line, shown on the row's detail (ADR-0038). */
+    readonly mailSubject?: string
   }
   | {
     /**
@@ -161,6 +185,22 @@ export type ProposalAction =
     readonly entryId: string
     readonly sender: string
     readonly subject: string
+    readonly reason: string
+  }
+  | {
+    /**
+     * Archive one nominated mail as a self-contained `.eml` original plus a
+     * monthly index row (ADR-0037). Like the delete knife, the agent only
+     * nominates: the applier routes it through the optional `archiveMails`
+     * seam, driving the human-channel-only `verb: 'archive'`. The summary
+     * the model wrote lands in the index's 摘要 column; headers, recipients
+     * and attachments are re-read from Outlook by the archive script itself.
+     */
+    readonly kind: 'archive-mails'
+    readonly entryId: string
+    readonly sender: string
+    readonly subject: string
+    readonly summary: string
     readonly reason: string
   }
 
@@ -282,6 +322,7 @@ export const GROUP_KEYS: Record<ProposalAction['kind'], WorkbenchLocaleKey> = {
   'append-section': 'group.appendSection',
   'add-memory': 'group.memory',
   'delete-mails': 'group.deleteMails',
+  'archive-mails': 'group.archiveMails',
 }
 
 /** Today as a YYYY-MM-DD stamp, in the human's own timezone. */
@@ -357,6 +398,15 @@ export function analysisToProposal(
   mails: readonly KbMailMessage[] = [],
 ): Proposal {
   const actions: ProposalAction[] = []
+  // ADR-0038 决定 6: every action born of a mail carries its source — the
+  // 1-based batch number and the mail's subject — so the card can group
+  // creations per mail and label supplements with what they supplement.
+  // Provenance attaches only when the cited mail is actually in the batch.
+  const provenanceOf = (mail: number | undefined) => {
+    const source = mail === undefined ? undefined : mails[mail - 1]
+    if (mail === undefined || source === undefined) return {}
+    return { mail, mailSubject: source.subject || '（无主题）' }
+  }
   for (const person of analysis.people) {
     actions.push({
       kind: 'create-entity',
@@ -365,6 +415,7 @@ export function analysisToProposal(
       reason: person.reason,
       ...person.relation !== undefined ? { relation: person.relation } : {},
       ...person.email !== undefined && person.email !== '' ? { email: person.email } : {},
+      ...provenanceOf(person.mail),
     })
   }
   for (const todo of analysis.todos) {
@@ -374,6 +425,7 @@ export function analysisToProposal(
       body: todo.body,
       reason: todo.body,
       ...todo.due !== undefined ? { due: todo.due } : {},
+      ...provenanceOf(todo.mail),
     })
   }
   for (const note of analysis.projects) {
@@ -384,6 +436,7 @@ export function analysisToProposal(
       entityName: note.name,
       text: note.note,
       reason: note.note,
+      ...provenanceOf(note.mail),
     })
   }
   // ADR-0034 决定 3: the 「建立项目」 intent lands here, apart from the
@@ -397,6 +450,7 @@ export function analysisToProposal(
       name: project.name,
       reason: project.why,
       ...(areas.length > 0 ? { areas } : {}),
+      ...provenanceOf(project.mail),
     })
   }
   // ADR-0034 决定 3/4: a meeting the KB holds gains 决议/待办 material in
@@ -413,6 +467,7 @@ export function analysisToProposal(
         entityType: 'meeting',
         name: meeting.name,
         reason: meeting.why,
+        ...provenanceOf(meeting.mail),
       })
       for (const line of material) {
         actions.push({
@@ -422,6 +477,7 @@ export function analysisToProposal(
           text: line.text,
           why: meeting.why,
           afterCreate: meeting.name,
+          ...provenanceOf(meeting.mail),
         })
       }
       continue
@@ -434,6 +490,7 @@ export function analysisToProposal(
         section: line.section,
         text: line.text,
         why: meeting.why,
+        ...provenanceOf(meeting.mail),
       })
     }
   }
@@ -462,8 +519,15 @@ export function analysisToProposal(
     return { sender: source.senderName, subject: source.subject || '（无主题）', why: '' }
   }
   const highlights: ProposalHighlight[] = []
-  // Digest mails merge per thread (the panel groups them the same way): one
-  // 汇总类 line per conversation, `主题 ×N`, instead of one row per ping.
+  // ADR-0038 决定 2: a deletion nominee already owns a tickable row in the
+  // delete group — it does not also clutter the digest block.
+  const deleted = new Set(analysis.deletions.map(deletion => deletion.mail))
+  // Digest mails merge per stream (the panel groups them its own way): one
+  // 汇总类 line per stream, `主题 ×N`, instead of one row per ping.
+  // ADR-0038 决定 3: the merge key degrades to sender + bare subject. System
+  // digest pushes (weWork/贴近一线) each carry their own ConversationID, so
+  // the cid-authoritative threadKey would split what is really one stream;
+  // this is display-layer only — the panel's threading keeps threadKey.
   const digest = new Map<string, { entry: ProposalHighlight; count: number }>()
   for (const verdict of analysis.verdicts) {
     const flagged = highlightOf(verdict.mail)
@@ -474,8 +538,11 @@ export function analysisToProposal(
       continue
     }
     if (verdict.importance !== 'digest') continue
+    if (deleted.has(verdict.mail)) continue
     const source = mails[verdict.mail - 1]
-    const key = source === undefined ? `verdict:${verdict.mail}` : threadKey(source)
+    const key = source === undefined
+      ? `verdict:${verdict.mail}`
+      : `${source.senderAddress}\n${bareSubject(source.subject) || source.subject}`
     const merged = digest.get(key)
     if (merged === undefined) {
       const topic = source?.conversationTopic || flagged.subject
@@ -503,6 +570,25 @@ export function analysisToProposal(
       sender: source.senderName,
       subject: source.subject || '（无主题）',
       reason: deletion.reason,
+    })
+  }
+  // ADR-0037 决定 2: archive nominees become tickable archive-mails actions —
+  // the model picks the mail and writes the index summary; the human's tick
+  // arms the archive through the human-channel-only archive verb. A nominee
+  // whose mail is not in the batch is unattributable (no entryId) and dropped;
+  // the model may nominate the same mail twice — keep the first, drop the rest.
+  const archivedIds = new Set<string>()
+  for (const archive of analysis.archives) {
+    const source = mails[archive.mail - 1]
+    if (source === undefined || archivedIds.has(source.entryId)) continue
+    archivedIds.add(source.entryId)
+    actions.push({
+      kind: 'archive-mails',
+      entryId: source.entryId,
+      sender: source.senderName,
+      subject: source.subject || '（无主题）',
+      summary: archive.summary,
+      reason: archive.summary,
     })
   }
   return {
