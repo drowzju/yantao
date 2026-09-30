@@ -115,6 +115,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0038 | 提案卡易用性修订:汇总块默认折叠+剔除删除提名+合并键降级(发件人+裸主题)+digest why 限 20 字;分析 schema 五槽位增 `mail` 溯源,实体组按来源邮件分层子标题全选;新建实体的决议/待办补充行与创建行同框一个复选框(依赖可见,不再静默跳过);章节补充行 label=`实体名·章节`、detail 显实际文本、提示词禁复述 why;分组级全选三态;「点开 Outlook 原邮件」列为未来独立 ADR 候选 |
 | 0039 | footer 上下文状态栏:配置按钮旁常驻分段条+百分比(>80% 警告/>95% 危险,无数据显示 `--`),点击弹详情(系统提示+yantao 注入子行/工具定义/对话历史/剩余可用);读 `contextPressure`/`contextBreakdown` 投影,yantao 注入份额走新 `yantaoKb.promptInjection` Remote(assemble 瀑布不进事件流,自估自报);只盯当前主会话,UI 后台会话不计入;摘除上游 InputBar 的 ContextMeter 圆环(唯一上游改动) |
 | 0040 | 惯用提示词与能力柔性调用:`/别名` 三入口(菜单/tab/手打)只填 composer 不发送,展开权威全在 agent(系统提示 order 155 小节同步注入);存 `.dsh/yantao/prompt-shortcuts.json`(别名≤32字/文本≤2000字/30条软帽/全量替换/UI 唯一写者/别名禁撞技能名);`/` 菜单惯用分组置顶(order −10);能力 tab 首屏惯用化+清单折叠;`promptShortcutList/Save` 双 RPC;dingtalk-docs SKILL.md 双通道(shell 直跑/kb_run_capability)走既有 pre-step 注入零宿主代码,提案卡「存为惯用」延后 |
+| 0041 | 实体归档:启用既有 frontmatter `archive: true` 机制(否决目录移动路线——全库死链/写面丧失/词汇表规避/邮件域撞词),单一权威信号不双写状态区;四类实体全覆盖(todos.md 除外),关联/校验图谱过滤归档节点连同其边,`[[链接]]` 保留解析;agent 三写面对归档实体拒绝(UI 人通道不限),还原=去标志零成本可逆;废弃右键「删除」与 `deleteFile` RPC(实体永不删除无后门);agent 仅纯文本提名权;归档/还原各追加流水一条 |
 
 ## 5. 快速上手
 
@@ -146,7 +147,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 | [development.md](development.md) | 构建、运行、停止、测试、门禁、坑 |
 | [design.md](design.md) | UI 设计规则:`--yt-*` token、排版与间距阶梯、表面与构图纪律、迁移路径 |
 | [TODO.md](TODO.md) | 待办:done / next / deferred(每个搁置项都带原因) |
-| [../adr/](../adr/) | ADR 0001–0040(索引见第 4 节) |
+| [../adr/](../adr/) | ADR 0001–0041(索引见第 4 节) |
 | [../subsystems/yantao.md](../subsystems/yantao.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | 上下文地图:yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | 词汇表(规范用词) |
