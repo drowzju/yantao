@@ -3,14 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import type { KbTreeSection } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { KbCapabilityRunResult, KbCapabilitySummary, KbLinksResult, KbMailFetchResult, KbTodosResult, KbUnregisteredSkill } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilityDeclarationResult, KbCapabilityRunResult, KbCapabilitySummary, KbLinksResult, KbMailFetchResult, KbTodosResult, KbUnregisteredSkill } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { TreeLoader } from '../src/client/Workbench.tsx'
 import { IntakeRail, WorkspaceRail, groupResourceFiles, type IntakeRailProps } from '../src/client/Workbench.tsx'
 import { Frame } from '../src/client/frame/Frame.tsx'
 import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveColumns } from '../src/client/frame/columns.ts'
 import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
 import type {
-  CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityArchiver, EntityCreator, ExternalOpener, FileReader,
+  CapabilityDeclarationLoader, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityArchiver, EntityCreator,
+  ExternalOpener, FileReader,
   FileWriter, LinksLoader, MailFetcher, MailMarker, PromptShortcutLister, PromptShortcutSaver, RelationSetter,
   RevisionLoader, RootLoader, RootSetter, SessionPrompter, ShortcutFiller, TodoLoader, TodoWriter,
 } from '../src/client/remote.ts'
@@ -106,6 +107,7 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     memoryAdd: () => Promise.resolve({ path: '.dsh/yantao/memory/global.md', entry: { id: 'm1', text: 'x' } }),
     memoryDelete: () => Promise.resolve(),
     capabilityList: () => Promise.resolve({ capabilities: [], unregistered: [] }),
+    capabilityDeclaration: () => Promise.resolve(DECLARATION),
     capabilityCreate: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     capabilityAdopt: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     capabilityRegister: () => Promise.resolve({ path: '.dsh/skills/yantao.json' }),
@@ -891,6 +893,14 @@ const CAPABILITIES: KbCapabilitySummary[] = [
   { name: 'paper-digest', description: '摘要一篇论文', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'] },
 ]
 
+/** The declaration stub every detail view gets (ADR-0043 决定 7); the section's own assertions live in capability-panel.client.spec.tsx. */
+const DECLARATION: KbCapabilityDeclarationResult = {
+  name: 'mail',
+  sidecar: { present: false, problem: 'sidecar 不存在：目录内没有 yantao.json，SKILL.md 也没有 metadata.yantao 段。' },
+  route: { registered: false },
+  agentInvocable: false,
+}
+
 /** Capabilities for the row-menu matching tests (ADR-0021 决定 7, ADR-0023 决定 2). */
 const ROW_CAPABILITIES: KbCapabilitySummary[] = [
   { name: 'eml-digest', description: '读一封邮件', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'], appliesTo: { resource: ['.eml'] } },
@@ -904,6 +914,7 @@ function capabilityProps(overrides: Partial<Parameters<typeof CapabilityPanel>[0
   return {
     t,
     load: () => Promise.resolve({ capabilities: CAPABILITIES, unregistered: [] }),
+    loadDeclaration: () => Promise.resolve(DECLARATION),
     create: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     adopt: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     register: () => Promise.resolve({ path: '.dsh/skills/yantao.json' }),
@@ -1138,6 +1149,7 @@ interface FrameFaces {
   readonly openExternal: ExternalOpener
   readonly promptSession: SessionPrompter
   readonly capabilityList: CapabilityLoader
+  readonly capabilityDeclaration: CapabilityDeclarationLoader
   readonly capabilityRun: CapabilityRunner
   readonly promptShortcutList: PromptShortcutLister
   readonly promptShortcutSave: PromptShortcutSaver
@@ -1170,6 +1182,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     promptSession: () => Promise.resolve(),
     sessionDetail: () => Promise.resolve({ items: [], usage: null }),
     capabilityList: () => Promise.resolve({ capabilities: [], unregistered: [] }),
+    capabilityDeclaration: () => Promise.resolve(DECLARATION),
     capabilityRun: () => Promise.resolve({ name: '', runAt: '', artifacts: [] }),
     promptShortcutList: () => Promise.resolve({ shortcuts: [] }),
     promptShortcutSave: () => Promise.resolve({ shortcuts: [], path: '.dsh/yantao/prompt-shortcuts.json' }),
@@ -1220,6 +1233,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       memoryAdd={() => Promise.resolve({ path: '.dsh/yantao/memory/global.md', entry: { id: 'm1', text: 'x' } })}
       memoryDelete={() => Promise.resolve()}
       capabilityList={kb.capabilityList}
+      capabilityDeclaration={kb.capabilityDeclaration}
       capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
       capabilityAdopt={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
       capabilityRegister={() => Promise.resolve({ path: '.dsh/skills/yantao.json' })}

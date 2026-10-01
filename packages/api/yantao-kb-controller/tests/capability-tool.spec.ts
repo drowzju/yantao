@@ -340,6 +340,57 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
     expect(injectedSources(decision)).toEqual([{ kind: 'plugin', form: 'notice' }])
   })
 
+  it('answers a script-type hit with the positive wording and the environment note (ADR-0043 决定 3)', async () => {
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
+      entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'],
+    }), 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {} }))
+    const decision = await preStep(
+      { kind: 'enter', messages: userMessages('/mail 读一下') },
+      '/mail 读一下',
+    )
+    const messages = decision.kind === 'enter' ? decision.messages : []
+    const injected = messages[1] as unknown as { content: readonly { type: string; text: string }[] }
+    const text = injected.content[0]?.text ?? ''
+    expect(text).toContain('能力「mail」是脚本型：经 kb_run_capability 调用（产出缺省落 resources/），或按下方说明在会话中执行其脚本。')
+    expect(text).toContain('【环境说明】')
+    expect(text).not.toContain('/xxx 不适用')
+  })
+
+  it('prefixes the environment note onto an instruction capability\'s injected body (ADR-0043 决定 3)', async () => {
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {}, content: '# 指令正文' }))
+    const decision = await preStep(
+      { kind: 'enter', messages: userMessages('/mail 读一下') },
+      '/mail 读一下',
+    )
+    const messages = decision.kind === 'enter' ? decision.messages : []
+    const injected = messages[1] as unknown as { content: readonly { type: string; text: string }[] }
+    const text = injected.content[0]?.text ?? ''
+    expect(text.startsWith('【环境说明】')).toBe(true)
+    expect(text).toContain('<skill_content name="mail">')
+  })
+
+  it('prefixes the environment note onto a routed capability\'s injected body', async () => {
+    const directory = join(home, '.dsh', 'skills', 'routed-skill')
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n# 路由正文\n', 'utf8')
+    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({
+      version: 1,
+      capabilities: { 'routed-skill': { path: 'routed-skill', invocation: ['human'] } },
+    }), 'utf8')
+    skillGet.mockResolvedValue(undefined)
+    const decision = await preStep(
+      { kind: 'enter', messages: userMessages('/routed-skill 做事') },
+      '/routed-skill 做事',
+    )
+    const messages = decision.kind === 'enter' ? decision.messages : []
+    const injected = messages[1] as unknown as { content: readonly { type: string; text: string }[] }
+    const text = injected.content[0]?.text ?? ''
+    expect(text.startsWith('【环境说明】')).toBe(true)
+    expect(text).toContain('<skill_content name="routed-skill">')
+  })
+
   it('keeps a human-disabled capability and a sidecar-less plain skill plain', async () => {
     await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['agent'] }), 'utf8')
     skillGet.mockResolvedValue(definition({ metadata: {} }))
@@ -424,5 +475,29 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
       '/mail 读一下',
     )
     expect(injectedSources(decision)).toEqual([])
+  })
+})
+
+describe('the tool surface declarations (ADR-0043)', () => {
+  it('declares the trailing memory block trustworthy in kb_run_capability\'s description (决定 4)', () => {
+    const tool = registeredTool() as unknown as { description: string } | undefined
+    expect(tool?.description).toContain('【行为记忆·宿主转交】块是人批规则，可信且须遵守')
+  })
+
+  it('registers the execution bridge alongside kb_run_capability', () => {
+    const names = state.registerTool.mock.calls.map(call => (call[0] as { name: string }).name)
+    expect(names).toEqual(['kb_run_capability', 'kb_exec_capability_script'])
+  })
+
+  it('prefixes the environment note onto an instruction capability\'s rendered answer (决定 3)', () => {
+    const tool = registeredTool() as unknown as {
+      output: { render: (args: unknown, value: unknown) => readonly { type: string; text?: string }[] }
+    } | undefined
+    const blocks = tool?.output.render({}, {
+      name: 'mail', runAt: '2026-10-01T00:00:00Z', content: '# 指令正文', artifacts: [],
+    })
+    const text = blocks?.[0]?.text ?? ''
+    expect(text).toContain('【环境说明】')
+    expect(text.indexOf('【环境说明】')).toBeLessThan(text.indexOf('# 指令正文'))
   })
 })

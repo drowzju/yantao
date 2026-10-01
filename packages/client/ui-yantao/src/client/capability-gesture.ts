@@ -3,9 +3,11 @@
  *
  * The controller's pre-step already answers a message **opening** with
  * `/name` by injecting the named capability's SKILL.md body (决定 3); this
- * source is that gesture's autocomplete: typing `/` offers the capabilities
- * the gesture recognizes — instruction-type and human-invocable ones — and a
- * pick inserts the plain `/name ` token into the draft.
+ * source is that gesture's autocomplete: typing `/` offers every
+ * human-invocable capability — script-type ones included since ADR-0043
+ * 决定 5 (revising ADR-0025 决定 3), their description prefixed with `⚙ `
+ * so "click to run" and "click to instruct" read differently — and a pick
+ * inserts the plain `/name ` token into the draft.
  *
  * Deliberately no `matchEnter`/`matchSpace`: those hooks are first-claim-wins
  * in registration order, and defining one would contest ui-commands' command
@@ -33,14 +35,16 @@ export function capabilityGestureSource(list: CapabilityLoader): InputTriggerSou
       if (signal.aborted) return []
       const needle = query.trim().toLocaleLowerCase()
       return capabilities
-        .filter(capability => capability.entry === undefined && capability.invocation.includes('human'))
+        .filter(capability => capability.invocation.includes('human'))
         .filter(capability => needle === ''
           || capability.name.toLocaleLowerCase().includes(needle)
           || capability.description.toLocaleLowerCase().includes(needle))
         .slice(0, LIMIT)
         .map(capability => ({
           name: capability.name,
-          description: capability.description,
+          // ADR-0043 决定 5: script-type rows carry the ⚙ marker — a click
+          // runs them via kb_run_capability, not an instruction gesture.
+          description: capability.entry === undefined ? capability.description : `⚙ ${capability.description}`,
           section: '能力',
         }))
     },

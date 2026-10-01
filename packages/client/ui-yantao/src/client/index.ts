@@ -61,7 +61,7 @@ import { WORKBENCH_NS, en, zh } from './locales.ts'
 import {
   addMemory, adoptCapability, archiveEntity, archiveMails, createCapability, createEntity, deleteMemory, deleteMails,
   fetchMail, fillComposerWithShortcut, listMemory,
-  loadCapabilities, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
+  loadCapabilities, loadCapabilityDeclaration, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
   loadRevision, loadRoot, loadTodos,
   loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, restoreEntity, runCapability,
   savePromptShortcuts, setKbRoot,
@@ -236,6 +236,8 @@ export function apply(ctx: Context): void {
       registerResource: (name: string, contentBase64: string) => registerResource(ctx, name, contentBase64),
       // ADR-0021: the capability surface the 能力 tab reads.
       capabilityList: () => loadCapabilities(ctx),
+      // ADR-0043 决定 7: the 能力 tab detail view's parsed-declaration 声明 section.
+      capabilityDeclaration: (name: string) => loadCapabilityDeclaration(ctx, name),
       capabilityRun: (args: KbCapabilityRunArgs, signal?: AbortSignal) => runCapability(ctx, args, signal),
       capabilityCreate: (name: string) => createCapability(ctx, name),
       // ADR-0025 决定 1: adopt an out-of-KB skill into `.dsh/skills/`.

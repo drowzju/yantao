@@ -58,9 +58,12 @@ export type CapabilityInvoker = 'human' | 'agent'
 /** The `metadata.yantao` declaration that turns a skill directory into a capability. */
 export interface CapabilityManifest {
   /**
-   * Entry script path, relative to the skill directory; must stay inside it.
-   * Absent marks an *instruction capability* (ADR-0023 决定 6): no script —
-   * "running" it hands the agent the SKILL.md body as its instructions.
+   * Entry script path, relative to the skill directory — or (ADR-0043 决定 2)
+   * to the `.dsh/` root when it names the adapter plane, e.g.
+   * `yantao/capability-adapters/<name>/entry.py`; either way it must stay
+   * inside its root. Absent marks an *instruction capability* (ADR-0023
+   * 决定 6): no script — "running" it hands the agent the SKILL.md body as
+   * its instructions.
    */
   readonly entry?: string
   /** The only runtime in v1 (ADR-0021 取舍台账第 7 条); present exactly when `entry` is. */
@@ -282,13 +285,44 @@ function suffixList(name: string, key: string, value: unknown): readonly string[
 }
 
 /**
+ * The absolute paths an `entry` may legitimately resolve to, nearest root
+ * first (ADR-0043 决定 2): inside the skill directory itself, then inside
+ * the `.dsh/` root (the adapter plane — `.dsh/yantao/capability-adapters/<name>/entry.py`
+ * and kin, so the skill directory can stay a pristine copy). A candidate
+ * outside its root is not a candidate at all — an escaping entry answers an
+ * empty list. Shared by {@link resolveEntry} (which picks the first existing
+ * one) and the declaration introspection RPC (which shows every candidate).
+ * @param directory - the capability's skill directory.
+ * @param entry - the declared entry, as written.
+ * @param dshRoot - the KB's `.dsh/` root; omit to skip the adapter plane.
+ * @returns the candidate absolute paths, in precedence order.
+ */
+export function entryCandidatesOf(directory: string, entry: string, dshRoot?: string): readonly string[] {
+  const within = (root: string, path: string): boolean => {
+    const confined = resolve(root)
+    return path === confined || path.startsWith(confined + sep)
+  }
+  const candidates: string[] = []
+  const localPath = resolve(directory, entry)
+  if (within(directory, localPath)) candidates.push(localPath)
+  if (dshRoot !== undefined) {
+    const adapterPath = resolve(dshRoot, entry)
+    if (within(dshRoot, adapterPath)) candidates.push(adapterPath)
+  }
+  return candidates
+}
+
+/**
  * Resolve one skill definition into a runnable capability: its manifest, the
- * skill directory it lives in, and the entry script's absolute path — which
- * must stay inside that directory, whatever the declaration says.
+ * skill directory it lives in, and the entry script's absolute path — the
+ * first of {@link entryCandidatesOf}'s candidates that exists on disk.
+ * Anything further out is refused, whatever the declaration says.
  * @param definition - the winning skill definition from `ctx.skills.get`.
+ * @param dshRoot - the KB's `.dsh/` root; required for out-of-directory
+ *   entries, harmless otherwise.
  * @returns the manifest, the skill directory, and the entry's absolute path.
  */
-export function resolveEntry(definition: SkillDefinition): {
+export function resolveEntry(definition: SkillDefinition, dshRoot?: string): {
   manifest: CapabilityManifest
   directory: string
   entryPath: string
@@ -303,14 +337,15 @@ export function resolveEntry(definition: SkillDefinition): {
     throw fail('bad-manifest', `能力「${definition.name}」是指令型能力，没有入口脚本可执行。`)
   }
   const directory = definition.resourceBase.path
-  const entryPath = resolve(directory, manifest.entry)
-  if (!entryPath.startsWith(resolve(directory) + sep)) {
-    throw fail('bad-manifest', `能力「${definition.name}」的 entry 指向了能力目录之外：${manifest.entry}`)
+  const entry = manifest.entry
+  const candidates = entryCandidatesOf(directory, entry, dshRoot)
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return { manifest, directory, entryPath: candidate }
   }
-  if (!existsSync(entryPath)) {
-    throw fail('bad-manifest', `能力「${definition.name}」的入口脚本不存在：${manifest.entry}`)
+  if (candidates.length > 0) {
+    throw fail('bad-manifest', `能力「${definition.name}」的入口脚本不存在：${entry}`)
   }
-  return { manifest, directory, entryPath }
+  throw fail('bad-manifest', `能力「${definition.name}」的 entry 越出了能力目录与 .dsh/ 目录：${entry}`)
 }
 
 /** One artifact the script asks the controller to write; the wire shape is `KbCapabilityArtifact`. */
@@ -381,7 +416,16 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
 
   const child = spawnImpl(python, [options.entryPath], {
     windowsHide: true,
-    env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+    // The frozen envelope contract (ADR-0043 决定 8): the declared channel
+    // delivers the same environment the exec bridge does, so a script reads
+    // one contract regardless of how it was invoked.
+    env: {
+      ...process.env,
+      KB_ROOT: options.kbRoot,
+      CAPABILITY_NAME: options.name,
+      ...(options.channel !== undefined ? { CAPABILITY_CHANNEL: options.channel } : {}),
+      PYTHONIOENCODING: 'utf-8',
+    },
   })
 
   const request = JSON.stringify({

@@ -13,8 +13,8 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
-  CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, CapabilityRunner, DirectoryPicker,
-  EntityArchiver, EntityCreator,
+  CapabilityAdopter, CapabilityCreator, CapabilityDeclarationLoader, CapabilityLoader, CapabilityRegistrar, CapabilityRunner,
+  DirectoryPicker, EntityArchiver, EntityCreator,
   ExternalOpener, FileReader, FileWriter, LinksLoader,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceRegistrar, RevisionLoader, ShortcutFiller,
@@ -118,6 +118,8 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'fo
   readonly registerResource: ResourceRegistrar
   /** List the registered capabilities (ADR-0021). */
   readonly capabilityList: CapabilityLoader
+  /** Read one capability's parsed declaration (ADR-0043 决定 7) — the 能力 tab detail view's 声明 section. */
+  readonly capabilityDeclaration: CapabilityDeclarationLoader
   /** Scaffold one new capability (「新建能力」). */
   readonly capabilityCreate: CapabilityCreator
   /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
@@ -349,7 +351,7 @@ function DragHandle(props: {
 export function Frame({
   t, renderSlot, panels, intake, workspace, read, write, archiveEntity, restoreEntity, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine, validate,
-  registerResource, capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
+  registerResource, capabilityList, capabilityDeclaration, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
   promptSession, memoryList, memoryAdd, memoryDelete, sessionDetail, onKbRootChanged, mailDelete, mailArchive,
   promptShortcutList, promptShortcutSave, fillShortcut,
   loadModelsConfig, saveModelsConfig,
@@ -1231,6 +1233,7 @@ export function Frame({
           analyseMail={analyseMail}
           registerResource={registerResource}
           capabilityList={capabilityList}
+          capabilityDeclaration={capabilityDeclaration}
           capabilityCreate={capabilityCreate}
           capabilityAdopt={capabilityAdopt}
           capabilityRegister={capabilityRegister}

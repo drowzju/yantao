@@ -644,6 +644,101 @@ export interface KbCapabilityCreateResult {
   readonly path: string
 }
 
+/** Parameters of `yantaoKb.capabilityDeclaration` (ADR-0043 决定 7). */
+export interface KbCapabilityDeclarationArgs {
+  /** The capability's skill name, as `capabilityList` reports it. */
+  readonly name: string
+}
+
+/**
+ * One valid declaration in its resolved form (ADR-0043 决定 7): the parsed
+ * fields flat, plus what the declaration *means* — instruction or script —
+ * and where the entry actually lands on disk.
+ */
+export interface KbCapabilityResolvedDeclaration {
+  /** Instruction (no entry, ADR-0023 决定 6) or script capability. */
+  readonly kind: 'instruction' | 'script'
+  /** The declared entry, relative as written; script kind only. */
+  readonly entry?: string
+  /** The declared runtime (`python` in v1); script kind only. */
+  readonly runtime?: string
+  /** The SKILL.md frontmatter's version, when it declares one. */
+  readonly version?: string
+  /** Who may invoke the capability, as declared (ADR-0023 决定 2). */
+  readonly invocation: readonly string[]
+  /** What the capability accepts, as declared. */
+  readonly appliesTo?: KbCapabilityAppliesTo
+  /**
+   * Every absolute path the entry may resolve to, nearest root first: inside
+   * the skill directory, then inside the `.dsh/` adapter plane (ADR-0043
+   * 决定 2). Script kind only; an empty list means the entry escapes both roots.
+   */
+  readonly entryCandidates?: readonly string[]
+  /** The first candidate that exists on disk; absent means the entry file is missing. */
+  readonly entryPath?: string
+}
+
+/**
+ * The sidecar channel's answer for one capability name (ADR-0043 决定 7):
+ * the directory's own `yantao.json` (raw text included) or the legacy
+ * `metadata.yantao` frontmatter section. A missing or invalid declaration is
+ * spelled out in `problem`, never thrown — the panel must render it.
+ */
+export interface KbCapabilitySidecarAnswer {
+  /** True when any declaration exists — a sidecar file or a frontmatter section. */
+  readonly present: boolean
+  /** Which channel the declaration came from; absent when `present` is false. */
+  readonly source?: 'sidecar' | 'frontmatter'
+  /** The sidecar file's raw text, when the file exists. */
+  readonly raw?: string
+  /** The validated, resolved declaration; absent when missing or invalid. */
+  readonly resolved?: KbCapabilityResolvedDeclaration
+  /** Why the channel has no resolved declaration: none declared, invalid shape, entry problems. */
+  readonly problem?: string
+}
+
+/**
+ * The central routing channel's answer for one capability name (ADR-0025
+ * 落地注记二; ADR-0043 决定 7): whether `.dsh/skills/yantao.json` carries an
+ * entry for it, and that entry's declaration. A broken routing file is
+ * spelled out in `problem`, never thrown.
+ */
+export interface KbCapabilityRouteAnswer {
+  /** True when the routing file carries an entry for this name. */
+  readonly registered: boolean
+  /** The route's skill-directory path, relative to `.dsh/skills/`. */
+  readonly path?: string
+  /** Who may invoke the capability, as the route declares. */
+  readonly invocation?: readonly string[]
+  /** What the capability accepts, as the route declares. */
+  readonly appliesTo?: KbCapabilityAppliesTo
+  /** When the routing file itself is unreadable/invalid, its error. */
+  readonly problem?: string
+}
+
+/**
+ * Result of `yantaoKb.capabilityDeclaration` (ADR-0043 决定 7): both
+ * declaration channels, parsed and resolved, with every miss stated in data
+ * so the 能力 tab — and an agent troubleshooting a refused call — can see a
+ * broken or missing registration without provoking one.
+ */
+export interface KbCapabilityDeclarationResult {
+  /** The queried name, echoed. */
+  readonly name: string
+  /** Absolute path of the skill directory the registry resolved inside the KB; absent when nothing resolved. */
+  readonly directory?: string
+  /** The sidecar/frontmatter channel's answer. */
+  readonly sidecar: KbCapabilitySidecarAnswer
+  /** The central routing channel's answer. */
+  readonly route: KbCapabilityRouteAnswer
+  /**
+   * Whether the agent may invoke this capability — the same dual-gate
+   * precedence `kb_run_capability` and `kb_exec_capability_script` apply: a
+   * valid sidecar declaration wins, the central route answers otherwise.
+   */
+  readonly agentInvocable: boolean
+}
+
 /**
  * One remembered behavior rule of the memory store (ADR-0032): a `- ` bullet
  * in the scope's markdown file, id-addressable for deletion.

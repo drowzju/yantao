@@ -23,17 +23,23 @@ function request(query: string): CandidateRequest {
 }
 
 /** Drive the source's candidate list. */
-function candidates(query = ''): Promise<readonly { name?: string; section?: string }[]> {
+function candidates(query = ''): Promise<readonly { name?: string; description?: string; section?: string }[]> {
   return capabilityGestureSource(() => Promise.resolve({ capabilities: CAPABILITIES, unregistered: [] }))
     .candidates({} as ClientSessionContext, request(query))
 }
 
 describe('capability / source', () => {
-  it('lists only the instruction-type, human-invocable capabilities (ADR-0025 决定 6)', async () => {
+  it('lists every human-invocable capability, script-type ones ⚙-marked (ADR-0043 决定 5)', async () => {
     const rows = await candidates()
-    // `digest` is agent-only and `eml-digest` is script-type: neither is a
-    // `/xxx` the controller's pre-step would answer.
-    expect(rows.map(row => row.name)).toEqual(['mail', 'notes-helper'])
+    // `digest` is agent-only: not a `/xxx` the human can invoke. `eml-digest`
+    // is script-type — offered since ADR-0043 决定 5 (revising ADR-0025
+    // 决定 3), its description ⚙-prefixed so "click to run" reads
+    // differently from "click to instruct".
+    expect(rows.map(row => row.name)).toEqual(['mail', 'eml-digest', 'notes-helper'])
+    const eml = rows.find(row => row.name === 'eml-digest')
+    expect(eml?.description).toBe('⚙ 读一封邮件')
+    // Instruction-type rows keep the bare description.
+    expect(rows.find(row => row.name === 'mail')?.description).toBe('读 Outlook 邮件')
   })
 
   it('filters on the typed query, by name or description', async () => {

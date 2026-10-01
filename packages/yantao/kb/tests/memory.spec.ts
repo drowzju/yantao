@@ -169,7 +169,8 @@ describe('injection renderers (ADR-0032 批次②)', () => {
 
   it('renders the capability block with the scope named', () => {
     const text = renderCapabilityMemoryBlock('mail', [{ id: 'a', text: '同类邮件直接提示删除' }])
-    expect(text).toContain('【行为记忆】')
+    // ADR-0043 决定 4: the header frames the block as host-relayed.
+    expect(text).toContain('【行为记忆·宿主转交】')
     expect(text).toContain('「mail」')
     expect(text).toContain('- 同类邮件直接提示删除')
   })

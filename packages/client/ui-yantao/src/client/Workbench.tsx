@@ -10,7 +10,8 @@ import type {
   KbCapabilitySummary, KbPersonRelation, KbTreeFile, KbTreeSection, KbTreeSectionId,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type {
-  CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, EntityArchiver, EntityCreator, FileReader,
+  CapabilityAdopter, CapabilityCreator, CapabilityDeclarationLoader, CapabilityLoader, CapabilityRegistrar,
+  EntityArchiver, EntityCreator, FileReader,
   FileWriter,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceRegistrar, ShortcutFiller,
@@ -948,6 +949,8 @@ export interface RailProps {
 
 /** Intake-side additions: the intake rail owns the 能力 tab (ADR-0021). */
 export interface IntakeRailProps extends RailProps {
+  /** Read one capability's parsed declaration (ADR-0043 决定 7) — the detail view's 声明 section. */
+  readonly capabilityDeclaration: CapabilityDeclarationLoader
   /** Scaffold one new capability (「新建能力」). */
   readonly capabilityCreate: CapabilityCreator
   /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
@@ -1048,7 +1051,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const {
     t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, loadTodos, writeTodos, createEntity,
     read, write, archiveEntity, restoreEntity, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource, onRefine,
-    capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, onRunCapability, kbRoot = '',
+    capabilityList, capabilityDeclaration, capabilityCreate, capabilityAdopt, capabilityRegister, onRunCapability, kbRoot = '',
     memoryList, memoryAdd, memoryDelete,
     promptShortcutList, promptShortcutSave, fillShortcut,
   } = props
@@ -1206,6 +1209,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
         <CapabilityPanel
           t={t}
           load={capabilityList}
+          loadDeclaration={capabilityDeclaration}
           create={capabilityCreate}
           adopt={capabilityAdopt}
           register={capabilityRegister}

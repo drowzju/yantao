@@ -17,11 +17,11 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type {
-  KbCapabilitySummary, KbPromptShortcut, KbUnregisteredSkill,
+  KbCapabilityDeclarationResult, KbCapabilitySummary, KbPromptShortcut, KbUnregisteredSkill,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type {
-  CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, PromptShortcutLister,
-  PromptShortcutSaver, ShortcutFiller,
+  CapabilityAdopter, CapabilityCreator, CapabilityDeclarationLoader, CapabilityLoader, CapabilityRegistrar,
+  PromptShortcutLister, PromptShortcutSaver, ShortcutFiller,
 } from './remote.ts'
 import { remoteMessage } from './remote.ts'
 import { NewEntityRow } from './NewEntityRow.tsx'
@@ -33,6 +33,8 @@ export interface CapabilityPanelProps {
   readonly t: WorkbenchT
   /** List the registered capabilities and the 未注册 group. */
   readonly load: CapabilityLoader
+  /** Read one capability's parsed declaration (ADR-0043 决定 7) — the detail view's 声明 section. */
+  readonly loadDeclaration: CapabilityDeclarationLoader
   /** Scaffold one new capability (「新建能力」). */
   readonly create: CapabilityCreator
   /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
@@ -99,6 +101,18 @@ const codeStyle = {
 } as const
 
 const warnStyle = { color: 'var(--yt-warning-text)', fontSize: 'var(--yt-type-label)' } as const
+
+const preStyle = {
+  margin: '2px 0',
+  padding: 6,
+  background: 'var(--yt-surface-secondary)',
+  borderRadius: 4,
+  fontSize: 'var(--yt-type-label)',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-all',
+  maxHeight: 160,
+  overflow: 'auto',
+} as const
 
 const confirmButtonRowStyle = { display: 'flex', gap: 8 } as const
 
@@ -404,12 +418,163 @@ function ShortcutSection({
 }
 
 /**
+ * The detail view's 声明 section (ADR-0043 决定 7): the capability's parsed
+ * declaration, read through the host's introspection RPC so a registration
+ * problem — a missing sidecar, an unregistered route, a missing entry file —
+ * is seen here, not discovered from a refused agent call. The sidecar's raw
+ * text folds away; the resolved fields lie flat; every problem is a warning
+ * line, never an exception that blanks the pane.
+ * @param props - the translate face, the capability's name, and the RPC loader.
+ * @returns the section element.
+ */
+function DeclarationSection({
+  t,
+  name,
+  load,
+}: {
+  t: WorkbenchT
+  name: string
+  load: CapabilityDeclarationLoader
+}): ReactElement {
+  const [declaration, setDeclaration] = useState<KbCapabilityDeclarationResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // The loader is a fresh closure on every render (inject face): read it
+  // through a ref, like the panel, and re-read only when the name changes.
+  const latest = useRef(load)
+  latest.current = load
+
+  useEffect(() => {
+    let stale = false
+    setDeclaration(null)
+    setError(null)
+    latest.current(name).then(
+      (result) => {
+        if (!stale) setDeclaration(result)
+      },
+      (failure: unknown) => {
+        if (!stale) setError(remoteMessage(failure))
+      },
+    )
+    return () => {
+      stale = true
+    }
+  }, [name])
+
+  const sidecar = declaration?.sidecar
+  const resolved = sidecar?.resolved
+  const route = declaration?.route
+
+  return (
+    <div data-capability-declaration="true">
+      <div style={titleStyle}>{t('capability.declarationHeading')}</div>
+      {error !== null && <div style={errorStyle} data-declaration-error="true">{error}</div>}
+      {declaration === null && error === null && <div style={mutedStyle}>{t('capability.declarationLoading')}</div>}
+      {declaration !== null && sidecar !== undefined && (
+        <>
+          {sidecar.present
+            ? (
+              <div style={mutedStyle}>
+                {t(sidecar.source === 'sidecar' ? 'capability.declarationSourceSidecar' : 'capability.declarationSourceFrontmatter')}
+              </div>
+            )
+            : <div style={warnStyle} data-declaration-problem="sidecar">{sidecar.problem}</div>}
+          {sidecar.present && sidecar.problem !== undefined && (
+            <div style={warnStyle} data-declaration-problem="sidecar">{sidecar.problem}</div>
+          )}
+          {resolved !== undefined && (
+            <>
+              <div style={mutedStyle} data-declaration-kind={resolved.kind}>
+                {t(resolved.kind === 'script' ? 'capability.declarationKindScript' : 'capability.declarationKindInstruction')}
+              </div>
+              {resolved.entry !== undefined && (
+                <div style={mutedStyle}>{t('capability.declarationEntry')}<span style={codeStyle}>{resolved.entry}</span></div>
+              )}
+              {resolved.runtime !== undefined && (
+                <div style={mutedStyle}>{t('capability.declarationRuntime')}{resolved.runtime}</div>
+              )}
+              {resolved.version !== undefined && (
+                <div style={mutedStyle}>{t('capability.declarationVersion')}{resolved.version}</div>
+              )}
+              <div style={mutedStyle}>
+                {t('capability.declarationInvocation')}
+                <span style={codeStyle}>{JSON.stringify(resolved.invocation)}</span>
+              </div>
+              {resolved.appliesTo !== undefined && (
+                <div style={mutedStyle}>
+                  {t('capability.accepts')}
+                  <span style={codeStyle}>{JSON.stringify(resolved.appliesTo)}</span>
+                </div>
+              )}
+              {resolved.kind === 'script' && (
+                <>
+                  {resolved.entryPath !== undefined && (
+                    <div style={mutedStyle} data-declaration-entry-path="true">
+                      {t('capability.declarationEntryPath')}
+                      <span style={codeStyle}>{resolved.entryPath}</span>
+                    </div>
+                  )}
+                  {resolved.entryPath === undefined && (resolved.entryCandidates?.length ?? 0) > 0 && (
+                    <div style={warnStyle} data-declaration-problem="entry">{t('capability.declarationEntryMissing')}</div>
+                  )}
+                  {resolved.entryCandidates?.length === 0 && (
+                    <div style={warnStyle} data-declaration-problem="entry">{t('capability.declarationEntryEscaped')}</div>
+                  )}
+                  {(resolved.entryCandidates?.length ?? 0) > 0 && (
+                    <div style={mutedStyle} data-declaration-candidates="true">
+                      {t('capability.declarationEntryCandidates')}
+                      {resolved.entryCandidates?.map(candidate => (
+                        <div key={candidate}><span style={codeStyle}>{candidate}</span></div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+          {sidecar.raw !== undefined && (
+            <details data-declaration-raw="true">
+              <summary style={mutedStyle}>{t('capability.declarationRaw')}</summary>
+              <pre style={preStyle}>{sidecar.raw}</pre>
+            </details>
+          )}
+          {route !== undefined && (
+            <>
+              <div style={mutedStyle}>{t('capability.declarationRouteHeading')}</div>
+              {route.registered
+                ? (
+                  <div style={mutedStyle} data-declaration-route="registered">
+                    {t('capability.declarationRouteRegistered')}
+                    <span style={codeStyle}>
+                      {JSON.stringify({ path: route.path, invocation: route.invocation ?? [] })}
+                    </span>
+                  </div>
+                )
+                : (
+                  <div style={warnStyle} data-declaration-route="missing">
+                    {route.problem ?? t('capability.declarationRouteMissing')}
+                  </div>
+                )}
+            </>
+          )}
+          <div
+            style={declaration.agentInvocable ? mutedStyle : warnStyle}
+            data-declaration-agent={declaration.agentInvocable ? 'yes' : 'no'}
+          >
+            {t(declaration.agentInvocable ? 'capability.declarationAgentYes' : 'capability.declarationAgentNo')}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
  * Render the 能力 panel.
  * @param props - see {@link CapabilityPanelProps}.
  * @returns the panel element.
  */
 export function CapabilityPanel({
-  t, load, create, adopt, register, mail, loadShortcuts, saveShortcuts, fillShortcut,
+  t, load, loadDeclaration, create, adopt, register, mail, loadShortcuts, saveShortcuts, fillShortcut,
 }: CapabilityPanelProps): ReactElement {
   const [capabilities, setCapabilities] = useState<readonly KbCapabilitySummary[] | null>(null)
   const [unregistered, setUnregistered] = useState<readonly KbUnregisteredSkill[]>([])
@@ -646,6 +811,7 @@ export function CapabilityPanel({
           {current.lastRunAt !== undefined && (
             <div style={mutedStyle}>{t('capability.lastRun')}{current.lastRunAt}</div>
           )}
+          <DeclarationSection t={t} name={current.name} load={loadDeclaration} />
           {current.name === 'mail' && mail(current.state)}
         </>
       )}

@@ -278,11 +278,13 @@ export function renderGlobalMemorySection(entries: readonly MemoryEntry[]): stri
  * `memory` field of a capability run (the `kb_run_capability` tool render
  * appends it; the human channel's `capabilityRun` result carries it for the
  * client-driven flows). Empty when the capability has no remembered rules.
+ * The header frames the block as relayed by the host (ADR-0043 决定 4), so
+ * the agent reads it as trusted human-approved rules, not an injection.
  */
 export function renderCapabilityMemoryBlock(scope: string, entries: readonly MemoryEntry[]): string {
   if (entries.length === 0) return ''
   const { kept, omitted } = cappedEntries(entries)
-  const head = `【行为记忆】人在以往运行中为「${scope}」沉淀的规则（历次纠正的累积），本次运行遵守：`
+  const head = `【行为记忆·宿主转交】人在以往运行中为「${scope}」批准沉淀的规则（历次纠正的累积），本次运行遵守：`
   const tail = omitted > 0 ? `\n（另有 ${omitted} 条较早的记忆未列出）` : ''
   return `${head}\n${entryLines(kept)}${tail}`
 }

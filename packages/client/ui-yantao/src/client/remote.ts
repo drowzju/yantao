@@ -28,6 +28,7 @@ import type {
 import type {
   KbMailArchiveArgs, KbMailArchiveResult, KbCapabilityAdoptArgs, KbCapabilityAdoptResult, KbCapabilityCreateArgs, KbCapabilityCreateResult,
   KbCapabilityListResult,
+  KbCapabilityDeclarationArgs, KbCapabilityDeclarationResult,
   KbCapabilityRegisterArgs, KbCapabilityRegisterResult,
   KbCapabilityRunArgs, KbCapabilityRunResult, KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
   KbFileContent, KbGraphResult, KbLinksResult,
@@ -66,6 +67,8 @@ export interface KbRemote {
   mailMarkRead(args: KbMailMarkReadArgs): Promise<RemoteResult<KbMailMarkReadResult>>
   /** List the registered capabilities (ADR-0021). */
   capabilityList(): Promise<RemoteResult<KbCapabilityListResult>>
+  /** One capability's parsed declaration, both channels (ADR-0043 决定 7) — the 能力 tab's 声明 section. */
+  capabilityDeclaration(args: KbCapabilityDeclarationArgs): Promise<RemoteResult<KbCapabilityDeclarationResult>>
   /** Run one capability's entry script (ADR-0021); the signal is the human channel's cancel line (ADR-0031). */
   capabilityRun(args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<RemoteResult<KbCapabilityRunResult>>
   /** Scaffold one new capability under `.dsh/skills/` (ADR-0021 决定 8's 「新建能力」). */
@@ -208,6 +211,9 @@ export type ResourceRegistrar = (name: string, contentBase64: string) => Promise
 
 /** List the registered capabilities (ADR-0021). */
 export type CapabilityLoader = () => Promise<KbCapabilityListResult>
+
+/** Read one capability's parsed declaration, both channels (ADR-0043 决定 7). */
+export type CapabilityDeclarationLoader = (name: string) => Promise<KbCapabilityDeclarationResult>
 
 /** List the prompt shortcuts (ADR-0040). */
 export type PromptShortcutLister = () => Promise<KbPromptShortcutListResult>
@@ -602,6 +608,21 @@ export async function loadCapabilities(ctx: Context): Promise<KbCapabilityListRe
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.capabilityList())
+}
+
+/**
+ * Read one capability's parsed declaration (ADR-0043 决定 7): the sidecar's
+ * raw text and resolved fields, the central route's registration state, and
+ * the dual gate's agent-invocability — every miss stated in data, so the
+ * 能力 tab's 声明 section renders problems instead of a blank pane.
+ * @param ctx - client root context.
+ * @param name - the capability's skill name.
+ * @returns the parsed declaration, or a rejected promise carrying the reason.
+ */
+export async function loadCapabilityDeclaration(ctx: Context, name: string): Promise<KbCapabilityDeclarationResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.capabilityDeclaration({ name }))
 }
 
 /**

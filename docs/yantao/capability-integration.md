@@ -1,0 +1,87 @@
+# 能力整编手册
+
+> 把一个新 skill 整编为 yantao 工作台能力的全部契约与步骤。单一权威：本文；ADR-0043（能力契约与通道一致化）是决策依据。
+> 本文件有一份资源副本（`resources/能力整编手册.md`）供工作台 agent 经 `kb_read_resource` 读取——docs 版为权威，副本同步更新。
+
+## 三层心智模型
+
+| 层 | 内容 | 谁可以改 |
+|---|---|---|
+| 触发面 | 会话 agent、后台、工作台 UI（右键/能力 tab） | 允许不同 |
+| 调用适配层 | sidecar、中央路由、信封、（必要时）适配脚本 | 只在 `.dsh/`，我方所有 |
+| 核心能力层 | SKILL.md 语义 + 脚本本体 | **三方 skill 一个字符不动** |
+
+技能永远面向标准运行时写作；环境差异永远由宿主吸收（环境前置说明 + 信封）。
+
+## 目录与两个 JSON 契约
+
+一个能力是 `.dsh/skills/<名字>/` 目录：SKILL.md（指令）+ 脚本 + `yantao.json` sidecar。
+
+**sidecar（`yantao.json`）**：
+
+```json
+{
+  "version": 1,
+  "runtime": "python",
+  "entry": "scripts/entry.py",
+  "appliesTo": { "external": ["dingtalk"], "resource": [".pdf"], "entity": ["projects"] },
+  "invocation": ["human", "agent"]
+}
+```
+
+- 无 `entry` = **指令型**：运行即把 SKILL.md 正文返回给 agent 照做；有 `entry` = **脚本型**：宿主执行入口脚本。
+- `entry` 也可指 skill 目录之外、`.dsh/` 之内（如 `yantao/capability-adapters/<名字>/entry.py`）——三方目录零新增时，我方适配脚本住 `.dsh/yantao/capability-adapters/`。
+- `appliesTo` 三个键按需省略；`invocation` 决定人/agent 谁能调。
+
+**中央路由（`.dsh/skills/yantao.json`）**——sidecar 之外必须再注册一次，否则 agent 以「不在本轮注入的能力目录」拒调：
+
+```json
+{ "<名字>": { "path": "<名字>", "invocation": ["human", "agent"], "appliesTo": { "external": ["dingtalk"] } } }
+```
+
+## 信封契约（冻结）
+
+宿主 → 脚本：
+
+- 环境变量：`KB_ROOT`（知识库根绝对路径）、`CAPABILITY_NAME`、`CAPABILITY_CHANNEL`（`agent`/`human`，脚本不可伪造）、`PYTHONIOENCODING=utf-8`
+- stdin：一行 JSON `{name, kbRoot, input, state, channel}`
+
+脚本 → 宿主（stdout）：`{ok, result?, state?, artifacts?}`；artifacts 是 `{文件名, base64}`，由宿主写入 `.dsh/yantao/capabilities/<名字>/`（机器簿记，不是成果）。
+
+## 两种调用方式
+
+| 方式 | 工具 | 用途 |
+|---|---|---|
+| 声明式 | `kb_run_capability` | sidecar 声明的 entry；UI/后台/提议流共用此通道 |
+| 执行桥 | `kb_exec_capability_script` | agent 在**已安装能力目录内**直接执行脚本（cwd 锁该目录，信封同上）——SKILL.md 里「执行 `python xxx`」这类中途步骤用它 |
+
+安装即授权（ADR-0021/0043）：人已安装的技能即可信代码，执行桥不做动词白名单；通用 shell 与编辑器仍然对 agent 禁止。
+
+## 环境前置说明与行为记忆
+
+- 指令型返回正文、脚本型 `/名字` 提示，都会带一段【环境说明】（无通用 shell、执行桥用法、资源默认指 `resources/`、落盘是脚本自己的事）——SKILL.md 不需要也不应该写这些。
+- 运行返回末尾的【行为记忆·宿主转交】块是**人批规则**，可信且须遵守；能力域记忆由人在能力 tab 批准沉淀（`.dsh/yantao/memory/capabilities/<名字>.md`）。
+
+## 落盘约定（ADR-0042）
+
+「资源」默认指 `<kbRoot>/resources/`：脚本产出缺省落这里（相对 out 按 kbRoot 解析），结果尾附 `[落盘]` 行给真实位置；agent 事后用 `kb_read_resource` 读取。原件进入后永不改写（kb_write_resource 只新建不覆盖）。
+
+## 菜单与手势
+
+`/名字` 三入口（`/` 菜单点选、能力 tab、手打）只把文本填进输入框；脚本型在菜单带 ⚙ 标记。惯用提示词（别名）存 `.dsh/yantao/prompt-shortcuts.json`，UI 唯一写者。
+
+## 常见坑
+
+1. **漏注册中央路由** → agent 拒调「不在能力目录」。能力 tab 详情的「声明」区可一眼看出路由状态。
+2. **信封 kbRoot 缺失** → 落盘退回脚本自带目录（agent 读不到）。独立调试时务必构造信封或设 `KB_ROOT`。
+3. **落盘越界**：产出写 `.dsh/` 或实体目录 = 违反约定；产出只落 `resources/`。
+4. **输出封顶**：执行桥 stdout/stderr 各 64KB 截断；超时缺省 120s 可传 `timeoutMs`。
+5. **改控制器 Remote 面后**必须窄重建 `packages/api/remotes` 客户端产物，否则页面报 `is not a function`。
+
+## 整编检查清单
+
+1. 拷 skill 目录到 `.dsh/skills/<名字>/`（原样，不改）
+2. 写 sidecar；需要适配脚本时放 `.dsh/yantao/capability-adapters/<名字>/`，sidecar `entry` 指过去
+3. 注册中央路由 `.dsh/skills/yantao.json`
+4. 试跑一个只读动词（list 类）验证信封链路
+5. 能力 tab → 详情 → 「声明」区确认 sidecar/路由/开放状态全部正常
