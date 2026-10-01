@@ -6,7 +6,7 @@
 | 文件 | section 名 | order | 职责 |
 |---|---|---|---|
 | `philosophy.md` | `yantao:philosophy` | 100 | 工作台理念：PARA+P、人机分工、信任边界、冷静决定 |
-| `filesystem.md` | `yantao:filesystem` | 120 | 知识库文件组织：树结构、实体/资源/『状态』/『流水』语义 |
+| `filesystem.md` | `yantao:filesystem` | 120 | 知识库文件组织：三平面、实体/资源/『状态』/『流水』语义、资源默认指代（**动态渲染**，`{{kbRoot}}` 每次组装解析为当前库根，ADR-0042） |
 | `memory.md` | `yantao:memory` | 140 | 知识库使用纪律：先读不猜、流水追加时机、结论落库 |
 | `skills.md` | `yantao:skills` | 160 | 能力使用纪律：何时调用、指令型语义、产物落库 |
 

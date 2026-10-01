@@ -23,7 +23,7 @@ import { readCitedEntries } from './cited.ts'
 import { appendLog, createEntity, editSection, initKb, listEntities, readEntity, readResource, registerResource, writeResource, writeState } from './core.ts'
 import { kbMentions, renderKbMentions } from './mentions.ts'
 import { importLegacyRootState } from './root-store.ts'
-import { registerBehaviorMemorySection, registerPromptSections, registerPromptShortcutsSection } from './sections.ts'
+import { registerBehaviorMemorySection, registerFilesystemSection, registerPromptSections, registerPromptShortcutsSection } from './sections.ts'
 import { ENTITY_TYPES, PERSON_RELATIONS } from './types.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -174,7 +174,10 @@ export function apply(ctx: Context, config: Config): void {
 
   // The prompt-section layer (ADR-0022): yantao's domain disciplines as
   // named sections over dsh's registry, sourced from prompt/sections/*.md.
+  // The filesystem discipline is dynamic (ADR-0042): `{{kbRoot}}` resolves
+  // against the live root on every assembly.
   registerPromptSections(ctx)
+  registerFilesystemSection(ctx, () => liveRoot.root)
 
   // The dynamic section (ADR-0032 批次②): the global behavior memory rides
   // the system prompt, re-read from the KB on every assembly.
@@ -546,7 +549,7 @@ export type { KbGraph, KbGraphEdge, KbLinkSource, KbLinkTarget, KbLinks, WikiLin
 // The prompt-section layer's vocabulary, for host-side consumers that price
 // the yantao injection (the controller's context meter): the section roster
 // and its text loader are the exact source the plugin registers from.
-export { BEHAVIOR_MEMORY_SECTION, PROMPT_SHORTCUTS_SECTION, loadSectionText, YANTAO_SECTIONS } from './sections.ts'
+export { BEHAVIOR_MEMORY_SECTION, FILESYSTEM_SECTION, PROMPT_SHORTCUTS_SECTION, loadSectionText, YANTAO_SECTIONS } from './sections.ts'
 export type { YantaoSection } from './sections.ts'
 export { parseFrontmatter } from './frontmatter.ts'
 export type { Frontmatter } from './frontmatter.ts'

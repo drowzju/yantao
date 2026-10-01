@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { appendMemoryEntry } from '../src/memory.ts'
-import { BEHAVIOR_MEMORY_SECTION, loadSectionText, registerBehaviorMemorySection, registerPromptSections, YANTAO_SECTIONS } from '../src/sections.ts'
+import { BEHAVIOR_MEMORY_SECTION, FILESYSTEM_SECTION, loadSectionText, registerBehaviorMemorySection, registerFilesystemSection, registerPromptSections, YANTAO_SECTIONS } from '../src/sections.ts'
 
 /** The prompt/sections directory, resolved from this test file's location. */
 const sectionsDir = fileURLToPath(new URL('../prompt/sections', import.meta.url))
@@ -22,10 +22,9 @@ function recordingCtx(): { sectionSpy: ReturnType<typeof vi.fn>; ctx: Context } 
 }
 
 describe('yantao prompt sections (ADR-0022)', () => {
-  it('declares exactly the four yantao sections in the 100–200 band', () => {
+  it('declares exactly the three static yantao sections in the 100–200 band', () => {
     expect(YANTAO_SECTIONS.map(section => section.name)).toEqual([
       'yantao:philosophy',
-      'yantao:filesystem',
       'yantao:memory',
       'yantao:skills',
     ])
@@ -55,6 +54,42 @@ describe('yantao prompt sections (ADR-0022)', () => {
         text: loadSectionText(section.file),
       })
     }
+  })
+})
+
+describe('the dynamic filesystem section (ADR-0042)', () => {
+  it('keeps its order between philosophy and memory, distinct from the statics', () => {
+    expect(FILESYSTEM_SECTION).toEqual({ name: 'yantao:filesystem', order: 120 })
+    expect(YANTAO_SECTIONS.every(section => section.order !== FILESYSTEM_SECTION.order)).toBe(true)
+  })
+
+  it('renders filesystem.md with {{kbRoot}} resolved against the live root', () => {
+    const { sectionSpy, ctx } = recordingCtx()
+    registerFilesystemSection(ctx, () => 'D:\\kb-alpha')
+    expect(sectionSpy).toHaveBeenCalledTimes(1)
+    const registered = sectionSpy.mock.calls[0]?.[0] as {
+      name: string
+      order: number
+      text: () => string
+    }
+    expect(registered.name).toBe('yantao:filesystem')
+    expect(registered.order).toBe(120)
+    const text = registered.text()
+    expect(text).toContain('D:\\kb-alpha')
+    expect(text).not.toContain('{{kbRoot}}')
+    // The default-referent rule is the section's whole point (ADR-0042 决定 2).
+    expect(text).toContain('默认指这里')
+    expect(text).toContain('resources/')
+  })
+
+  it('follows a root retarget without re-registering', () => {
+    const { sectionSpy, ctx } = recordingCtx()
+    let liveRoot = 'D:\\kb-alpha'
+    registerFilesystemSection(ctx, () => liveRoot)
+    const registered = sectionSpy.mock.calls[0]?.[0] as { text: () => string }
+    expect(registered.text()).toContain('D:\\kb-alpha')
+    liveRoot = 'D:\\kb-beta'
+    expect(registered.text()).toContain('D:\\kb-beta')
   })
 })
 

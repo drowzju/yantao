@@ -490,20 +490,25 @@ export class YantaoKbController extends TypertRemoteService {
 
   /**
    * The yantao layer's own share of the system prompt, for the workbench's
-   * context meter (ADR-0039): the four static discipline sections priced from
-   * the same files the plugin registers, plus the dynamic global behavior-
-   * memory section priced from the live store. Priced with the meter's fixed
-   * density heuristic (4 characters per token) so the figures speak the same
-   * vocabulary as the `contextBreakdown` projection's system bucket, of which
-   * they are the yantao-attributable slice.
+   * context meter (ADR-0039): the static discipline sections priced from
+   * the same files the plugin registers, the filesystem discipline priced
+   * as rendered (ADR-0042: `{{kbRoot}}` resolved against the live root),
+   * plus the dynamic global behavior-memory section priced from the live
+   * store. Priced with the meter's fixed density heuristic (4 characters
+   * per token) so the figures speak the same vocabulary as the
+   * `contextBreakdown` projection's system bucket, of which they are the
+   * yantao-attributable slice.
    * @returns the static and behavior-memory shares, in heuristic tokens.
    */
   @Remote('promptInjection')
   promptInjection(): Promise<KbPromptInjectionResult> {
     const price = (text: string): number => Math.ceil(text.length / 4)
+    const filesystemTokens = price(
+      loadSectionText('filesystem.md').replaceAll('{{kbRoot}}', this.ctx.yantaoKb.configured ? this.kbRoot : ''),
+    )
     const staticTokens = YANTAO_SECTIONS.reduce(
       (sum, section) => sum + price(loadSectionText(section.file)),
-      0,
+      filesystemTokens,
     )
     const behaviorMemoryTokens = this.ctx.yantaoKb.configured
       ? price(renderGlobalMemorySection(readGlobalMemoryEntries(this.kbRoot)))

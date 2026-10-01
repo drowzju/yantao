@@ -23,13 +23,15 @@ export interface YantaoSection {
 }
 
 /**
- * The four yantao sections, in reading order. Orders sit in the 100–200
+ * The static yantao sections, in reading order. Orders sit in the 100–200
  * band: persona is 0, dsh's PLAN_POLICY is 500 and its tool sections start
  * at 1000 (`packages/core/system-prompt/src/index.ts` SECTION_ORDERS).
+ * `yantao:filesystem` (120) used to be the fourth static; ADR-0042 made it
+ * a dynamic section so the prompt states the live KB root — see
+ * {@link FILESYSTEM_SECTION}.
  */
 export const YANTAO_SECTIONS: readonly YantaoSection[] = [
   { name: 'yantao:philosophy', order: 100, file: 'philosophy.md' },
-  { name: 'yantao:filesystem', order: 120, file: 'filesystem.md' },
   { name: 'yantao:memory', order: 140, file: 'memory.md' },
   { name: 'yantao:skills', order: 160, file: 'skills.md' },
 ] as const
@@ -48,6 +50,15 @@ export function loadSectionText(file: string): string {
 }
 
 /**
+ * The filesystem section (ADR-0042): same `filesystem.md` source as the
+ * other disciplines, but rendered per assembly so the one `{{kbRoot}}`
+ * placeholder resolves to the live root — the section is where the agent
+ * learns what 「资源」 refers to by default, and the absolute path grounds
+ * that lesson. A root retarget lands on the next step, no rebuild.
+ */
+export const FILESYSTEM_SECTION = { name: 'yantao:filesystem', order: 120 } as const
+
+/**
  * The dynamic section (ADR-0022 增补, sanctioned by ADR-0032 决定 4): unlike
  * the four static disciplines, its text is a provider evaluated at every
  * assembly, so the global behavior memory the human approved across runs is
@@ -64,6 +75,24 @@ export const BEHAVIOR_MEMORY_SECTION = { name: 'yantao:behavior-memory', order: 
  * behavior memory (150), before the skills discipline (160).
  */
 export const PROMPT_SHORTCUTS_SECTION = { name: 'yantao:prompt-shortcuts', order: 155 } as const
+
+/**
+ * Register the filesystem section (ADR-0042): the static disciplines'
+ * `filesystem.md` with `{{kbRoot}}` resolved against the live root on every
+ * assembly, so a `setRoot` retarget is honored without re-registering.
+ * @param ctx - the mounting plugin context (needs `effect` and `systemPrompt`).
+ * @param root - the live KB root, read per assembly.
+ */
+export function registerFilesystemSection(ctx: Context, root: () => string): void {
+  ctx.effect(
+    () => ctx.systemPrompt.section({
+      name: FILESYSTEM_SECTION.name,
+      order: FILESYSTEM_SECTION.order,
+      text: () => loadSectionText('filesystem.md').replaceAll('{{kbRoot}}', root()),
+    }),
+    `yantao-kb: register dynamic prompt section ${FILESYSTEM_SECTION.name}`,
+  )
+}
 
 /**
  * Register the dynamic behavior-memory section. The provider reads
