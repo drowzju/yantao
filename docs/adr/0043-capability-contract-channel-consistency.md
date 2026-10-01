@@ -57,3 +57,17 @@ status: accepted
 - `.dsh/`（KB 侧，不入库）：`yantao/capability-adapters/dingtalk-docs/entry.py` 迁入；`skills/dingtalk-docs/` 换为纯净拷贝；dingtalk-docs SKILL.md 回迁单通道（源头包同步）。
 - 文档：《能力整编手册》（docs + 资源副本）；ADR-0004（执行桥修订信任边界）、ADR-0025/0032/0040 相应条目以本 ADR 为准；本 ADR 入索引。
 - 测试：执行桥目录闸与信封送达、目录外 entry 解析、notice/前置说明文案、菜单候选过滤、详情 RPC，随施工补齐。
+
+## 落地注记（2026-10-01）
+
+八项决定当日全部落地（da9ee04b8d，22 文件 +1803/−48；独立总验证 907→922 例全绿）。
+
+- **执行桥**（决定 2/8）：`capability/exec.ts` 新增 `execCapabilityScript`——spawn 经平台 shell、cwd 严格限定 `.dsh/skills/` 之内（`skillsRoot` 本身也拒）、command 不审查；env 送 `KB_ROOT`/`CAPABILITY_NAME`/`CAPABILITY_CHANNEL`+stdin JSON；stdout/stderr 各 64KB 封顶、超时 120s 杀进程报 not-ok；双闸门解析（sidecar 优先、中央路由兜底）与 kb_run_capability 同码。工具注册 `kb_exec_capability_script`（ctx.tools，非 Remote）。**总验证补三刀**：声明式通道 runCapability 补设同组 env（契约真冻结）、执行桥 stdin 补 `state:null`（形状统一）、目录闸收紧（拒 skillsRoot 本身）。
+- **前置说明**（决定 3）：`CAPABILITY_ENVIRONMENT_NOTE` 单源常量，前缀指令型 render、/name 手势注入（sidecar 与中央路由两路）、脚本型 notice 尾部；notice 转正（「/xxx 不适用」退役，有 not.toContain 断言）。
+- **记忆声明**（决定 4）：skills.md「记忆可信」条、kb_run_capability 描述句、memory.ts 块头改「【行为记忆·宿主转交】」——三处块名经总验证对齐。
+- **菜单放开**（决定 5）：capability-gesture 去 `entry === undefined` 过滤，脚本型 description 加「⚙ 」前缀。
+- **目录外 entry**（决定 2/6）：run.ts `resolveEntry` 重构为 `entryCandidatesOf`（技能目录 → .dsh/ 根双候选，越界两举报错）。
+- **dingtalk-docs 试点**（决定 6，KB 侧不入库）：entry.py 迁 `.dsh/yantao/capability-adapters/dingtalk-docs/` 并改为信封驱动路径解析（kbRoot+name → 技能目录，信封缺退环境变量，双缺报 bad-input）；sidecar 改指目录外；SKILL.md 双份回迁单通道；list 实测 5 库一致、get 实测落盘 `resources/`；pack README 约定句改由适配层与手册承载。
+- **声明展示**（决定 7）：`capabilityDeclaration` RPC（sidecar 原文+解析后形态+entryCandidates/entryPath、中央路由状态、agentInvocable 双闸门；异常全数据化不抛）+ CapabilityPanel `DeclarationSection`（平铺+原文折叠+警示色），typert 与 remotes 客户端产物再生成。
+- **手册**（决定 7）：`docs/yantao/capability-integration.md` + 资源副本 `resources/能力整编手册.md`。
+- **验证**：三包 vitest 922/922、tsc -b 干净、oxlint 0/0（Frame.tsx 一处 max-len 手修）、client bundle + frontend build 通过；独立验证agent 的探针亲测（cwd 锁定、越界拒绝、信封字段、前缀混淆 siblings）全部符合设计。
