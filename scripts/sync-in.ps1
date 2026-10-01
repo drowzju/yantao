@@ -1,6 +1,13 @@
 # sync-in.ps1 - ingest a bundle produced by sync-out.ps1 on the other machine,
 # merge it into main, and retag 'pair/base' so the next sync-out is incremental.
 #
+# pair/base is set to the BUNDLE's main tip - the shipper's HEAD at packaging
+# time, which both machines provably hold (the shipper authored it, we just
+# fetched it). Tagging our own merge commit instead would strand the shipper
+# without the prerequisite object: every later incremental bundle from us
+# fails verify on their side until someone ships a -Full bundle (observed
+# 2026-10-01 in a two-repo sandbox; see the entity project log).
+#
 # Usage:
 #   powershell -File scripts\sync-in.ps1 -Bundle D:\tmp\yantao-sync-xxxx.bundle
 #
@@ -48,7 +55,9 @@ if ($base -eq $incoming) {
   }
 }
 
-git tag -f pair/base HEAD
+# The bundle's main tip, not HEAD: HEAD may be a merge commit only this
+# machine will ever hold, which would deadlock the next round trip.
+git tag -f pair/base $incoming
 if ($LASTEXITCODE -ne 0) { Die "Merge ok but tagging pair/base failed." }
 
-Write-Host ("OK: main is now {0}, pair/base retagged. If client-side code changed, run 'pnpm run refresh' and restart the workbench." -f (git rev-parse --short HEAD))
+Write-Host ("OK: main is now {0}, pair/base retagged to the bundle's main tip. If client-side code changed, run 'pnpm run refresh' and restart the workbench." -f (git rev-parse --short HEAD))
