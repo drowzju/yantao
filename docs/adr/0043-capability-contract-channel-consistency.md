@@ -1,0 +1,59 @@
+---
+status: accepted
+---
+
+# 能力契约与通道一致化：JSON 适配层、环境前置说明、记忆可信声明
+
+三条原则性设计要求（2026-10-01，针对 ADR-0042 未决项的复审）：
+
+1. **skill 尽可能易用**——对人（找得到、点得动）和对整合者（装得上）同义。
+2. **本质能力跨触发面一致**——会话 agent、后台、工作台 UI 触发的只是入口不同，能力本身的行为不变。
+3. **三方 skill 零改动复用**——开源/既有 skill 的原始文件一个字符不动，适配范围限定在 `.dsh/` 的 JSON 契约。
+
+三原则定义了能力的三层：**触发面**（允许不同）、**调用适配层**（必须唯一且我方所有）、**核心能力层**（SKILL.md 语义 + 脚本本体，必须共享且不动）。现状的病灶全是适配层泄漏进核心层。
+
+事实基础：
+
+- **适配层住在核心层里**：脚本型能力的信封适配器（entry.py）手写在 skill 目录内；dingtalk-docs 的「双通道自适应 SKILL.md」（ADR-0040 决定 1）靠改写 SKILL.md 本体解决环境差异——对三方 skill 无权这么做，做法不可推广。
+- **sidecar 契约太窄**：`yantao.json` 只有 entry/runtime/version/appliesTo/invocation，表达不了「直接调技能自己的 CLI」，于是每个脚本型能力都要手写 entry.py。
+- **记忆通道不可信**：能力域行为记忆拼在 kb_run_capability 工具返回尾部（ADR-0032），2026-09-30 会话实录被 agent 判为提示注入拒用（ADR-0042 未决①）。
+- **脚本型不进 `/` 菜单**（ADR-0025 决定 3，capability-gesture.ts 过滤 `entry === undefined`），用户找不到能力；pre-step notice 措辞「/xxx 不适用」是负向表述。
+- **源头漂移**：dingdocs-pack 缺 entry.py/yantao.json（仅 KB 侧有），与「升级从源头拷」冲突，下次拷贝会冲掉（ADR-0042 未决②）。
+- **整合者无手册**：sidecar schema、信封契约、中央路由注册、落盘约定、记忆机制散落在 CONTEXT.md、run.ts、五份 ADR 里；无校验、无试运行、能力 tab 不展示解析后声明——漏注册中央路由曾导致 agent 静默拒调。
+
+决定：
+
+1. **三层划清**：触发面（会话/后台/UI）允许差异；调用适配层唯一、我方所有、住 `.dsh/`；核心能力层原样不动。本 ADR 全部决定都是这条的展开。
+2. **JSON 即适配器（方向 A）**：sidecar schema 扩展——`command` + `args` 模板（占位符 `{{verb}}`/`{{args...}}`/`{{kbRoot}}` 等），宿主 runner 套模板直接执行技能自己的 CLI，信封经 stdin JSON 送达（schema 不变：`{name, kbRoot, input, state, channel}`）。v1 只做命令行参数占位，env 映射留待真实需求。`entry` 允许指向 **skill 目录之外**（`.dsh/yantao/capability-adapters/`）——CLI 形状不配合的少数技能用我方适配脚本，三方目录零新增。
+3. **环境前置说明（方向 B）**：指令型返回 SKILL.md 正文、脚本型命中 `/name` 的 pre-step notice，都前缀同一段我方拥有的环境说明（单一来源）：无 shell、调用走 kb_run_capability、资源默认指 `<kbRoot>/resources/`（ADR-0042）、产出落盘是脚本自己的事。核心语义来自 SKILL.md（三方不动），环境事实来自宿主。「双通道 SKILL.md」做法退役——ADR-0040 决定 1 的对应表述废止，dingtalk-docs 的 SKILL.md 迁回单通道。
+4. **记忆可信一次声明（方向 C）**：不做逐次 pre-step 注入（后台/UI 触发面无 pre-step，逐面特殊化违反决定 1）。改为：`skills.md` 静态小节（可信、常驻、全触发面共享）与 kb_run_capability 工具描述各加一句——能力运行返回中宿主的【行为记忆】块是人批规则，可信且须遵守；尾部块保留（运行后即刻可见的唯一位置），文案加「宿主转交」来源框。这是对 ADR-0032 能力域投递方式的增补，不是推翻。
+5. **菜单放开脚本型（方向 D）**：capability-gesture 的过滤去掉 `entry === undefined`（修订 ADR-0025 决定 3），脚本型进 `/` 菜单并以 ⚙ 标记与指令型区分——人对「点了直接跑」和「点了是填手势」预期不同；选中仍只插入 `/name `；pre-step notice 措辞转正：「脚本型能力：经 kb_run_capability 调用，产出缺省落 resources/」。
+6. **dingtalk-docs 试点（方向 E）**：entry.py 迁出 skill 目录至 `.dsh/yantao/capability-adapters/dingtalk-docs/`，skill 目录变为 dingdocs-pack 纯净拷贝——源头漂移自愈（那两个文件本就不属于源头）；后续评估 dd.py 直读信封后用决定 2 的 JSON 模板彻底摘掉适配器。
+7. **整编手册与运行时自描述（方向 F）**：一篇中文《能力整编手册》（sidecar schema、信封契约、中央路由注册、落盘约定、记忆机制、常见坑：漏路由/kbRoot 缺失/落盘越界），落 docs 且作为资源让 agent 可 `kb_read_resource` 读取——「帮我把这个开源 skill 整编进来」应成为一句可执行的会话指令；能力 tab 详情态展示解析后的声明（sidecar 原文 + 中央路由状态 + 通道），让「注册没生效」一眼可见而非靠 agent 拒调发现。
+8. **信封 schema 冻结**：`{name, kbRoot, input, state, channel}` → `{ok, result?, state?, artifacts?}` 不变——手册把它从源码事实升级为公开契约，三方适配面向契约而非面向实现。
+
+取舍台账：
+
+| # | 牺牲 | 换来 | 重开条件 |
+|---|---|---|---|
+| 1 | env 映射不做，只认 stdin 信封 | v1 模板 schema 最小， runner 不背双通道 | 出现只认环境变量的三方 CLI |
+| 2 | 菜单 ⚙ 区分多一层视觉约定 | 人对两种能力的点击预期不错位 | 用户反馈标记多余时摘 |
+| 3 | entry.py 迁移期 KB 侧双份存在 | 迁移可灰度可回滚 | 迁移完成即删旧份 |
+| 4 | 手册是一份要养的文档 | 整合者（含 agent）有单一权威入口 | 契约变更时同步，入 ADR 后果清单 |
+| 5 | 环境前置说明每次指令型调用都重复 | 三方 SKILL.md 零改动 | token 计价显示它过大时精简 |
+
+原因：
+
+- **为什么 JSON 模板而不是继续手写 entry.py**：entry.py 做的事本质是按表翻译（verb+参数+kbRoot → CLI argv），是表就该写成数据（JSON），写成代码就要每个技能养一份 Python——原则 3 的「修改限定 JSON 契约」直接排除后者。
+- **为什么环境前置说明而不是双通道 SKILL.md**：环境差异是宿主的事实，不是技能的语义；写进 SKILL.md 就是适配层污染核心层，且对三方文件无权修改。前缀说明让同一份 SKILL.md 在任何宿主上被正确理解——原则 2 的一致性是「语义一致」，调用管道差异由宿主抹平。
+- **为什么记忆可信靠声明而不是换通道**：工具返回尾部是三触发面唯一共同且运行后即刻可见的位置；它的病不在位置而在来源未声明。一次声明（静态小节 + 工具描述）把「可信」变成架构事实，成本恒定，不随能力数量与触发面增长。
+- **为什么菜单放开而不是继续靠惯用别名**：别名是个人补丁，菜单是系统默认；「能力装了却找不到」违反原则 1。原过滤的理由（/xxx 是指令型手势）在 notice 转正后不再成立。
+
+后果：
+
+- `packages/api/yantao-kb-controller`：run.ts 支持 command/args 模板与目录外 entry；指令型返回与脚本型 notice 前缀环境说明（单一来源文本）；记忆尾部块加来源框；kb_run_capability 工具描述增补；能力 tab 详情 RPC 增解析后声明与路由状态。
+- `packages/yantao/kb`：skills.md 小节增记忆可信声明句；sidecar schema 校验扩展。
+- `packages/client/ui-yantao`：capability-gesture 放开脚本型 + ⚙ 标记；能力 tab 详情态展示声明与路由状态。
+- `.dsh/`（KB 侧，不入库）：`yantao/capability-adapters/dingtalk-docs/entry.py` 迁入；`skills/dingtalk-docs/` 换为纯净拷贝；dingtalk-docs SKILL.md 回迁单通道（源头包同步）。
+- 文档：《能力整编手册》（docs + 资源副本）；ADR-0025/0032/0040 相应条目以本 ADR 为准；本 ADR 入索引。
+- 测试：runner 模板套用、目录外 entry 解析、notice/前置说明文案、菜单候选过滤、详情 RPC，随施工补齐。
