@@ -43,6 +43,7 @@ import type {
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
+import { runCapabilityDistill, type CapabilityRunRecord } from './capability-distill.ts'
 import { runRefine, type RefineRunnerArgs } from './refine.ts'
 import { runValidate, type ValidateScope } from './validate.ts'
 import { loadModelsConfig, saveModelsConfig, type ModelsConfigDraft } from './model-config.ts'
@@ -58,9 +59,11 @@ import { kbReferenceSource } from './kb-reference.ts'
 import { capabilityGestureSource } from './capability-gesture.ts'
 import { promptShortcutSource } from './prompt-shortcut-gesture.ts'
 import { WORKBENCH_NS, en, zh } from './locales.ts'
+import { MemoryProposalCard } from './MemoryProposalCard.tsx'
 import {
-  addMemory, adoptCapability, archiveEntity, archiveMails, createCapability, createEntity, deleteMemory, deleteMails,
-  fetchMail, fillComposerWithShortcut, listMemory,
+  addMemory, adoptCapability, approveMemoryProposal, archiveEntity, archiveMails, createCapability, createEntity,
+  deleteMemory, deleteMails,
+  discardMemoryProposal, fetchMail, fillComposerWithShortcut, listMemory, listMemoryProposals,
   loadCapabilities, loadCapabilityDeclaration, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
   loadRevision, loadRoot, loadTodos,
   loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, restoreEntity, runCapability,
@@ -239,6 +242,18 @@ export function apply(ctx: Context): void {
       // ADR-0043 决定 7: the 能力 tab detail view's parsed-declaration 声明 section.
       capabilityDeclaration: (name: string) => loadCapabilityDeclaration(ctx, name),
       capabilityRun: (args: KbCapabilityRunArgs, signal?: AbortSignal) => runCapability(ctx, args, signal),
+      // ADR-0044 决定 6: the 能力 tab's 提炼经验 gesture — one headless
+      // session turns a finished run's envelope into 0–3 memory proposals.
+      capabilityDistill: async (record: CapabilityRunRecord) => {
+        const cwd = await kbCwd()
+        return runCapabilityDistill({
+          ctx,
+          name: record.name,
+          ok: record.ok,
+          ...(record.exec !== undefined ? { exec: record.exec } : {}),
+          ...cwd !== undefined ? { cwd } : {},
+        })
+      },
       capabilityCreate: (name: string) => createCapability(ctx, name),
       // ADR-0025 决定 1: adopt an out-of-KB skill into `.dsh/skills/`.
       capabilityAdopt: (name: string) => adoptCapability(ctx, name),
@@ -260,6 +275,11 @@ export function apply(ctx: Context): void {
       memoryList: () => listMemory(ctx),
       memoryAdd: (scope: string, text: string) => addMemory(ctx, scope, text),
       memoryDelete: (scope: string, id: string) => deleteMemory(ctx, scope, id),
+      // ADR-0044 决定 7: the 记忆 tab's 待批准 zone — the queue's read and
+      // the two verdicts; the approve may re-judge the destination scope.
+      memoryProposalList: () => listMemoryProposals(ctx),
+      memoryProposalApprove: (scope: string, text: string, targetScope?: string) => approveMemoryProposal(ctx, scope, text, targetScope),
+      memoryProposalDiscard: (scope: string, text: string) => discardMemoryProposal(ctx, scope, text),
       // ADR-0033: the 任务 tab's 「详情」 drawer reads one run's session log
       // back through the session Remote's existing follow/page faces.
       sessionDetail: (sessionId: string, signal?: AbortSignal) => {
@@ -296,6 +316,22 @@ export function apply(ctx: Context): void {
         promptInjection: () => loadPromptInjection(ctx),
       }),
     }, ContextStatusBar)), 'ui-yantao: footer context status bar')
+
+  // ADR-0044 决定 5: the agent's kb_propose_memory call renders as the light
+  // approval card — 原文 + 目标作用域 + 批准/丢弃, the shortest feedback loop
+  // of the proposal-approval pipeline. The verdict buttons reach the human
+  // channel's RPCs through the registration's inject face (no re-judgment
+  // here: 决定 7 reserves targetScope for the memory view's 待批准 zone).
+  ctx.effect(() => ctx.slots.inject('tool.call.toolview', () =>
+    ctx.slots.register({
+      name: 'tool.call.toolview',
+      key: 'kb_propose_memory',
+      locale: WORKBENCH_NS,
+      inject: () => ({
+        approve: (scope: string, text: string) => approveMemoryProposal(ctx, scope, text),
+        discard: (scope: string, text: string) => discardMemoryProposal(ctx, scope, text),
+      }),
+    }, MemoryProposalCard)), 'ui-yantao: memory proposal card')
 
   // `@` offers the KB's own entities; without this the menu lists only files
   // and sessions from the (unused) workspace.

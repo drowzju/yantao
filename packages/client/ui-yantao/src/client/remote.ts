@@ -34,6 +34,8 @@ import type {
   KbFileContent, KbGraphResult, KbLinksResult,
   KbMailDeleteArgs, KbMailDeleteResult, KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
   KbMemoryAddArgs, KbMemoryAddResult, KbMemoryDeleteArgs, KbMemoryDeleteResult, KbMemoryListResult,
+  KbMemoryProposalApproveArgs, KbMemoryProposalApproveResult, KbMemoryProposalDiscardArgs,
+  KbMemoryProposalDiscardResult, KbMemoryProposalListResult,
   KbOpenExternalResult, KbPersonRelation, KbPromptInjectionResult, KbPromptShortcutListResult,
   KbPromptShortcutSaveArgs, KbPromptShortcutSaveResult,
   KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
@@ -85,6 +87,12 @@ export interface KbRemote {
   memoryAdd(args: KbMemoryAddArgs): Promise<RemoteResult<KbMemoryAddResult>>
   /** Forget one behavior rule by id (ADR-0032); a stale id is a not-found. */
   memoryDelete(args: KbMemoryDeleteArgs): Promise<RemoteResult<KbMemoryDeleteResult>>
+  /** The proposal queue's listing (ADR-0044): every scope with pending proposals. */
+  memoryProposalList(): Promise<RemoteResult<KbMemoryProposalListResult>>
+  /** Approve one pending proposal (ADR-0044 决定 7); the bare text lands in the target scope's memory. */
+  memoryProposalApprove(args: KbMemoryProposalApproveArgs): Promise<RemoteResult<KbMemoryProposalApproveResult>>
+  /** Discard one pending proposal (ADR-0044 决定 7). */
+  memoryProposalDiscard(args: KbMemoryProposalDiscardArgs): Promise<RemoteResult<KbMemoryProposalDiscardResult>>
   /** The yantao layer's own system-prompt share, heuristically priced (ADR-0039). */
   promptInjection(): Promise<RemoteResult<KbPromptInjectionResult>>
   /** The prompt-shortcut store's listing (ADR-0040), in display order. */
@@ -264,6 +272,22 @@ export type MemoryAdder = (scope: string, text: string) => Promise<KbMemoryAddRe
 
 /** Forget one behavior rule by id (ADR-0032); a stale id rejects, and the caller refreshes. */
 export type MemoryDeleter = (scope: string, id: string) => Promise<void>
+
+/**
+ * List the proposal queues (ADR-0044 决定 7) — the memory view's 待批准
+ * zone reads the whole in-flight set through this.
+ */
+export type MemoryProposalLister = () => Promise<KbMemoryProposalListResult>
+
+/**
+ * Promote one pending proposal (ADR-0044 决定 7); `targetScope` re-judges
+ * the destination scope, defaulting to the source scope. A duplicate
+ * refusal reads as 「已记得」, not an error.
+ */
+export type MemoryProposalApprover = (scope: string, text: string, targetScope?: string) => Promise<KbMemoryProposalApproveResult>
+
+/** Drop one pending proposal without promoting it (ADR-0044 决定 7). */
+export type MemoryProposalDiscarder = (scope: string, text: string) => Promise<void>
 
 /** Open the host's native directory picker; resolves null when cancelled. */
 export type DirectoryPicker = () => Promise<string | null>
@@ -729,6 +753,56 @@ export async function deleteMemory(ctx: Context, scope: string, id: string): Pro
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   unwrapRemote(await kb.memoryDelete({ scope, id }))
+}
+
+/**
+ * List the proposal queue's scopes (ADR-0044) — the memory view's 待批准
+ * zone and the conversation card's fallback reader.
+ * @param ctx - client root context.
+ * @returns the scopes with pending proposals, global first.
+ */
+export async function listMemoryProposals(ctx: Context): Promise<KbMemoryProposalListResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.memoryProposalList())
+}
+
+/**
+ * Approve one pending proposal (ADR-0044 决定 7): the bare text lands in the
+ * target scope's memory file through the same seam the human's own writes
+ * use, and the line leaves the queue.
+ * @param ctx - client root context.
+ * @param scope - the scope whose queue holds the proposal.
+ * @param text - the proposal's text, as the queue (or the card) reported it.
+ * @param targetScope - optional re-judged destination scope; defaults to the source scope.
+ * @returns the queue path, the memory path, and the entry as written.
+ */
+export async function approveMemoryProposal(
+  ctx: Context,
+  scope: string,
+  text: string,
+  targetScope?: string,
+): Promise<KbMemoryProposalApproveResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.memoryProposalApprove({
+    scope,
+    text,
+    ...(targetScope !== undefined ? { targetScope } : {}),
+  }))
+}
+
+/**
+ * Discard one pending proposal (ADR-0044 决定 7): the line leaves the queue
+ * and nothing is remembered.
+ * @param ctx - client root context.
+ * @param scope - the scope whose queue holds the proposal.
+ * @param text - the proposal's text, as the queue (or the card) reported it.
+ */
+export async function discardMemoryProposal(ctx: Context, scope: string, text: string): Promise<void> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  unwrapRemote(await kb.memoryProposalDiscard({ scope, text }))
 }
 
 /**

@@ -469,6 +469,25 @@ export interface KbCapabilityRunArgs {
   readonly input?: JsonValue
 }
 
+/**
+ * The observable envelope of one capability run (ADR-0044 决定 6), captured
+ * by the host around the subprocess: what the 能力 tab's 提炼经验 gesture
+ * feeds its distiller. Rides the human channel only — the agent channel's
+ * `kb_run_capability` strips it.
+ */
+export interface KbCapabilityExec {
+  /** The command line the host ran (interpreter + entry script). */
+  readonly command: string
+  /** The process exit code; null when the host killed it or the spawn failed. */
+  readonly exitCode: number | null
+  /** Wall-clock duration of the run, milliseconds. */
+  readonly durationMs: number
+  /** The last characters of stdout (capped at 2000). */
+  readonly stdoutTail: string
+  /** The last characters of stderr (capped at 2000). */
+  readonly stderrTail: string
+}
+
 /** Result of `yantaoKb.capabilityRun` (ADR-0021; agent channel ADR-0023). */
 export interface KbCapabilityRunResult {
   /** The capability that ran. */
@@ -494,6 +513,12 @@ export interface KbCapabilityRunResult {
   readonly memory?: string
   /** KB-relative paths of the files the run wrote under `.dsh/yantao/capabilities/<name>/`. */
   readonly artifacts: readonly string[]
+  /**
+   * The run's observable envelope (ADR-0044 决定 6), present when the run
+   * actually spawned a script; the raw material the 提炼经验 gesture hands
+   * its distiller. Instruction-type answers carry none.
+   */
+  readonly exec?: KbCapabilityExec
 }
 
 /**
@@ -797,6 +822,76 @@ export interface KbMemoryDeleteArgs {
 /** Result of `yantaoKb.memoryDelete` (ADR-0032). */
 export interface KbMemoryDeleteResult {
   /** KB-relative path of the scope's markdown file. */
+  readonly path: string
+}
+
+/**
+ * One proposed (not yet approved) memory entry of the proposal queue
+ * (ADR-0044): a `- ` bullet in the scope's queue file under
+ * `.dsh/yantao/memory/proposals/`, carrying a trailing 〔source〕 annotation
+ * naming where the lesson came from. The queue is never injected — it waits
+ * for the human's verdict.
+ */
+export interface KbMemoryProposal {
+  /** Stable id: `sha1("<scope>|<text>")` — identical to the id the entry carries in memory after promotion. */
+  readonly id: string
+  /** Proposal stamp (YYYY-MM-DD); a hand-written line may omit it. */
+  readonly date?: string
+  /** The distilled text, source annotation stripped. */
+  readonly text: string
+  /** Where the lesson came from (会话 / UI 运行摘要); `''` for a hand-written line without one. */
+  readonly source: string
+}
+
+/** One scope's proposal queue (ADR-0044). */
+export interface KbMemoryProposalGroup {
+  /** The scope: `global`, or the capability's skill name. */
+  readonly scope: string
+  /** KB-relative path of the queue's markdown file, forward slashes. */
+  readonly path: string
+  /** The file's exact current text — an absent file reads as `''`, never an error. */
+  readonly text: string
+  /** The parsed pending proposals, in file order; empty for an absent file. */
+  readonly entries: readonly KbMemoryProposal[]
+}
+
+/** Result of `yantaoKb.memoryProposalList` (ADR-0044): every scope that has a queue. */
+export interface KbMemoryProposalListResult {
+  /** The global scope first, then the capability scopes name-sorted. */
+  readonly groups: readonly KbMemoryProposalGroup[]
+}
+
+/** Parameters of `yantaoKb.memoryProposalApprove` (ADR-0044): promote one pending proposal. */
+export interface KbMemoryProposalApproveArgs {
+  /** The scope whose queue holds the proposal. */
+  readonly scope: string
+  /** The proposal's text, as the queue (or the approval card) reported it. */
+  readonly text: string
+  /** Optional re-judged destination scope; defaults to the source scope. */
+  readonly targetScope?: string
+}
+
+/** Result of `yantaoKb.memoryProposalApprove` (ADR-0044). */
+export interface KbMemoryProposalApproveResult {
+  /** KB-relative path of the queue the proposal left. */
+  readonly path: string
+  /** KB-relative path of the memory file the text landed in. */
+  readonly targetPath: string
+  /** The entry as it now sits in the memory file. */
+  readonly entry: KbMemoryEntry
+}
+
+/** Parameters of `yantaoKb.memoryProposalDiscard` (ADR-0044): drop one pending proposal. */
+export interface KbMemoryProposalDiscardArgs {
+  /** The scope whose queue holds the proposal. */
+  readonly scope: string
+  /** The proposal's text, as the queue (or the approval card) reported it. */
+  readonly text: string
+}
+
+/** Result of `yantaoKb.memoryProposalDiscard` (ADR-0044). */
+export interface KbMemoryProposalDiscardResult {
+  /** KB-relative path of the queue the proposal left. */
   readonly path: string
 }
 

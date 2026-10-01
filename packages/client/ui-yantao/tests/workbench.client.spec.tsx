@@ -922,6 +922,9 @@ function capabilityProps(overrides: Partial<Parameters<typeof CapabilityPanel>[0
     loadShortcuts: () => Promise.resolve({ shortcuts: [] }),
     saveShortcuts: () => Promise.resolve({ shortcuts: [], path: '.dsh/yantao/prompt-shortcuts.json' }),
     fillShortcut: () => {},
+    runs: [],
+    onDistill: () => {},
+    distilling: null,
     ...overrides,
   }
 }

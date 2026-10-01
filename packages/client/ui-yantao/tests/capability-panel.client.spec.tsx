@@ -5,6 +5,7 @@ import type {
   KbCapabilityDeclarationResult, KbCapabilityListResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { CapabilityPanel, type CapabilityPanelProps } from '../src/client/CapabilityPanel.tsx'
+import type { CapabilityRunRecord } from '../src/client/capability-distill.ts'
 import { t } from './helpers.client.ts'
 
 afterEach(() => {
@@ -60,6 +61,9 @@ function props(overrides: Partial<CapabilityPanelProps> = {}): CapabilityPanelPr
     loadShortcuts: vi.fn(async () => ({ shortcuts: [] })),
     saveShortcuts: vi.fn(),
     fillShortcut: vi.fn(),
+    runs: [],
+    onDistill: vi.fn(),
+    distilling: null,
     ...overrides,
   }
 }
@@ -142,5 +146,79 @@ describe('CapabilityPanel 声明 section (ADR-0043 决定 7)', () => {
     await openDetail()
     expect((await screen.findByText('还没有选择知识库目录，能力的声明无处读取。'))).toBeTruthy()
     expect(container.querySelector('[data-declaration-error]')).not.toBeNull()
+  })
+})
+
+describe('CapabilityPanel 运行记录 (ADR-0044 决定 6)', () => {
+  const OK_RUN: CapabilityRunRecord = {
+    id: 'cap-run-0',
+    name: 'mail',
+    ok: true,
+    exec: {
+      command: 'python scripts/entry.py --folder Inbox',
+      exitCode: 0,
+      durationMs: 1234,
+      stdoutTail: '共 3 封新邮件',
+      stderrTail: '',
+    },
+    at: new Date('2026-10-01T08:30:00').getTime(),
+  }
+  const FAILED_RUN: CapabilityRunRecord = {
+    id: 'cap-run-1',
+    name: 'mail',
+    ok: false,
+    exec: {
+      command: 'python scripts/entry.py --fetch',
+      exitCode: 1,
+      durationMs: 5678,
+      stdoutTail: '',
+      stderrTail: '连接超时',
+    },
+    at: new Date('2026-10-01T09:00:00').getTime(),
+  }
+
+  it('hides the run-records section when the session has no runs', async () => {
+    const { container } = render(<CapabilityPanel {...props()} />)
+    await openDetail()
+    expect(await screen.findByText('声明')).toBeTruthy()
+    expect(container.querySelector('[data-capability-runs]')).toBeNull()
+  })
+
+  it('lists this session\'s runs with verdict, envelope fold, and a distill button per record', async () => {
+    const { container } = render(<CapabilityPanel {...props({ runs: [OK_RUN, FAILED_RUN] })} />)
+    await openDetail()
+    expect(container.querySelector('[data-capability-runs]')).not.toBeNull()
+    expect(container.querySelectorAll('[data-capability-run]').length).toBe(2)
+    // The settled verdicts, with the envelope's numbers beside them.
+    expect(screen.getByText(/成功 · 退出码 0 · 1234 ms/)).toBeTruthy()
+    expect(screen.getByText(/失败 · 退出码 1 · 5678 ms/)).toBeTruthy()
+    // The envelope folds: the command is the summary, the tails lie beneath.
+    fireEvent.click(screen.getByText('python scripts/entry.py --folder Inbox'))
+    expect(await screen.findByText('共 3 封新邮件')).toBeTruthy()
+    expect(screen.getByText('连接超时')).toBeTruthy()
+    // One distill button per record.
+    expect(container.querySelector('[data-capability-distill="cap-run-0"]')).not.toBeNull()
+    expect(container.querySelector('[data-capability-distill="cap-run-1"]')).not.toBeNull()
+  })
+
+  it('hands the clicked record to the distill gesture', async () => {
+    const onDistill = vi.fn()
+    const { container } = render(<CapabilityPanel {...props({ runs: [OK_RUN, FAILED_RUN], onDistill })} />)
+    await openDetail()
+    const first = container.querySelector('[data-capability-distill="cap-run-0"]') as HTMLButtonElement
+    fireEvent.click(first)
+    expect(onDistill).toHaveBeenCalledTimes(1)
+    expect(onDistill).toHaveBeenCalledWith(OK_RUN)
+  })
+
+  it('rests every button while one record distils, labelling the busy one', async () => {
+    const { container } = render(<CapabilityPanel {...props({ runs: [OK_RUN, FAILED_RUN], distilling: 'cap-run-1' })} />)
+    await openDetail()
+    const first = container.querySelector('[data-capability-distill="cap-run-0"]') as HTMLButtonElement
+    const second = container.querySelector('[data-capability-distill="cap-run-1"]') as HTMLButtonElement
+    expect(first.disabled).toBe(true)
+    expect(second.disabled).toBe(true)
+    expect(second.textContent).toBe('提炼中…')
+    expect(first.textContent).toBe('提炼经验')
   })
 })

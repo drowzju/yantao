@@ -102,6 +102,28 @@ export type CapabilityErrorKind =
   | 'other'
 
 /**
+ * The observable envelope of one capability run (ADR-0044 决定 6): what the
+ * UI's 提炼经验 gesture feeds its distiller. Captured by the host around the
+ * subprocess — the distiller never sees more than this, and a plain run
+ * (clean exit, empty tails) gives the distiller nothing to mine.
+ */
+export interface CapabilityExec {
+  /** The command line the host ran (interpreter + entry script). */
+  readonly command: string
+  /** The process exit code; null when the host killed it or the spawn failed. */
+  readonly exitCode: number | null
+  /** Wall-clock duration of the run, milliseconds. */
+  readonly durationMs: number
+  /** The last characters of stdout (capped at {@link EXEC_TAIL_CHARS}). */
+  readonly stdoutTail: string
+  /** The last characters of stderr (capped at {@link EXEC_TAIL_CHARS}). */
+  readonly stderrTail: string
+}
+
+/** How much of each stream the envelope keeps — a tail, not a transcript. */
+export const EXEC_TAIL_CHARS = 2000
+
+/**
  * A failed capability run. `kind` is machine-readable, `message` is what went
  * wrong, and `hint` is what the human can do about it.
  */
@@ -112,16 +134,21 @@ export class CapabilityError extends Error {
   /** What the human can do about it. */
   readonly hint: string
 
+  /** The run's observable envelope at the moment of failure, when one was captured. */
+  readonly exec?: CapabilityExec | undefined
+
   /**
    * @param kind - which failure this is.
    * @param message - the Chinese message to show.
    * @param hint - the Chinese remedy to show alongside it.
+   * @param exec - the run's envelope, when the failure happened mid-subprocess.
    */
-  constructor(kind: CapabilityErrorKind, message: string, hint: string) {
+  constructor(kind: CapabilityErrorKind, message: string, hint: string, exec?: CapabilityExec) {
     super(message)
     this.name = 'CapabilityError'
     this.kind = kind
     this.hint = hint
+    this.exec = exec
   }
 }
 
@@ -151,9 +178,9 @@ export const CAPABILITY_HINTS: Readonly<Record<CapabilityErrorKind, string>> = {
   other: '请查看服务端日志了解详情。',
 }
 
-/** Build the error for a failure kind. */
-function fail(kind: CapabilityErrorKind, message?: string, hint?: string): CapabilityError {
-  return new CapabilityError(kind, message ?? CAPABILITY_ERROR_MESSAGES[kind], hint ?? CAPABILITY_HINTS[kind])
+/** Build the error for a failure kind, carrying the run's envelope when captured. */
+function fail(kind: CapabilityErrorKind, message?: string, hint?: string, exec?: CapabilityExec): CapabilityError {
+  return new CapabilityError(kind, message ?? CAPABILITY_ERROR_MESSAGES[kind], hint ?? CAPABILITY_HINTS[kind], exec)
 }
 
 /**
@@ -358,6 +385,8 @@ export interface CapabilityRunOutput {
   readonly state?: unknown
   /** Files to write under `.dsh/yantao/capabilities/<name>/`. */
   readonly artifacts?: readonly CapabilityArtifact[]
+  /** The run's observable envelope (ADR-0044 决定 6), for the human channel's distill gesture. */
+  readonly exec?: CapabilityExec
 }
 
 /** Options of {@link runCapability}. */
@@ -414,6 +443,11 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
     timeoutMs = CAPABILITY_TIMEOUT_MS,
   } = options
 
+  // The observable envelope (ADR-0044 决定 6): wall clock starts before the
+  // spawn; `execOf` below freezes the tail state at each settle site.
+  const startedAt = Date.now()
+  const command = `${python} ${options.entryPath}`
+
   const child = spawnImpl(python, [options.entryPath], {
     windowsHide: true,
     // The frozen envelope contract (ADR-0043 决定 8): the declared channel
@@ -441,10 +475,19 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
     let stderr = ''
     let settled = false
 
+    /** Freeze the streams' current tail state into the run's envelope. */
+    const execOf = (exitCode: number | null): CapabilityExec => ({
+      command,
+      exitCode,
+      durationMs: Date.now() - startedAt,
+      stdoutTail: stdout.length > EXEC_TAIL_CHARS ? stdout.slice(-EXEC_TAIL_CHARS) : stdout,
+      stderrTail: stderr.length > EXEC_TAIL_CHARS ? stderr.slice(-EXEC_TAIL_CHARS) : stderr,
+    })
+
     const timer = setTimeout(() => {
       settle(() => {
         child.kill()
-        reject(fail('timeout'))
+        reject(fail('timeout', undefined, undefined, execOf(null)))
       })
     }, timeoutMs)
 
@@ -463,7 +506,7 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
     const onAbort = (): void => {
       settle(() => {
         child.kill()
-        reject(fail('cancelled'))
+        reject(fail('cancelled', undefined, undefined, execOf(null)))
       })
     }
     if (options.signal !== undefined) {
@@ -488,7 +531,7 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
       settle(() => {
         // ENOENT means the interpreter itself is not there.
         const missing = (error as NodeJS.ErrnoException).code === 'ENOENT'
-        reject(missing ? fail('python-missing') : fail('other'))
+        reject(missing ? fail('python-missing', undefined, undefined, execOf(null)) : fail('other', undefined, undefined, execOf(null)))
       })
     })
     child.on('close', () => {
@@ -497,11 +540,11 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
         try {
           parsed = JSON.parse(stdout)
         } catch {
-          reject(fail('bad-output', `${CAPABILITY_ERROR_MESSAGES['bad-output']}${stderr.trim() === '' ? '' : `\n脚本输出：${stderr.trim().slice(0, 500)}`}`))
+          reject(fail('bad-output', `${CAPABILITY_ERROR_MESSAGES['bad-output']}${stderr.trim() === '' ? '' : `\n脚本输出：${stderr.trim().slice(0, 500)}`}`, undefined, execOf(child.exitCode)))
           return
         }
         if (typeof parsed !== 'object' || parsed === null) {
-          reject(fail('bad-output'))
+          reject(fail('bad-output', undefined, undefined, execOf(child.exitCode)))
           return
         }
         const answer = parsed as {
@@ -519,13 +562,14 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
             ? answer.message
             : CAPABILITY_ERROR_MESSAGES['capability-failed']
           const hint = typeof answer.hint === 'string' ? answer.hint : undefined
-          reject(fail('capability-failed', message, hint ?? (kind !== undefined ? `能力报告的失败类型：${kind}` : undefined)))
+          reject(fail('capability-failed', message, hint ?? (kind !== undefined ? `能力报告的失败类型：${kind}` : undefined), execOf(child.exitCode)))
           return
         }
         resolveRun({
           ...answer.result !== undefined ? { result: answer.result } : {},
           ...answer.state !== undefined ? { state: answer.state } : {},
           ...answer.artifacts !== undefined ? { artifacts: artifactsOf(answer.artifacts, options.name, reject) } : {},
+          exec: execOf(child.exitCode),
         })
       })
     })

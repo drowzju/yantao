@@ -22,6 +22,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { readCitedEntries } from './cited.ts'
 import { appendLog, createEntity, editSection, initKb, listEntities, readEntity, readResource, registerResource, writeResource, writeState } from './core.ts'
 import { kbMentions, renderKbMentions } from './mentions.ts'
+import { appendMemoryProposal, PROPOSAL_PENDING_SOFT_CAP } from './proposals.ts'
 import { importLegacyRootState } from './root-store.ts'
 import { registerBehaviorMemorySection, registerFilesystemSection, registerPromptSections, registerPromptShortcutsSection } from './sections.ts'
 import { ENTITY_TYPES, PERSON_RELATIONS } from './types.ts'
@@ -518,6 +519,43 @@ export function apply(ctx: Context, config: Config): void {
     },
     execute: args => readResource(liveRoot.root, args.path),
   }))
+
+  ctx.tools.register(defineTool({
+    name: 'kb_propose_memory',
+    description:
+      '把这次任务中学到的经验提案为行为记忆，供人批准后沉淀（ADR-0044）。礼仪：'
+      + '只有非显然的教训才值得提——踩过的坑、绕过办法、环境怪癖、用户给出的纠正；'
+      + '平淡顺利的运行不要提；通常在任务收尾时集中提。'
+      + '提案不立即生效：进入提案队列等待人批准，批准后才成为行为记忆；'
+      + '队列每作用域最多 ' + PROPOSAL_PENDING_SOFT_CAP + ' 条，满了会拒绝。'
+      + 'scope 是 global（工作台级经验）或能力名（该能力的专属经验）；'
+      + '与现有记忆或在途提案文字重复时会被拒绝。'
+      + 'source 可选，注明经验来源（如「会话」或一次运行的摘要），帮助人判断是否采纳。',
+    parameters: {
+      scope: { type: 'string', required: true, description: '记忆作用域：global 或能力名（如 mail-analysis）' },
+      text: { type: 'string', required: true, description: '凝练的经验正文，一句话说清规则本身' },
+      source: { type: 'string', description: '可选来源注记，如「会话」或「运行 mail-analysis 失败：退出码 1」' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          scope: { type: 'string', required: true },
+          pending: { type: 'number', required: true },
+        },
+      },
+      render: (args, value) => [{
+        type: 'text',
+        text: `已记入提案队列（作用域 ${value.scope}，待批准 ${value.pending} 条）：${args.text}`
+          + '\n提案尚未生效——人批准后才沉淀为行为记忆。',
+      }],
+    },
+    execute: (args) => {
+      const scope = appendMemoryProposal(liveRoot.root, args.scope, args.text, args.source)
+      return scope.then(queue => ({ scope: queue.scope, pending: queue.entries.length }))
+    },
+  }))
 }
 
 // Host-side consumers (the yantao-kb-controller Remote) reuse the filesystem
@@ -539,6 +577,12 @@ export {
   serializeMemoryFile,
 } from './memory.ts'
 export type { MemoryEntry, MemoryFile, MemoryScope } from './memory.ts'
+export {
+  appendMemoryProposal, listProposalScopes, parseProposalFile, PROPOSAL_PENDING_SOFT_CAP,
+  proposalDisplayPath, proposalEntryLine, readProposalScope, removeMemoryProposalByText,
+  serializeProposalFile,
+} from './proposals.ts'
+export type { MemoryProposal, MemoryProposalFile, MemoryProposalScope } from './proposals.ts'
 export {
   normalizePromptShortcuts, PROMPT_SHORTCUTS_DISPLAY_PATH, PROMPT_SHORTCUTS_SOFT_CAP,
   readPromptShortcuts, renderPromptShortcutsSection, writePromptShortcuts,

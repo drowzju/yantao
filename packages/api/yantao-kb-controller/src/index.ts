@@ -19,7 +19,10 @@
  * ones, lists them, runs them, writes their artifacts, and persists their
  * state. The memory store (ADR-0032) is `memoryList`/`memoryAdd`/`memoryDelete`:
  * behavior rules as markdown files under `.dsh/yantao/memory/`, written only
- * through the human channel. The UI is the human
+ * through the human channel; the proposal queue (ADR-0044) is
+ * `memoryProposalList`/`memoryProposalApprove`/`memoryProposalDiscard` — the
+ * holding pen an agent's `kb_propose_memory` fills and only a human drains.
+ * The UI is the human
  * channel, so `write` is a full-file write; the ADR-0004 trust boundary
  * binds only the agent's kb_ tools, never this surface.
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
@@ -42,6 +45,7 @@ import {
   registerResourceContent, resolveWithinKb, serializeTodoFile, setEntityArchived, todayStamp,
   writeCapabilityState, writeMailWatermark,
   appendMemoryEntry, listMemoryScopes, readMemoryScope, removeMemoryEntry, renderCapabilityMemoryBlock,
+  listProposalScopes, proposalDisplayPath, removeMemoryProposalByText,
   loadSectionText, renderGlobalMemorySection, readGlobalMemoryEntries, YANTAO_SECTIONS,
   readPromptShortcuts, writePromptShortcuts, PROMPT_SHORTCUTS_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
@@ -85,6 +89,11 @@ import type {
   KbPromptShortcutSaveArgs,
   KbPromptShortcutSaveResult,
   KbMemoryListResult,
+  KbMemoryProposalApproveArgs,
+  KbMemoryProposalApproveResult,
+  KbMemoryProposalDiscardArgs,
+  KbMemoryProposalDiscardResult,
+  KbMemoryProposalListResult,
   KbOpenExternalResult,
   KbPromptInjectionResult,
   KbRegisterResourceArgs,
@@ -336,8 +345,17 @@ export class YantaoKbController extends TypertRemoteService {
       execute: async ({ name, input }) => {
         const answer = await this.runByName(name, input, 'agent')
         // The wire schema declares a mutable artifacts array; the internal
-        // result keeps it readonly.
-        return { ...answer, artifacts: [...answer.artifacts] }
+        // result keeps it readonly. The exec envelope (ADR-0044 决定 6)
+        // rides the human channel only — the agent sees the run's answer,
+        // not the distill gesture's raw material.
+        return {
+          name: answer.name,
+          runAt: answer.runAt,
+          ...(answer.result !== undefined ? { result: answer.result } : {}),
+          ...(answer.content !== undefined ? { content: answer.content } : {}),
+          ...(answer.memory !== undefined ? { memory: answer.memory } : {}),
+          artifacts: [...answer.artifacts],
+        }
       },
     }))
     // The execution bridge (ADR-0043 决定 2, 路线二): run a script inside an
@@ -1078,6 +1096,66 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
+   * The proposal queue's listing (ADR-0044): every scope that has a queue
+   * file under `.dsh/yantao/memory/proposals/` — `global.md` first, then the
+   * capability scopes name-sorted — each with its exact text and parsed
+   * pending proposals, source annotations included for the human's judgment.
+   * The queue is never injected into any prompt; this listing and the
+   * conversation approval cards are its only readers.
+   * @returns the scopes, global first.
+   */
+  @Remote('memoryProposalList')
+  async memoryProposalList(): Promise<KbMemoryProposalListResult> {
+    this.requireKbRootForMemory()
+    return { groups: await listProposalScopes(this.kbRoot) }
+  }
+
+  /**
+   * Approve one pending proposal (ADR-0044 决定 7): the bare text lands in
+   * the target scope's memory file through `appendMemoryEntry` — dedup,
+   * ordering and line format come for free — and only then leaves the queue.
+   * The target scope is re-judgeable per approval (default: the source
+   * scope). An already-remembered text is refused (`duplicate-memory`) and
+   * the pending copy stays for the human to discard explicitly; a stale text
+   * (processed meanwhile) is a `not-found` and the caller refreshes.
+   * @param args - the source scope, the proposal's text, and the optional re-judged target scope.
+   * @returns the queue path, the memory path, and the entry as written.
+   */
+  @Remote('memoryProposalApprove')
+  async memoryProposalApprove(args: KbMemoryProposalApproveArgs): Promise<KbMemoryProposalApproveResult> {
+    this.requireKbRootForMemory()
+    const targetScope = args.targetScope ?? args.scope
+    try {
+      const target = await appendMemoryEntry(this.kbRoot, targetScope, args.text)
+      const entry = target.entries[target.entries.length - 1]
+      if (entry === undefined) throw new KbError('empty-memory-text', '记忆内容不能为空')
+      await removeMemoryProposalByText(this.kbRoot, args.scope, args.text)
+      return { path: proposalDisplayPath(args.scope), targetPath: target.path, entry }
+    } catch (error: unknown) {
+      throw this.proposalError(error, args.scope)
+    }
+  }
+
+  /**
+   * Discard one pending proposal (ADR-0044 决定 7): the line leaves the
+   * queue and nothing is remembered. Addressed by text — the conversation
+   * approval card holds the tool args (scope+text), and per-scope dedup
+   * makes text unique within a queue.
+   * @param args - the source scope and the proposal's text.
+   * @returns the queue path.
+   */
+  @Remote('memoryProposalDiscard')
+  async memoryProposalDiscard(args: KbMemoryProposalDiscardArgs): Promise<KbMemoryProposalDiscardResult> {
+    this.requireKbRootForMemory()
+    try {
+      const queue = await removeMemoryProposalByText(this.kbRoot, args.scope, args.text)
+      return { path: queue.path }
+    } catch (error: unknown) {
+      throw this.proposalError(error, args.scope)
+    }
+  }
+
+  /**
    * The prompt-shortcut store's listing (ADR-0040): the human's favorite
    * slash aliases in display order. The `/` menu's shortcut group and the
    * capability tab's home list both read through this; the agent's own view
@@ -1181,6 +1259,25 @@ export class YantaoKbController extends TypertRemoteService {
       'yantao-kb/rejected',
       `记忆操作失败：${(error as Error).message}`,
       { path: '.dsh/yantao/memory' },
+      { cause: error },
+    )
+  }
+
+  /** Translate the kb package's proposal-queue failures into the Remote channel's classes. */
+  private proposalError(error: unknown, scope: string): RemoteError {
+    if (error instanceof KbError) {
+      const notFound = error.code === 'proposal-not-found'
+      return new RemoteError(
+        notFound ? 'yantao-kb/not-found' : 'yantao-kb/rejected',
+        error.message,
+        { path: proposalDisplayPath(scope) },
+        { cause: error },
+      )
+    }
+    return new RemoteError(
+      'yantao-kb/rejected',
+      `提案操作失败：${(error as Error).message}`,
+      { path: '.dsh/yantao/memory/proposals' },
       { cause: error },
     )
   }
@@ -1560,7 +1657,13 @@ export class YantaoKbController extends TypertRemoteService {
       throw new RemoteError(
         'yantao-kb/capability',
         failure?.message ?? '能力执行失败。',
-        { kind: failure?.kind ?? 'other', hint: failure?.hint ?? CAPABILITY_HINTS.other },
+        {
+          kind: failure?.kind ?? 'other',
+          hint: failure?.hint ?? CAPABILITY_HINTS.other,
+          // The run's envelope (ADR-0044 决定 6): the UI's 提炼经验 gesture
+          // mines it even when the run failed.
+          ...(failure?.exec !== undefined ? { exec: failure.exec } : {}),
+        },
         { cause: error },
       )
     }
@@ -1587,6 +1690,7 @@ export class YantaoKbController extends TypertRemoteService {
       ...output.result !== undefined ? { result: output.result as JsonValue } : {},
       ...(memory !== undefined ? { memory } : {}),
       artifacts: written,
+      ...(output.exec !== undefined ? { exec: output.exec } : {}),
     }
   }
 

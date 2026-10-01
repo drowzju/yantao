@@ -13,7 +13,9 @@
  * into the central routing file `.dsh/skills/yantao.json` (ADR-0025 落地注记二).
  * The mail capability's detail
  * embeds {@link MailPanel}; every other capability's detail is its manifest,
- * read-only.
+ * read-only. A script capability's detail also lists this session's runs
+ * (ADR-0044 决定 6), each with a 提炼经验 button that turns the run's
+ * envelope into memory proposals through a one-shot headless session.
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type {
@@ -23,6 +25,7 @@ import type {
   CapabilityAdopter, CapabilityCreator, CapabilityDeclarationLoader, CapabilityLoader, CapabilityRegistrar,
   PromptShortcutLister, PromptShortcutSaver, ShortcutFiller,
 } from './remote.ts'
+import type { CapabilityRunRecord } from './capability-distill.ts'
 import { remoteMessage } from './remote.ts'
 import { NewEntityRow } from './NewEntityRow.tsx'
 import type { WorkbenchT } from './locales.ts'
@@ -49,6 +52,12 @@ export interface CapabilityPanelProps {
   readonly saveShortcuts: PromptShortcutSaver
   /** Fill the conversation's composer with `/alias ` without sending (ADR-0040 决定 5). */
   readonly fillShortcut: ShortcutFiller
+  /** This session's settled capability runs (ADR-0044 决定 6) — frontend memory, oldest first. */
+  readonly runs: readonly CapabilityRunRecord[]
+  /** Turn one run record into a headless distill session (ADR-0044 决定 6); outcomes arrive as frame notices. */
+  readonly onDistill: (record: CapabilityRunRecord) => void
+  /** The id of the record currently distilling, for the single-flight busy state. */
+  readonly distilling: string | null
 }
 
 const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' } as const
@@ -115,6 +124,8 @@ const preStyle = {
 } as const
 
 const confirmButtonRowStyle = { display: 'flex', gap: 8 } as const
+
+const runRowStyle = { display: 'flex', alignItems: 'baseline', gap: 6 } as const
 
 /** The reach checkboxes the register dialog offers; the type is never asked — registration always writes an instruction capability. */
 interface RegisterReach {
@@ -569,12 +580,76 @@ function DeclarationSection({
 }
 
 /**
+ * The detail view's 运行记录 section (ADR-0044 决定 6): this session's runs
+ * of the capability, oldest first, each carrying a 提炼经验 button that hands
+ * the run's envelope to a one-shot headless distill session. Distilling is
+ * single-flight across the whole panel — while one record distils, every
+ * button rests. The records themselves are frontend memory; they vanish with
+ * the window, and the lessons they yield land in the proposal queue.
+ * @param props - the translate face, the capability's name, the run records, and the distill gesture.
+ * @returns the section element.
+ */
+function RunRecordsSection({
+  t,
+  name,
+  runs,
+  onDistill,
+  distilling,
+}: {
+  t: WorkbenchT
+  name: string
+  runs: readonly CapabilityRunRecord[]
+  onDistill: (record: CapabilityRunRecord) => void
+  distilling: string | null
+}): ReactElement {
+  const mine = runs.filter(record => record.name === name)
+  return (
+    <div data-capability-runs="true">
+      <div style={titleStyle}>{t('capability.runsHeading')}</div>
+      {mine.map((record) => {
+        const exec = record.exec
+        const summary = [
+          record.ok ? '成功' : '失败',
+          exec === undefined ? undefined : (exec.exitCode === null ? '被终止' : `退出码 ${exec.exitCode}`),
+          exec === undefined ? undefined : `${exec.durationMs} ms`,
+          new Date(record.at).toLocaleTimeString(),
+        ].filter(Boolean).join(' · ')
+        return (
+          <div key={record.id} style={runRowStyle} data-capability-run={record.id}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={record.ok ? mutedStyle : errorStyle}>{summary}</div>
+              {exec !== undefined && (
+                <details>
+                  <summary style={mutedStyle}>{exec.command}</summary>
+                  {exec.stdoutTail !== '' && <pre style={preStyle}>{exec.stdoutTail}</pre>}
+                  {exec.stderrTail !== '' && <pre style={preStyle}>{exec.stderrTail}</pre>}
+                </details>
+              )}
+            </div>
+            <button
+              type="button"
+              style={buttonStyle}
+              disabled={distilling !== null}
+              data-capability-distill={record.id}
+              onClick={() => { onDistill(record) }}
+            >
+              {distilling === record.id ? t('capability.distillRunning') : t('capability.distillRun')}
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
  * Render the 能力 panel.
  * @param props - see {@link CapabilityPanelProps}.
  * @returns the panel element.
  */
 export function CapabilityPanel({
   t, load, loadDeclaration, create, adopt, register, mail, loadShortcuts, saveShortcuts, fillShortcut,
+  runs, onDistill, distilling,
 }: CapabilityPanelProps): ReactElement {
   const [capabilities, setCapabilities] = useState<readonly KbCapabilitySummary[] | null>(null)
   const [unregistered, setUnregistered] = useState<readonly KbUnregisteredSkill[]>([])
@@ -810,6 +885,9 @@ export function CapabilityPanel({
           )}
           {current.lastRunAt !== undefined && (
             <div style={mutedStyle}>{t('capability.lastRun')}{current.lastRunAt}</div>
+          )}
+          {runs.some(record => record.name === current.name) && (
+            <RunRecordsSection t={t} name={current.name} runs={runs} onDistill={onDistill} distilling={distilling} />
           )}
           <DeclarationSection t={t} name={current.name} load={loadDeclaration} />
           {current.name === 'mail' && mail(current.state)}

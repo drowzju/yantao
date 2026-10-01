@@ -65,7 +65,15 @@ describe('runCapability cancellation (ADR-0031)', () => {
     const promise = runCapability({ ...BASE, spawn: fakeSpawn(child), signal: controller.signal })
     child.stdout.emit('data', Buffer.from('{"ok":true,"result":"done"}'))
     child.emit('close')
-    await expect(promise).resolves.toEqual({ result: 'done' })
+    // The success now carries its observable envelope (ADR-0044 决定 6);
+    // the fake child never reports an exit code, so it lands undefined.
+    const answer = await promise
+    expect(answer.result).toBe('done')
+    expect(answer.exec?.command).toBe('python /tmp/mail/scripts/entry.py')
+    expect(answer.exec?.exitCode).toBeUndefined()
+    expect(typeof answer.exec?.durationMs).toBe('number')
+    expect(answer.exec?.stdoutTail).toBe('{"ok":true,"result":"done"}')
+    expect(answer.exec?.stderrTail).toBe('')
     expect(controller.signal.aborted).toBe(false)
     expect(child.kill).not.toHaveBeenCalled()
   })

@@ -135,6 +135,10 @@ export const zh = {
   'capability.openedToAgent': '已对 agent 开放（kb_run_capability）',
   'capability.accepts': '接受：',
   'capability.lastRun': '上次运行：',
+  // Run records + distill (ADR-0044 决定 6) — the detail view's session run list.
+  'capability.runsHeading': '运行记录',
+  'capability.distillRun': '提炼经验',
+  'capability.distillRunning': '提炼中…',
   'capability.inventoryHeading': '能力清单',
   // Declaration section (ADR-0043 决定 7) — the detail view's parsed declaration.
   'capability.declarationHeading': '声明',
@@ -205,6 +209,22 @@ export const zh = {
   'memory.addButton': '记住',
   'memory.added': '已记住。',
   'memory.known': '这条已经记得了。',
+
+  // Memory proposal card (ADR-0044 决定 5) — the kb_propose_memory toolview.
+  'memory.proposal.title': '记忆提案',
+  'memory.proposal.scopeLabel': '作用域',
+  'memory.proposal.sourceLabel': '来源',
+  'memory.proposal.pending': '提案尚未生效——批准后才沉淀为行为记忆。',
+  'memory.proposal.running': '正在记入提案队列…',
+  'memory.proposal.interrupted': '调用已中断，提案未入队。',
+  'memory.proposal.approve': '批准',
+  'memory.proposal.discard': '丢弃',
+  'memory.proposal.busy': '处理中…',
+  'memory.proposal.approved': '已批准，沉淀为行为记忆。',
+  'memory.proposal.discarded': '已丢弃，提案移出队列。',
+  // Memory view's 待批准 zone (ADR-0044 决定 7).
+  'memory.proposalZone.title': '待批准',
+  'memory.proposalZone.targetScope': '目标作用域',
 
   // Todo board
   'todo.newAria': '新待办',
@@ -426,6 +446,10 @@ export const en = {
   'capability.openedToAgent': 'Opened to the agent (kb_run_capability)',
   'capability.accepts': 'Accepts:',
   'capability.lastRun': 'Last run:',
+  // Run records + distill (ADR-0044 决定 6) — the detail view's session run list.
+  'capability.runsHeading': 'Run records',
+  'capability.distillRun': 'Distill lessons',
+  'capability.distillRunning': 'Distilling…',
   'capability.inventoryHeading': 'Capability inventory',
   // Declaration section (ADR-0043 决定 7) — the detail view's parsed declaration.
   'capability.declarationHeading': 'Declaration',
@@ -496,6 +520,22 @@ export const en = {
   'memory.addButton': 'Remember',
   'memory.added': 'Remembered.',
   'memory.known': 'Already remembered.',
+
+  // Memory proposal card (ADR-0044 决定 5) — the kb_propose_memory toolview.
+  'memory.proposal.title': 'Memory proposal',
+  'memory.proposal.scopeLabel': 'Scope',
+  'memory.proposal.sourceLabel': 'Source',
+  'memory.proposal.pending': 'Not yet in effect — it becomes behavior memory only on approval.',
+  'memory.proposal.running': 'Queueing the proposal…',
+  'memory.proposal.interrupted': 'The call was interrupted; nothing was queued.',
+  'memory.proposal.approve': 'Approve',
+  'memory.proposal.discard': 'Discard',
+  'memory.proposal.busy': 'Working…',
+  'memory.proposal.approved': 'Approved — settled into behavior memory.',
+  'memory.proposal.discarded': 'Discarded — removed from the queue.',
+  // Memory view's 待批准 zone (ADR-0044 决定 7).
+  'memory.proposalZone.title': 'Pending approval',
+  'memory.proposalZone.targetScope': 'Target scope',
 
   // Todo board
   'todo.newAria': 'New todo',

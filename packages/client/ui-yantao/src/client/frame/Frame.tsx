@@ -16,13 +16,15 @@ import type {
   CapabilityAdopter, CapabilityCreator, CapabilityDeclarationLoader, CapabilityLoader, CapabilityRegistrar, CapabilityRunner,
   DirectoryPicker, EntityArchiver, EntityCreator,
   ExternalOpener, FileReader, FileWriter, LinksLoader,
-  MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, PromptShortcutLister,
+  MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
+  MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceRegistrar, RevisionLoader, ShortcutFiller,
   RootLoader, RootSetter,
   Archiver,
   SessionPrompter, TodoLoader, TodoWriter,
 } from '../remote.ts'
 import type { AnalysisStage, MailAnalyser } from '../mail-analysis.ts'
+import type { CapabilityDistiller, CapabilityRunRecord } from '../capability-distill.ts'
 import { createMailRun, useMailRun } from '../mail-run.ts'
 import type { RefineGesture, RefineRosterEntry, RefineRunner, RefineRun } from '../refine.ts'
 import type { ValidateRun, ValidateRunner, ValidateScope, ValidateStage } from '../validate.ts'
@@ -138,6 +140,14 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'fo
   readonly memoryAdd: MemoryAdder
   /** Forget one behavior rule by id (ADR-0032) — the 记忆 tab's delete. */
   readonly memoryDelete: MemoryDeleter
+  /** List the in-flight proposals (ADR-0044 决定 7) — the 记忆 tab's 待批准 zone. */
+  readonly memoryProposalList: MemoryProposalLister
+  /** Promote one pending proposal, optionally to a re-judged scope. */
+  readonly memoryProposalApprove: MemoryProposalApprover
+  /** Drop one pending proposal without promoting it. */
+  readonly memoryProposalDiscard: MemoryProposalDiscarder
+  /** Distill one finished run's lessons into memory proposals (ADR-0044 决定 6). */
+  readonly capabilityDistill: CapabilityDistiller
   /** List the prompt shortcuts (ADR-0040) — the 能力 tab's 惯用提示词 first screen. */
   readonly promptShortcutList: PromptShortcutLister
   /** Replace the whole prompt-shortcut list (ADR-0040). */
@@ -352,7 +362,9 @@ export function Frame({
   t, renderSlot, panels, intake, workspace, read, write, archiveEntity, restoreEntity, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine, validate,
   registerResource, capabilityList, capabilityDeclaration, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
-  promptSession, memoryList, memoryAdd, memoryDelete, sessionDetail, onKbRootChanged, mailDelete, mailArchive,
+  capabilityDistill,
+  promptSession, memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
+  sessionDetail, onKbRootChanged, mailDelete, mailArchive,
   promptShortcutList, promptShortcutSave, fillShortcut,
   loadModelsConfig, saveModelsConfig,
 }: FrameProps): ReactElement {
@@ -560,6 +572,12 @@ export function Frame({
   // message lands in the transcript exactly as if the human had typed it.
   const [capabilityProposal, setCapabilityProposal] = useState<Proposal | null>(null)
   const [capabilityNotice, setCapabilityNotice] = useState<string | null>(null)
+  // ADR-0044 决定 6: every settled script run leaves a record — the 能力
+  // tab's 运行记录 renders them, and the 提炼经验 button turns one record
+  // into a distill session. Frontend memory, this session only.
+  const [capabilityRuns, setCapabilityRuns] = useState<readonly CapabilityRunRecord[]>([])
+  const capabilityRunSeq = useRef(0)
+  const [distillingRunId, setDistillingRunId] = useState<string | null>(null)
   // Cancellation (ADR-0031): the running script capability's abort controller.
   // The signal is both the RPC's cancel line and the witness that separates
   // 「人停的」 from a real failure in the rejection path.
@@ -583,6 +601,17 @@ export function Frame({
     void capabilityRun({ name: capability.name, input: { path } }, aborter.signal).then((result) => {
       capabilityAbort.current = null
       setCapabilityRunning(false)
+      // The run's observable envelope is the distill gesture's input — keep
+      // it while the session lives (ADR-0044 决定 6).
+      const exec = result.exec
+      capabilityRunSeq.current += 1
+      setCapabilityRuns(rows => [{
+        id: `cap-run-${capabilityRunSeq.current}`,
+        name: capability.name,
+        ok: exec === undefined || exec.exitCode === 0,
+        ...(exec !== undefined ? { exec } : {}),
+        at: Date.now(),
+      }, ...rows])
       const proposal = proposalOfRunResult(result)
       if (proposal !== null) {
         setCapabilityProposal(proposal)
@@ -594,6 +623,16 @@ export function Frame({
     }, (failure: unknown) => {
       capabilityAbort.current = null
       setCapabilityRunning(false)
+      // A refused run is a record too: a failure is exactly where the
+      // lessons live, and the distiller reads the refusal prose as the
+      // envelope's absence.
+      capabilityRunSeq.current += 1
+      setCapabilityRuns(rows => [{
+        id: `cap-run-${capabilityRunSeq.current}`,
+        name: capability.name,
+        ok: false,
+        at: Date.now(),
+      }, ...rows])
       if (aborter.signal.aborted) {
         setCapabilityNotice(`能力「${capability.name}」已取消。`)
         taskEnd(taskId, 'cancelled', '已取消')
@@ -608,6 +647,27 @@ export function Frame({
   const cancelCapability = useCallback((): void => {
     capabilityAbort.current?.abort()
   }, [])
+
+  // ADR-0044 决定 6: the 提炼经验 gesture on one run record — a headless
+  // session proposes 0–3 memory candidates through kb_propose_memory. The
+  // queue count is the outcome; the session is kept for re-reading. One
+  // distill at a time: each burns a model call, and stacking them hides
+  // that cost.
+  const distillRun = useCallback((record: CapabilityRunRecord): void => {
+    if (distillingRunId !== null) return
+    setDistillingRunId(record.id)
+    setCapabilityNotice(`提炼「${record.name}」经验中…`)
+    const taskId = taskBegin('capability', `提炼「${record.name}」经验`, '提炼中')
+    void capabilityDistill(record).then((outcome) => {
+      setDistillingRunId(null)
+      setCapabilityNotice(`提炼完成：提案队列共 ${outcome.pending} 条待批准。`)
+      taskEnd(taskId, 'done', `提案队列共 ${outcome.pending} 条待批准`)
+    }, (failure: unknown) => {
+      setDistillingRunId(null)
+      setCapabilityNotice(`提炼失败：${remoteMessage(failure)}`)
+      taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
+    })
+  }, [capabilityDistill, distillingRunId, taskBegin, taskEnd])
 
   // ADR-0029 + ADR-0030: the refine gestures — 归入 (a resource dropped on an
   // entity row), 提炼 (an entity row's menu item) and 提炼到实体 (a resource
@@ -1242,11 +1302,17 @@ export function Frame({
           memoryList={memoryList}
           memoryAdd={memoryAdd}
           memoryDelete={memoryDelete}
+          memoryProposalList={memoryProposalList}
+          memoryProposalApprove={memoryProposalApprove}
+          memoryProposalDiscard={memoryProposalDiscard}
           promptShortcutList={promptShortcutList}
           promptShortcutSave={promptShortcutSave}
           fillShortcut={fillShortcut}
           onRunCapability={runRowCapability}
           onRefine={runRefineGesture}
+          capabilityRuns={capabilityRuns}
+          onDistillCapability={distillRun}
+          distillingRunId={distillingRunId}
           kbRoot={kbRoot}
           t={t}
         />

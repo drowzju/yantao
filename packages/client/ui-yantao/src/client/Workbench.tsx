@@ -13,11 +13,13 @@ import type {
   CapabilityAdopter, CapabilityCreator, CapabilityDeclarationLoader, CapabilityLoader, CapabilityRegistrar,
   EntityArchiver, EntityCreator, FileReader,
   FileWriter,
-  MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister, PromptShortcutLister,
+  MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
+  MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceRegistrar, ShortcutFiller,
   TodoLoader, TodoWriter, Archiver,
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
+import type { CapabilityRunRecord } from './capability-distill.ts'
 import type { MailAnalyser } from './mail-analysis.ts'
 import { RESOURCE_DRAG_TYPE, dropPayloadOf, type RefineGesture } from './refine.ts'
 import type { ProposalTarget } from './proposal-apply.ts'
@@ -974,6 +976,18 @@ export interface IntakeRailProps extends RailProps {
   readonly memoryAdd: MemoryAdder
   /** Forget one behavior rule by id (ADR-0032) — the 记忆 tab's delete. */
   readonly memoryDelete: MemoryDeleter
+  /** List the in-flight proposals (ADR-0044 决定 7) — the 记忆 tab's 待批准 zone. */
+  readonly memoryProposalList: MemoryProposalLister
+  /** Promote one pending proposal, optionally to a re-judged scope. */
+  readonly memoryProposalApprove: MemoryProposalApprover
+  /** Drop one pending proposal without promoting it. */
+  readonly memoryProposalDiscard: MemoryProposalDiscarder
+  /** The session's settled script runs (ADR-0044 决定 6) — the 能力 tab's 运行记录. */
+  readonly capabilityRuns: readonly CapabilityRunRecord[]
+  /** Distill one run's lessons into memory proposals (ADR-0044 决定 6). */
+  readonly onDistillCapability: (record: CapabilityRunRecord) => void
+  /** The record id currently being distilled, if any. */
+  readonly distillingRunId: string | null
   /** List the prompt shortcuts (ADR-0040) — the 能力 tab's 惯用提示词 first screen. */
   readonly promptShortcutList: PromptShortcutLister
   /** Replace the whole prompt-shortcut list (ADR-0040). */
@@ -1052,7 +1066,8 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, loadTodos, writeTodos, createEntity,
     read, write, archiveEntity, restoreEntity, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource, onRefine,
     capabilityList, capabilityDeclaration, capabilityCreate, capabilityAdopt, capabilityRegister, onRunCapability, kbRoot = '',
-    memoryList, memoryAdd, memoryDelete,
+    memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
+    capabilityRuns, onDistillCapability, distillingRunId,
     promptShortcutList, promptShortcutSave, fillShortcut,
   } = props
   const mailDelete = props.mailDelete
@@ -1216,6 +1231,9 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           loadShortcuts={promptShortcutList}
           saveShortcuts={promptShortcutSave}
           fillShortcut={fillShortcut}
+          runs={capabilityRuns}
+          onDistill={onDistillCapability}
+          distilling={distillingRunId}
           mail={state => (
             <MailPanel
               t={t}
@@ -1232,7 +1250,15 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
         />
       )}
       {tab === 'memory' && (
-        <MemoryPanel t={t} list={memoryList} add={memoryAdd} remove={memoryDelete} />
+        <MemoryPanel
+          t={t}
+          list={memoryList}
+          add={memoryAdd}
+          remove={memoryDelete}
+          listProposals={memoryProposalList}
+          approveProposal={memoryProposalApprove}
+          discardProposal={memoryProposalDiscard}
+        />
       )}
       {tab === 'resources' && (
         <ResourceTree
