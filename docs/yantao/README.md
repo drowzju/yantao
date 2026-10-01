@@ -118,6 +118,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0041 | 实体归档:启用既有 frontmatter `archive: true` 机制(否决目录移动路线——全库死链/写面丧失/词汇表规避/邮件域撞词),单一权威信号不双写状态区;四类实体全覆盖(todos.md 除外),关联/校验图谱过滤归档节点连同其边,`[[链接]]` 保留解析;agent 三写面对归档实体拒绝(UI 人通道不限),还原=去标志零成本可逆;废弃右键「删除」与 `deleteFile` RPC(实体永不删除无后门);agent 仅纯文本提名权;归档/还原各追加流水一条 |
 | 0042 | 资源默认指代与工作平面:filesystem 小节动态化(`{{kbRoot}}` 按次组装解析,order 120 不变)——用户说「资源/资料/放到资源目录」默认指 `<kbRoot>/resources/`;修两处陈旧矛盾(filesystem 的 ADR-0020 时代残留 vs ADR-0028、skills.md 产物落库只字不提 resources/ 平面);skills.md 明确「落盘是能力脚本自己的事」;CONTEXT.md Resource 词条同步;promptInjection 计价含渲染后小节;技能侧约定写进 dingdocs-pack README 一次;记忆投递通道(症状①)与源头包漂移留作未决 |
 | 0043 | 能力契约与通道一致化:三层划清(触发面/适配层/核心层)——执行桥为本体(路线二裁决:agent 可执行人装技能目录内脚本,cwd 锁定+信封 env/stdin,安装即授权,修 ADR-0004「无执行」边界,通用 shell 仍禁),`entry` 可指 `.dsh/yantao/capability-adapters/`(三方 skill 目录零改动);环境前置说明单源前缀指令型正文与脚本型 notice(双通道 SKILL.md 退役);记忆可信一次声明(skills.md 小节+工具描述,尾部块加「宿主转交」来源框,ADR-0032 增补);`/` 菜单放开脚本型+⚙ 区分(修 ADR-0025 决定 3);dingtalk-docs 试点 entry.py 迁出(源头漂移自愈);《能力整编手册》+能力 tab 展示解析后声明与路由状态 |
+| 0044 | 能力经验回流记忆:提案-批准制——新工具 `kb_propose_memory`(唯一 agent 记忆写面,只进提案队列永不注入,「学到非显然才提、通常收尾」礼仪入工具描述),队列 `.dsh/yantao/memory/proposals/<scope>.md`(与记忆同构+来源注记+挂起软帽 20+预检去重);会话面即时批准卡片+记忆视图兜底,UI 面运行记录「提炼经验」手动按钮拉一次性 headless agent(同一工具面,喂运行信封+现有记忆,0~3 条候选);批准可改判作用域,转正复用 appendMemoryEntry;memoryProposalList/Approve/Discard 三 RPC;ADR-0032 写侧补全 |
 
 ## 5. 快速上手
 
@@ -150,7 +151,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 | [capability-integration.md](capability-integration.md) | 能力整编手册:sidecar/中央路由/信封契约/执行桥/落盘约定/常见坑/检查清单(ADR-0043) |
 | [design.md](design.md) | UI 设计规则:`--yt-*` token、排版与间距阶梯、表面与构图纪律、迁移路径 |
 | [TODO.md](TODO.md) | 待办:done / next / deferred(每个搁置项都带原因) |
-| [../adr/](../adr/) | ADR 0001–0043(索引见第 4 节) |
+| [../adr/](../adr/) | ADR 0001–0044(索引见第 4 节) |
 | [../subsystems/yantao.md](../subsystems/yantao.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |
 | [CONTEXT-MAP.md](../../CONTEXT-MAP.md) | 上下文地图:yantao 工作台 ↔ dsh 平台 |
 | [packages/yantao/CONTEXT.md](../../packages/yantao/CONTEXT.md) | 词汇表(规范用词) |
