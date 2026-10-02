@@ -127,6 +127,9 @@ export async function execCapabilityScript(
     },
     shell: true,
     windowsHide: true,
+    // POSIX only: the shell becomes a process-group leader, so the timeout
+    // can reap the whole tree with one signal. Windows uses taskkill /T.
+    detached: process.platform !== 'win32',
   })
 
   const envelope = JSON.stringify({
@@ -138,16 +141,71 @@ export async function execCapabilityScript(
   })
 
   return new Promise<ExecCapabilityScriptResult>((resolveRun) => {
-    let stdout = ''
-    let stderr = ''
-    let stdoutTruncated = false
-    let stderrTruncated = false
+    // Streams collect as raw bytes and decode once at the end: chunk-wise
+    // `toString` cuts a multi-byte UTF-8 sequence in two at chunk borders,
+    // and the cap must count bytes (the declared budget), not UTF-16 units.
+    const stdoutChunks: Buffer[] = []
+    const stderrChunks: Buffer[] = []
+    let stdoutBytes = 0
+    let stderrBytes = 0
     let settled = false
+
+    /** Decode one stream's accumulation, capped at the byte budget with the truncation flag. */
+    const decoded = (chunks: readonly Buffer[], bytes: number): { text: string; truncated: boolean } => {
+      const all = Buffer.concat(chunks)
+      if (bytes <= MAX_EXEC_OUTPUT_BYTES) return { text: all.toString('utf8'), truncated: false }
+      // Snap the cut to the last complete UTF-8 sequence: a raw byte cut
+      // would manufacture a replacement character of our own.
+      const byteAt = (index: number): number => all[index] ?? 0
+      let end = MAX_EXEC_OUTPUT_BYTES
+      while (end > 0 && (byteAt(end - 1) & 0xC0) === 0x80) end -= 1
+      const lead = byteAt(end - 1)
+      const width = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 1
+      if (width > 1) end -= 1
+      return { text: all.subarray(0, end).toString('utf8'), truncated: true }
+    }
+
+    /** Assemble the result; `extraStderr` carries the timeout's own note. */
+    const finish = (exitCode: number | null, extraStderr = ''): void => {
+      const out = decoded(stdoutChunks, stdoutBytes)
+      const err = decoded(stderrChunks, stderrBytes)
+      resolveRun({
+        ok: exitCode === 0,
+        exitCode,
+        stdout: out.truncated ? out.text + TRUNCATION_MARKER : out.text,
+        stderr: (err.truncated ? err.text + TRUNCATION_MARKER : err.text) + extraStderr,
+      })
+    }
+
+    /**
+     * Kill the whole tree, not just the shell (ADR-0043 决定 2): the real
+     * workload is the shell's child, and killing the shell alone orphans it
+     * while the report claims termination. POSIX signals the detached group;
+     * Windows walks the tree with `taskkill /T /F` (cmd.exe does not carry
+     * its children with it).
+     */
+    const killTree = (): void => {
+      const pid = child.pid
+      if (pid === undefined || pid <= 0) {
+        child.kill()
+        return
+      }
+      if (process.platform === 'win32') {
+        const killer = spawnImpl(`taskkill /pid ${pid} /T /F`, [], { stdio: 'ignore', windowsHide: true })
+        killer.once('error', () => { child.kill() })
+      } else {
+        try {
+          process.kill(-pid, 'SIGKILL')
+        } catch {
+          child.kill('SIGKILL')
+        }
+      }
+    }
 
     const timer = setTimeout(() => {
       settle(() => {
-        child.kill()
-        finish(null, `\n…（超过 ${timeoutMs}ms 未结束，进程已终止）`)
+        killTree()
+        finish(null, `\n…（超过 ${timeoutMs}ms 未结束，进程树已终止）`)
       })
     }, timeoutMs)
 
@@ -159,16 +217,6 @@ export async function execCapabilityScript(
       action()
     }
 
-    /** Assemble the result; `extraStderr` carries the timeout's own note. */
-    const finish = (exitCode: number | null, extraStderr = ''): void => {
-      resolveRun({
-        ok: exitCode === 0,
-        exitCode,
-        stdout: stdoutTruncated ? stdout + TRUNCATION_MARKER : stdout,
-        stderr: (stderrTruncated ? stderr + TRUNCATION_MARKER : stderr) + extraStderr,
-      })
-    }
-
     child.stdin.on('error', () => {
       // A process that exits before reading stdin breaks the pipe; the close
       // handler reports the real outcome, so this only keeps the stream
@@ -177,26 +225,16 @@ export async function execCapabilityScript(
     child.stdin.end(envelope, 'utf8')
 
     child.stdout.on('data', (chunk: Buffer | string) => {
-      if (stdout.length > MAX_EXEC_OUTPUT_BYTES) {
-        stdoutTruncated = true
-        return
-      }
-      stdout += String(chunk)
-      if (stdout.length > MAX_EXEC_OUTPUT_BYTES) {
-        stdout = stdout.slice(0, MAX_EXEC_OUTPUT_BYTES)
-        stdoutTruncated = true
-      }
+      if (stdoutBytes > MAX_EXEC_OUTPUT_BYTES) return
+      const bytes = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk
+      stdoutChunks.push(bytes)
+      stdoutBytes += bytes.length
     })
     child.stderr.on('data', (chunk: Buffer | string) => {
-      if (stderr.length > MAX_EXEC_OUTPUT_BYTES) {
-        stderrTruncated = true
-        return
-      }
-      stderr += String(chunk)
-      if (stderr.length > MAX_EXEC_OUTPUT_BYTES) {
-        stderr = stderr.slice(0, MAX_EXEC_OUTPUT_BYTES)
-        stderrTruncated = true
-      }
+      if (stderrBytes > MAX_EXEC_OUTPUT_BYTES) return
+      const bytes = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk
+      stderrChunks.push(bytes)
+      stderrBytes += bytes.length
     })
     child.on('error', (error: Error) => {
       // The platform shell itself failed to start.

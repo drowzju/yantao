@@ -38,6 +38,7 @@ const BASE = {
   directory: '/tmp/mail',
   entryPath: '/tmp/mail/scripts/entry.py',
   kbRoot: '/tmp',
+  channel: 'human',
 } as const
 
 describe('runCapability cancellation (ADR-0031)', () => {

@@ -187,6 +187,20 @@ describe('kb_exec_capability_script (ADR-0043 决定 2)', () => {
     expect(result.stdout).toContain('已截断')
   })
 
+  it('caps by bytes, not UTF-16 units, and keeps multi-byte output intact across chunk boundaries', async () => {
+    await declareSidecar({ invocation: ['human', 'agent'] })
+    // 40000 CJK chars = 120000 UTF-8 bytes: over the 64KB byte cap (so the
+    // truncation marker must appear) yet under the old 64K UTF-16-unit cap
+    // (so the old code stayed silent) — and the pipe's 64KB chunk boundary
+    // lands mid-character, which chunk-wise decoding turned into U+FFFD.
+    await writeFile(join(skillDir, 'wide.js'), 'process.stdout.write("汉".repeat(40000))\n', 'utf8')
+    const result = await registeredTool('kb_exec_capability_script')
+      ?.execute({ name: 'probe', command: 'node wide.js' }) as ExecResult
+    expect(result.ok).toBe(true)
+    expect(result.stdout).toContain('已截断')
+    expect(result.stdout).not.toContain('\uFFFD')
+  })
+
   it('kills an over-long command and answers not-ok', async () => {
     await declareSidecar({ invocation: ['human', 'agent'] })
     await writeFile(join(skillDir, 'hang.js'), 'setTimeout(() => {}, 3_000)\n', 'utf8')

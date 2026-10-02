@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -137,6 +137,20 @@ describe('setEntityArchived (ADR-0041 决定 6/10)', () => {
   it('refuses the todo singleton (ADR-0041 决定 2)', async () => {
     await initKb(kbRoot)
     await expect(setEntityArchived(kbRoot, 'todo:todos', true)).rejects.toMatchObject({ code: 'singleton-entity' })
+  })
+
+  it('refuses a file carrying two archive: lines — the flag is ambiguous (malformed-frontmatter)', async () => {
+    await createEntity(kbRoot, 'project', 'dsh 学习')
+    await setEntityArchived(kbRoot, 'project:dsh 学习', true)
+    const target = join(kbRoot, 'entities/projects/dsh 学习.md')
+    // A hand-edited file with a stray second key: js-yaml refuses duplicated
+    // mapping keys at parse time, and the line-splice guard refuses any
+    // duplicate that ever slips past a parser — either way the ambiguous
+    // flag is never silently resolved to "first" or "last".
+    await writeFile(target, (await readFile(target, 'utf8')).replace('---\n\n## 目标', 'archive: true\n---\n\n## 目标'), 'utf8')
+    await expect(setEntityArchived(kbRoot, 'project:dsh 学习', false)).rejects.toMatchObject({
+      code: 'malformed-frontmatter',
+    })
   })
 })
 

@@ -52,8 +52,8 @@ export interface CapabilityRunRecord {
   readonly at: number
 }
 
-/** The frame's distill face: one headless session over one run record. */
-export type CapabilityDistiller = (record: CapabilityRunRecord) => Promise<CapabilityDistillRun>
+/** The frame's distill face: one headless session over one run record. The signal is the 任务 row's cancel line (ADR-0031). */
+export type CapabilityDistiller = (record: CapabilityRunRecord, signal?: AbortSignal) => Promise<CapabilityDistillRun>
 
 /**
  * Compose the distiller's prompt: the run's envelope, the capability's

@@ -304,9 +304,10 @@ const ARCHIVE_KEY_LINE = /^archive[ \t]*:/
  * other key and the body survive byte-for-byte.
  * @param content - the complete current file text; its envelope must parse.
  * @param archived - true to set the flag, false to remove it.
+ * @param display - the file's KB-relative path, for error messages.
  * @returns the complete new file text.
  */
-function spliceArchiveFlag(content: string, archived: boolean): string {
+function spliceArchiveFlag(content: string, archived: boolean, display: string): string {
   const rows = content.split('\n')
   // rows[0] is the opening fence; the envelope was validated by
   // parseFrontmatter, so the closing fence is always found.
@@ -317,7 +318,18 @@ function spliceArchiveFlag(content: string, archived: boolean): string {
       break
     }
   }
-  const keyIndex = rows.findIndex((row, index) => index > 0 && index < close && ARCHIVE_KEY_LINE.test(row))
+  const keyRows: number[] = []
+  for (let index = 1; index < close; index += 1) {
+    if (ARCHIVE_KEY_LINE.test(rows[index] as string)) keyRows.push(index)
+  }
+  // More than one `archive:` line makes the flag ambiguous — js-yaml would
+  // silently take the last, the splice the first, so neither answer is the
+  // file's. Refuse rather than pick a winner (malformed-frontmatter, like
+  // parseFrontmatter's own refusals).
+  if (keyRows.length > 1) {
+    throw new KbError('malformed-frontmatter', `文件 ${display} 的 frontmatter 里有 ${keyRows.length} 行 archive: 键，归档状态有歧义，请先手工清理成一行`)
+  }
+  const keyIndex = keyRows[0] ?? -1
   if (archived) {
     if (keyIndex === -1) rows.splice(close, 0, 'archive: true')
     else rows[keyIndex] = 'archive: true'
@@ -356,7 +368,7 @@ export async function setEntityArchived(kbRoot: string, locator: string, archive
   const current = parseFrontmatter(content, display).data.archive === true
   if (current === archived) return { path: display, archived: current }
   const bullet = logBullet(todayStamp(), archived ? '归档' : '还原')
-  const next = appendToLogSection(spliceArchiveFlag(content, archived), bullet, display)
+  const next = appendToLogSection(spliceArchiveFlag(content, archived, display), bullet, display)
   await writeFile(target, next, 'utf8')
   return { path: display, archived }
 }

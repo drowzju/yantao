@@ -214,6 +214,46 @@ function badManifestError(error: unknown): RemoteError {
 }
 
 /**
+ * The dual gate's verdict (ADR-0043): which declaration channel answers for
+ * one capability name. A valid sidecar wins; the central routing file
+ * answers otherwise. The failure registers stay separable — a broken sidecar
+ * is not an absent one, and a broken routing file is carried alongside so
+ * the run paths can rethrow it while the declaration view reports it.
+ */
+type CapabilityResolution =
+  | {
+    /** The skill's own declaration resolved: the sidecar channel wins. */
+    readonly channel: 'declared'
+    readonly definition: SkillDefinition
+    readonly manifest: CapabilityManifest
+    /** The sidecar's raw text, when the directory carried a `yantao.json`. */
+    readonly raw?: string
+  }
+  | {
+    /** No KB-sidecar declaration; the central route claims the name. */
+    readonly channel: 'routed'
+    readonly route: CapabilityRoute
+  }
+  | {
+    /** The sidecar is missing or malformed; the route may still claim the name. */
+    readonly channel: 'broken-sidecar'
+    readonly definition: SkillDefinition
+    readonly raw?: string
+    /** Why the sidecar failed to declare. */
+    readonly error: unknown
+    /** The central route, when it claims the name despite the broken sidecar. */
+    readonly route?: CapabilityRoute
+    /** Why the routing file itself could not be read, when it is broken. */
+    readonly routeError?: unknown
+  }
+  | {
+    /** Neither channel answers for the name. */
+    readonly channel: 'absent'
+    /** Why the routing file itself could not be read, when it is broken. */
+    readonly routeError?: unknown
+  }
+
+/**
  * The resolved form of one valid capability declaration (ADR-0043 决定 7):
  * instruction or script, the declared fields flat, and — for a script — the
  * entry's candidate absolute paths (skill directory first, then the `.dsh/`
@@ -622,7 +662,11 @@ export class YantaoKbController extends TypertRemoteService {
   promptInjection(): Promise<KbPromptInjectionResult> {
     const price = (text: string): number => Math.ceil(text.length / 4)
     const filesystemTokens = price(
-      loadSectionText('filesystem.md').replaceAll('{{kbRoot}}', this.ctx.yantaoKb.configured ? this.kbRoot : ''),
+      // Rendered exactly as the plugin's dynamic section renders it
+      // (registerFilesystemSection): the live root unconditionally — the
+      // meter must price what the prompt actually carries, and the live
+      // root exists (a default or imported one) even before configuration.
+      loadSectionText('filesystem.md').replaceAll('{{kbRoot}}', this.kbRoot),
     )
     const staticTokens = YANTAO_SECTIONS.reduce(
       (sum, section) => sum + price(loadSectionText(section.file)),
@@ -1339,47 +1383,35 @@ export class YantaoKbController extends TypertRemoteService {
     await this.settleSkills(ensureBuiltinCapabilities(kbRoot))
     const dshRoot = join(kbRoot, '.dsh')
     const skillsRoot = join(dshRoot, 'skills')
-    let directory: string | undefined
-    let sidecar: KbCapabilitySidecarAnswer = { present: false }
-    // The sidecar channel's invocation set, when it produced a valid
-    // declaration — the dual gate's first half (a valid sidecar wins).
-    let sidecarInvocation: readonly CapabilityInvoker[] | undefined
-    let definition: SkillDefinition | undefined
-    try {
-      definition = await this.ctx.skills.get(args.name, { cwd: kbRoot })
-    } catch {
-      definition = undefined
-    }
-    if (definition !== undefined && this.isKbSkill(definition)) {
-      if (definition.resourceBase?.kind === 'directory') directory = definition.resourceBase.path
-      let raw: string | undefined
-      if (directory !== undefined) {
-        raw = await readFile(join(directory, 'yantao.json'), 'utf8').catch(() => undefined)
+    // The same dual-gate verdict the run paths apply — the 声明 view renders
+    // it instead of re-deriving it, so what the panel displays can never
+    // drift from what a run would do.
+    const verdict = await this.resolveCapability(args.name)
+    let sidecar: KbCapabilitySidecarAnswer
+    if (verdict.channel === 'declared') {
+      sidecar = {
+        present: true,
+        source: verdict.raw !== undefined ? 'sidecar' : 'frontmatter',
+        ...verdict.raw !== undefined ? { raw: verdict.raw } : {},
+        resolved: resolvedDeclarationOf(verdict.definition, verdict.manifest, dshRoot),
       }
-      const hasFrontmatter = typeof definition.metadata === 'object'
-        && (definition.metadata as { yantao?: unknown } | undefined)?.yantao !== undefined
-      if (raw === undefined && !hasFrontmatter) {
-        sidecar = { present: false, problem: 'sidecar 不存在：目录内没有 yantao.json，SKILL.md 也没有 metadata.yantao 段。' }
-      } else {
-        try {
-          const manifest = manifestOf(definition)
-          sidecarInvocation = manifest.invocation
-          sidecar = {
-            present: true,
-            source: raw !== undefined ? 'sidecar' : 'frontmatter',
-            ...raw !== undefined ? { raw } : {},
-            resolved: resolvedDeclarationOf(definition, manifest, dshRoot),
-          }
-        } catch (error: unknown) {
-          sidecar = {
-            present: true,
-            source: raw !== undefined ? 'sidecar' : 'frontmatter',
-            ...raw !== undefined ? { raw } : {},
-            problem: error instanceof CapabilityError ? error.message : String(error),
-          }
+    } else if (verdict.channel === 'broken-sidecar') {
+      const hasFrontmatter = typeof verdict.definition.metadata === 'object'
+        && (verdict.definition.metadata as { yantao?: unknown } | undefined)?.yantao !== undefined
+      sidecar = verdict.raw === undefined && !hasFrontmatter
+        ? { present: false, problem: 'sidecar 不存在：目录内没有 yantao.json，SKILL.md 也没有 metadata.yantao 段。' }
+        : {
+          present: true,
+          source: verdict.raw !== undefined ? 'sidecar' : 'frontmatter',
+          ...verdict.raw !== undefined ? { raw: verdict.raw } : {},
+          problem: verdict.error instanceof CapabilityError ? verdict.error.message : String(verdict.error),
         }
-      }
+    } else {
+      sidecar = { present: false, problem: 'sidecar 不存在：目录内没有 yantao.json，SKILL.md 也没有 metadata.yantao 段。' }
     }
+    const directory = verdict.channel === 'declared' && verdict.definition.resourceBase?.kind === 'directory'
+      ? verdict.definition.resourceBase.path
+      : undefined
     // The central routing channel. A broken routing file is stated, not
     // thrown — introspection's whole point is seeing the breakage.
     let route: KbCapabilityRouteAnswer
@@ -1400,11 +1432,15 @@ export class YantaoKbController extends TypertRemoteService {
         problem: error instanceof CapabilityError ? error.message : String(error),
       }
     }
-    // The dual gate (agentCapabilityDirectory's precedence): a valid
-    // sidecar declaration wins; the central route answers otherwise.
-    const agentInvocable = sidecarInvocation !== undefined
-      ? sidecarInvocation.includes('agent')
-      : route.registered && (route.invocation ?? []).includes('agent')
+    // The dual gate (resolveCapability's precedence): the verdict's winning
+    // channel decides — the same precedence the run paths apply, so the
+    // panel's answer can never drift from what a run would do.
+    let agentInvocable = false
+    if (verdict.channel === 'declared') {
+      agentInvocable = verdict.manifest.invocation.includes('agent')
+    } else if ('route' in verdict && verdict.route !== undefined) {
+      agentInvocable = verdict.route.invocation.includes('agent')
+    }
     return {
       name: args.name,
       ...directory !== undefined ? { directory } : {},
@@ -1415,13 +1451,60 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
+   * The one dual-gate resolution (ADR-0043): the run paths, the execution
+   * bridge's directory lookup, and the declaration view all read this one
+   * verdict, so the gate they apply can never drift apart. Routing-file
+   * breakage is carried, not thrown — each caller decides whether it
+   * rethrows (runs: a broken declaration must be seen) or reports it
+   * (introspection: breakage stated, never thrown).
+   */
+  private async resolveCapability(name: string): Promise<CapabilityResolution> {
+    const definition = await this.ctx.skills.get(name, { cwd: this.kbRoot })
+    let route: CapabilityRoute | undefined
+    let routeError: unknown
+    try {
+      route = (await readRoutes(join(this.kbRoot, '.dsh', 'skills')))[name]
+    } catch (error: unknown) {
+      routeError = error
+    }
+    if (definition === undefined || !this.isKbSkill(definition)) {
+      return route !== undefined
+        ? { channel: 'routed', route }
+        : { channel: 'absent', ...(routeError !== undefined ? { routeError } : {}) }
+    }
+    const directory = definition.resourceBase?.kind === 'directory' ? definition.resourceBase.path : undefined
+    const raw = directory === undefined
+      ? undefined
+      : await readFile(join(directory, 'yantao.json'), 'utf8').catch(() => undefined)
+    try {
+      return {
+        channel: 'declared',
+        definition,
+        manifest: manifestOf(definition),
+        ...(raw !== undefined ? { raw } : {}),
+      }
+    } catch (error: unknown) {
+      // A broken (or missing) sidecar: the central route may still claim the
+      // name — registration writes routes, not sidecars.
+      return {
+        channel: 'broken-sidecar',
+        definition,
+        error,
+        ...(raw !== undefined ? { raw } : {}),
+        ...(route !== undefined ? { route } : {}),
+        ...(routeError !== undefined ? { routeError } : {}),
+      }
+    }
+  }
+
+  /**
    * Resolve the execution bridge's working directory (ADR-0043 决定 2): the
    * skill directory of the capability `name`, which must be open to the
    * agent. Resolution walks the same two declaration channels as
-   * {@link runByName} — the skill's own sidecar first, then the central
-   * routing file — and applies the same `invocation` gate; only the answer
-   * differs (a directory, not a run). `execCapabilityScript` re-confines the
-   * answer under `.dsh/skills/` before spawning.
+   * {@link runByName} through the same {@link resolveCapability} verdict,
+   * and applies the same `invocation` gate; only the answer differs (a
+   * directory, not a run). `execCapabilityScript` re-confines the answer
+   * under `.dsh/skills/` before spawning.
    * @param name - the capability's skill name.
    * @returns the capability directory's absolute path.
    */
@@ -1435,39 +1518,63 @@ export class YantaoKbController extends TypertRemoteService {
     }
     // Seed the shipped capabilities before resolving, as in runByName.
     await this.settleSkills(ensureBuiltinCapabilities(this.kbRoot))
-    const definition = await this.ctx.skills.get(name, { cwd: this.kbRoot })
-    if (definition !== undefined && this.isKbSkill(definition) && definition.resourceBase?.kind === 'directory') {
-      try {
-        const manifest = manifestOf(definition)
-        if (!manifest.invocation.includes('agent')) {
-          throw new RemoteError(
-            'yantao-kb/capability',
-            `能力「${name}」没有对 agent 开放（yantao.json 未声明 "invocation": ["agent"]）。`,
-            { kind: 'not-invocable', hint: CAPABILITY_HINTS['not-invocable'] },
-          )
-        }
-        return definition.resourceBase.path
-      } catch (error: unknown) {
-        if (error instanceof RemoteError) throw error
-        // A broken sidecar: the central route may still claim the name.
-      }
-    }
-    const route = await this.routeOf(name)
-    if (route === undefined) {
+    const verdict = await this.resolveCapability(name)
+    if (verdict.channel === 'absent') {
+      if (verdict.routeError !== undefined) throw badManifestError(verdict.routeError)
       throw new RemoteError(
         'yantao-kb/capability',
         `找不到能力「${name}」。`,
         { kind: 'not-found', hint: CAPABILITY_HINTS['not-found'] },
       )
     }
-    if (!route.invocation.includes('agent')) {
+    if (verdict.channel === 'broken-sidecar' && verdict.routeError !== undefined) {
+      // A broken routing file outranks the sidecar's own failure (routeOf's
+      // discipline): the declaration channel must be seen broken, not blamed
+      // for the route's mess.
+      throw badManifestError(verdict.routeError)
+    }
+    if (verdict.channel === 'declared') {
+      if (!verdict.manifest.invocation.includes('agent')) {
+        throw new RemoteError(
+          'yantao-kb/capability',
+          `能力「${name}」没有对 agent 开放（yantao.json 未声明 "invocation": ["agent"]）。`,
+          { kind: 'not-invocable', hint: CAPABILITY_HINTS['not-invocable'] },
+        )
+      }
+      const base = verdict.definition.resourceBase
+      // isKbSkill only admits directory-backed skills; anything else has no
+      // directory to execute in and is answered as not found.
+      if (base?.kind !== 'directory') {
+        throw new RemoteError(
+          'yantao-kb/capability',
+          `找不到能力「${name}」。`,
+          { kind: 'not-found', hint: CAPABILITY_HINTS['not-found'] },
+        )
+      }
+      return base.path
+    }
+    if (verdict.channel === 'broken-sidecar') {
+      // The fix for the swallowed refusal: with no route to fall back on,
+      // the sidecar's real failure surfaces as bad-manifest — not a
+      // misleading not-found that sends the agent hunting the wrong way.
+      if (verdict.route === undefined) throw badManifestError(verdict.error)
+      if (!verdict.route.invocation.includes('agent')) {
+        throw new RemoteError(
+          'yantao-kb/capability',
+          `能力「${name}」没有对 agent 开放（${ROUTES_PATH} 的路由未声明 "invocation": ["agent"]）。`,
+          { kind: 'not-invocable', hint: CAPABILITY_HINTS['not-invocable'] },
+        )
+      }
+      return resolve(join(this.kbRoot, '.dsh', 'skills'), verdict.route.path)
+    }
+    if (!verdict.route.invocation.includes('agent')) {
       throw new RemoteError(
         'yantao-kb/capability',
         `能力「${name}」没有对 agent 开放（${ROUTES_PATH} 的路由未声明 "invocation": ["agent"]）。`,
         { kind: 'not-invocable', hint: CAPABILITY_HINTS['not-invocable'] },
       )
     }
-    return resolve(join(this.kbRoot, '.dsh', 'skills'), route.path)
+    return resolve(join(this.kbRoot, '.dsh', 'skills'), verdict.route.path)
   }
 
   /**
@@ -1514,48 +1621,31 @@ export class YantaoKbController extends TypertRemoteService {
     // KB would otherwise answer "not found" for a capability that is about to
     // be copied in.
     await this.settleSkills(ensureBuiltinCapabilities(this.kbRoot))
-    const definition = await this.ctx.skills.get(name, { cwd: this.kbRoot })
-    if (definition !== undefined && this.isKbSkill(definition)) {
-      let manifest: CapabilityManifest
-      try {
-        manifest = manifestOf(definition)
-      } catch (error: unknown) {
-        // No declaration (or a broken one): the central route may still
-        // claim the name — registration writes routes, not sidecars.
-        const route = await this.routeOf(name)
-        if (route === undefined) throw badManifestError(error)
-        return this.runRouted(name, route, invoker, memory)
-      }
-      return this.runDeclared(name, definition, manifest, input, invoker, memory, signal)
+    const verdict = await this.resolveCapability(name)
+    if (verdict.channel === 'declared') {
+      return this.runDeclared(name, verdict.definition, verdict.manifest, input, invoker, memory, signal)
     }
+    if (verdict.channel === 'routed') {
+      return this.runRouted(name, verdict.route, invoker, memory)
+    }
+    if (verdict.channel === 'broken-sidecar') {
+      // A broken routing file outranks the sidecar's own failure (routeOf's
+      // discipline: a broken declaration must be seen); with no route to fall
+      // back on, the sidecar's failure surfaces as its real bad-manifest self.
+      if (verdict.routeError !== undefined) throw badManifestError(verdict.routeError)
+      if (verdict.route !== undefined) return this.runRouted(name, verdict.route, invoker, memory)
+      throw badManifestError(verdict.error)
+    }
+    if (verdict.routeError !== undefined) throw badManifestError(verdict.routeError)
     // A definition resolved from outside the KB (a `~/.dsh/skills` or project
     // skill shadowing the name) is not a yantao capability: single source
     // (ADR-0024 决定 4). A routed skill the registry never discovered (a
     // plugin repository's nested child) resolves through the central file.
-    const route = await this.routeOf(name)
-    if (route === undefined) {
-      throw new RemoteError(
-        'yantao-kb/capability',
-        `找不到能力「${name}」。`,
-        { kind: 'not-found', hint: CAPABILITY_HINTS['not-found'] },
-      )
-    }
-    return this.runRouted(name, route, invoker, memory)
-  }
-
-  /**
-   * The central route claiming `name`, or undefined. A broken routing file
-   * surfaces as a bad-manifest error — it is a declaration, and a broken one
-   * must be seen, not silently ignored.
-   */
-  private async routeOf(name: string): Promise<CapabilityRoute | undefined> {
-    let routes: Record<string, CapabilityRoute>
-    try {
-      routes = await readRoutes(join(this.kbRoot, '.dsh', 'skills'))
-    } catch (error: unknown) {
-      throw badManifestError(error)
-    }
-    return routes[name]
+    throw new RemoteError(
+      'yantao-kb/capability',
+      `找不到能力「${name}」。`,
+      { kind: 'not-found', hint: CAPABILITY_HINTS['not-found'] },
+    )
   }
 
   /**

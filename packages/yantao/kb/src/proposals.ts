@@ -179,10 +179,16 @@ export async function listProposalScopes(kbRoot: string): Promise<readonly Memor
   return listed.filter(scope => scope.entries.length > 0)
 }
 
+/** Any line terminator: a proposal must serialize to exactly one physical line. */
+const LINE_BREAK = /\r|\n/
+
 /**
  * Append one proposal to a scope's queue (creating the file with its heading
- * when absent) and return the queue as it now sits. Three refusals stand
- * between the agent and the queue (ADR-0044 决定 3/4): the text is already
+ * when absent) and return the queue as it now sits. Four refusals stand
+ * between the agent and the queue (ADR-0044 决定 3/4): the text is empty,
+ * the text or source embeds a line break (the queue is line-shaped — a
+ * broken line would parse back as a second, unsolicited proposal and flow
+ * into memory unreviewed), the text is already
  * remembered in the scope (`duplicate-memory`), the same text is already
  * pending (`duplicate-proposal`), or the scope's queue is full
  * (`proposal-queue-full`) — in every case the agent learns in place instead
@@ -202,6 +208,12 @@ export async function appendMemoryProposal(
   assertMemoryScope(scope)
   const trimmed = text.trim()
   if (trimmed === '') throw new KbError('empty-proposal-text', '提案内容不能为空')
+  if (LINE_BREAK.test(trimmed)) {
+    throw new KbError('multiline-proposal-text', '提案内容必须是一行文字（不得包含换行）：队列一行一条，换行会被解析成第二条未经审阅的提案')
+  }
+  if (LINE_BREAK.test(source)) {
+    throw new KbError('multiline-proposal-source', '提案来源注记不得包含换行：队列一行一条，换行会被解析成第二条未经审阅的提案')
+  }
   const target = proposalTarget(kbRoot, scope)
   const remembered = await readMemoryScope(kbRoot, scope)
   if (remembered.entries.some(entry => entry.text === trimmed)) {

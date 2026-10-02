@@ -42,7 +42,7 @@ import type { ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from
 import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage } from '../remote.ts'
 import { frontmatterArchived } from '../markdown.ts'
-import type { KbCapabilitySummary, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
@@ -582,6 +582,10 @@ export function Frame({
   // The signal is both the RPC's cancel line and the witness that separates
   // 「人停的」 from a real failure in the rejection path.
   const capabilityAbort = useRef<AbortController | null>(null)
+  // The distill gesture's own cancel line (ADR-0031): keyed by task id so a
+  // capability run and a distill never sever each other's line.
+  const distillAbort = useRef<AbortController | null>(null)
+  const distillTaskId = useRef<string | null>(null)
   const [capabilityRunning, setCapabilityRunning] = useState(false)
   const runRowCapability = useCallback((capability: KbCapabilitySummary, path: string): void => {
     setCapabilityNotice(null)
@@ -658,14 +662,30 @@ export function Frame({
     setDistillingRunId(record.id)
     setCapabilityNotice(`提炼「${record.name}」经验中…`)
     const taskId = taskBegin('capability', `提炼「${record.name}」经验`, '提炼中')
-    void capabilityDistill(record).then((outcome) => {
+    // The distill is a task row too, and its 取消 must bite (ADR-0031): a
+    // dedicated aborter rides the RPC — cancelling tears down the local wait
+    // and `session/cancel` ends the headless turn (no orphaned token burn).
+    // The ref is its own, not `capabilityAbort`'s: a run and a distill may
+    // legitimately overlap, and clobbering would sever one of the two lines.
+    distillTaskId.current = taskId
+    const aborter = new AbortController()
+    distillAbort.current = aborter
+    void capabilityDistill(record, aborter.signal).then((outcome) => {
       setDistillingRunId(null)
       setCapabilityNotice(`提炼完成：提案队列共 ${outcome.pending} 条待批准。`)
       taskEnd(taskId, 'done', `提案队列共 ${outcome.pending} 条待批准`)
     }, (failure: unknown) => {
       setDistillingRunId(null)
-      setCapabilityNotice(`提炼失败：${remoteMessage(failure)}`)
-      taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
+      if (aborter.signal.aborted) {
+        setCapabilityNotice(`提炼「${record.name}」已取消。`)
+        taskEnd(taskId, 'cancelled', '已取消')
+      } else {
+        setCapabilityNotice(`提炼失败：${remoteMessage(failure)}`)
+        taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
+      }
+    }).finally(() => {
+      distillTaskId.current = null
+      distillAbort.current = null
     })
   }, [capabilityDistill, distillingRunId, taskBegin, taskEnd])
 
@@ -1028,6 +1048,7 @@ export function Frame({
     else if (row.kind === 'validate') cancelValidate()
     else if (row.kind === 'mail' && row.id === mailFetchTaskId.current) mailFetchAbort.current?.abort()
     else if (row.kind === 'mail') mailRun.cancel()
+    else if (row.kind === 'capability' && row.id === distillTaskId.current) distillAbort.current?.abort()
     else cancelCapability()
   }, [cancelRefine, cancelValidate, cancelCapability, mailRun])
 
@@ -1048,17 +1069,29 @@ export function Frame({
   // from the RPC's answer, since the draft still carries the old envelope.
   const [archivedOverrides, setArchivedOverrides] = useState<Readonly<Record<string, boolean>>>({})
   const [archiveBusy, setArchiveBusy] = useState(false)
-  const toggleArchive = useCallback((path: string, archived: boolean): void => {
-    setArchiveBusy(true)
-    void (archived ? archiveEntity(path) : restoreEntity(path)).then((result) => {
+  // One accounting wrapper for every archive gesture (ADR-0041 决定 7): the
+  // detail button and both rails' row menus share it, so the override and
+  // the tree reload happen exactly once no matter who flipped the flag —
+  // the detail button's label can never go stale after a row-menu flip.
+  // Failures propagate untouched: the rail's own onError reports them, the
+  // detail button catches for its notice line.
+  const flipArchive = useCallback((path: string, archived: boolean): Promise<KbSetEntityArchivedResult> => {
+    return (archived ? archiveEntity(path) : restoreEntity(path)).then((result) => {
       setArchivedOverrides(current => ({ ...current, [path]: result.archived }))
       setTreeKey(key => key + 1)
-    }, (failure: unknown) => {
+      return result
+    })
+  }, [archiveEntity, restoreEntity])
+  const railArchive = useCallback((path: string): Promise<KbSetEntityArchivedResult> => flipArchive(path, true), [flipArchive])
+  const railRestore = useCallback((path: string): Promise<KbSetEntityArchivedResult> => flipArchive(path, false), [flipArchive])
+  const toggleArchive = useCallback((path: string, archived: boolean): void => {
+    setArchiveBusy(true)
+    flipArchive(path, archived).catch((failure: unknown) => {
       setCapabilityNotice(remoteMessage(failure))
     }).finally(() => {
       setArchiveBusy(false)
     })
-  }, [archiveEntity, restoreEntity])
+  }, [flipArchive])
 
   // ── the selection right-click (ADR-0025 决定 5) ───────────────────────────
   // The menu's capability list: the instruction capabilities that opted in
@@ -1256,6 +1289,9 @@ export function Frame({
     setNeedsRoot(false)
     setTreeKey(key => key + 1)
     setStatuses({})
+    // The archive-flag overrides belong to the old root's files: a fresh
+    // root re-derives every flag from a freshly read envelope.
+    setArchivedOverrides({})
     onKbRootChanged()
   }, [onKbRootChanged])
 
@@ -1282,8 +1318,8 @@ export function Frame({
           createEntity={createEntity}
           read={read}
           write={write}
-          archiveEntity={archiveEntity}
-          restoreEntity={restoreEntity}
+          archiveEntity={railArchive}
+          restoreEntity={railRestore}
           setRelation={setRelation}
           workspace={workspace}
           mailFetch={bookedMailFetch}
@@ -1414,8 +1450,8 @@ export function Frame({
           createEntity={createEntity}
           read={read}
           write={write}
-          archiveEntity={archiveEntity}
-          restoreEntity={restoreEntity}
+          archiveEntity={railArchive}
+          restoreEntity={railRestore}
           setRelation={setRelation}
           workspace={workspace}
           mailFetch={bookedMailFetch}

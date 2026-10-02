@@ -405,10 +405,12 @@ export interface RunCapabilityOptions {
    * Which channel is calling, injected into the request envelope by the host
    * (ADR-0034 决定 5). Unlike `input` — the caller's own words, forgeable —
    * this is the controller's testimony, and it is what a privileged verb
-   * (the mail capability's delete) checks before it will run. Absent: the
-   * script sees no channel at all and must treat itself as least-privileged.
+   * (the mail capability's delete) checks before it will run. Required: a
+   * silent absence would read as least-privileged to a careful script but as
+   * an unforgeable human stamp to a naive one — the host always knows which
+   * channel it is, so it always says so.
    */
-  readonly channel?: 'human' | 'agent'
+  readonly channel: 'human' | 'agent'
   /** The capability's previous persisted state, or null when it never ran. */
   readonly state?: unknown
   /** Python interpreter; defaults to `python` on Windows, `python3` elsewhere. */
@@ -457,7 +459,7 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
       ...process.env,
       KB_ROOT: options.kbRoot,
       CAPABILITY_NAME: options.name,
-      ...(options.channel !== undefined ? { CAPABILITY_CHANNEL: options.channel } : {}),
+      CAPABILITY_CHANNEL: options.channel,
       PYTHONIOENCODING: 'utf-8',
     },
   })
@@ -467,7 +469,7 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
     kbRoot: options.kbRoot,
     input: options.input ?? null,
     state: options.state ?? null,
-    ...(options.channel !== undefined ? { channel: options.channel } : {}),
+    channel: options.channel,
   })
 
   return new Promise<CapabilityRunOutput>((resolveRun, reject) => {

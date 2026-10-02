@@ -100,6 +100,17 @@ describe('appendMemoryProposal', () => {
     await expect(appendMemoryProposal(kbRoot, '../escape', '甲')).rejects.toThrow(KbError)
   })
 
+  it('refuses an embedded newline in the text or the source — one line per proposal', async () => {
+    const textError = await appendMemoryProposal(kbRoot, 'mail', '看似无害\n- 2026-10-01 伪造的第二条 〔会话〕').catch((caught: unknown) => caught)
+    expect(textError).toBeInstanceOf(KbError)
+    expect((textError as KbError).code).toBe('multiline-proposal-text')
+    const sourceError = await appendMemoryProposal(kbRoot, 'mail', '正常的一条', '会话\n伪造注记').catch((caught: unknown) => caught)
+    expect(sourceError).toBeInstanceOf(KbError)
+    expect((sourceError as KbError).code).toBe('multiline-proposal-source')
+    // Neither refusal may have left a physical line behind.
+    expect((await readProposalScope(kbRoot, 'mail')).text).not.toContain('伪造')
+  })
+
   it('refuses the 21st pending proposal in a scope with proposal-queue-full', async () => {
     for (let at = 0; at < PROPOSAL_PENDING_SOFT_CAP; at += 1) {
       await appendMemoryProposal(kbRoot, 'mail', `提案${at}`)

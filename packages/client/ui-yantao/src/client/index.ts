@@ -244,7 +244,7 @@ export function apply(ctx: Context): void {
       capabilityRun: (args: KbCapabilityRunArgs, signal?: AbortSignal) => runCapability(ctx, args, signal),
       // ADR-0044 决定 6: the 能力 tab's 提炼经验 gesture — one headless
       // session turns a finished run's envelope into 0–3 memory proposals.
-      capabilityDistill: async (record: CapabilityRunRecord) => {
+      capabilityDistill: async (record: CapabilityRunRecord, signal?: AbortSignal) => {
         const cwd = await kbCwd()
         return runCapabilityDistill({
           ctx,
@@ -252,6 +252,7 @@ export function apply(ctx: Context): void {
           ok: record.ok,
           ...(record.exec !== undefined ? { exec: record.exec } : {}),
           ...cwd !== undefined ? { cwd } : {},
+          ...signal !== undefined ? { signal } : {},
         })
       },
       capabilityCreate: (name: string) => createCapability(ctx, name),
