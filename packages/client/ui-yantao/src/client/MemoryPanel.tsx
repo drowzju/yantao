@@ -229,8 +229,7 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
 
   useEffect(() => {
     void (async () => {
-      await reload()
-      await reloadProposals()
+      await Promise.all([reload(), reloadProposals()])
     })()
   }, [reload, reloadProposals])
 
@@ -254,8 +253,7 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
       }
     } finally {
       setBusy(false)
-      await reload()
-      await reloadProposals()
+      await Promise.all([reload(), reloadProposals()])
       if (failureMessage !== null) setProposalError(failureMessage)
     }
   }
@@ -273,8 +271,7 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
       failureMessage = remoteMessage(failure)
     } finally {
       setBusy(false)
-      await reload()
-      await reloadProposals()
+      await Promise.all([reload(), reloadProposals()])
       if (failureMessage !== null) setProposalError(failureMessage)
     }
   }
@@ -374,6 +371,13 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
             autoFocus
             onChange={(event) => { setText(event.target.value) }}
             onKeyDown={(event) => {
+              // IME composition: Enter submits the candidate, Escape cancels
+              // it — neither may be mistaken for a panel gesture (same guard
+              // as ui-conversation's keymap and ProposalCard).
+              if (event.nativeEvent.isComposing) return
+              // keyCode 229 is the legacy IME-composition signal engines emit without isComposing.
+              // oxlint-disable-next-line typescript/no-deprecated
+              if (event.nativeEvent.keyCode === 229) return
               if (event.key === 'Enter') { void remember() }
               if (event.key === 'Escape') { setAdding(false); setText('') }
             }}

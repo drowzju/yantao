@@ -538,15 +538,19 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
     })
     child.on('close', () => {
       settle(() => {
+        // One envelope per settle: every consumer below shares the same
+        // sampled timestamp and stream tails instead of each `execOf` call
+        // drifting apart.
+        const exec = execOf(child.exitCode)
         let parsed: unknown
         try {
           parsed = JSON.parse(stdout)
         } catch {
-          reject(fail('bad-output', `${CAPABILITY_ERROR_MESSAGES['bad-output']}${stderr.trim() === '' ? '' : `\n脚本输出：${stderr.trim().slice(0, 500)}`}`, undefined, execOf(child.exitCode)))
+          reject(fail('bad-output', `${CAPABILITY_ERROR_MESSAGES['bad-output']}${stderr.trim() === '' ? '' : `\n脚本输出：${stderr.trim().slice(0, 500)}`}`, undefined, exec))
           return
         }
         if (typeof parsed !== 'object' || parsed === null) {
-          reject(fail('bad-output', undefined, undefined, execOf(child.exitCode)))
+          reject(fail('bad-output', undefined, undefined, exec))
           return
         }
         const answer = parsed as {
@@ -564,16 +568,16 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
             ? answer.message
             : CAPABILITY_ERROR_MESSAGES['capability-failed']
           const hint = typeof answer.hint === 'string' ? answer.hint : undefined
-          reject(fail('capability-failed', message, hint ?? (kind !== undefined ? `能力报告的失败类型：${kind}` : undefined), execOf(child.exitCode)))
+          reject(fail('capability-failed', message, hint ?? (kind !== undefined ? `能力报告的失败类型：${kind}` : undefined), exec))
           return
         }
         resolveRun({
           ...answer.result !== undefined ? { result: answer.result } : {},
           ...answer.state !== undefined ? { state: answer.state } : {},
           ...answer.artifacts !== undefined
-            ? { artifacts: artifactsOf(answer.artifacts, options.name, execOf(child.exitCode), reject) }
+            ? { artifacts: artifactsOf(answer.artifacts, options.name, exec, reject) }
             : {},
-          exec: execOf(child.exitCode),
+          exec,
         })
       })
     })

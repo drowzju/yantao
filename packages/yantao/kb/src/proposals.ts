@@ -192,8 +192,10 @@ const LINE_BREAK = /\r|\n/
 const queueLocks = new Map<string, Promise<unknown>>()
 
 function withQueueLock<T>(scope: string, task: () => Promise<T>): Promise<T> {
+  // The map stores only fulfilled results (`next.catch` below), so a plain
+  // `then(task)` suffices — a rejection-handler slot here would be dead code.
   const previous = queueLocks.get(scope) ?? Promise.resolve()
-  const next = previous.then(task, task)
+  const next = previous.then(task)
   queueLocks.set(scope, next.catch(() => undefined))
   return next
 }
@@ -223,8 +225,10 @@ export async function appendMemoryProposal(
   text: string,
   source = '',
 ): Promise<MemoryProposalScope> {
+  // Scope validity is checked before the lock is taken: an invalid scope
+  // must not occupy a lock slot the map never cleans up.
+  assertMemoryScope(scope)
   return withQueueLock(scope, async () => {
-    assertMemoryScope(scope)
     const trimmed = text.trim()
     if (trimmed === '') throw new KbError('empty-proposal-text', '提案内容不能为空')
     if (LINE_BREAK.test(trimmed)) {
@@ -273,8 +277,9 @@ export async function removeMemoryProposalByText(
   scope: string,
   text: string,
 ): Promise<MemoryProposalScope> {
+  // Same ordering as append: validate the scope before occupying a lock slot.
+  assertMemoryScope(scope)
   return withQueueLock(scope, async () => {
-    assertMemoryScope(scope)
     const target = proposalTarget(kbRoot, scope)
     const current = await readProposalScope(kbRoot, scope)
     const index = current.entries.findIndex(entry => entry.text === text.trim())

@@ -1081,23 +1081,26 @@ export function Frame({
   // Failures propagate untouched: the rail's own onError reports them, the
   // detail button catches for its notice line.
   // archiveBusy only gates the detail button; the rails' row menus call
-  // flipArchive directly, so concurrency is merged per path here instead: a
-  // second gesture on the same entity while one flip is in flight (fast
-  // double-click, both rails showing it) joins the first flight rather than
-  // racing it with a conflicting write. Flips of different entities stay
-  // independent.
+  // flipArchive directly, so concurrency is merged per path+direction here
+  // instead: a second gesture of the same direction on the same entity while
+  // one flip is in flight (fast double-click, both rails showing it) joins
+  // the first flight rather than racing it with a conflicting write. An
+  // opposite-direction gesture is a genuine reversal, not a duplicate — it
+  // goes through as its own call (the server settles the last write). Flips
+  // of different entities stay independent.
   const archiveFlights = useRef(new Map<string, Promise<KbSetEntityArchivedResult>>())
   const flipArchive = useCallback((path: string, archived: boolean): Promise<KbSetEntityArchivedResult> => {
-    const inFlight = archiveFlights.current.get(path)
+    const flightKey = `${archived ? 'archive:' : 'restore:'}${path}`
+    const inFlight = archiveFlights.current.get(flightKey)
     if (inFlight !== undefined) return inFlight
     const flight = (archived ? archiveEntity(path) : restoreEntity(path)).then((result) => {
       setArchivedOverrides(current => ({ ...current, [path]: result.archived }))
       setTreeKey(key => key + 1)
       return result
     }).finally(() => {
-      archiveFlights.current.delete(path)
+      archiveFlights.current.delete(flightKey)
     })
-    archiveFlights.current.set(path, flight)
+    archiveFlights.current.set(flightKey, flight)
     return flight
   }, [archiveEntity, restoreEntity])
   const railArchive = useCallback((path: string): Promise<KbSetEntityArchivedResult> => flipArchive(path, true), [flipArchive])

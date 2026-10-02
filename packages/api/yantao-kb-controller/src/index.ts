@@ -226,10 +226,11 @@ function capabilityNotFound(name: string): RemoteError {
   )
 }
 
+/** The declaration location is stated bare — the template owns the phrasing around it, so callers never encode separators. */
 function capabilityNotInvocable(name: string, channel: string): RemoteError {
   return new RemoteError(
     'yantao-kb/capability',
-    `能力「${name}」没有对 agent 开放（${channel}未声明 "invocation": ["agent"]）。`,
+    `能力「${name}」没有对 agent 开放（声明于 ${channel}，未声明 "invocation": ["agent"]）。`,
     { kind: 'not-invocable', hint: CAPABILITY_HINTS['not-invocable'] },
   )
 }
@@ -1588,7 +1589,7 @@ export class YantaoKbController extends TypertRemoteService {
     }
     if (verdict.channel === 'declared') {
       if (!verdict.manifest.invocation.includes('agent')) {
-        throw capabilityNotInvocable(name, 'yantao.json ')
+        throw capabilityNotInvocable(name, 'yantao.json')
       }
       const base = verdict.definition.resourceBase
       // isKbSkill only admits directory-backed skills, so this guard is
@@ -1606,12 +1607,12 @@ export class YantaoKbController extends TypertRemoteService {
       // misleading not-found that sends the agent hunting the wrong way.
       if (verdict.route === undefined) throw badManifestError(verdict.error)
       if (!verdict.route.invocation.includes('agent')) {
-        throw capabilityNotInvocable(name, `${ROUTES_PATH} 的路由`)
+        throw capabilityNotInvocable(name, ROUTES_PATH)
       }
       return resolve(join(this.kbRoot, '.dsh', 'skills'), verdict.route.path)
     }
     if (!verdict.route.invocation.includes('agent')) {
-      throw capabilityNotInvocable(name, `${ROUTES_PATH} 的路由`)
+      throw capabilityNotInvocable(name, ROUTES_PATH)
     }
     return resolve(join(this.kbRoot, '.dsh', 'skills'), verdict.route.path)
   }
@@ -1698,7 +1699,7 @@ export class YantaoKbController extends TypertRemoteService {
     // The invocation gate (ADR-0023 决定 2): the agent only reaches what the
     // route declared `"agent"`; the human channel is ungated.
     if (invoker === 'agent' && !route.invocation.includes('agent')) {
-      throw capabilityNotInvocable(name, `${ROUTES_PATH} 的路由`)
+      throw capabilityNotInvocable(name, ROUTES_PATH)
     }
     const routed = await routedSkill(join(this.kbRoot, '.dsh', 'skills'), route)
     if (routed === undefined) {
@@ -1730,7 +1731,7 @@ export class YantaoKbController extends TypertRemoteService {
     // The invocation gate (ADR-0023 决定 2): the agent only reaches what the
     // declaration declared `"agent"`; the human channel is ungated.
     if (invoker === 'agent' && !manifest.invocation.includes('agent')) {
-      throw capabilityNotInvocable(name, 'yantao.json ')
+      throw capabilityNotInvocable(name, 'yantao.json')
     }
     // An instruction capability (no entry, ADR-0023 决定 6) has no script:
     // the SKILL.md body is the whole answer. Nothing spawns, nothing persists.

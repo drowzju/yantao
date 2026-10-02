@@ -186,8 +186,8 @@ export function apply(ctx: Context): void {
         createEntity(ctx, {
           type,
           name,
-          ...relation !== undefined ? { relation } : {},
-          ...email !== undefined ? { email } : {},
+          ...(relation !== undefined ? { relation } : {}),
+          ...(email !== undefined ? { email } : {}),
         }),
       root: () => loadRoot(ctx),
       setRoot: (path: string) => setKbRoot(ctx, path),
@@ -212,17 +212,17 @@ export function apply(ctx: Context): void {
         const cwd = await kbCwd()
         return runMailAnalysis({
           ctx, mails, known,
-          ...cwd !== undefined ? { cwd } : {},
-          ...onProgress !== undefined ? { onProgress } : {},
-          ...signal !== undefined ? { signal } : {},
-          ...memory !== undefined ? { memory } : {},
+          ...(cwd !== undefined ? { cwd } : {}),
+          ...(onProgress !== undefined ? { onProgress } : {}),
+          ...(signal !== undefined ? { signal } : {}),
+          ...(memory !== undefined ? { memory } : {}),
         })
       },
       // ADR-0029: the refine loop — both gestures run their dedicated session
       // rooted at the KB root, exactly the mail analysis's cwd discipline.
       refine: async (gesture: RefineRunnerArgs) => {
         const cwd = await kbCwd()
-        return runRefine({ ctx, ...gesture, ...cwd !== undefined ? { cwd } : {} })
+        return runRefine({ ctx, ...gesture, ...(cwd !== undefined ? { cwd } : {}) })
       },
       // ADR-0035: the scoped validate pass (人物 / 项目 angles) — the same
       // KB-rooted session discipline as refine's.
@@ -233,7 +233,7 @@ export function apply(ctx: Context): void {
         onSession?: (sessionId: string) => void
       }) => {
         const cwd = await kbCwd()
-        return runValidate({ ctx, ...options, ...cwd !== undefined ? { cwd } : {} })
+        return runValidate({ ctx, ...options, ...(cwd !== undefined ? { cwd } : {}) })
       },
       // ADR-0020: the resource intake.
       registerResource: (name: string, contentBase64: string) => registerResource(ctx, name, contentBase64),
@@ -251,9 +251,9 @@ export function apply(ctx: Context): void {
           name: record.name,
           ok: record.ok,
           ...(record.exec !== undefined ? { exec: record.exec } : {}),
-          ...record.note !== undefined ? { note: record.note } : {},
-          ...cwd !== undefined ? { cwd } : {},
-          ...signal !== undefined ? { signal } : {},
+          ...(record.note !== undefined ? { note: record.note } : {}),
+          ...(cwd !== undefined ? { cwd } : {}),
+          ...(signal !== undefined ? { signal } : {}),
         })
       },
       capabilityCreate: (name: string) => createCapability(ctx, name),

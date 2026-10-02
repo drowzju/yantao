@@ -111,6 +111,14 @@ describe('appendMemoryProposal', () => {
     expect((await readProposalScope(kbRoot, 'mail')).text).not.toContain('伪造')
   })
 
+  it('refuses a text ending with a 〔…〕 group — indistinguishable from a source annotation', async () => {
+    const error = await appendMemoryProposal(kbRoot, 'mail', '提交前先跑一遍测试 〔会话〕').catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(KbError)
+    expect((error as KbError).code).toBe('ambiguous-proposal-tail')
+    // The refusal leaves no physical line behind.
+    expect((await readProposalScope(kbRoot, 'mail')).text).not.toContain('提交前先跑一遍测试')
+  })
+
   it('refuses the 21st pending proposal in a scope with proposal-queue-full', async () => {
     for (let at = 0; at < PROPOSAL_PENDING_SOFT_CAP; at += 1) {
       await appendMemoryProposal(kbRoot, 'mail', `提案${at}`)
