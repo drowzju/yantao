@@ -570,7 +570,9 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
         resolveRun({
           ...answer.result !== undefined ? { result: answer.result } : {},
           ...answer.state !== undefined ? { state: answer.state } : {},
-          ...answer.artifacts !== undefined ? { artifacts: artifactsOf(answer.artifacts, options.name, reject) } : {},
+          ...answer.artifacts !== undefined
+            ? { artifacts: artifactsOf(answer.artifacts, options.name, execOf(child.exitCode), reject) }
+            : {},
           exec: execOf(child.exitCode),
         })
       })
@@ -578,25 +580,34 @@ export async function runCapability(options: RunCapabilityOptions): Promise<Capa
   })
 }
 
-/** Validate one artifact list: bare names only, so a script cannot escape its directory. */
-function artifactsOf(value: unknown, name: string, reject: (error: CapabilityError) => void): readonly CapabilityArtifact[] {
+/**
+ * Validate one artifact list: bare names only, so a script cannot escape its
+ * directory. Every rejection carries the run's envelope like every other
+ * failure path — a validation-rejected run must stay distillable too.
+ */
+function artifactsOf(
+  value: unknown,
+  name: string,
+  exec: CapabilityExec,
+  reject: (error: CapabilityError) => void,
+): readonly CapabilityArtifact[] {
   if (!Array.isArray(value)) {
-    reject(fail('bad-output', `能力「${name}」的 artifacts 必须是数组。`))
+    reject(fail('bad-output', `能力「${name}」的 artifacts 必须是数组。`, undefined, exec))
     return []
   }
   const artifacts: CapabilityArtifact[] = []
   for (const item of value) {
     if (typeof item !== 'object' || item === null) {
-      reject(fail('bad-output', `能力「${name}」的 artifacts 项必须是对象。`))
+      reject(fail('bad-output', `能力「${name}」的 artifacts 项必须是对象。`, undefined, exec))
       return []
     }
     const { name: fileName, contentBase64 } = item as { name?: unknown; contentBase64?: unknown }
     if (typeof fileName !== 'string' || fileName === '' || fileName.includes('/') || fileName.includes('\\') || fileName.includes('..')) {
-      reject(fail('bad-output', `能力「${name}」的 artifacts 项必须是纯文件名：${String(fileName)}`))
+      reject(fail('bad-output', `能力「${name}」的 artifacts 项必须是纯文件名：${String(fileName)}`, undefined, exec))
       return []
     }
     if (typeof contentBase64 !== 'string') {
-      reject(fail('bad-output', `能力「${name}」的 artifacts 项缺少 base64 内容：${fileName}`))
+      reject(fail('bad-output', `能力「${name}」的 artifacts 项缺少 base64 内容：${fileName}`, undefined, exec))
       return []
     }
     artifacts.push({ name: fileName, contentBase64 })

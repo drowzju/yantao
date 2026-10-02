@@ -3,9 +3,9 @@
  * when the agent calls `kb_propose_memory`, the call renders as this light
  * approval card — the proposed text, its target scope, and the two verdict
  * buttons. Approving promotes through the human channel's
- * `memoryProposalApprove` RPC (the same seam the memory view uses; no
- * re-judgment here — 决定 7 reserves that for the memory view's 待批准
- * zone), discarding removes the line from the queue. The card never writes
+ * `memoryProposalApprove` RPC (the same seam the memory view uses; like the
+ * 待批准 zone, the card promotes to the proposal's own scope — the
+ * capability whose run produced it already said where the rule belongs), discarding removes the line from the queue. The card never writes
  * anything itself.
  *
  * Visual discipline follows the proposal-card family (ADR-0038): the

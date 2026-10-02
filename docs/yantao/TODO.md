@@ -153,7 +153,7 @@
 规则全文见 [design.md](design.md);以下是余项,改的是现有组件,不动架构,无需 ADR。
 
 1. **`--yt-*` 迁移收尾** —— 余三件(Workbench/Frame/MailPanel)已随邮件工作提交(856a89808d),裸 hex 全库清零;
-   剩:间距字面量引用 `--yt-space-*`(本轮只迁了颜色与字号,复合 shorthand 无法机械替换);之后上 lint 门禁(禁裸 hex、禁阶梯外 px,design.md §8 第 3 步)。
+   剩:间距字面量引用 `--yt-space-*`(本轮只迁了颜色与字号,复合 shorthand 无法机械替换);之后上 lint 门禁(禁裸 hex、禁阶梯外 px,design.md §9 第 3 步)。
 2. **标识符等宽** —— 能力名、路径(`scripts/entry.py` 等)按 design.md §3 用 mono(只设标识符本身);
    可并入收尾顺手做。
 

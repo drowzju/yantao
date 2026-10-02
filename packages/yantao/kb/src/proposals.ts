@@ -183,12 +183,30 @@ export async function listProposalScopes(kbRoot: string): Promise<readonly Memor
 const LINE_BREAK = /\r|\n/
 
 /**
+ * One scope's queue mutations serialized in-process: append and remove are
+ * read-modify-write cycles over the same file, and the agent face
+ * (`kb_propose_memory`) and the human RPCs run on independent async chains —
+ * interleaved cycles lose proposals or resurrect discarded lines. The chain
+ * never stays rejected (a failed cycle must not poison the next one).
+ */
+const queueLocks = new Map<string, Promise<unknown>>()
+
+function withQueueLock<T>(scope: string, task: () => Promise<T>): Promise<T> {
+  const previous = queueLocks.get(scope) ?? Promise.resolve()
+  const next = previous.then(task, task)
+  queueLocks.set(scope, next.catch(() => undefined))
+  return next
+}
+
+/**
  * Append one proposal to a scope's queue (creating the file with its heading
- * when absent) and return the queue as it now sits. Four refusals stand
+ * when absent) and return the queue as it now sits. Five refusals stand
  * between the agent and the queue (ADR-0044 决定 3/4): the text is empty,
  * the text or source embeds a line break (the queue is line-shaped — a
  * broken line would parse back as a second, unsolicited proposal and flow
- * into memory unreviewed), the text is already
+ * into memory unreviewed), the text ends with a 〔…〕 group (indistinguishable
+ * from a source annotation once serialized — the bare text would drift and
+ * the approval card could never settle), the text is already
  * remembered in the scope (`duplicate-memory`), the same text is already
  * pending (`duplicate-proposal`), or the scope's queue is full
  * (`proposal-queue-full`) — in every case the agent learns in place instead
@@ -205,36 +223,41 @@ export async function appendMemoryProposal(
   text: string,
   source = '',
 ): Promise<MemoryProposalScope> {
-  assertMemoryScope(scope)
-  const trimmed = text.trim()
-  if (trimmed === '') throw new KbError('empty-proposal-text', '提案内容不能为空')
-  if (LINE_BREAK.test(trimmed)) {
-    throw new KbError('multiline-proposal-text', '提案内容必须是一行文字（不得包含换行）：队列一行一条，换行会被解析成第二条未经审阅的提案')
-  }
-  if (LINE_BREAK.test(source)) {
-    throw new KbError('multiline-proposal-source', '提案来源注记不得包含换行：队列一行一条，换行会被解析成第二条未经审阅的提案')
-  }
-  const target = proposalTarget(kbRoot, scope)
-  const remembered = await readMemoryScope(kbRoot, scope)
-  if (remembered.entries.some(entry => entry.text === trimmed)) {
-    throw new KbError('duplicate-memory', `这条经验已经是记忆了（作用域 ${scope}）：${trimmed}`)
-  }
-  const current = await readProposalScope(kbRoot, scope)
-  if (current.entries.some(entry => entry.text === trimmed)) {
-    throw new KbError('duplicate-proposal', `同样的提案已在队列里等待批准（作用域 ${scope}）：${trimmed}`)
-  }
-  if (current.entries.length >= PROPOSAL_PENDING_SOFT_CAP) {
-    throw new KbError('proposal-queue-full',
-      `作用域 ${scope} 的提案队列已满（${PROPOSAL_PENDING_SOFT_CAP} 条），请提醒人先到记忆视图处理待批准提案`)
-  }
-  const parsed = parseProposalFile(scope, current.text)
-  const file: MemoryProposalFile = {
-    preamble: current.text === '' ? proposalFileContent(scope).trimEnd() : parsed.preamble,
-    entries: [...parsed.entries, { id: memoryEntryId(scope, trimmed), date: todayStamp(), text: trimmed, source }],
-  }
-  await mkdir(join(target, '..'), { recursive: true })
-  await writeFile(target, `${serializeProposalFile(file)}\n`, 'utf8')
-  return readProposalScope(kbRoot, scope)
+  return withQueueLock(scope, async () => {
+    assertMemoryScope(scope)
+    const trimmed = text.trim()
+    if (trimmed === '') throw new KbError('empty-proposal-text', '提案内容不能为空')
+    if (LINE_BREAK.test(trimmed)) {
+      throw new KbError('multiline-proposal-text', '提案内容必须是一行文字（不得包含换行）：队列一行一条，换行会被解析成第二条未经审阅的提案')
+    }
+    if (LINE_BREAK.test(source)) {
+      throw new KbError('multiline-proposal-source', '提案来源注记不得包含换行：队列一行一条，换行会被解析成第二条未经审阅的提案')
+    }
+    if (SOURCE_TAIL.test(trimmed)) {
+      throw new KbError('ambiguous-proposal-tail', '提案内容不能以〔…〕结尾：那会和来源注记混淆，正文会被改形导致审批卡无法定位这条提案')
+    }
+    const target = proposalTarget(kbRoot, scope)
+    const remembered = await readMemoryScope(kbRoot, scope)
+    if (remembered.entries.some(entry => entry.text === trimmed)) {
+      throw new KbError('duplicate-memory', `这条经验已经是记忆了（作用域 ${scope}）：${trimmed}`)
+    }
+    const current = await readProposalScope(kbRoot, scope)
+    if (current.entries.some(entry => entry.text === trimmed)) {
+      throw new KbError('duplicate-proposal', `同样的提案已在队列里等待批准（作用域 ${scope}）：${trimmed}`)
+    }
+    if (current.entries.length >= PROPOSAL_PENDING_SOFT_CAP) {
+      throw new KbError('proposal-queue-full',
+        `作用域 ${scope} 的提案队列已满（${PROPOSAL_PENDING_SOFT_CAP} 条），请提醒人先到记忆视图处理待批准提案`)
+    }
+    const parsed = parseProposalFile(scope, current.text)
+    const file: MemoryProposalFile = {
+      preamble: current.text === '' ? proposalFileContent(scope).trimEnd() : parsed.preamble,
+      entries: [...parsed.entries, { id: memoryEntryId(scope, trimmed), date: todayStamp(), text: trimmed, source }],
+    }
+    await mkdir(join(target, '..'), { recursive: true })
+    await writeFile(target, `${serializeProposalFile(file)}\n`, 'utf8')
+    return readProposalScope(kbRoot, scope)
+  })
 }
 
 /**
@@ -250,18 +273,20 @@ export async function removeMemoryProposalByText(
   scope: string,
   text: string,
 ): Promise<MemoryProposalScope> {
-  assertMemoryScope(scope)
-  const target = proposalTarget(kbRoot, scope)
-  const current = await readProposalScope(kbRoot, scope)
-  const index = current.entries.findIndex(entry => entry.text === text.trim())
-  if (index < 0) {
-    throw new KbError('proposal-not-found', `作用域 ${scope} 的队列里没有这条提案（可能已被处理）`)
-  }
-  const parsed = parseProposalFile(scope, current.text)
-  const file: MemoryProposalFile = {
-    preamble: parsed.preamble,
-    entries: parsed.entries.filter((_, at) => at !== index),
-  }
-  await writeFile(target, `${serializeProposalFile(file)}\n`, 'utf8')
-  return readProposalScope(kbRoot, scope)
+  return withQueueLock(scope, async () => {
+    assertMemoryScope(scope)
+    const target = proposalTarget(kbRoot, scope)
+    const current = await readProposalScope(kbRoot, scope)
+    const index = current.entries.findIndex(entry => entry.text === text.trim())
+    if (index < 0) {
+      throw new KbError('proposal-not-found', `作用域 ${scope} 的队列里没有这条提案（可能已被处理）`)
+    }
+    const parsed = parseProposalFile(scope, current.text)
+    const file: MemoryProposalFile = {
+      preamble: parsed.preamble,
+      entries: parsed.entries.filter((_, at) => at !== index),
+    }
+    await writeFile(target, `${serializeProposalFile(file)}\n`, 'utf8')
+    return readProposalScope(kbRoot, scope)
+  })
 }

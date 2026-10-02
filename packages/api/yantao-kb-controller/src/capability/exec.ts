@@ -160,7 +160,12 @@ export async function execCapabilityScript(
       let end = MAX_EXEC_OUTPUT_BYTES
       while (end > 0 && (byteAt(end - 1) & 0xC0) === 0x80) end -= 1
       const lead = byteAt(end - 1)
-      const width = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 1
+      // Lead-byte width table, spelled as branches: the nested ternary form
+      // is hard to audit against the 0xC0/0xE0/0xF0 boundaries.
+      let width = 1
+      if (lead >= 0xF0) width = 4
+      else if (lead >= 0xE0) width = 3
+      else if (lead >= 0xC0) width = 2
       if (width > 1) end -= 1
       return { text: all.subarray(0, end).toString('utf8'), truncated: true }
     }
@@ -191,7 +196,10 @@ export async function execCapabilityScript(
         return
       }
       if (process.platform === 'win32') {
-        const killer = spawnImpl(`taskkill /pid ${pid} /T /F`, [], { stdio: 'ignore', windowsHide: true })
+        // argv form: a single command string with `shell` unset asks Node to
+        // spawn a program literally named "taskkill /pid …" — ENOENT, and the
+        // error fallback would quietly reduce this to child.kill() again.
+        const killer = spawnImpl('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
         killer.once('error', () => { child.kill() })
       } else {
         try {

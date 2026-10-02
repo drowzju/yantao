@@ -61,32 +61,50 @@ describe('MemoryPanel', () => {
     expect(container.querySelector('[data-memory-entry="m1"]')?.textContent).toContain('2026-09-20')
   })
 
-  it('adds a rule to the chosen scope and reloads', async () => {
+  it('adds a rule to the chosen scope and reloads, then the form collapses', async () => {
     const panel = props()
     render(<MemoryPanel {...panel} />)
     await screen.findByText('汇报先发给直属上级')
+    fireEvent.click(screen.getByText('新增记忆'))
     fireEvent.change(screen.getByPlaceholderText('要记住的纠正或偏好（一句话）'), { target: { value: '日报只写结论' } })
     await act(async () => {
-      fireEvent.click(screen.getByText('记住'))
+      fireEvent.click(screen.getByText('保存'))
     })
     expect(panel.add).toHaveBeenCalledWith('global', '日报只写结论')
     expect(await screen.findByText('已记住。')).toBeTruthy()
+    // A successful save collapses the form back to the 新增记忆 button.
+    expect(screen.queryByPlaceholderText('要记住的纠正或偏好（一句话）')).toBeNull()
     await waitFor(() => {
       expect(panel.list).toHaveBeenCalledTimes(2)
     })
   })
 
-  it('reads a duplicate refusal as 已记得, not as an error', async () => {
+  it('keeps the add form collapsed until 新增记忆, and 取消 closes it without adding', async () => {
+    const panel = props()
+    const { container } = render(<MemoryPanel {...panel} />)
+    await screen.findByText('汇报先发给直属上级')
+    expect(container.querySelector('[data-memory-add]')).toBeNull()
+    fireEvent.click(container.querySelector('[data-memory-add-open]') as Element)
+    expect(container.querySelector('[data-memory-add]')).not.toBeNull()
+    fireEvent.change(screen.getByPlaceholderText('要记住的纠正或偏好（一句话）'), { target: { value: '写了一半' } })
+    fireEvent.click(container.querySelector('[data-memory-add-cancel]') as Element)
+    expect(container.querySelector('[data-memory-add]')).toBeNull()
+    expect(panel.add).not.toHaveBeenCalled()
+  })
+
+  it('reads a duplicate refusal as 已记得, not as an error — and keeps the form open', async () => {
     const { container } = render(<MemoryPanel {...props({
       add: vi.fn(async () => { throw new Error('这条记忆已经存在（作用域 global）：日报只写结论') }),
     })} />)
     await screen.findByText('汇报先发给直属上级')
+    fireEvent.click(screen.getByText('新增记忆'))
     fireEvent.change(screen.getByPlaceholderText('要记住的纠正或偏好（一句话）'), { target: { value: '日报只写结论' } })
     await act(async () => {
-      fireEvent.click(screen.getByText('记住'))
+      fireEvent.click(screen.getByText('保存'))
     })
     expect(await screen.findByText('这条已经记得了。')).toBeTruthy()
     expect(container.querySelector('[data-memory-error]')).toBeNull()
+    expect(container.querySelector('[data-memory-add]')).not.toBeNull()
   })
 
   it('deletes an entry and refreshes even when the id went stale', async () => {
@@ -109,11 +127,15 @@ describe('MemoryPanel', () => {
     const { container } = render(<MemoryPanel {...props({ listProposals: vi.fn(async () => PROPOSED) })} />)
     expect(await screen.findByText('jsonml 判空先看节点类型')).toBeTruthy()
     expect(container.querySelector('[data-memory-proposals]')).not.toBeNull()
-    expect(container.querySelector('[data-memory-proposal="p1"]')).not.toBeNull()
+    const row = container.querySelector('[data-memory-proposal="p1"]')
+    expect(row).not.toBeNull()
     expect(container.querySelector('[data-memory-proposal-scope="dingtalk-docs"]')).not.toBeNull()
     expect(screen.getByText(/来源：会话/)).toBeTruthy()
     expect(screen.getByText('批准')).toBeTruthy()
     expect(screen.getByText('丢弃')).toBeTruthy()
+    // A proposal arrives already scoped by its capability's run, so the card
+    // offers no scope picker — scope picking belongs to the add row.
+    expect(row?.querySelector('select')).toBeNull()
   })
 
   it('hides the 待批准 zone when the queue is empty', () => {
@@ -121,26 +143,15 @@ describe('MemoryPanel', () => {
     expect(container.querySelector('[data-memory-proposals]')).toBeNull()
   })
 
-  it('approves a proposal to its own scope by default and reloads', async () => {
+  it('approves a proposal to its own scope and reloads', async () => {
     const panel = props({ listProposals: vi.fn(async () => PROPOSED) })
     render(<MemoryPanel {...panel} />)
     await screen.findByText('jsonml 判空先看节点类型')
     await act(async () => {
       fireEvent.click(screen.getByText('批准'))
     })
-    expect(panel.approveProposal).toHaveBeenCalledWith('dingtalk-docs', 'jsonml 判空先看节点类型', 'dingtalk-docs')
+    expect(panel.approveProposal).toHaveBeenCalledWith('dingtalk-docs', 'jsonml 判空先看节点类型')
     expect(await screen.findByText('已批准，沉淀为行为记忆。')).toBeTruthy()
-  })
-
-  it('re-judges the target scope before approving', async () => {
-    const panel = props({ listProposals: vi.fn(async () => PROPOSED) })
-    render(<MemoryPanel {...panel} />)
-    await screen.findByText('jsonml 判空先看节点类型')
-    fireEvent.change(screen.getByLabelText('目标作用域'), { target: { value: 'global' } })
-    await act(async () => {
-      fireEvent.click(screen.getByText('批准'))
-    })
-    expect(panel.approveProposal).toHaveBeenCalledWith('dingtalk-docs', 'jsonml 判空先看节点类型', 'global')
   })
 
   it('reads an approve duplicate refusal as 已记得, not as an error', async () => {
@@ -166,7 +177,9 @@ describe('MemoryPanel', () => {
       fireEvent.click(screen.getByText('批准'))
     })
     expect(await screen.findByText('KB 根未设置')).toBeTruthy()
-    expect(container.querySelector('[data-memory-error]')).not.toBeNull()
+    // An approve failure belongs to the proposal channel's own error line,
+    // not the queue-load error above the zone.
+    expect(container.querySelector('[data-memory-proposal-error]')).not.toBeNull()
   })
 
   it('discards a proposal and the row leaves the zone', async () => {

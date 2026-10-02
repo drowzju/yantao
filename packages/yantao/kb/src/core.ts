@@ -322,10 +322,13 @@ function spliceArchiveFlag(content: string, archived: boolean, display: string):
   for (let index = 1; index < close; index += 1) {
     if (ARCHIVE_KEY_LINE.test(rows[index] as string)) keyRows.push(index)
   }
-  // More than one `archive:` line makes the flag ambiguous — js-yaml would
-  // silently take the last, the splice the first, so neither answer is the
-  // file's. Refuse rather than pick a winner (malformed-frontmatter, like
-  // parseFrontmatter's own refusals).
+  // More than one `archive:` line makes the flag ambiguous — js-yaml 4
+  // refuses duplicated mapping keys at parse time, and this line-count check
+  // is the belt-and-braces behind that refusal (plus the guard for readers
+  // that never go through YAML at all, like the splice below, which would
+  // hit only the first line). Neither answer would be the file's, so refuse
+  // rather than pick a winner (malformed-frontmatter, like parseFrontmatter's
+  // own refusals).
   if (keyRows.length > 1) {
     throw new KbError('malformed-frontmatter', `文件 ${display} 的 frontmatter 里有 ${keyRows.length} 行 archive: 键，归档状态有歧义，请先手工清理成一行`)
   }

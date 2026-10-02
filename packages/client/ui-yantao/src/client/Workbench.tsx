@@ -457,6 +457,10 @@ function ResourceTree({
     const rows: ReactElement[] = []
     for (const child of node.children) {
       const folded = !expanded.has(child.dir)
+      // Like the file rows below, the label carries only the directory's own
+      // segment — the indentation already gives the path context, and the
+      // full path stays on data-resource-dir for the menu and the tests.
+      const segment = child.dir.slice(child.dir.lastIndexOf('/') + 1)
       rows.push(
         <button
           key={`dir:${child.dir}`}
@@ -470,7 +474,7 @@ function ResourceTree({
             onDirMenu(child.dir, event.clientX, event.clientY)
           }}
         >
-          {folded ? '▸' : '▾'} {child.dir}
+          {folded ? '▸' : '▾'} {segment}
         </button>,
       )
       if (!folded) rows.push(...renderNode(child, depth + 1))
@@ -791,8 +795,10 @@ function useRowMenu(args: {
   const archive = useCallback(async (path: string, archived: boolean): Promise<void> => {
     setBusy(true)
     try {
+      // flipArchive (the shared accounting wrapper) bumps the tree key on
+      // success, and both rails reload from that broadcast — refreshing here
+      // too would reload the tree twice for one archive write.
       await (archived ? latest.current.archiveEntity(path) : latest.current.restoreEntity(path))
-      await latest.current.refresh()
       setMenu(null)
     } catch (failure: unknown) {
       latest.current.onError(remoteMessage(failure))

@@ -416,19 +416,21 @@ describe('ResourceTree', () => {
     const 报告 = await screen.findByText('▸ 报告')
     expect(报告.getAttribute('data-resource-dir')).toBe('报告')
     expect(报告.getAttribute('aria-expanded')).toBe('false')
-    expect(screen.queryByText('▾ 报告/2026-09')).toBeNull()
+    expect(screen.queryByText('▾ 2026-09')).toBeNull()
     expect(screen.queryByText('笔记.md')).toBeNull()
     expect(screen.queryByText('周报.md')).toBeNull()
     expect(screen.getByText('周报.eml')).toBeTruthy()
-    // Expanding one level reveals the nested directory, itself still folded.
+    // Expanding one level reveals the nested directory, itself still folded;
+    // the row's label is the segment alone, the full path stays on the data attribute.
     fireEvent.click(报告)
     expect(screen.getByText('▾ 报告').getAttribute('aria-expanded')).toBe('true')
-    expect(screen.getByText('▸ 报告/2026-09')).toBeTruthy()
+    const 九月 = screen.getByText('▸ 2026-09')
+    expect(九月.getAttribute('data-resource-dir')).toBe('报告/2026-09')
     expect(screen.getByText('笔记.md')).toBeTruthy()
     expect(screen.queryByText('周报.md')).toBeNull()
     // The second level unfolds the same way.
-    fireEvent.click(screen.getByText('▸ 报告/2026-09'))
-    expect(screen.getByText('▾ 报告/2026-09').getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(九月)
+    expect(screen.getByText('▾ 2026-09').getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByText('周报.md')).toBeTruthy()
   })
 
@@ -511,9 +513,11 @@ describe('WorkspaceRail', () => {
       fireEvent.click(await screen.findByText('归档'))
     })
     expect(archiveEntity).toHaveBeenCalledWith('entities/projects/dsh 学习.md')
-    // The flip only moves the row into the section's 归档 group: the tree
-    // reloads, and there is no tab to drop — the file still exists.
-    expect(load).toHaveBeenCalledTimes(2)
+    // The flip only moves the row into the section's 归档 group. The row menu
+    // no longer refreshes the tree itself — the host's flipArchive bumps its
+    // tree key and the rails reload from that broadcast (exactly once), so in
+    // this isolated rail the load ran only at mount.
+    expect(load).toHaveBeenCalledTimes(1)
   })
 
   it('folds archived entities into the section\'s own 归档 group, collapsed by default (ADR-0041 决定 7)', async () => {
@@ -777,7 +781,9 @@ describe('WorkspaceRail', () => {
       fireEvent.click(await screen.findByText('归档'))
     })
     expect(archiveEntity).toHaveBeenCalledWith('entities/meetings/周会.md')
-    expect(load).toHaveBeenCalledTimes(2)
+    // The tree reload comes from the host's tree-key broadcast, not from the
+    // row menu — see the project-row archive test above.
+    expect(load).toHaveBeenCalledTimes(1)
   })
 
   it('restores an archived entity from its row menu — the same seam, the other direction (ADR-0041 决定 6)', async () => {
@@ -796,7 +802,9 @@ describe('WorkspaceRail', () => {
       fireEvent.click(await screen.findByText('还原'))
     })
     expect(restoreEntity).toHaveBeenCalledWith('entities/meetings/周会.md')
-    expect(load).toHaveBeenCalledTimes(2)
+    // The tree reload comes from the host's tree-key broadcast, not from the
+    // row menu — see the project-row archive test above.
+    expect(load).toHaveBeenCalledTimes(1)
   })
 
   it('closes a meeting row\'s menu on Escape', async () => {

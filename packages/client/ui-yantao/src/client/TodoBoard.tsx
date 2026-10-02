@@ -65,7 +65,7 @@ const titleStyle = { margin: '8px 0 2px', fontSize: 'var(--yt-type-section)', fo
 /** Baseline alignment: the checkbox and the date ride the title's first text baseline. */
 const rowStyle = { display: 'flex', gap: 6, alignItems: 'baseline', padding: '2px 6px' } as const
 
-/** A deadline is plain coloured text — urgency is colour, not chrome (design.md §2.5, §7). */
+/** A deadline is plain coloured text — urgency is colour, not chrome (design.md §2.5, §8). */
 const dueStyle = { fontSize: 'var(--yt-type-label)', color: 'var(--yt-text-muted)', whiteSpace: 'nowrap' } as const
 
 /** 语义红 (design.md `--yt-error`) for a deadline due today or tomorrow — and one already overdue. */

@@ -1,7 +1,8 @@
 /**
  * The behavior-memory management view (ADR-0032 批次③): every scope's rules
  * laid out — 全局 first, then the capability scopes — each entry deletable,
- * with a direct add row. The human is the author here, so the write needs no
+ * the add form collapsed behind a 新增记忆 button until it's needed. The
+ * human is the author here, so the write needs no
  * proposal card: the UI is the human channel (hard rule 2), and `memoryAdd` /
  * `memoryDelete` are human-only surfaces anyway — the agent has no route into
  * them except a proposal the human approves.
@@ -12,10 +13,12 @@
  *
  * Above the management view sits the 待批准 zone (ADR-0044 决定 7): every
  * in-flight proposal the agent's `kb_propose_memory` queued, with its source
- * annotation for the human's judgement. Approving promotes the bare text —
- * re-judging the target scope is allowed, defaulting to the proposal's own —
- * and discarding drops the line; both drain the queue through the human
- * channel's RPCs, the same seam the conversation card uses.
+ * annotation for the human's judgement. A proposal arrives already scoped by
+ * the capability whose run produced it, so the card offers no scope picker —
+ * approving promotes the bare text to the proposal's own scope, discarding
+ * drops the line; both drain the queue through the human channel's RPCs, the
+ * same seam the conversation card uses. Scope picking belongs to the add row
+ * below, where the human is the author.
  * @module @deepseek-ai/dsh-client-ui-yantao/MemoryPanel
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
@@ -60,7 +63,7 @@ function scopeLabel(t: WorkbenchT, scope: string): string {
   return key === undefined ? scope : t(key)
 }
 
-const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' } as const
+const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 8px' } as const
 
 const mutedStyle = { color: 'var(--yt-text-muted)', fontSize: 12 } as const
 
@@ -68,51 +71,80 @@ const errorStyle = { color: 'var(--yt-error)', fontSize: 12 } as const
 
 const hintStyle = { color: 'var(--yt-text-secondary)', fontSize: 12 } as const
 
-const groupTitleStyle = { margin: '8px 0 2px', fontSize: 'var(--yt-type-label)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
+const groupTitleStyle = { margin: '8px 0 0', fontSize: 'var(--yt-type-label)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
 
-const rowStyle = { display: 'flex', gap: 6, alignItems: 'baseline', minWidth: 0, padding: '2px 0' } as const
+/** One entry row: the action pins to the first line (a baseline-aligned
+ *  button sinks to mid-block beside multi-line text), and sibling spacing is
+ *  each row's own marginTop — one owner per gap (design.md §4). */
+const rowStyle = { display: 'flex', gap: 8, alignItems: 'flex-start', minWidth: 0 } as const
 
 const textStyle = { minWidth: 0 } as const
 
-const deleteStyle = { flexShrink: 0, padding: '1px 6px', fontSize: 12 } as const
+/** The date on a line of its own — timestamps are the muted token's canonical 从属证据 (design.md §2.2). */
+const dateStyle = { color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)', marginTop: 4 } as const
 
-const formStyle = { display: 'flex', gap: 4, alignItems: 'center', marginTop: 6 } as const
+/** A per-row destructive action wears the ghost cut: no border, muted ink (design.md §7). */
+const deleteStyle = {
+  flexShrink: 0, padding: '0 4px', border: 'none', background: 'transparent',
+  color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)', cursor: 'pointer',
+} as const
 
-const inputStyle = { flex: 1, minWidth: 0, padding: '3px 6px' } as const
+const buttonStyle = { padding: '4px 8px', flexShrink: 0 } as const
 
-const buttonStyle = { padding: '3px 8px', flexShrink: 0 } as const
+/** The collapsed creation affordance: one quiet button (design.md §7 —
+ *  a low-frequency creation entry does not earn a resident form row). */
+const addOpenStyle = { ...buttonStyle, alignSelf: 'flex-start' } as const
+
+/** The expanded editing form: a raised card, its controls stacked so the
+ *  input spans the rail's full width. */
+const addFormStyle = {
+  display: 'flex', flexDirection: 'column', gap: 8, padding: '8px',
+  background: 'var(--yt-surface-raised)', border: '1px solid var(--yt-border-subtle)', borderRadius: 8,
+} as const
+
+/** The scope picker keeps its natural width inside the roomy card. */
+const addScopeStyle = { padding: '4px 8px', alignSelf: 'flex-start', maxWidth: '100%' } as const
+
+const inputStyle = { padding: '4px 8px', width: '100%', boxSizing: 'border-box' } as const
+
+/** The form's verdict row: 保存 primary, 取消 ghost (ConfigDialog's ghost cut). */
+const addActionsStyle = { display: 'flex', gap: 8 } as const
+
+const ghostButtonStyle = { ...buttonStyle, background: 'transparent', border: '1px solid var(--yt-border-subtle)' } as const
 
 /** The 待批准 zone's heading, one step above the scope titles. */
 const zoneTitleStyle = {
   margin: '8px 0 2px', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-primary)',
 } as const
 
-/** Raised rows: the queue is the one zone that asks for a verdict. */
+/** Raised cards: the queue is the one zone that asks for a verdict. */
 const proposalRowStyle = {
-  display: 'flex', gap: 6, alignItems: 'flex-start', minWidth: 0, padding: '6px 8px', marginTop: 4,
+  display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0, padding: '6px 8px', marginTop: 4,
   background: 'var(--yt-surface-raised)', border: '1px solid var(--yt-border-subtle)', borderRadius: 8,
 } as const
 
 const proposalMetaStyle = { color: 'var(--yt-text-secondary)', fontSize: 12, marginTop: 2 } as const
 
-const verdictStyle = { flexShrink: 0, padding: '1px 6px', fontSize: 12 } as const
+/** The two verdicts side by side at the card's foot. */
+const proposalActionsStyle = { display: 'flex', gap: 8, marginTop: 2 } as const
+
+const verdictStyle = { padding: '1px 6px', fontSize: 12 } as const
 
 /**
- * One pending proposal row (ADR-0044 决定 7): the distilled text with its
- * source annotation, and the two verdicts. The target scope starts at the
- * proposal's own; the human may re-judge it before approving.
+ * One pending proposal card (ADR-0044 决定 7): the distilled text with its
+ * source annotation, and the two verdicts side by side at the card's foot.
+ * The proposal's scope is the capability whose run produced it, so approving
+ * promotes to that scope directly — no per-card re-judging.
  */
 function ProposalRow(props: {
   readonly t: WorkbenchT
   readonly group: KbMemoryProposalGroup
   readonly entry: KbMemoryProposal
-  readonly scopeOptions: readonly string[]
   readonly busy: boolean
-  readonly onApprove: (scope: string, text: string, targetScope: string) => void
+  readonly onApprove: (scope: string, text: string) => void
   readonly onDiscard: (scope: string, text: string) => void
 }): ReactElement {
-  const { t, group, entry, scopeOptions, busy } = props
-  const [target, setTarget] = useState(group.scope)
+  const { t, group, entry, busy } = props
   const meta = [
     `${t('memory.proposal.scopeLabel')}：${scopeLabel(t, group.scope)}`,
     ...(entry.source !== '' ? [`${t('memory.proposal.sourceLabel')}：${entry.source}`] : []),
@@ -124,33 +156,26 @@ function ProposalRow(props: {
         {entry.text}
         <div style={proposalMetaStyle}>{meta}</div>
       </div>
-      <select
-        style={verdictStyle}
-        aria-label={t('memory.proposalZone.targetScope')}
-        value={target}
-        disabled={busy}
-        onChange={(event) => { setTarget(event.target.value) }}
-      >
-        {scopeOptions.map(option => <option key={option} value={option}>{scopeLabel(t, option)}</option>)}
-      </select>
-      <button
-        type="button"
-        style={verdictStyle}
-        disabled={busy}
-        data-memory-proposal-approve={entry.id}
-        onClick={() => { props.onApprove(group.scope, entry.text, target) }}
-      >
-        {t('memory.proposal.approve')}
-      </button>
-      <button
-        type="button"
-        style={verdictStyle}
-        disabled={busy}
-        data-memory-proposal-discard={entry.id}
-        onClick={() => { props.onDiscard(group.scope, entry.text) }}
-      >
-        {t('memory.proposal.discard')}
-      </button>
+      <div style={proposalActionsStyle}>
+        <button
+          type="button"
+          style={verdictStyle}
+          disabled={busy}
+          data-memory-proposal-approve={entry.id}
+          onClick={() => { props.onApprove(group.scope, entry.text) }}
+        >
+          {t('memory.proposal.approve')}
+        </button>
+        <button
+          type="button"
+          style={verdictStyle}
+          disabled={busy}
+          data-memory-proposal-discard={entry.id}
+          onClick={() => { props.onDiscard(group.scope, entry.text) }}
+        >
+          {t('memory.proposal.discard')}
+        </button>
+      </div>
     </div>
   )
 }
@@ -168,9 +193,15 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
 
   const [groups, setGroups] = useState<readonly KbMemoryGroup[] | null>(null)
   const [proposals, setProposals] = useState<readonly KbMemoryProposalGroup[] | null>(null)
+  // Two error channels, not one: the two loaders race, and a shared state
+  // would let the healthy read's success erase the failed read's message
+  // (last-writer-wins) — the panel would then sit loading forever with the
+  // failure nowhere in sight.
   const [error, setError] = useState<string | null>(null)
+  const [proposalError, setProposalError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [adding, setAdding] = useState(false)
   const [scope, setScope] = useState('global')
   const [text, setText] = useState('')
 
@@ -185,14 +216,14 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
     }
   }, [])
 
-  /** Re-read the proposal queues (ADR-0044 决定 7); same error line. */
+  /** Re-read the proposal queues (ADR-0044 决定 7); the queue's own error channel. */
   const reloadProposals = useCallback(async (): Promise<void> => {
     try {
       const result = await latest.current.listProposals()
       setProposals(result.groups)
-      setError(null)
+      setProposalError(null)
     } catch (failure: unknown) {
-      setError(remoteMessage(failure))
+      setProposalError(remoteMessage(failure))
     }
   }, [])
 
@@ -203,13 +234,13 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
     })()
   }, [reload, reloadProposals])
 
-  /** Promote one proposal; a re-judged target scope overrides the source. */
-  const promote = async (scope: string, text: string, targetScope: string): Promise<void> => {
+  /** Promote one proposal to its own scope; the queue's duplicate refusal reads as 已记得. */
+  const promote = async (scope: string, text: string): Promise<void> => {
     if (busy) return
     setBusy(true)
     let failureMessage: string | null = null
     try {
-      await latest.current.approveProposal(scope, text, targetScope)
+      await latest.current.approveProposal(scope, text)
       setNotice(t('memory.proposal.approved'))
     } catch (failure: unknown) {
       // The queue's duplicate refusal means the memory already holds the
@@ -225,7 +256,7 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
       setBusy(false)
       await reload()
       await reloadProposals()
-      if (failureMessage !== null) setError(failureMessage)
+      if (failureMessage !== null) setProposalError(failureMessage)
     }
   }
 
@@ -244,11 +275,12 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
       setBusy(false)
       await reload()
       await reloadProposals()
-      if (failureMessage !== null) setError(failureMessage)
+      if (failureMessage !== null) setProposalError(failureMessage)
     }
   }
 
-  /** Add one rule; the duplicate refusal is the 已记得 notice, not an error. */
+  /** Add one rule; the duplicate refusal is the 已记得 notice, not an error.
+   *  A successful save collapses the form; a refusal keeps it open for revision. */
   const remember = async (): Promise<void> => {
     const trimmed = text.trim()
     if (trimmed === '' || busy) return
@@ -256,6 +288,7 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
     try {
       await latest.current.add(scope, trimmed)
       setText('')
+      setAdding(false)
       setNotice(t('memory.added'))
       await reload()
     } catch (failure: unknown) {
@@ -294,14 +327,8 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
   const scopeOptions = [...ADD_SCOPES, ...(groups ?? []).map(group => group.scope)]
   const seen = new Set<string>()
 
-  // The 待批准 zone flattens the queue groups to rows; its target-scope
-  // selects offer the same universe the add row does, plus every scope a
-  // proposal itself names.
+  // The 待批准 zone flattens the queue groups to cards.
   const pending = (proposals ?? []).flatMap(group => group.entries.map(entry => ({ group, entry })))
-  const zoneScopes: string[] = []
-  for (const candidate of [...scopeOptions, ...(proposals ?? []).map(group => group.scope)]) {
-    if (!zoneScopes.includes(candidate)) zoneScopes.push(candidate)
-  }
 
   return (
     <div style={wrapStyle} data-memory-panel="true">
@@ -316,54 +343,84 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
               t={t}
               group={group}
               entry={entry}
-              scopeOptions={zoneScopes}
               busy={busy}
-              onApprove={(rowScope, rowText, target) => { void promote(rowScope, rowText, target) }}
+              onApprove={(rowScope, rowText) => { void promote(rowScope, rowText) }}
               onDiscard={(rowScope, rowText) => { void drop(rowScope, rowText) }}
             />
           ))}
         </div>
       )}
-      <div style={formStyle} data-memory-add="true">
-        <select
-          style={buttonStyle}
-          aria-label="scope"
-          value={scope}
+      {adding ? (
+        <div style={addFormStyle} data-memory-add="true">
+          <select
+            style={addScopeStyle}
+            aria-label="scope"
+            title={scopeLabel(t, scope)}
+            value={scope}
+            disabled={busy}
+            onChange={(event) => { setScope(event.target.value) }}
+          >
+            {scopeOptions.map((option) => {
+              if (seen.has(option)) return null
+              seen.add(option)
+              return <option key={option} value={option}>{scopeLabel(t, option)}</option>
+            })}
+          </select>
+          <input
+            style={inputStyle}
+            value={text}
+            placeholder={t('memory.addPlaceholder')}
+            disabled={busy}
+            autoFocus
+            onChange={(event) => { setText(event.target.value) }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') { void remember() }
+              if (event.key === 'Escape') { setAdding(false); setText('') }
+            }}
+          />
+          <div style={addActionsStyle}>
+            <button type="button" style={buttonStyle} disabled={busy || text.trim() === ''} onClick={() => { void remember() }}>
+              {t('memory.save')}
+            </button>
+            <button
+              type="button"
+              style={ghostButtonStyle}
+              disabled={busy}
+              data-memory-add-cancel="true"
+              onClick={() => { setAdding(false); setText('') }}
+            >
+              {t('common.cancel')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          style={addOpenStyle}
           disabled={busy}
-          onChange={(event) => { setScope(event.target.value) }}
+          data-memory-add-open="true"
+          onClick={() => { setAdding(true) }}
         >
-          {scopeOptions.map((option) => {
-            if (seen.has(option)) return null
-            seen.add(option)
-            return <option key={option} value={option}>{scopeLabel(t, option)}</option>
-          })}
-        </select>
-        <input
-          style={inputStyle}
-          value={text}
-          placeholder={t('memory.addPlaceholder')}
-          disabled={busy}
-          onChange={(event) => { setText(event.target.value) }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') { void remember() }
-          }}
-        />
-        <button type="button" style={buttonStyle} disabled={busy || text.trim() === ''} onClick={() => { void remember() }}>
-          {t('memory.addButton')}
+          {t('memory.addNew')}
         </button>
-      </div>
+      )}
       {notice !== null && <div style={hintStyle} data-memory-notice="true">{notice}</div>}
       {error !== null && <div style={errorStyle} data-memory-error="true">{error}</div>}
+      {proposalError !== null && <div style={errorStyle} data-memory-proposal-error="true">{proposalError}</div>}
       {groups === null && error === null && <div style={mutedStyle}>{t('memory.loading')}</div>}
       {groups !== null && groups.length === 0 && <div style={mutedStyle} data-memory-empty="true">{t('memory.empty')}</div>}
       {groups?.map(group => (
         <div key={group.scope} data-memory-group={group.scope}>
           <div style={groupTitleStyle}>{scopeLabel(t, group.scope)}</div>
-          {group.entries.map(entry => (
-            <div key={entry.id} style={rowStyle} data-memory-entry={entry.id}>
+          {group.entries.map((entry, index) => (
+            <div
+              key={entry.id}
+              style={{ ...rowStyle, marginTop: index === 0 ? 8 : 12 }}
+              data-memory-entry={entry.id}
+            >
               <div style={textStyle}>
                 {entry.text}
-                {entry.date !== undefined && <span style={mutedStyle}>{` · ${entry.date}`}</span>}
+                {entry.date !== undefined && <div style={dateStyle}>{entry.date}</div>}
               </div>
               <button
                 type="button"

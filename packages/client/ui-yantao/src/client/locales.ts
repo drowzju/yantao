@@ -207,6 +207,8 @@ export const zh = {
   'memory.loading': '载入中…',
   'memory.addPlaceholder': '要记住的纠正或偏好（一句话）',
   'memory.addButton': '记住',
+  'memory.addNew': '新增记忆',
+  'memory.save': '保存',
   'memory.added': '已记住。',
   'memory.known': '这条已经记得了。',
 
@@ -224,7 +226,6 @@ export const zh = {
   'memory.proposal.discarded': '已丢弃，提案移出队列。',
   // Memory view's 待批准 zone (ADR-0044 决定 7).
   'memory.proposalZone.title': '待批准',
-  'memory.proposalZone.targetScope': '目标作用域',
 
   // Todo board
   'todo.newAria': '新待办',
@@ -518,6 +519,8 @@ export const en = {
   'memory.loading': 'Loading…',
   'memory.addPlaceholder': 'A correction or preference to remember (one sentence)',
   'memory.addButton': 'Remember',
+  'memory.addNew': 'New memory',
+  'memory.save': 'Save',
   'memory.added': 'Remembered.',
   'memory.known': 'Already remembered.',
 
@@ -535,7 +538,6 @@ export const en = {
   'memory.proposal.discarded': 'Discarded — removed from the queue.',
   // Memory view's 待批准 zone (ADR-0044 决定 7).
   'memory.proposalZone.title': 'Pending approval',
-  'memory.proposalZone.targetScope': 'Target scope',
 
   // Todo board
   'todo.newAria': 'New todo',

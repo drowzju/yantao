@@ -251,6 +251,7 @@ export function apply(ctx: Context): void {
           name: record.name,
           ok: record.ok,
           ...(record.exec !== undefined ? { exec: record.exec } : {}),
+          ...record.note !== undefined ? { note: record.note } : {},
           ...cwd !== undefined ? { cwd } : {},
           ...signal !== undefined ? { signal } : {},
         })
@@ -321,8 +322,9 @@ export function apply(ctx: Context): void {
   // ADR-0044 决定 5: the agent's kb_propose_memory call renders as the light
   // approval card — 原文 + 目标作用域 + 批准/丢弃, the shortest feedback loop
   // of the proposal-approval pipeline. The verdict buttons reach the human
-  // channel's RPCs through the registration's inject face (no re-judgment
-  // here: 决定 7 reserves targetScope for the memory view's 待批准 zone).
+  // channel's RPCs through the registration's inject face; like the memory
+  // view's 待批准 zone, approving promotes to the proposal's own scope —
+  // the capability that ran already said where the rule belongs.
   ctx.effect(() => ctx.slots.inject('tool.call.toolview', () =>
     ctx.slots.register({
       name: 'tool.call.toolview',

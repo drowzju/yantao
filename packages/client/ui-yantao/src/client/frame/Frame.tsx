@@ -628,13 +628,15 @@ export function Frame({
       capabilityAbort.current = null
       setCapabilityRunning(false)
       // A refused run is a record too: a failure is exactly where the
-      // lessons live, and the distiller reads the refusal prose as the
-      // envelope's absence.
+      // lessons live. The refusal prose rides along as the record's note —
+      // without it the distiller would misread the missing envelope as an
+      // instruction-type run and lose the failure's reason.
       capabilityRunSeq.current += 1
       setCapabilityRuns(rows => [{
         id: `cap-run-${capabilityRunSeq.current}`,
         name: capability.name,
         ok: false,
+        note: remoteMessage(failure),
         at: Date.now(),
       }, ...rows])
       if (aborter.signal.aborted) {
@@ -1048,7 +1050,10 @@ export function Frame({
     else if (row.kind === 'validate') cancelValidate()
     else if (row.kind === 'mail' && row.id === mailFetchTaskId.current) mailFetchAbort.current?.abort()
     else if (row.kind === 'mail') mailRun.cancel()
-    else if (row.kind === 'capability' && row.id === distillTaskId.current) distillAbort.current?.abort()
+    // Here `row.kind` has narrowed to 'capability' (the other three arms
+    // eliminated the rest of the union), so compare only the task id: a
+    // distill row cancels its own aborter, any script run falls through.
+    else if (row.id === distillTaskId.current) distillAbort.current?.abort()
     else cancelCapability()
   }, [cancelRefine, cancelValidate, cancelCapability, mailRun])
 
@@ -1075,12 +1080,25 @@ export function Frame({
   // the detail button's label can never go stale after a row-menu flip.
   // Failures propagate untouched: the rail's own onError reports them, the
   // detail button catches for its notice line.
+  // archiveBusy only gates the detail button; the rails' row menus call
+  // flipArchive directly, so concurrency is merged per path here instead: a
+  // second gesture on the same entity while one flip is in flight (fast
+  // double-click, both rails showing it) joins the first flight rather than
+  // racing it with a conflicting write. Flips of different entities stay
+  // independent.
+  const archiveFlights = useRef(new Map<string, Promise<KbSetEntityArchivedResult>>())
   const flipArchive = useCallback((path: string, archived: boolean): Promise<KbSetEntityArchivedResult> => {
-    return (archived ? archiveEntity(path) : restoreEntity(path)).then((result) => {
+    const inFlight = archiveFlights.current.get(path)
+    if (inFlight !== undefined) return inFlight
+    const flight = (archived ? archiveEntity(path) : restoreEntity(path)).then((result) => {
       setArchivedOverrides(current => ({ ...current, [path]: result.archived }))
       setTreeKey(key => key + 1)
       return result
+    }).finally(() => {
+      archiveFlights.current.delete(path)
     })
+    archiveFlights.current.set(path, flight)
+    return flight
   }, [archiveEntity, restoreEntity])
   const railArchive = useCallback((path: string): Promise<KbSetEntityArchivedResult> => flipArchive(path, true), [flipArchive])
   const railRestore = useCallback((path: string): Promise<KbSetEntityArchivedResult> => flipArchive(path, false), [flipArchive])
