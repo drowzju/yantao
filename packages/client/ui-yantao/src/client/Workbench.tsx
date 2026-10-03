@@ -15,7 +15,7 @@ import type {
   FileWriter,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
-  PromptShortcutSaver, RelationSetter, ResourceRegistrar, ShortcutFiller,
+  PromptShortcutSaver, RelationSetter, ResourceDeleter, ResourceRegistrar, ShortcutFiller,
   TodoLoader, TodoWriter, Archiver,
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
@@ -617,7 +617,10 @@ function useMenuDismiss(ref: React.RefObject<HTMLDivElement | null>, onClose: ()
  * `onArchive` is present only for entity rows (ADR-0041 决定 7): 归档 on an
  * active entity, 还原 on an archived one — no confirmation, the flip is
  * zero-cost reversible (决定 6). Entities are never deleted (决定 8), so the
- * menu carries no delete.
+ * menu's delete item is reserved for resource rows (ADR-0020): `onDelete` is
+ * present only there, and the item arms through one confirm click — the first
+ * tap reads 确认删除？, the second executes. The component remounts per row
+ * (`key={menu.path}`), so the armed state never survives a dismissal.
  * @param props - the targeted row, the busy flag, and the actions.
  * @returns the menu element.
  */
@@ -641,10 +644,13 @@ function RowMenu(props: {
   kbRoot?: string
   /** Flip the row entity's archive flag (ADR-0041 决定 7); absent for non-entity rows. */
   onArchive?: ((path: string, archived: boolean) => void) | undefined
+  /** Delete this resource file (ADR-0020); absent for non-resource rows. Two clicks: arm, then execute. */
+  onDelete?: ((path: string) => void) | undefined
   onClose: () => void
 }): ReactElement {
-  const { t, target, busy, relations, onRelate, capabilities, onRunCapability, onRefine, onDistill, kbRoot = '', onArchive, onClose } = props
+  const { t, target, busy, relations, onRelate, capabilities, onRunCapability, onRefine, onDistill, kbRoot = '', onArchive, onDelete, onClose } = props
   const ref = useRef<HTMLDivElement | null>(null)
+  const [deleteArmed, setDeleteArmed] = useState(false)
   useMenuDismiss(ref, onClose)
 
   return (
@@ -730,6 +736,25 @@ function RowMenu(props: {
           {target.archived === true ? t('workbench.restore') : t('workbench.archive')}
         </button>
       )}
+      {onDelete !== undefined && (
+        <button
+          type="button"
+          style={menuItemStyle}
+          disabled={busy}
+          data-row-delete="true"
+          data-armed={deleteArmed || undefined}
+          onClick={() => {
+            if (!deleteArmed) {
+              setDeleteArmed(true)
+              return
+            }
+            onClose()
+            onDelete(target.path)
+          }}
+        >
+          {deleteArmed ? t('workbench.deleteArm') : t('workbench.delete')}
+        </button>
+      )}
     </div>
   )
 }
@@ -770,7 +795,7 @@ function DirMenu(props: {
 /** What a rail needs from its row menu: the open menu, and the actions behind it. */
 interface RowMenuHost {
   readonly menu: MenuTarget | null
-  /** True while an archive flip or a relation change is in flight. */
+  /** True while an archive flip, a relation change or a resource delete is in flight. */
   readonly busy: boolean
   /** Open the menu on one row, at the pointer. */
   readonly open: (file: KbTreeFile, x: number, y: number) => void
@@ -779,13 +804,17 @@ interface RowMenuHost {
   readonly archive: (path: string, archived: boolean) => Promise<void>
   /** Write a person's relation and reload the tree. */
   readonly relate: (path: string, relation: KbPersonRelation) => Promise<void>
+  /** Delete one resource file (ADR-0020); absent when the host supplies no delete face. */
+  readonly remove?: ((path: string) => Promise<void>) | undefined
 }
 
 /**
- * Own one rail's row menu: opening, dismissing, and the two writes behind it.
+ * Own one rail's row menu: opening, dismissing, and the writes behind it.
  * An archive flip (ADR-0041 决定 7) only moves the row between the active
  * list and the section's 归档 group — the file stays, so its centre-pane tab
- * stays open; a relation change likewise only rewrites one field.
+ * stays open; a relation change likewise only rewrites one field. A resource
+ * delete (ADR-0020) removes the file outright; the frame closes the tab and
+ * reloads the trees, so the menu only reports the outcome.
  * @param args - the write channels and the callbacks they report to.
  * @returns the menu state and its actions.
  */
@@ -793,6 +822,7 @@ function useRowMenu(args: {
   readonly archiveEntity: EntityArchiver
   readonly restoreEntity: EntityArchiver
   readonly setRelation: RelationSetter
+  readonly deleteResource?: ResourceDeleter | undefined
   readonly refresh: () => Promise<void>
   readonly onError: (message: string) => void
 }): RowMenuHost {
@@ -838,8 +868,23 @@ function useRowMenu(args: {
       y,
     })
   }, [])
+  const removeAction = useCallback(async (path: string): Promise<void> => {
+    setBusy(true)
+    try {
+      // The frame's wrapper closes the tab and bumps the tree key on
+      // success, so — like archive — no refresh here, or the tree reloads
+      // twice for one delete.
+      await latest.current.deleteResource?.(path)
+      setMenu(null)
+    } catch (failure: unknown) {
+      latest.current.onError(remoteMessage(failure))
+    } finally {
+      setBusy(false)
+    }
+  }, [])
+  const remove = args.deleteResource === undefined ? undefined : removeAction
   const close = useCallback((): void => { setMenu(null) }, [])
-  return { menu, busy, open, close, archive, relate }
+  return { menu, busy, open, close, archive, relate, remove }
 }
 
 /**
@@ -944,6 +989,13 @@ export interface RailProps {
   readonly analyseMail: MailAnalyser
   /** Copy one dropped file into `resources/` — both rails' entity rows accept OS drops (ADR-0029 决定 2). */
   readonly registerResource: ResourceRegistrar
+  /**
+   * Delete one resource file under `resources/` (ADR-0020) — the resource row
+   * menu's right-click 「删除」, armed with a confirm click. Optional: only
+   * the intake rail deals in resources, so embedders without the face (tests,
+   * the workspace rail) simply never see the item.
+   */
+  readonly deleteResource?: ResourceDeleter
   /** Start one refine gesture (归入 or 提炼); the frame owns the run (ADR-0029). */
   readonly onRefine: (gesture: RefineGesture) => void
   /**
@@ -1080,7 +1132,8 @@ async function dropOnEntity(args: {
 export function IntakeRail(props: IntakeRailProps): ReactElement {
   const {
     t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, loadTodos, writeTodos, createEntity,
-    read, write, archiveEntity, restoreEntity, setRelation, workspace, mailFetch, mailMarkRead, analyseMail, registerResource, onRefine,
+    read, write, archiveEntity, restoreEntity, setRelation, workspace, mailFetch, mailMarkRead, analyseMail,
+    registerResource, deleteResource, onRefine,
     capabilityList, capabilityDeclaration, capabilityCreate, capabilityAdopt, capabilityRegister, onRunCapability, kbRoot = '',
     memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
     capabilityRuns, onDistillCapability, distillingRunId,
@@ -1102,7 +1155,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const [actionError, setActionError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [dropping, setDropping] = useState(false)
-  const rowMenu = useRowMenu({ archiveEntity, restoreEntity, setRelation, refresh, onError: setActionError })
+  const rowMenu = useRowMenu({ archiveEntity, restoreEntity, setRelation, deleteResource, refresh, onError: setActionError })
   // ADR-0030: the resource directory's right-click menu — one distill gesture
   // per file under the directory, however nested, handed to the frame's queue.
   const [dirMenu, setDirMenu] = useState<{ dir: string; x: number; y: number } | null>(null)
@@ -1306,7 +1359,12 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
             : undefined}
           kbRoot={kbRoot}
           // ADR-0041 决定 2/8: a resource row is not an entity — no archive
-          // gesture, and entities being undeletable leaves no delete either.
+          // gesture. Its own gesture is the delete (ADR-0020): resources are
+          // dumb material, and the armed two-click item only shows on the
+          // 资源 tab.
+          onDelete={tab === 'resources' && rowMenu.remove !== undefined
+            ? (path) => { void rowMenu.remove?.(path) }
+            : undefined}
           onClose={rowMenu.close}
         />
       )}

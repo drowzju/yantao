@@ -63,7 +63,7 @@ import { WORKBENCH_NS, en, zh } from './locales.ts'
 import { MemoryProposalCard } from './MemoryProposalCard.tsx'
 import {
   addMemory, adoptCapability, approveMemoryProposal, archiveEntity, archiveMails, createCapability, createEntity,
-  deleteMemory, deleteMails,
+  deleteMemory, deleteMails, deleteResource,
   discardMemoryProposal, fetchMail, fillComposerWithShortcut, listMemory, listMemoryProposals,
   loadCapabilities, loadCapabilityDeclaration, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
   loadRevision, loadRoot, loadTodos,
@@ -180,11 +180,14 @@ export function apply(ctx: Context): void {
       // pdf/html/eml renderers.
       readView: (path: string) => loadResourceView(ctx, path),
       write: (path: string, content: string) => writeFile(ctx, path, content),
-      // ADR-0041 决定 7/8: the archive gestures — entities are never deleted,
-      // so the face offers the two directions of the archive mechanism and no
-      // delete at all.
+      // ADR-0041 决定 7/8: the archive gestures — entities are never deleted
+      // (决定 8), so they retire through the archive mechanism's two
+      // directions; the delete gesture belongs to resources alone (below).
       archiveEntity: (locator: string) => archiveEntity(ctx, locator),
       restoreEntity: (locator: string) => restoreEntity(ctx, locator),
+      // ADR-0020: resources are dumb raw material — unlike entities they may
+      // be deleted, through the workbench's right-click 「删除」.
+      deleteResource: (path: string) => deleteResource(ctx, path),
       setRelation: (path: string, relation: KbPersonRelation) => setRelation(ctx, path, relation),
       createEntity: (type: KbCreatableEntityType, name: string, relation?: KbPersonRelation, email?: string) =>
         createEntity(ctx, {

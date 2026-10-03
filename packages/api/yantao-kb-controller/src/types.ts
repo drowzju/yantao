@@ -118,6 +118,12 @@ export interface KbSetEntityArchivedResult {
   readonly archived: boolean
 }
 
+/** The answer to one resource deletion — the workbench's 「删除」 gesture. */
+export interface KbDeleteResourceResult {
+  /** The KB-relative path of the resource that no longer exists. */
+  readonly path: string
+}
+
 /** One `[[…]]` link a file writes out, and where it lands (ADR-0015). */
 export interface KbLinkTarget {
   /** The target as written between the brackets. */

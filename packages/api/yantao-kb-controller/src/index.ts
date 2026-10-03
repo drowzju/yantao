@@ -64,6 +64,7 @@ import type {
   KbCapabilityAdoptResult,
   KbCreateEntityArgs,
   KbCreateEntityResult,
+  KbDeleteResourceResult,
   KbCapabilityCreateArgs,
   KbCapabilityCreateResult,
   KbCapabilityDeclarationArgs,
@@ -994,6 +995,39 @@ export class YantaoKbController extends TypertRemoteService {
         : `无法${archived ? '归档' : '还原'}实体 ${locator}：${(error as Error).message}`
       throw new RemoteError('yantao-kb/rejected', message, { path: locator }, { cause: error })
     }
+  }
+
+  /**
+   * Delete one resource file — the workbench's 「删除」 gesture on a resource
+   * row. Resources are dumb raw material (ADR-0020): unlike entities (ADR-0041
+   * 决定 8 — never deleted, only archived) a resource can go away for good.
+   * The trust boundary is untouched: this lives on the UI's Remote namespace,
+   * which the agent's tool layer never sees — the agent keeps its creation-
+   * only / read-only resource tools (ADR-0028). Confined twice over: the KB
+   * confinement, then a `resources/` prefix — entity notes, the todo
+   * singleton and anything else in the KB are refused. The UI confirms
+   * before invoking (the menu's armed second click); the server does not
+   * second-guess a confirmed human gesture.
+   * @param path - KB-relative path with forward slashes, under `resources/`.
+   * @returns the deleted path.
+   */
+  @Remote('deleteResource')
+  async deleteResource(path: string): Promise<KbDeleteResourceResult> {
+    const target = this.confine(path, path)
+    const relative = path.replaceAll('\\', '/')
+    if (relative !== 'resources' && !relative.startsWith('resources/')) {
+      throw new RemoteError('yantao-kb/rejected', `只能删除 resources/ 下的资源文件：${path}`, { path })
+    }
+    try {
+      await rm(target)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') {
+        throw new RemoteError('yantao-kb/not-found', `找不到知识库文件：${path}`, { path }, { cause: error })
+      }
+      throw new RemoteError('yantao-kb/rejected', `无法删除知识库文件 ${path}：${(error as Error).message}`, { path }, { cause: error })
+    }
+    return { path }
   }
 
   /**

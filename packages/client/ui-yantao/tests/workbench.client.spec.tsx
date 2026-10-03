@@ -13,7 +13,8 @@ import type {
   CapabilityDeclarationLoader, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityArchiver, EntityCreator,
   ExternalOpener, FileReader,
   FileWriter, LinksLoader, MailFetcher, MailMarker, PromptShortcutLister, PromptShortcutSaver, RelationSetter,
-  ResourceViewReader, RevisionLoader, RootLoader, RootSetter, ScheduleLister, ScheduleMarker, ScheduleSaver, SessionPrompter,
+  ResourceDeleter, ResourceViewReader, RevisionLoader, RootLoader, RootSetter, ScheduleLister, ScheduleMarker,
+  ScheduleSaver, SessionPrompter,
   ShortcutFiller, TodoLoader, TodoWriter,
 } from '../src/client/remote.ts'
 import type { ScheduleRunner } from '../src/client/scheduler.ts'
@@ -105,6 +106,7 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
     analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [] } }),
     registerResource: () => Promise.resolve('resources/新资源.pdf'),
+    deleteResource: () => Promise.resolve({ path: '' }),
     memoryList: () => Promise.resolve({ groups: [] }),
     memoryAdd: () => Promise.resolve({ path: '.dsh/yantao/memory/global.md', entry: { id: 'm1', text: 'x' } }),
     memoryDelete: () => Promise.resolve(),
@@ -336,7 +338,8 @@ describe('IntakeRail', () => {
     render(<IntakeRail {...railProps({ onRefine })} />)
     fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
     // A resource row is not an entity (ADR-0041 决定 2): no archive gesture —
-    // and entities being undeletable (决定 8) leaves no delete either.
+    // the entity-only gestures stay off the menu; the delete item is the
+    // resource's own gesture (ADR-0020), covered just below.
     expect(await screen.findByText('拷贝链接')).toBeTruthy()
     expect(screen.queryByText('归档')).toBeNull()
     expect(screen.queryByText('提炼')).toBeNull()
@@ -346,6 +349,35 @@ describe('IntakeRail', () => {
       mode: 'distill',
       resource: { path: 'resources/周报.eml', name: '周报.eml' },
     })
+  })
+
+  it('arms the delete item on a resource row and deletes on the confirm click (ADR-0020)', async () => {
+    const deleteResource = vi.fn(() => Promise.resolve({ path: 'resources/周报.eml' }))
+    const { container } = render(<IntakeRail {...railProps({ deleteResource })} />)
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    // First click arms: the item flips to the confirm question, nothing fires.
+    fireEvent.click(await screen.findByText('删除'))
+    expect(screen.getByText('确认删除？')).toBeTruthy()
+    expect(deleteResource).not.toHaveBeenCalled()
+    // Second click executes and closes the menu.
+    fireEvent.click(screen.getByText('确认删除？'))
+    await waitFor(() => { expect(deleteResource).toHaveBeenCalledWith('resources/周报.eml') })
+    await waitFor(() => { expect(container.querySelector('[data-row-menu]')).toBeNull() })
+  })
+
+  it('skips the delete item when the host supplies no delete face', async () => {
+    render(<IntakeRail {...railProps({ deleteResource: undefined })} />)
+    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
+    expect(await screen.findByText('拷贝链接')).toBeTruthy()
+    expect(screen.queryByText('删除')).toBeNull()
+  })
+
+  it('offers no delete on an entity row even with the face present (ADR-0041 决定 8)', async () => {
+    render(<WorkspaceRail {...railProps({ load: loader(workspace) })} />)
+    fireEvent.click(screen.getByText('人物'))
+    fireEvent.contextMenu(await screen.findByText('张三'), { clientX: 40, clientY: 60 })
+    expect(await screen.findByText('拷贝链接')).toBeTruthy()
+    expect(screen.queryByText('删除')).toBeNull()
   })
 
   it('copies the absolute path off a resource row\'s 拷贝链接 menu item', async () => {
@@ -1190,6 +1222,7 @@ interface FrameFaces {
   readonly refine: RefineRunner
   readonly validate: ValidateRunner
   readonly sessionDetail: SessionDetailLoader
+  readonly deleteResource: ResourceDeleter
 }
 
 /** Build the frame's spies; `read` answers every path with the same content. */
@@ -1226,6 +1259,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
     analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [] } }),
     refine: () => Promise.resolve({ sessionId: '', title: '', relevant: true, reason: '' }),
+    deleteResource: () => Promise.resolve({ path: '' }),
     validate: () => Promise.resolve({
       sessionId: '', title: '', reason: '',
       preScan: { entities: 0, orphans: [], broken: [] },
@@ -1265,6 +1299,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       refine={kb.refine}
       validate={kb.validate}
       registerResource={() => Promise.resolve('resources/新资源.pdf')}
+      deleteResource={kb.deleteResource}
       memoryList={() => Promise.resolve({ groups: [] })}
       memoryAdd={() => Promise.resolve({ path: '.dsh/yantao/memory/global.md', entry: { id: 'm1', text: 'x' } })}
       memoryDelete={() => Promise.resolve()}
@@ -1503,6 +1538,7 @@ describe('Frame', () => {
           stats: { entities: 0, prescan: 0, findings: 0, filtered: 0, tokens: 0, elapsedMs: 0 },
         })}
         registerResource={() => Promise.resolve('resources/新资源.pdf')}
+        deleteResource={kb.deleteResource}
         memoryList={() => Promise.resolve({ groups: [] })}
         memoryAdd={() => Promise.resolve({ path: '.dsh/yantao/memory/global.md', entry: { id: 'm1', text: 'x' } })}
         memoryDelete={() => Promise.resolve()}

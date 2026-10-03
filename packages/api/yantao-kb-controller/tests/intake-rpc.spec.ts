@@ -72,3 +72,40 @@ describe('yantaoKb.registerResource', () => {
     expect(await readFile(join(kbRoot, 'resources/三体.epub'), 'utf8')).toBe('original')
   })
 })
+
+describe('yantaoKb.deleteResource', () => {
+  it('removes a resource file and reports its path', async () => {
+    await mkdir(join(kbRoot, 'resources'), { recursive: true })
+    await writeFile(join(kbRoot, 'resources/草稿.txt'), 'obsolete', 'utf8')
+    const result = await ctx.yantaoKbController.deleteResource('resources/草稿.txt')
+    expect(result).toEqual({ path: 'resources/草稿.txt' })
+    await expect(readFile(join(kbRoot, 'resources/草稿.txt'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('refuses a path outside the resource plane', async () => {
+    await mkdir(join(kbRoot, 'entities/people'), { recursive: true })
+    await writeFile(join(kbRoot, 'entities/people/张三.md'), '# 张三', 'utf8')
+    const failure = await ctx.yantaoKbController.deleteResource('entities/people/张三.md')
+      .catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({
+      code: 'yantao-kb/rejected',
+      details: { path: 'entities/people/张三.md' },
+    })
+    expect(await readFile(join(kbRoot, 'entities/people/张三.md'), 'utf8')).toBe('# 张三')
+  })
+
+  it('refuses a traversal escape even when it names resources/', async () => {
+    const failure = await ctx.yantaoKbController.deleteResource('../outside/resources/x.txt')
+      .catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)?.code).toBeDefined()
+  })
+
+  it('reports not-found for a missing resource', async () => {
+    const failure = await ctx.yantaoKbController.deleteResource('resources/不存在.txt')
+      .catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({
+      code: 'yantao-kb/not-found',
+      details: { path: 'resources/不存在.txt' },
+    })
+  })
+})

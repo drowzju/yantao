@@ -31,7 +31,7 @@ import type {
   KbCapabilityDeclarationArgs, KbCapabilityDeclarationResult,
   KbCapabilityRegisterArgs, KbCapabilityRegisterResult,
   KbCapabilityRunArgs, KbCapabilityRunResult, KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
-  KbFileContent, KbGraphResult, KbLinksResult,
+  KbDeleteResourceResult, KbFileContent, KbGraphResult, KbLinksResult,
   KbMailDeleteArgs, KbMailDeleteResult, KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
   KbMemoryAddArgs, KbMemoryAddResult, KbMemoryDeleteArgs, KbMemoryDeleteResult, KbMemoryListResult,
   KbMemoryProposalApproveArgs, KbMemoryProposalApproveResult, KbMemoryProposalDiscardArgs,
@@ -61,6 +61,12 @@ export interface KbRemote {
   archiveEntity(locator: string): Promise<RemoteResult<KbSetEntityArchivedResult>>
   /** Restore one archived entity (ADR-0041 决定 6) — the same mechanism, the other direction. */
   restoreEntity(locator: string): Promise<RemoteResult<KbSetEntityArchivedResult>>
+  /**
+   * Delete one resource file under `resources/` (ADR-0020) — the workbench's
+   * right-click 「删除」. Entities stay undeletable (ADR-0041 决定 8); the host
+   * confines and rejects anything outside the resource plane.
+   */
+  deleteResource(path: string): Promise<RemoteResult<KbDeleteResourceResult>>
   setRelation(args: KbSetRelationArgs): Promise<RemoteResult<KbSetRelationResult>>
   root(): Promise<RemoteResult<KbRootResult>>
   setRoot(path: string): Promise<RemoteResult<KbSetRootResult>>
@@ -233,6 +239,13 @@ export type Archiver = (mails: readonly ArchiveMail[]) => Promise<KbMailArchiveR
 
 /** Copy one dropped file into `resources/` and resolve its path (ADR-0020). */
 export type ResourceRegistrar = (name: string, contentBase64: string) => Promise<string>
+
+/**
+ * Delete one resource file under `resources/` (ADR-0020) — the workbench's
+ * right-click 「删除」. Resources are dumb raw material with nothing pointing
+ * back at them, unlike entities which are never deleted (ADR-0041 决定 8).
+ */
+export type ResourceDeleter = (path: string) => Promise<KbDeleteResourceResult>
 
 /** List the registered capabilities (ADR-0021). */
 export type CapabilityLoader = () => Promise<KbCapabilityListResult>
@@ -424,6 +437,21 @@ export async function restoreEntity(ctx: Context, locator: string): Promise<KbSe
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.restoreEntity(locator))
+}
+
+/**
+ * Delete one resource file — the workbench's right-click 「删除」 (ADR-0020).
+ * Unlike entities (never deleted, ADR-0041 决定 8), a resource is dumb raw
+ * material with nothing pointing back at it, so removal is legitimate. The
+ * host confines the path and refuses anything outside `resources/`.
+ * @param ctx - client root context.
+ * @param path - KB-relative path of the resource file.
+ * @returns the path that no longer exists, or a rejected promise carrying the reason.
+ */
+export async function deleteResource(ctx: Context, path: string): Promise<KbDeleteResourceResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.deleteResource(path))
 }
 
 /**

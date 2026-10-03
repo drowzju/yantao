@@ -18,7 +18,8 @@ import type {
   ExternalOpener, FileReader, FileWriter, LinksLoader,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
-  PromptShortcutSaver, RelationSetter, ResourceRegistrar, RevisionLoader, ScheduleLister, ScheduleMarker, ScheduleSaver, ShortcutFiller,
+  PromptShortcutSaver, RelationSetter, ResourceDeleter, ResourceRegistrar, RevisionLoader, ScheduleLister, ScheduleMarker,
+  ScheduleSaver, ShortcutFiller,
   RootLoader, RootSetter,
   Archiver,
   SessionPrompter, TodoLoader, TodoWriter,
@@ -44,7 +45,7 @@ import { obsidianUri, remoteMessage, type ResourceViewReader } from '../remote.t
 import { notifySchedule, scheduleScan, type ScheduleRunner } from '../scheduler.ts'
 import { SchedulePane } from '../SchedulePane.tsx'
 import { frontmatterArchived } from '../markdown.ts'
-import type { KbCapabilitySummary, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbSchedule, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary, KbDeleteResourceResult, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbSchedule, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
@@ -122,6 +123,12 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'fo
   readonly validate: ValidateRunner
   /** Copy one dropped file into `resources/` (ADR-0020). */
   readonly registerResource: ResourceRegistrar
+  /**
+   * Delete one resource file under `resources/` (ADR-0020) — the resource
+   * row's right-click 「删除」. Entities stay undeletable (ADR-0041 决定 8);
+   * resources are dumb material with nothing pointing back at them.
+   */
+  readonly deleteResource: ResourceDeleter
   /** List the registered capabilities (ADR-0021). */
   readonly capabilityList: CapabilityLoader
   /** Read one capability's parsed declaration (ADR-0043 决定 7) — the 能力 tab detail view's 声明 section. */
@@ -383,7 +390,8 @@ function DragHandle(props: {
 export function Frame({
   t, renderSlot, panels, intake, workspace, read, readView, write, archiveEntity, restoreEntity, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine, validate,
-  registerResource, capabilityList, capabilityDeclaration, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
+  registerResource, deleteResource, capabilityList, capabilityDeclaration, capabilityCreate, capabilityAdopt,
+  capabilityRegister, capabilityRun,
   capabilityDistill,
   promptSession, memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
   sessionDetail, onKbRootChanged, mailDelete, mailArchive,
@@ -1477,6 +1485,17 @@ export function Frame({
     })
   }, [])
 
+  // The resource row's right-click 「删除」 (ADR-0020): remove the file, then
+  // drop its tab (if open) and reload both trees. Failures propagate to the
+  // rail's own onError, same as the archive gestures.
+  const removeResource = useCallback((path: string): Promise<KbDeleteResourceResult> => {
+    return deleteResource(path).then((result) => {
+      closeFile(path)
+      setTreeKey(key => key + 1)
+      return result
+    })
+  }, [deleteResource, closeFile])
+
   /** A new KB root: both rails reload, and the stale tabs' statuses go away. */
   const onConfigured = useCallback((): void => {
     setNeedsRoot(false)
@@ -1521,6 +1540,7 @@ export function Frame({
           {...(mailArchive !== undefined ? { mailArchive } : {})}
           analyseMail={analyseMail}
           registerResource={registerResource}
+          deleteResource={removeResource}
           capabilityList={capabilityList}
           capabilityDeclaration={capabilityDeclaration}
           capabilityCreate={capabilityCreate}
