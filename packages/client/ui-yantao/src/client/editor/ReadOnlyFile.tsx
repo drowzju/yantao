@@ -92,16 +92,20 @@ function base64Bytes(base64: string): Uint8Array<ArrayBuffer> {
 
 /**
  * Turn one view's payload into the Blob the iframe consumes, or null while
- * the view is not of a Blob-backed kind.
+ * the view is not of a Blob-backed kind. The HTML flavours carry an explicit
+ * `charset=utf-8`: a sandboxed iframe sits on an opaque origin and inherits
+ * no encoding from the workbench, so an untagged document would fall back to
+ * the OS locale's legacy codepage (GBK on zh systems) and render mojibake
+ * (ADR-0046 落地勘误).
  */
 function blobOf(view: KbResourceView): Blob | null {
   switch (view.kind) {
     case 'pdf':
       return new Blob([base64Bytes(view.base64)], { type: 'application/pdf' })
     case 'html':
-      return new Blob([view.content], { type: 'text/html' })
+      return new Blob([view.content], { type: 'text/html;charset=utf-8' })
     case 'eml':
-      return view.html === undefined ? null : new Blob([view.html], { type: 'text/html' })
+      return view.html === undefined ? null : new Blob([view.html], { type: 'text/html;charset=utf-8' })
     default:
       return null
   }
