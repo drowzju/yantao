@@ -21,12 +21,15 @@
 | kb 插件 / 控制器 / 任意 host 包 | `npm run build:lib:host`(较慢,数分钟) |
 | `packages/client/**` 下任意内容 | `npm run build:lib:client` |
 | 迭代客户端插件时热更新 | 服务运行的同时开 `pnpm run dev:web` |
-| 一次性刷新所有 UI 侧产物 | `pnpm run yantao:refresh`(client 库 + 插件 bundle + 前端,数秒) |
+| 改动后的类型检查(vitest 不查型!) | `./node_modules/typescript/bin/tsc -b <包目录>`(窄构建;必须在**大写** `D:/code/yantao` 下启动,见坑 12) |
+| 改 Remote 方法后重生成 typert 产物 | 先窄 tsc,再在仓库根跑 `npx tsdown --env.DSH_BUILD_FACE host -F "@deepseek-ai/dsh-<完整 scoped 包名>"`(`-F` 匹配完整包名,不能 cd 进包目录跑) |
+| 改控制器 Remote 面(UI 报 `kb.xxx is not a function` 时) | 在 `packages/api/remotes/` 包目录内跑 `npx tsdown --env.DSH_BUILD_FACE client`,重建聚合产物 `remotes/lib/client.js` |
+
+**⚠️ `pnpm run yantao:refresh` 目前不可用(2026-09-29 时点):** 它的全量 `tsc -b tsconfig.client.json` 会被上游包(ui-settings-models/ui-settings/ui-workspace/experimental)测试文件的陈年类型错误绊住,与 yantao 无关。一律改走上表的窄构建组合:`npm run build:lib:host` → 窄 tsc → 各包自己的 `bundle`/`build`。
 
 **桌面端不热加载产物**:Electron 进程启动时就把插件 bundle 读进内存,之后改代码、重建都不会反映到已开的窗口——
-症状是「我明明改了,点了没反应」。跑完 `pnpm run yantao:refresh` 后必须重启工作台(托盘退出再 `start`)才生效。
-`dev:web` 的热更新只覆盖浏览器入口,救不了桌面壳。习惯在 `apps/yantao-desktop` 里干活的话,
-那里的 `pnpm run refresh` 就是同一件事的一键版(委托根上的 `yantao:refresh` 并提示重启)。
+症状是「我明明改了,点了没反应」。重建完成后必须重启工作台(托盘退出再 `start`)才生效。
+`dev:web` 的热更新只覆盖浏览器入口,救不了桌面壳。
 
 ## 启动与停止
 
@@ -87,8 +90,27 @@ powershell -File scripts\sync-in.ps1 -Bundle <bundle 路径>
     `pnpm dsh …`。
 11. **新增/改名 Remote 方法后必须重建 client 产物。** 浏览器侧的 Remote 代理方法表被打包进
     `packages/api/remotes/lib/client.js`,而 `pnpm run typecheck` 只重建 host 侧(`build:lib:host`)。所以改动 `@Remote`
-    方法后要跑 `pnpm run build:lib:client`(外加插件自己的 `bundle`),否则页面报 `kb.<方法> is not a function`
-    —— 服务端其实已经是新的了。这两步连同前端构建,统一用 `pnpm run yantao:refresh` 一键完成。
+    方法后要在 `packages/api/remotes/` 包目录内跑 `npx tsdown --env.DSH_BUILD_FACE client`(外加插件自己的 `bundle`),
+    否则页面报 `kb.<方法> is not a function` —— 服务端其实已经是新的了。
+12. **vitest 必须从大写 `D:/code/yantao` 启动。** 从小写 `d:\` 启动时所有用例报 "Vitest failed to find the runner":
+    vitest 4 的 worker 按启动路径大小写解析模块 URL,同一份 runner 被 Node 当成两个模块。Git Bash 工具默认 cwd 是
+    小写盘符,经它发起的运行必挂——先 `cd "D:/code/yantao"` 再跑。2026-09-29 曾误诊为 Node 26 兼容性问题。
+13. **vitest 不做类型检查。** 收尾顺序 = vitest 全绿 → `tsc -b <改动包>` 干净 → 需要产物时再 bundle。
+    2026-09-29 票 04 中一处参数误用 428 例全绿照样通过,是窄 tsc 抓出来的。
+
+## 排障方向(出了问题先往哪看)
+
+- **agent 行为诡异(「为什么这么回」)** → 看会话日志:`~/.dsh/sessions/--D-yantao-data--/session-*/session.v2.jsonl.zstd`,
+  python `zstandard` 解压后逐行 JSON。pre-step 注入(能力目录、`skill-invocation` 指令)会作为 user/message 持久化,
+  可据此判断注入是否发生。
+- **`/能力名` 手势首轮无效** → 已知病根(2026-10-02 已修):会话首轮系统提示词沙箱快照(plugin 消息)落在用户手势之后,
+  旧 pre-step 钩子要求最后一条是 user 消息而误判弃注入。修复:从尾部跳过连续 plugin 消息找真正的 user 消息
+  (`packages/api/yantao-kb-controller/src/index.ts`)。修复前的规避:新会话先发一句闲话再用手势。
+- **headless CLI 不能复现工作台链路。** `pnpm dsh --profile yantao "…"` 不挂 yantao-kb-controller 的 pre-step,
+  模型看不到能力目录,只适合上游 dsh 技能与冒烟。另外 Git Bash 会把 `/archify` 这类前导斜杠参数转成
+  `C:/Program Files/Git/archify`,需 `MSYS_NO_PATHCONV=1`。
+- **`kb_exec_capability_script` 多行命令被截断** → 已裁决不动底层(2026-10-02):cmd.exe `/c` 的换行是命令分隔符,
+  这是语义不是桥的 bug;真正要程序逻辑时让能力自带 `.py` 脚本,而不是塞 `python -c` 多行载荷。
 
 ## 扩展方式
 

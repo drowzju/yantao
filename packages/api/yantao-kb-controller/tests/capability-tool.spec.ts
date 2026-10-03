@@ -476,6 +476,42 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
     )
     expect(injectedSources(decision)).toEqual([])
   })
+
+  it('still injects when a plugin snapshot trails the first-turn gesture', async () => {
+    // Regression: on a session's first turn the system-prompt sandbox snapshot
+    // lands after the user's gesture; the hook used to bail on it and the
+    // model received a bare `/name` with no instructions.
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {}, content: '# 指令正文' }))
+    const gesture = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '/mail 读一下' }] })
+    const snapshot = createUserMessage({
+      source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt', form: 'snapshot' },
+      content: [{ type: 'text', text: 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.' }],
+    })
+    const decision = await agentEvents(ctx, agent).waterfall(
+      'agent/pre-step',
+      preStepPayload('/mail 读一下'),
+      () => Promise.resolve({ kind: 'enter' as const, messages: [gesture, snapshot] }),
+    )
+    const messages = decision.kind === 'enter' ? decision.messages : []
+    expect(messages).toHaveLength(3)
+    const injected = messages[2] as unknown as { source: { kind: string; form?: string } }
+    expect(injected.source).toMatchObject({ kind: 'skill-invocation', form: 'instructions' })
+  })
+
+  it('stops skipping once an assistant or tool turn follows the user message', async () => {
+    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
+    skillGet.mockResolvedValue(definition({ metadata: {}, content: '# 指令正文' }))
+    const gesture = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '/mail 读一下' }] })
+    const toolMessage = { source: { kind: 'tool' }, content: [] } as unknown as UserMessage
+    const decision = await agentEvents(ctx, agent).waterfall(
+      'agent/pre-step',
+      preStepPayload('/mail 读一下'),
+      () => Promise.resolve({ kind: 'enter' as const, messages: [gesture, toolMessage] }),
+    )
+    // The gesture is stale: no injection rides this step.
+    expect(decision.kind === 'enter' ? decision.messages : []).toHaveLength(2)
+  })
 })
 
 describe('the tool surface declarations (ADR-0043)', () => {

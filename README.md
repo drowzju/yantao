@@ -13,6 +13,7 @@
 |---|---|
 | 了解工程与 dsh 的关系 | [docs/yantao/README.md](docs/yantao/README.md) |
 | 构建、启动、停止、测试,以及避开已知坑 | [docs/yantao/development.md](docs/yantao/development.md) |
+| 整编新能力(sidecar/路由/执行桥/记忆回流) | [docs/yantao/capability-integration.md](docs/yantao/capability-integration.md) |
 | 看还有哪些没做 | [docs/yantao/TODO.md](docs/yantao/TODO.md) |
 | 查规范用词(知识库 / 状态 / 流水 / 提炼 …) | [CONTEXT-MAP.md](CONTEXT-MAP.md) · [packages/yantao/CONTEXT.md](packages/yantao/CONTEXT.md) |
 | 读决策记录 | [docs/adr/](docs/adr/) |
@@ -35,7 +36,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"   # headless sm
 | 路径 | 是什么 |
 |---|---|
 | `apps/yantao/` | 工作台前端(React + Vite),由 dsh 伺服 |
-| `packages/yantao/kb/` | PARA+P 领域插件:六个 `kb_*` 工具(agent 的唯一写入通道) |
+| `packages/yantao/kb/` | PARA+P 领域插件:十三个 `kb_*` 工具(agent 的唯一写入通道) |
 | `packages/api/yantao-kb-controller/` | `yantaoKb` Typert Remote:给 UI 的 `tree` / `read` / `write` |
 | `packages/client/ui-yantao/` | 我们的客户端插件:基于 `ctx.remote` 的工作台 React 树 |
 | `packages/bundle/yantao/`、`packages/bundle/yantao-web-app/` | profile 层:模型网关、KB 工具、工作台名单 |
@@ -51,4 +52,4 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"   # headless sm
 - 只加不改:新行为放进我们自己的包;上游文件只做登记式的一行修改。
 - 用术语表里的词;LLM 路由叫 `model-gateway`,不写厂商名。
 - 密钥绝不入库——走 `.env` 或凭据存储。
-- 分支 `main` 只在本地:不要 push。
+- 分支 `main` 推到你自己的远端 `yantao`(见 AGENTS.md);`origin` 是上游 dsh,只 fetch 永不 push。

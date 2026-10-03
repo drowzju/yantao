@@ -39,6 +39,10 @@
 { "<名字>": { "path": "<名字>", "invocation": ["human", "agent"], "appliesTo": { "external": ["dingtalk"] } } }
 ```
 
+**纯路由采纳（archify 先例，2026-10-02）**：三方 skill 不带自己的 `yantao.json` 时可以**不写 sidecar**，只在中央路由登记一条——此时按指令型对待（运行即返回 SKILL.md 正文），`invocation`/`appliesTo` 以路由条目为准。声明读取的优先序是：**有效 sidecar 胜出，路由兜底**（`resolveCapability` 的双闸裁决，ADR-0043）——两边都写时字段不一致会静默偏向 sidecar，所以**二选一**，别两头维护。
+
+**拷贝净化**：三方目录原样拷入，但有两样东西必须删——skill 自带的 `yantao.json`（防止与本方路由形成歧义双声明）和 `package-lock.json`（本机不用 npm 安装它的依赖，留着只会误导）。
+
 ## 信封契约（冻结）
 
 宿主 → 脚本：
@@ -74,9 +78,13 @@
 
 「资源」默认指 `<kbRoot>/resources/`：脚本产出缺省落这里（相对 out 按 kbRoot 解析），结果尾附 `[落盘]` 行给真实位置；agent 事后用 `kb_read_resource` 读取。原件进入后永不改写（kb_write_resource 只新建不覆盖）。
 
+**迭代产物命名**：因为只新建不覆盖，同一能力的每一轮产出要用**新文件名**（带轮次/日期后缀，如 `xxx-v2.html`），想覆盖就先让人在 UI 里删旧文件。这是刻意的：成果平面不可被 agent 静默改写。
+
 ## 菜单与手势
 
 `/名字` 三入口（`/` 菜单点选、能力 tab、手打）只把文本填进输入框；脚本型在菜单带 ⚙ 标记。惯用提示词（别名）存 `.dsh/yantao/prompt-shortcuts.json`，UI 唯一写者。
+
+**选区右键**（ADR-0025/0026）：选中文字后右键发给声明了 `appliesTo.selection` 的能力，合成的是 `/名字 <选中文字>` slash 消息，走 pre-step 双消息注入（用户原文 + skill-invocation）。**首轮陷阱**：会话第一轮系统提示词沙箱快照会落在手势之后——2026-10-02 已修（pre-step 从尾部跳过 plugin 消息找用户消息），细节与排障见 [development.md](development.md) 排障一节。
 
 ## 常见坑
 
@@ -85,11 +93,17 @@
 3. **落盘越界**：产出写 `.dsh/` 或实体目录 = 违反约定；产出只落 `resources/`。
 4. **输出封顶**：执行桥 stdout/stderr 各 64KB 截断；超时缺省 120s 可传 `timeoutMs`。
 5. **改控制器 Remote 面后**必须窄重建 `packages/api/remotes` 客户端产物，否则页面报 `is not a function`。
+6. **`/名字` 手势首轮无效** → 见 [development.md](development.md) 排障一节（2026-10-02 已修的首轮沙箱快照问题）。
+7. **执行桥里塞 `python -c` 多行载荷** → 第一换行处被 cmd.exe 静默截断（exit 0、首行照跑）。已裁决不动底层：要程序逻辑就让能力自带 `.py` 脚本。
+
+## 升级与源头
+
+能力来自某个源头仓库时（如 archify 在 `D:\code\archify`），**升级 = 从源头重新拷贝内核层**，再对照本手册检查清单走一遍（净化、路由核对、试跑）。适配脚本住在我方的 `.dsh/yantao/capability-adapters/`，不受源头升级影响；源头 skill 自身漂移的新能力，按需补适配。
 
 ## 整编检查清单
 
-1. 拷 skill 目录到 `.dsh/skills/<名字>/`（原样，不改）
-2. 写 sidecar；需要适配脚本时放 `.dsh/yantao/capability-adapters/<名字>/`，sidecar `entry` 指过去
-3. 注册中央路由 `.dsh/skills/yantao.json`
+1. 拷 skill 目录到 `.dsh/skills/<名字>/`（原样，不改；删掉自带的 `yantao.json` 与 `package-lock.json`）
+2. 写 sidecar，**或**走纯路由（见上文 archify 先例）；需要适配脚本时放 `.dsh/yantao/capability-adapters/<名字>/`，sidecar `entry` 指过去
+3. 注册中央路由 `.dsh/skills/yantao.json`（无论如何都要；sidecar 只管声明，路由管开关）
 4. 试跑一个只读动词（list 类）验证信封链路
 5. 能力 tab → 详情 → 「声明」区确认 sidecar/路由/开放状态全部正常

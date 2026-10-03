@@ -59,7 +59,8 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 ```
 
 - **dsh 是后端。** 我们的 UI 通过 Typert RPC 与转发事件流消费它,而浏览器外壳归我们:工作台插件注册运行时内置的 `root` 槽位、自绘三栏外框(ADR-0011),`ui-layout` 已退出名单。中间一列是 tab 化的:常驻的「对话」tab 通过 `conversation` 座位承载宿主的会话面(ADR-0009),每个打开的 KB 文件各占一个可关闭 tab,自动保存并带冲突检查(ADR-0012)。
-- **信任边界在工具层。** agent 有十一个 `kb_*` 工具、没有通用写能力;它现在可以通过 `kb_write_state` 写实体的「状态」区——这正是 ADR-0010 对 ADR-0004 的修订:边界是工具集,不是区段;它读写 `resources/` 分别走 `kb_write_resource`(只新建)与 `kb_read_resource`(只读,ADR-0028);它运行能力也只能通过 `kb_run_capability`,由 sidecar 的 `invocation` 字段逐能力把关(ADR-0023)。**UI 是人类通道**,可以编辑任何内容。
+- **信任边界在工具层。** agent 有十三个 `kb_*` 工具、没有通用写能力;写实体的「状态」区走 `kb_write_state`(ADR-0010 修订 ADR-0004:边界是工具集,不是区段),编辑任意 `## ` 区段(流水除外)走 `kb_edit_section`(ADR-0026);读写 `resources/` 分别走 `kb_write_resource`(只新建)与 `kb_read_resource`(只读,ADR-0028);运行能力只能通过 `kb_run_capability`(指令型)或 `kb_exec_capability_script`(脚本型执行桥,cwd 锁定技能目录、信封 env/stdin,ADR-0043),且仅当 sidecar 或中央路由对该能力放开了 `invocation`;写记忆只有 `kb_propose_memory` 一条路——提案进队列,人批准前永不注入(ADR-0044)。**UI 是人类通道**,可以编辑任何内容。
+- **注入管线(pre-step)。** 每个 `kb_*` 工具的定义与能力目录由 `yantao-kb-controller` 的 pre-step 钩子在每轮重算注入;`/名字 <参数>` 手势被合成为双消息(用户原文 + `skill-invocation` 注入)。注意一个曾经的坑(2026-10-02 已修):会话首轮系统提示词沙箱快照(plugin 消息)落在用户手势之后,旧的「最后一条必须是 user」守卫因此误判弃注入——修复方式是从尾部跳过连续的 plugin 消息找真正的用户消息;回归测试见 `packages/api/yantao-kb-controller/tests/capability-tool.spec.ts`。
 - **知识存在文件里**,不是数据库:KB 根下的 `resources/`、`entities/{projects,areas,people,meetings}/`、`entities/todos.md` 单例,以及暂不使用的 `sessions/`(ADR-0005,目录结构调整见 ADR-0010)。每个实体文件里的「状态」/「流水」两区就是人与 agent 的边界。
 - **知识库根目录由人选。** 首次进入会要求选一个目录并持久化到 `~/.dsh/yantao-kb.json`(`yantaoKb.root()` / `setRoot()`);两条侧栏通过 `yantaoKb.createEntity()` 就地新建实体(ADR-0012)。
 
@@ -148,8 +149,9 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 
 | 文档 | 内容 |
 |---|---|
-| [development.md](development.md) | 构建、运行、停止、测试、门禁、坑 |
+| [development.md](development.md) | 构建、运行、停止、测试、门禁、坑、排障方向 |
 | [capability-integration.md](capability-integration.md) | 能力整编手册:sidecar/中央路由/信封契约/执行桥/落盘约定/记忆回流/常见坑/检查清单(ADR-0043/0044) |
+| [memory.md](memory.md) | 记忆系统设计纪要(背景材料,结论以 ADR-0032/0044 为准) |
 | [design.md](design.md) | UI 设计规则:`--yt-*` token、排版与间距阶梯、表面与构图纪律、迁移路径 |
 | [TODO.md](TODO.md) | 待办:done / next / deferred(每个搁置项都带原因) |
 | [../adr/](../adr/) | ADR 0001–0044(索引见第 4 节) |
