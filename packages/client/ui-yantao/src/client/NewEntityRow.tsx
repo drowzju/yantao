@@ -3,7 +3,7 @@
  * submits, 取消 or Escape cancels. Presentational — the caller owns what
  * "create" means for its tab (which entity kind, which tree to refresh).
  */
-import { useCallback, useEffect, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import type { WorkbenchT } from './locales.ts'
 
 /** One option of the row's optional picker — the person's relation. */
@@ -33,6 +33,12 @@ export interface NewEntityRowProps {
     readonly value: string
     readonly onChange: (value: string) => void
   } | undefined
+  /**
+   * An action riding immediately beside the 新建 button (or beside the edit
+   * row) — the 校验 button (design.md: actions of one group hug each other,
+   * they never split to opposite ends of the row).
+   */
+  readonly trailing?: ReactNode
 }
 
 const rowStyle = { display: 'flex', gap: 4, margin: '4px 0' } as const
@@ -44,7 +50,7 @@ const errorStyle = { color: 'var(--yt-error)', padding: '0 6px' } as const
  * @param props - see {@link NewEntityRowProps}.
  * @returns the row element.
  */
-export function NewEntityRow({ t, label, placeholder, submit, choice }: NewEntityRowProps): ReactElement {
+export function NewEntityRow({ t, label, placeholder, submit, choice, trailing }: NewEntityRowProps): ReactElement {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -74,56 +80,59 @@ export function NewEntityRow({ t, label, placeholder, submit, choice }: NewEntit
   }, [editing, busy, close])
 
   return (
-    <div>
-      {!editing && (
-        <button type="button" style={{ padding: '2px 6px' }} onClick={() => { setEditing(true) }} disabled={busy}>
-          {label}
-        </button>
-      )}
-      {editing && (
-        <div style={rowStyle}>
-          <input
-            autoFocus
-            value={name}
-            placeholder={placeholder}
-            disabled={busy}
-            style={{ flex: 1, minWidth: 0 }}
-            onChange={(event) => { setName(event.target.value) }}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter') return
-              const trimmed = name.trim()
-              if (trimmed === '') {
-                close()
-                return
-              }
-              setBusy(true)
-              submit(trimmed).then(
-                () => {
-                  close()
-                },
-                (failure: unknown) => {
-                  setError(failure instanceof Error ? failure.message : String(failure))
-                  setBusy(false)
-                },
-              )
-            }}
-          />
-          {choice !== undefined && (
-            <select
-              aria-label={t('relation.label')}
-              value={choice.value}
+    <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {!editing && (
+          <button type="button" style={{ padding: '2px 6px' }} onClick={() => { setEditing(true) }} disabled={busy}>
+            {label}
+          </button>
+        )}
+        {editing && (
+          <div style={rowStyle}>
+            <input
+              autoFocus
+              value={name}
+              placeholder={placeholder}
               disabled={busy}
-              onChange={(event) => { choice.onChange(event.target.value) }}
-            >
-              {choice.options.map(option => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          )}
-          <button type="button" style={{ padding: '2px 6px' }} disabled={busy} onClick={close}>{t('common.cancel')}</button>
-        </div>
-      )}
-      {error !== null && <div style={errorStyle}>{error}</div>}
+              style={{ flex: 1, minWidth: 0 }}
+              onChange={(event) => { setName(event.target.value) }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return
+                const trimmed = name.trim()
+                if (trimmed === '') {
+                  close()
+                  return
+                }
+                setBusy(true)
+                submit(trimmed).then(
+                  () => {
+                    close()
+                  },
+                  (failure: unknown) => {
+                    setError(failure instanceof Error ? failure.message : String(failure))
+                    setBusy(false)
+                  },
+                )
+              }}
+            />
+            {choice !== undefined && (
+              <select
+                aria-label={t('relation.label')}
+                value={choice.value}
+                disabled={busy}
+                onChange={(event) => { choice.onChange(event.target.value) }}
+              >
+                {choice.options.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            )}
+            <button type="button" style={{ padding: '2px 6px' }} disabled={busy} onClick={close}>{t('common.cancel')}</button>
+          </div>
+        )}
+        {error !== null && <div style={errorStyle}>{error}</div>}
+      </div>
+      {trailing}
     </div>
   )
 }

@@ -208,7 +208,7 @@ describe('IntakeRail', () => {
     // also named 待办, so a global text query would see both.
     await waitFor(() => {
       const blocks = [...container.querySelectorAll('[data-todo-block]')].map(node => node.textContent)
-      expect(blocks).toEqual(['待办', '已完成'])
+      expect(blocks).toEqual(['待办+', '已完成'])
     })
     expect(loadTodos).toHaveBeenCalledOnce()
     expect(await screen.findByText('写下第一个待办')).toBeTruthy()
@@ -569,7 +569,7 @@ describe('WorkspaceRail', () => {
       expect(found).not.toBeNull()
       return found as HTMLElement
     })
-    expect(row.textContent).toBe('我自己 · 自己')
+    expect(row.textContent).toBe('我自己自己')
   })
 
   it('sets a person\'s relation from the row menu, and marks the one it carries', async () => {
@@ -612,7 +612,9 @@ describe('WorkspaceRail', () => {
     fireEvent.click(await screen.findByText('人物'))
     fireEvent.contextMenu(await screen.findByText('我自己'), { clientX: 40, clientY: 60 })
     expect(await screen.findByText('知识库主人，不可改')).toBeTruthy()
-    expect(screen.queryByText('同事')).toBeNull()
+    // The ✓ marker only exists on a menu's current relation — the rail's own
+    // right-edge relation tags never wear it, so this can't false-positive on them.
+    expect(screen.queryByText('✓ 同事')).toBeNull()
   })
 
   it('offers no relation on a row that is not a person', async () => {

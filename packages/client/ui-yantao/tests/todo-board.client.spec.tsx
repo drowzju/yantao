@@ -63,7 +63,7 @@ describe('TodoBoard', () => {
     expect(screen.getByText('载入中…')).toBeTruthy()
     expect(await screen.findByText('有期限')).toBeTruthy()
     expect([...container.querySelectorAll('[data-todo-block]')].map(node => node.textContent))
-      .toEqual(['待办', '已完成'])
+      .toEqual(['待办+', '已完成'])
     expect(within(container.querySelector('[data-todo-pane="todo"]') as HTMLElement).getByText('有期限')).toBeTruthy()
     expect(within(container.querySelector('[data-todo-pane="done"]') as HTMLElement).getByText('已完成')).toBeTruthy()
   })

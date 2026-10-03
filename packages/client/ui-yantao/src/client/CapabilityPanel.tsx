@@ -17,7 +17,7 @@
  * (ADR-0044 决定 6), each with a 提炼经验 button that turns the run's
  * envelope into memory proposals through a one-shot headless session.
  */
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import type {
   KbCapabilityDeclarationResult, KbCapabilitySummary, KbPromptShortcut, KbUnregisteredSkill,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
@@ -203,12 +203,41 @@ function CapabilityRow({
   return (
     <button type="button" style={rowStyle} onClick={() => { onSelect(name) }} title={name}>
       <span style={nameStyle}>{name}</span>
-      {description !== '' && <div style={mutedStyle}>{description}</div>}
+      {description !== '' && <div style={clampedMutedStyle} title={description}>{description}</div>}
     </button>
   )
 }
 
+/**
+ * Descriptions clamp to two lines (design.md §5: 挤则删并重) — the inventory
+ * stays scannable; the row's own click opens the detail view with the full
+ * text, and the tooltip carries it too.
+ */
+const clampedMutedStyle = {
+  ...mutedStyle,
+  display: '-webkit-box',
+  WebkitBoxOrient: 'vertical',
+  WebkitLineClamp: 2,
+  overflow: 'hidden',
+} as const
+
 const shortcutRowStyle = { display: 'flex', alignItems: 'flex-start', gap: 2, margin: '1px 0' } as const
+
+/** The code font (design.md §3): a shortcut's `/command` lead is a code fragment. */
+const CODE_FONT = 'var(--ds-font-family-code, ui-monospace, monospace)'
+
+/**
+ * One shortcut's expansion line: a leading `/command` (the skill-invocation
+ * form) wears the code font; free-text expansions render plain.
+ * @param text - the shortcut's expansion.
+ */
+function shortcutTextOf(text: string): ReactNode {
+  if (!text.startsWith('/')) return text
+  const spaceAt = text.indexOf(' ')
+  const command = spaceAt === -1 ? text : text.slice(0, spaceAt)
+  const rest = spaceAt === -1 ? '' : text.slice(spaceAt)
+  return <><span style={{ fontFamily: CODE_FONT }}>{command}</span>{rest}</>
+}
 
 const shortcutMainStyle = {
   ...rowStyle,
@@ -406,7 +435,7 @@ function ShortcutSection({
               }}
             >
               <span style={nameStyle}>/{shortcut.alias}</span>
-              <div style={mutedStyle}>{shortcut.text}</div>
+              <div style={mutedStyle}>{shortcutTextOf(shortcut.text)}</div>
             </button>
             <button type="button" style={shortcutToolStyle} disabled={index === 0} title={t('shortcut.up')}
               onClick={() => { void move(index, -1) }}
@@ -768,7 +797,7 @@ export function CapabilityPanel({
                         title={reason ?? skill.directory}
                       >
                         <span style={reason === undefined ? nameStyle : greyedNameStyle}>{skill.name}</span>
-                        {skill.description !== '' && <div style={mutedStyle}>{skill.description}</div>}
+                        {skill.description !== '' && <div style={clampedMutedStyle} title={skill.description}>{skill.description}</div>}
                         {skill.inKb === true && skill.reason !== undefined && (
                           <div style={mutedStyle}>{skill.reason}</div>
                         )}

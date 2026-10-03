@@ -62,6 +62,9 @@ const mutedStyle = { color: 'var(--yt-text-muted)', padding: '4px 6px' } as cons
 
 const titleStyle = { margin: '8px 0 2px', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
 
+/** A block header: the title on the left, the block's add gesture on the right. */
+const titleRowStyle = { ...titleStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between' } as const
+
 /** Baseline alignment: the checkbox and the date ride the title's first text baseline. */
 const rowStyle = { display: 'flex', gap: 6, alignItems: 'baseline', padding: '2px 6px' } as const
 
@@ -399,12 +402,16 @@ export function TodoBoard({ t, load, write, refreshKey, onOpenFile }: TodoBoardP
       {board === null && error === null && <div style={mutedStyle}>{t('todo.loading')}</div>}
       {board !== null && (
         <>
-          <div style={titleStyle} data-todo-block="todo">{t('todo.todoColumn')}</div>
+          <div style={titleRowStyle} data-todo-block="todo">
+            <span>{t('todo.todoColumn')}</span>
+            {/* The add gesture lives in the block's title row (design.md §5):
+                a lone bordered button on its own line read as a leftover. */}
+            <button type="button" style={addStyle} title={t('todo.addTitle')} disabled={busy} onClick={add}>+</button>
+          </div>
           <div data-todo-pane="todo">
             {todo.length === 0 && <div style={mutedStyle}>{t('common.empty')}</div>}
             {todo.map(renderRow)}
           </div>
-          <button type="button" style={addStyle} title={t('todo.addTitle')} disabled={busy} onClick={add}>+</button>
           <div style={titleStyle} data-todo-block="done">{t('todo.doneColumn')}</div>
           <div data-todo-pane="done">
             {done.length === 0 && <div style={mutedStyle}>{t('common.empty')}</div>}

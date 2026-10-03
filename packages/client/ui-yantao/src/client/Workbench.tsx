@@ -280,12 +280,22 @@ function FileRow({
       }}
       title={file.path}
     >
-      {file.name}
-      {file.archived === true && <span style={{ color: 'var(--yt-text-muted)' }}>{t('workbench.archived')}</span>}
-      {file.relation !== undefined && (
-        <span style={{ color: 'var(--yt-text-muted)' }}>
-          {' · '}
-          {relationLabel(t, file.relation)}
+      {file.relation === undefined ? (
+        <>
+          {file.name}
+          {file.archived === true && <span style={{ color: 'var(--yt-text-muted)' }}>{t('workbench.archived')}</span>}
+        </>
+      ) : (
+        // A person's relation is a tag, not a ` · ` tail (design.md §7): it
+        // pins to the row's right edge as a small muted label.
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {file.name}
+            {file.archived === true && <span style={{ color: 'var(--yt-text-muted)' }}>{t('workbench.archived')}</span>}
+          </span>
+          <span style={{ color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)', flexShrink: 0 }}>
+            {relationLabel(t, file.relation)}
+          </span>
         </span>
       )}
     </button>
@@ -1384,32 +1394,32 @@ export function WorkspaceRail(props: RailProps): ReactElement {
       </div>
       {actionError !== null && <div style={errorStyle}>{actionError}</div>}
       {/* ADR-0035, 2026-09-29 修订: the validate entry lives in the two tabs
-          it scopes — 人物 / 项目 — beside 新建 at the tab's very top. */}
+          it scopes — 人物 / 项目. It rides NewEntityRow's trailing slot, so
+          新建 and 校验 hug each other instead of splitting to opposite ends
+          of the row (design.md §5). */}
       {(tab === 'people' || tab === 'projects') && onValidate !== undefined && (
-        <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <NewEntityRow
-              t={t}
-              label={t('workbench.newButton')}
-              placeholder={t('workbench.entityNamePlaceholder', { section: t(SECTION_KEYS[tab]) })}
-              choice={tab === 'people' ? {
-                options: relationOptions(t),
-                value: relation,
-                onChange: (value) => { setRelation(value as KbPersonRelation) },
-              } : undefined}
-              submit={name => create(name).catch((failure: unknown) => {
-                setActionError(failure instanceof Error ? failure.message : String(failure))
-              })}
-            />
-          </div>
-          <button
-            type="button"
-            style={{ padding: '2px 6px', marginTop: 4 }}
-            onClick={() => { onValidate(tab === 'people' ? 'person' : 'project') }}
-          >
-            {t('workbench.validateButton')}
-          </button>
-        </div>
+        <NewEntityRow
+          t={t}
+          label={t('workbench.newButton')}
+          placeholder={t('workbench.entityNamePlaceholder', { section: t(SECTION_KEYS[tab]) })}
+          choice={tab === 'people' ? {
+            options: relationOptions(t),
+            value: relation,
+            onChange: (value) => { setRelation(value as KbPersonRelation) },
+          } : undefined}
+          submit={name => create(name).catch((failure: unknown) => {
+            setActionError(failure instanceof Error ? failure.message : String(failure))
+          })}
+          trailing={(
+            <button
+              type="button"
+              style={{ padding: '2px 6px', marginTop: 4 }}
+              onClick={() => { onValidate(tab === 'people' ? 'person' : 'project') }}
+            >
+              {t('workbench.validateButton')}
+            </button>
+          )}
+        />
       )}
       {!(onValidate !== undefined && (tab === 'people' || tab === 'projects')) && (
         <NewEntityRow

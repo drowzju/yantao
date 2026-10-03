@@ -6,6 +6,11 @@
  * (每天 / 每周 / 每隔 N 分钟) that merely generate the stored cron string,
  * with an advanced mode that types the cron directly (决定 6); the prompt
  * field's 「从惯用提示词填入」 copies a snapshot, never a reference (决定 5).
+ *
+ * Design discipline (docs/yantao/design.md): colors and metrics ride the
+ * `--yt-*` tokens; the cron is a code fragment and wears the code font;
+ * evidence (下次触发/上次触发/上次错过) owns its own muted line — never a
+ * ` · ` tail; the destructive 删除 wears ghost clothes.
  */
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import type { KbPromptShortcut, KbSchedule } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
@@ -75,7 +80,7 @@ function newScheduleId(): string {
   return `sch_${Date.now().toString(36)}_${[...random].map(byte => byte.toString(16).padStart(2, '0')).join('')}`
 }
 
-/** Format one ISO stamp for the list's metadata line. */
+/** Format one ISO stamp for the list's metadata lines. */
 function formatStamp(iso: string): string {
   const at = new Date(iso)
   const pad = (value: number): string => String(value).padStart(2, '0')
@@ -84,12 +89,15 @@ function formatStamp(iso: string): string {
 
 const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
 
+/** The code font (design.md §3): code fragments only — the cron string here. */
+const CODE_FONT = 'var(--ds-font-family-code, ui-monospace, monospace)'
+
 const paneStyle = {
   display: 'flex',
   flex: 1,
   minHeight: 0,
   fontFamily: FONT,
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
   background: 'var(--yt-surface-primary)',
 } as const
 
@@ -106,11 +114,11 @@ const listHeadStyle = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  padding: '8px 10px',
+  padding: 'var(--yt-space-2) var(--yt-space-3)',
   borderBottom: '1px solid var(--yt-border-subtle)',
 } as const
 
-const listBodyStyle = { flex: 1, overflowY: 'auto', padding: 4 } as const
+const listBodyStyle = { flex: 1, overflowY: 'auto', padding: 'var(--yt-space-1)' } as const
 
 const rowStyle = {
   display: 'block',
@@ -122,21 +130,42 @@ const rowStyle = {
   borderRadius: 4,
   background: 'transparent',
   cursor: 'pointer',
-  padding: '6px 8px',
+  padding: 'var(--yt-space-2)',
   fontFamily: FONT,
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
 } as const
 
 const activeRowStyle = { ...rowStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } as const
 
-const editColStyle = { flex: 1, minWidth: 0, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 } as const
+const editColStyle = {
+  flex: 1,
+  minWidth: 0,
+  overflowY: 'auto',
+  padding: 'var(--yt-space-4)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--yt-space-3)',
+} as const
 
-const fieldLabelStyle = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 'var(--yt-type-label)', color: 'var(--yt-text-muted)' } as const
+const fieldLabelStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--yt-space-1)',
+  fontSize: 'var(--yt-type-label)',
+  color: 'var(--yt-text-muted)',
+} as const
+
+/** One muted evidence line (design.md §7: 从属证据独立成行). */
+const metaLineStyle = {
+  color: 'var(--yt-text-muted)',
+  fontSize: 'var(--yt-type-label)',
+  marginTop: 'var(--yt-space-1)',
+} as const
 
 const inputStyle = {
   fontFamily: FONT,
-  fontSize: 13,
-  padding: '4px 8px',
+  fontSize: 'var(--yt-type-body)',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: 'var(--yt-border-subtle)',
@@ -147,8 +176,8 @@ const inputStyle = {
 
 const buttonStyle = {
   fontFamily: FONT,
-  fontSize: 13,
-  padding: '4px 12px',
+  fontSize: 'var(--yt-type-body)',
+  padding: 'var(--yt-space-1) var(--yt-space-3)',
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: 'var(--yt-border-subtle)',
@@ -156,9 +185,21 @@ const buttonStyle = {
   background: 'var(--yt-surface-raised)',
   color: 'inherit',
   cursor: 'pointer',
+  whiteSpace: 'nowrap',
 } as const
 
 const primaryButtonStyle = { ...buttonStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } as const
+
+/** The destructive action's ghost clothes (design.md §7): no border, transparent, muted ink, the explanation rides the tooltip. */
+const ghostDangerStyle = {
+  fontFamily: FONT,
+  fontSize: 'var(--yt-type-body)',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
+  borderWidth: 0,
+  background: 'transparent',
+  color: 'var(--yt-text-muted)',
+  cursor: 'pointer',
+} as const
 
 const missedBadgeStyle = {
   color: 'var(--yt-warning)',
@@ -256,18 +297,22 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
           <button type="button" style={buttonStyle} onClick={openNew}>+ 新建</button>
         </div>
         <div style={listBodyStyle}>
-          {schedules.length === 0 && <div style={{ padding: 8, color: 'var(--yt-text-muted)' }}>还没有调度。新建一条，到点自动在后台跑一段提示词。</div>}
+          {schedules.length === 0 && (
+            <div style={{ padding: 'var(--yt-space-2)', color: 'var(--yt-text-muted)' }}>还没有调度。新建一条，到点自动在后台跑一段提示词。</div>
+          )}
           {schedules.map((schedule) => {
             const next = cronNextFire(schedule.cron, new Date())
             return (
-              <button
+              <div
                 key={schedule.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 style={selectedId === schedule.id ? activeRowStyle : rowStyle}
                 data-schedule-row={schedule.id}
                 onClick={() => { openEditor(schedule) }}
+                onKeyDown={(event) => { if (event.key === 'Enter') openEditor(schedule) }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--yt-space-2)' }}>
                   <input
                     type="checkbox"
                     checked={schedule.enabled}
@@ -277,18 +322,13 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
                   />
                   <span style={{ fontWeight: 500 }}>{schedule.name}</span>
                 </div>
-                <div style={{ color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)', marginTop: 2 }}>
-                  {schedule.cron}{next !== null ? ` · 下次 ${formatStamp(next.toISOString())}` : ' · 永不触发'}
-                </div>
-                <div style={{ fontSize: 'var(--yt-type-label)', marginTop: 2, display: 'flex', gap: 8 }}>
-                  {schedule.lastFiredAt !== undefined && <span style={{ color: 'var(--yt-text-muted)' }}>上次触发 {formatStamp(schedule.lastFiredAt)}</span>}
-                  {schedule.lastMissedAt !== undefined && (
-                    <span style={missedBadgeStyle} title="应用未在运行时错过的触发，按裁决不补跑">
-                      上次错过 {formatStamp(schedule.lastMissedAt)}
-                    </span>
-                  )}
-                </div>
-              </button>
+                <div style={{ ...metaLineStyle, fontFamily: CODE_FONT }}>{schedule.cron}</div>
+                <div style={metaLineStyle}>{next !== null ? `下次触发 ${formatStamp(next.toISOString())}` : '永不触发'}</div>
+                {schedule.lastFiredAt !== undefined && <div style={metaLineStyle}>上次触发 {formatStamp(schedule.lastFiredAt)}</div>}
+                {schedule.lastMissedAt !== undefined && (
+                  <div style={{ ...metaLineStyle, ...missedBadgeStyle }}>上次错过 {formatStamp(schedule.lastMissedAt)}（应用未在运行，不补跑）</div>
+                )}
+              </div>
             )
           })}
         </div>
@@ -303,26 +343,32 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
               <input style={inputStyle} value={draft.name} onChange={(event) => { setDraft({ ...draft, name: event.target.value }) }} />
             </label>
             <label style={fieldLabelStyle}>
-              提示词（到点作为独立后台会话运行）
+              提示词
               <textarea
                 style={{ ...inputStyle, minHeight: 120, resize: 'vertical' }}
                 value={draft.prompt}
                 onChange={(event) => { setDraft({ ...draft, prompt: event.target.value }) }}
               />
             </label>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <select style={inputStyle} value={shortcutAlias} onChange={(event) => { setShortcutAlias(event.target.value) }}>
+            <div style={metaLineStyle}>到点作为独立后台会话运行。</div>
+            <div style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center' }}>
+              <select
+                style={{ ...inputStyle, width: 180 }}
+                value={shortcutAlias}
+                title={shortcutAlias}
+                onChange={(event) => { setShortcutAlias(event.target.value) }}
+              >
                 <option value="">选择惯用提示词…</option>
                 {shortcuts.map(shortcut => <option key={shortcut.alias} value={shortcut.alias}>/{shortcut.alias}</option>)}
               </select>
               <button type="button" style={buttonStyle} disabled={shortcutAlias === ''} onClick={fillShortcut}>
                 从惯用提示词填入
               </button>
-              <span style={{ color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)' }}>拷贝快照，之后改惯用提示词不影响本条</span>
             </div>
+            <div style={metaLineStyle}>填入是拷贝快照：之后改惯用提示词不影响本条调度。</div>
             <div style={fieldLabelStyle}>
               触发规则
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
                 <select
                   style={inputStyle}
                   value={draft.rule.mode}
@@ -376,42 +422,53 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
                         setDraft({ ...draft, rule: { mode: 'interval', minutes: Math.min(60, Math.max(1, Number(event.target.value) || 1)) } })
                       }}
                     />
-                    <span>分钟（超过 60 分钟请用高级 cron，分钟字段放不下更大的步进）</span>
+                    <span>分钟</span>
                   </>
                 )}
                 {draft.rule.mode === 'cron' && (
                   <input
-                    style={{ ...inputStyle, width: 220 }}
+                    style={{ ...inputStyle, width: 220, fontFamily: CODE_FONT }}
                     value={draft.rule.cron}
                     placeholder="分 时 日 月 周，如 0 9 * * 1-5"
                     onChange={(event) => { setDraft({ ...draft, rule: { mode: 'cron', cron: event.target.value } }) }}
                   />
                 )}
               </div>
-              <div style={{ color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)' }}>
-                存储为 cron：{draftCron}{draftNext !== null ? ` · 下次触发 ${formatStamp(draftNext.toISOString())}` : ''}
+              <div style={metaLineStyle}>
+                存储为 cron：<span style={{ fontFamily: CODE_FONT }}>{draftCron}</span>
               </div>
+              {draftNext !== null && <div style={metaLineStyle}>下次触发 {formatStamp(draftNext.toISOString())}</div>}
+              {draft.rule.mode === 'interval' && <div style={metaLineStyle}>超过 60 分钟请用高级 cron，分钟字段放不下更大的步进。</div>}
             </div>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <input
-                type="checkbox"
-                checked={draft.enabled}
-                onChange={(event) => { setDraft({ ...draft, enabled: event.target.checked }) }}
-              />
-              启用（停用的调度保留在列表里但不触发）
-            </label>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div>
+              <label style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={draft.enabled}
+                  onChange={(event) => { setDraft({ ...draft, enabled: event.target.checked }) }}
+                />
+                启用
+              </label>
+              <div style={metaLineStyle}>停用的调度保留在列表里但不触发。</div>
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center' }}>
               <button type="button" style={primaryButtonStyle} disabled={busy || draft.name.trim() === '' || draft.prompt.trim() === ''} onClick={() => { void saveDraft() }}>
                 {draft.id === null ? '创建' : '保存'}
               </button>
-              {draft.id !== null && (
-                <button type="button" style={{ ...buttonStyle, color: 'var(--yt-error)' }} disabled={busy} onClick={() => { void removeDraft() }}>
-                  删除
-                </button>
-              )}
               <button type="button" style={buttonStyle} disabled={busy} onClick={() => { setDraft(null); setSelectedId(null) }}>
                 取消
               </button>
+              {draft.id !== null && (
+                <button
+                  type="button"
+                  style={ghostDangerStyle}
+                  disabled={busy}
+                  title="删除这条调度，不可恢复"
+                  onClick={() => { void removeDraft() }}
+                >
+                  删除
+                </button>
+              )}
             </div>
           </>
         )}
