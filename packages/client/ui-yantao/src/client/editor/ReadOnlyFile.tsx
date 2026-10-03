@@ -68,6 +68,11 @@ const headGridStyle = {
   gridTemplateColumns: 'max-content 1fr',
   gap: '2px 10px',
   background: 'var(--yt-surface-secondary)',
+  // A long 收件人 list folds into dozens of lines; uncapped it swallows the
+  // pane and squeezes the body iframe (flex:1, minHeight:0) to zero height —
+  // the mail shows headers but no body (ADR-0046 落地勘误之二). Scroll instead.
+  maxHeight: 160,
+  overflowY: 'auto',
 } as const
 
 const headKeyStyle = { color: 'var(--yt-text-secondary)' } as const
