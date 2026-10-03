@@ -40,7 +40,7 @@ import { QuestionDialog } from '../QuestionDialog.tsx'
 import { ConfigDialog } from '../ConfigDialog.tsx'
 import type { ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from '../model-config.ts'
 import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
-import { obsidianUri, remoteMessage } from '../remote.ts'
+import { obsidianUri, remoteMessage, type ResourceViewReader } from '../remote.ts'
 import { notifySchedule, scheduleScan, type ScheduleRunner } from '../scheduler.ts'
 import { SchedulePane } from '../SchedulePane.tsx'
 import { frontmatterArchived } from '../markdown.ts'
@@ -71,6 +71,8 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'fo
   readonly workspace: TreeLoader
   /** Read one KB file's content. */
   readonly read: FileReader
+  /** Load one read-only file's render view (ADR-0046 决定 3). */
+  readonly readView: ResourceViewReader
   /** Write one KB file's content. */
   readonly write: FileWriter
   /** Archive one entity (ADR-0041 决定 7) — the entity gestures' 「归档」. */
@@ -379,7 +381,7 @@ function DragHandle(props: {
  * @returns the frame element.
  */
 export function Frame({
-  t, renderSlot, panels, intake, workspace, read, write, archiveEntity, restoreEntity, setRelation, createEntity, root, setRoot,
+  t, renderSlot, panels, intake, workspace, read, readView, write, archiveEntity, restoreEntity, setRelation, createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine, validate,
   registerResource, capabilityList, capabilityDeclaration, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRun,
   capabilityDistill,
@@ -1583,7 +1585,7 @@ export function Frame({
             return (
               <ReadOnlyFile
                 path={tab.path}
-                read={read}
+                readView={readView}
                 t={t}
               />
             )

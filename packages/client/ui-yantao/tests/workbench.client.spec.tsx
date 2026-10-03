@@ -13,7 +13,7 @@ import type {
   CapabilityDeclarationLoader, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityArchiver, EntityCreator,
   ExternalOpener, FileReader,
   FileWriter, LinksLoader, MailFetcher, MailMarker, PromptShortcutLister, PromptShortcutSaver, RelationSetter,
-  RevisionLoader, RootLoader, RootSetter, ScheduleLister, ScheduleMarker, ScheduleSaver, SessionPrompter,
+  ResourceViewReader, RevisionLoader, RootLoader, RootSetter, ScheduleLister, ScheduleMarker, ScheduleSaver, SessionPrompter,
   ShortcutFiller, TodoLoader, TodoWriter,
 } from '../src/client/remote.ts'
 import type { ScheduleRunner } from '../src/client/scheduler.ts'
@@ -1159,6 +1159,7 @@ describe('CapabilityPanel', () => {
 /** The frame's file channel and first-run faces, all spies. */
 interface FrameFaces {
   readonly read: FileReader
+  readonly readView: ResourceViewReader
   readonly write: FileWriter
   readonly archiveEntity: EntityArchiver
   readonly restoreEntity: EntityArchiver
@@ -1196,6 +1197,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
   return {
     links: path => Promise.resolve({ path, outgoing: [], incoming: [] }),
     read: () => Promise.resolve(TODO_FILE),
+    readView: path => Promise.resolve({ kind: 'text', path, content: TODO_FILE }),
     write: () => Promise.resolve(),
     archiveEntity: locator => Promise.resolve({ path: locator, archived: true }),
     restoreEntity: locator => Promise.resolve({ path: locator, archived: false }),
@@ -1244,6 +1246,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       intake={loader(intake)}
       workspace={loader(workspace)}
       read={kb.read}
+      readView={kb.readView}
       write={kb.write}
       archiveEntity={kb.archiveEntity}
       restoreEntity={kb.restoreEntity}

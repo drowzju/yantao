@@ -170,7 +170,13 @@ describe('FileEditor', () => {
 
 describe('ReadOnlyFile', () => {
   it('shows the file without an editor', async () => {
-    render(<ReadOnlyFile path="resources/周报.eml" read={() => Promise.resolve('原始内容')} t={t} />)
+    render(
+      <ReadOnlyFile
+        path="resources/笔记.md"
+        readView={() => Promise.resolve({ kind: 'text', path: 'resources/笔记.md', content: '原始内容' })}
+        t={t}
+      />,
+    )
     await settle()
     expect(screen.getByText('原始内容')).toBeTruthy()
     expect(screen.getByText('只读（资源原样不改写）')).toBeTruthy()
@@ -178,8 +184,100 @@ describe('ReadOnlyFile', () => {
   })
 
   it('reports a read failure', async () => {
-    render(<ReadOnlyFile path="resources/周报.eml" read={() => Promise.reject(new Error('读不到'))} t={t} />)
+    render(
+      <ReadOnlyFile
+        path="resources/笔记.md"
+        readView={() => Promise.reject(new Error('读不到'))}
+        t={t}
+      />,
+    )
     await settle()
     expect(screen.getByText('读不到')).toBeTruthy()
+  })
+
+  it('renders raw HTML in a scripting-but-powerless sandbox iframe', async () => {
+    // jsdom has no Blob URL machinery — stub the two calls the component makes.
+    const revoke = vi.fn()
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake-id')
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(revoke)
+    render(
+      <ReadOnlyFile
+        path="resources/页面.html"
+        readView={() => Promise.resolve({ kind: 'html', path: 'resources/页面.html', content: '<b>你好</b>' })}
+        t={t}
+      />,
+    )
+    await settle()
+    const frame = screen.getByTitle('resources/页面.html')
+    expect(frame.getAttribute('sandbox')).toContain('allow-scripts')
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin')
+    expect(createObjectURL).toHaveBeenCalledOnce()
+    cleanup()
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake-id')
+  })
+
+  it('renders a PDF through a Blob URL iframe without a sandbox', async () => {
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pdf-id')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    render(
+      <ReadOnlyFile
+        path="resources/报告.pdf"
+        readView={() => Promise.resolve({ kind: 'pdf', path: 'resources/报告.pdf', base64: 'AAVG', size: 3 })}
+        t={t}
+      />,
+    )
+    await settle()
+    const frame = screen.getByTitle('resources/报告.pdf') as HTMLIFrameElement
+    expect(frame.src).toBe('blob:pdf-id')
+    expect(frame.getAttribute('sandbox')).toBeNull()
+    const blob = createObjectURL.mock.calls.at(-1)?.[0] as Blob
+    expect(blob.type).toBe('application/pdf')
+  })
+
+  it('renders a parsed eml with headers, attachments, and the HTML body', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:eml-id')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    render(
+      <ReadOnlyFile
+        path="resources/周报.eml"
+        readView={() => Promise.resolve({
+          kind: 'eml',
+          path: 'resources/周报.eml',
+          subject: '本周进展',
+          from: '甲 <jia@example.com>',
+          to: '乙 <yi@example.com>',
+          date: '2026-10-02T09:00:00.000Z',
+          html: '<p>正文在此</p>',
+          text: undefined,
+          attachments: [{ name: '数据.xlsx', contentType: 'application/vnd.ms-excel', size: 1024 }],
+        })}
+        t={t}
+      />,
+    )
+    await settle()
+    expect(screen.getByText('本周进展')).toBeTruthy()
+    expect(screen.getByText('甲 <jia@example.com>')).toBeTruthy()
+    expect(screen.getByText('附件')).toBeTruthy()
+    expect(screen.getByText('数据.xlsx')).toBeTruthy()
+    expect(screen.getByText('application/vnd.ms-excel · 1024 字节')).toBeTruthy()
+    expect(screen.getByTitle('resources/周报.eml 正文').src).toBe('blob:eml-id')
+  })
+
+  it('falls back to the text body when the eml has no HTML part', async () => {
+    render(
+      <ReadOnlyFile
+        path="resources/便签.eml"
+        readView={() => Promise.resolve({
+          kind: 'eml',
+          path: 'resources/便签.eml',
+          text: '纯文本正文',
+          attachments: [],
+        })}
+        t={t}
+      />,
+    )
+    await settle()
+    expect(screen.getByText('纯文本正文')).toBeTruthy()
+    expect(screen.queryByTitle('resources/便签.eml 正文')).toBeNull()
   })
 })

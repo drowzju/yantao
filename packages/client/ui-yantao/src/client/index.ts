@@ -67,7 +67,7 @@ import {
   discardMemoryProposal, fetchMail, fillComposerWithShortcut, listMemory, listMemoryProposals,
   loadCapabilities, loadCapabilityDeclaration, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
   loadRevision, loadRoot, loadTodos,
-  loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, restoreEntity, runCapability,
+  loadWorkspace, loadResourceView, markMailRead, openExternal, readFile, registerCapability, registerResource, restoreEntity, runCapability,
   loadSchedules, markSchedule, savePromptShortcuts, saveSchedules, setKbRoot,
   setRelation, writeFile, writeTodos,
 } from './remote.ts'
@@ -176,6 +176,9 @@ export function apply(ctx: Context): void {
       intake: () => loadIntake(ctx),
       workspace: () => loadWorkspace(ctx),
       read: (path: string) => readFile(ctx, path),
+      // ADR-0046 决定 3: the render view feeds the read-only file tab's
+      // pdf/html/eml renderers.
+      readView: (path: string) => loadResourceView(ctx, path),
       write: (path: string, content: string) => writeFile(ctx, path, content),
       // ADR-0041 决定 7/8: the archive gestures — entities are never deleted,
       // so the face offers the two directions of the archive mechanism and no

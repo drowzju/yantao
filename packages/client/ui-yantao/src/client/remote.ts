@@ -38,6 +38,7 @@ import type {
   KbMemoryProposalDiscardResult, KbMemoryProposalListResult,
   KbOpenExternalResult, KbPersonRelation, KbPromptInjectionResult, KbPromptShortcutListResult,
   KbPromptShortcutSaveArgs, KbPromptShortcutSaveResult,
+  KbResourceView,
   KbScheduleListResult, KbScheduleMarkArgs, KbScheduleMarkResult, KbScheduleSaveArgs, KbScheduleSaveResult,
   KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
   KbRootResult, KbSetEntityArchivedResult, KbSetRelationArgs, KbSetRelationResult,
@@ -50,6 +51,8 @@ export interface KbRemote {
   intakeTree(): Promise<RemoteResult<KbTree>>
   workspaceTree(): Promise<RemoteResult<KbTree>>
   read(path: string): Promise<RemoteResult<KbFileContent>>
+  /** The human render view of one read-only file (ADR-0046 决定 3). */
+  readResourceView(path: string): Promise<RemoteResult<KbResourceView>>
   links(path: string): Promise<RemoteResult<KbLinksResult>>
   /** The whole KB's link graph in one payload (ADR-0035) — the validate gesture's prescan. */
   graph(): Promise<RemoteResult<KbGraphResult>>
@@ -134,6 +137,13 @@ export interface SessionRemote {
 
 /** Read one KB file's content; rejects with the Remote's own message. */
 export type FileReader = (path: string) => Promise<string>
+
+/**
+ * Read one read-only file's render view (ADR-0046 决定 3): the discriminator
+ * the workbench picks its renderer from — plain text, raw HTML, PDF bytes or
+ * a parsed mail.
+ */
+export type ResourceViewReader = (path: string) => Promise<KbResourceView>
 
 /** Write one KB file's full content; rejects with the Remote's own message. */
 export type FileWriter = (path: string, content: string) => Promise<void>
@@ -361,6 +371,18 @@ export async function readFile(ctx: Context, path: string): Promise<string> {
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.read(path)).content
+}
+
+/**
+ * Read one read-only file's render view (ADR-0046 决定 3).
+ * @param ctx - client root context.
+ * @param path - KB-relative path.
+ * @returns the discriminated view, or a rejected promise carrying the reason.
+ */
+export async function loadResourceView(ctx: Context, path: string): Promise<KbResourceView> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.readResourceView(path))
 }
 
 /**

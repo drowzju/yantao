@@ -276,6 +276,8 @@ export const zh = {
 
   // Read-only file banner
   'readonly.note': '只读（资源原样不改写）',
+  'readonly.attachments': '附件',
+  'readonly.noBody': '（无正文）',
 
   // Center pane
   'center.conversation': '对话',
@@ -591,6 +593,8 @@ export const en = {
 
   // Read-only file banner
   'readonly.note': 'Read-only (resources are never rewritten)',
+  'readonly.attachments': 'Attachments',
+  'readonly.noBody': '(no body)',
 
   // Center pane
   'center.conversation': 'Conversation',
