@@ -119,6 +119,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | 0042 | 资源默认指代与工作平面:filesystem 小节动态化(`{{kbRoot}}` 按次组装解析,order 120 不变)——用户说「资源/资料/放到资源目录」默认指 `<kbRoot>/resources/`;修两处陈旧矛盾(filesystem 的 ADR-0020 时代残留 vs ADR-0028、skills.md 产物落库只字不提 resources/ 平面);skills.md 明确「落盘是能力脚本自己的事」;CONTEXT.md Resource 词条同步;promptInjection 计价含渲染后小节;技能侧约定写进 dingdocs-pack README 一次;记忆投递通道(症状①)与源头包漂移留作未决 |
 | 0043 | 能力契约与通道一致化:三层划清(触发面/适配层/核心层)——执行桥为本体(路线二裁决:agent 可执行人装技能目录内脚本,cwd 锁定+信封 env/stdin,安装即授权,修 ADR-0004「无执行」边界,通用 shell 仍禁),`entry` 可指 `.dsh/yantao/capability-adapters/`(三方 skill 目录零改动);环境前置说明单源前缀指令型正文与脚本型 notice(双通道 SKILL.md 退役);记忆可信一次声明(skills.md 小节+工具描述,尾部块加「宿主转交」来源框,ADR-0032 增补);`/` 菜单放开脚本型+⚙ 区分(修 ADR-0025 决定 3);dingtalk-docs 试点 entry.py 迁出(源头漂移自愈);《能力整编手册》+能力 tab 展示解析后声明与路由状态 |
 | 0044 | 能力经验回流记忆:提案-批准制——新工具 `kb_propose_memory`(唯一 agent 记忆写面,只进提案队列永不注入,「学到非显然才提、通常收尾」礼仪入工具描述),队列 `.dsh/yantao/memory/proposals/<scope>.md`(与记忆同构+来源注记+挂起软帽 20+预检去重);会话面即时批准卡片+记忆视图兜底,UI 面运行记录「提炼经验」手动按钮拉一次性 headless agent(同一工具面,喂运行信封+现有记忆,0~3 条候选);批准可改判作用域,转正复用 appendMemoryEntry;memoryProposalList/Approve/Discard 三 RPC;ADR-0032 写侧补全 |
+| 0045 | 定时调度:前端调度器(Frame setInterval 扫描,托盘常驻即活、重启丢失不补跑只标记)——定义/实例分离,定义存 `.dsh/yantao/schedules.json`(名称/提示词快照/cron/启用,UI 唯一写者、agent 零工具),实例作为 kind=`schedule` 任务行进任务面板;触发走 `remote.session` 建独立会话「调度 · <名称>」;简单选项(每天/每周/每隔N分钟≤60)+高级 cron,存储统一五段 cron,匹配器前端自实现零依赖;footer「调度」按钮开中栏常驻 tab;完成经 `yantao:notify` 弹系统通知;scheduleList/Save 双 RPC + scheduleMark 单行簿记补丁(ocr 修订:Save 保留库内时间戳、Frame 串行写队列、错过钳 now、容忍 300s) |
 
 ## 5. 快速上手
 

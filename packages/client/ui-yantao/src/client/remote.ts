@@ -38,6 +38,7 @@ import type {
   KbMemoryProposalDiscardResult, KbMemoryProposalListResult,
   KbOpenExternalResult, KbPersonRelation, KbPromptInjectionResult, KbPromptShortcutListResult,
   KbPromptShortcutSaveArgs, KbPromptShortcutSaveResult,
+  KbScheduleListResult, KbScheduleMarkArgs, KbScheduleMarkResult, KbScheduleSaveArgs, KbScheduleSaveResult,
   KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
   KbRootResult, KbSetEntityArchivedResult, KbSetRelationArgs, KbSetRelationResult,
   KbSetRootResult, KbTodosResult, KbTree,
@@ -99,6 +100,12 @@ export interface KbRemote {
   promptShortcutList(): Promise<RemoteResult<KbPromptShortcutListResult>>
   /** Replace the whole prompt-shortcut list (ADR-0040); a shadowed alias is refused. */
   promptShortcutSave(args: KbPromptShortcutSaveArgs): Promise<RemoteResult<KbPromptShortcutSaveResult>>
+  /** The schedule store's listing (ADR-0045), in display order. */
+  scheduleList(): Promise<RemoteResult<KbScheduleListResult>>
+  /** Replace the whole schedule list (ADR-0045); a malformed cron is refused, stored stamps are preserved. */
+  scheduleSave(args: KbScheduleSaveArgs): Promise<RemoteResult<KbScheduleSaveResult>>
+  /** Patch one row's scheduler-owned stamps (ADR-0045); `null` clears, an absent field is left alone. */
+  scheduleMark(args: KbScheduleMarkArgs): Promise<RemoteResult<KbScheduleMarkResult>>
 }
 
 /**
@@ -228,6 +235,15 @@ export type PromptShortcutLister = () => Promise<KbPromptShortcutListResult>
 
 /** Replace the whole prompt-shortcut list (ADR-0040). */
 export type PromptShortcutSaver = (args: KbPromptShortcutSaveArgs) => Promise<KbPromptShortcutSaveResult>
+
+/** List the schedules (ADR-0045). */
+export type ScheduleLister = () => Promise<KbScheduleListResult>
+
+/** Replace the whole schedule list (ADR-0045). */
+export type ScheduleSaver = (args: KbScheduleSaveArgs) => Promise<KbScheduleSaveResult>
+
+/** Patch one row's scheduler-owned stamps (ADR-0045). */
+export type ScheduleMarker = (args: KbScheduleMarkArgs) => Promise<KbScheduleMarkResult>
 
 /**
  * Fill the current conversation's composer with `/alias ` without sending
@@ -845,6 +861,48 @@ export async function savePromptShortcuts(ctx: Context, args: KbPromptShortcutSa
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.promptShortcutSave(args))
+}
+
+/**
+ * List the schedules (ADR-0045) — the 调度 tab's definition list and the
+ * frontend scheduler's scan source.
+ * @param ctx - client root context.
+ * @returns the schedules in display order, or a rejected promise carrying
+ *   the reason.
+ */
+export async function loadSchedules(ctx: Context): Promise<KbScheduleListResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.scheduleList())
+}
+
+/**
+ * Replace the whole schedule list (ADR-0045): the tab edits a handful of
+ * rows, so a full-list save keeps add, edit, delete and reorder one seam —
+ * and the scheduler's lastFiredAt/lastMissedAt bookkeeping rides the same
+ * save. The host validates cron shape.
+ * @param ctx - client root context.
+ * @param args - the complete new list, in display order.
+ * @returns the list as stored, or a rejected promise carrying the reason.
+ */
+export async function saveSchedules(ctx: Context, args: KbScheduleSaveArgs): Promise<KbScheduleSaveResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.scheduleSave(args))
+}
+
+/**
+ * Patch one row's scheduler-owned stamps (ADR-0045): the scheduler's own
+ * write path — a single-row patch that never races the pane's full-list
+ * saves, because the host preserves stored stamps on `scheduleSave`.
+ * @param ctx - client root context.
+ * @param args - the row id and the stamp changes (`null` clears).
+ * @returns the full list as stored after the patch.
+ */
+export async function markSchedule(ctx: Context, args: KbScheduleMarkArgs): Promise<KbScheduleMarkResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.scheduleMark(args))
 }
 
 /**

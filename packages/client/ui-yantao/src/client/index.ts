@@ -39,12 +39,13 @@ import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {
   KbCapabilityRunArgs, KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation,
-  KbPromptShortcutSaveArgs, KbWriteTodosArgs,
+  KbPromptShortcutSaveArgs, KbScheduleMarkArgs, KbScheduleSaveArgs, KbWriteTodosArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
 import { runCapabilityDistill, type CapabilityRunRecord } from './capability-distill.ts'
 import { runRefine, type RefineRunnerArgs } from './refine.ts'
+import { runScheduledTask } from './scheduler.ts'
 import { runValidate, type ValidateScope } from './validate.ts'
 import { loadModelsConfig, saveModelsConfig, type ModelsConfigDraft } from './model-config.ts'
 import { promptCurrentSession } from './session-prompt.ts'
@@ -67,7 +68,7 @@ import {
   loadCapabilities, loadCapabilityDeclaration, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
   loadRevision, loadRoot, loadTodos,
   loadWorkspace, markMailRead, openExternal, readFile, registerCapability, registerResource, restoreEntity, runCapability,
-  savePromptShortcuts, setKbRoot,
+  loadSchedules, markSchedule, savePromptShortcuts, saveSchedules, setKbRoot,
   setRelation, writeFile, writeTodos,
 } from './remote.ts'
 import type { CapabilityRegisterReach } from './remote.ts'
@@ -271,6 +272,16 @@ export function apply(ctx: Context): void {
       promptShortcutList: () => loadPromptShortcuts(ctx),
       promptShortcutSave: (args: KbPromptShortcutSaveArgs) => savePromptShortcuts(ctx, args),
       fillShortcut: (alias: string) =>{  fillComposerWithShortcut(ctx, alias) },
+      // ADR-0045: the 调度 surface — the tab's definition list read/write,
+      // and the scheduler's runner firing one snapshot prompt as a
+      // KB-rooted background session (the mail analysis's cwd discipline).
+      scheduleList: () => loadSchedules(ctx),
+      scheduleSave: (args: KbScheduleSaveArgs) => saveSchedules(ctx, args),
+      scheduleMark: (args: KbScheduleMarkArgs) => markSchedule(ctx, args),
+      runSchedule: async (args: { name: string; prompt: string; signal?: AbortSignal; onSession?: (sessionId: string) => void }) => {
+        const cwd = await kbCwd()
+        return runScheduledTask({ ctx, ...args, ...(cwd !== undefined ? { cwd } : {}) })
+      },
       // ADR-0032 批次③: the behavior-memory surface — the 记忆 tab's
       // management view, the mail panel's direct write, and the proposal
       // card's 记忆 rows all land on these three.

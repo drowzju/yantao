@@ -588,6 +588,11 @@ export {
   readPromptShortcuts, renderPromptShortcutsSection, writePromptShortcuts,
 } from './prompt-shortcuts.ts'
 export type { PromptShortcut, PromptShortcutFile } from './prompt-shortcuts.ts'
+export {
+  cronShapeError, markSchedule, newScheduleId, normalizeSchedules, readSchedules,
+  SCHEDULES_DISPLAY_PATH, SCHEDULES_SOFT_CAP, writeSchedules,
+} from './schedules.ts'
+export type { Schedule, ScheduleFile, ScheduleStampsPatch } from './schedules.ts'
 export { linksOf, linkGraphOf, resolveWikiLink, wikilinks } from './links.ts'
 export type { KbGraph, KbGraphEdge, KbLinkSource, KbLinkTarget, KbLinks, WikiLink } from './links.ts'
 // The prompt-section layer's vocabulary, for host-side consumers that price

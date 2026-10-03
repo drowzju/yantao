@@ -11,8 +11,8 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/task-view
  */
 
-/** Which of the workbench's four task families a row belongs to. */
-export type TaskKind = 'refine' | 'mail' | 'capability' | 'validate'
+/** Which of the workbench's task families a row belongs to. */
+export type TaskKind = 'refine' | 'mail' | 'capability' | 'validate' | 'schedule'
 
 /**
  * Where a task is in its life: `running` until it pauses for the human

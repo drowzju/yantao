@@ -18,7 +18,7 @@ import type {
   ExternalOpener, FileReader, FileWriter, LinksLoader,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
-  PromptShortcutSaver, RelationSetter, ResourceRegistrar, RevisionLoader, ShortcutFiller,
+  PromptShortcutSaver, RelationSetter, ResourceRegistrar, RevisionLoader, ScheduleLister, ScheduleMarker, ScheduleSaver, ShortcutFiller,
   RootLoader, RootSetter,
   Archiver,
   SessionPrompter, TodoLoader, TodoWriter,
@@ -41,14 +41,16 @@ import { ConfigDialog } from '../ConfigDialog.tsx'
 import type { ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from '../model-config.ts'
 import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage } from '../remote.ts'
+import { notifySchedule, scheduleScan, type ScheduleRunner } from '../scheduler.ts'
+import { SchedulePane } from '../SchedulePane.tsx'
 import { frontmatterArchived } from '../markdown.ts'
-import type { KbCapabilitySummary, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbSchedule, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
 import { Onboarding } from '../Onboarding.tsx'
 import {
-  CONVERSATION_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath, restoreTabs,
+  CONVERSATION_TAB, SCHEDULES_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath, restoreTabs,
   type TabMode, type TabState,
 } from '../tabs.ts'
 import { CenterPane, type ViewMode } from './CenterPane.tsx'
@@ -154,6 +156,14 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'fo
   readonly promptShortcutSave: PromptShortcutSaver
   /** Fill the conversation's composer with `/alias ` without sending (ADR-0040 决定 5). */
   readonly fillShortcut: ShortcutFiller
+  /** List the schedule definitions (ADR-0045) — the 调度 tab and the scheduler both read through this. */
+  readonly scheduleList: ScheduleLister
+  /** Replace the whole schedule list (ADR-0045); the host preserves stored stamps. */
+  readonly scheduleSave: ScheduleSaver
+  /** Patch one row's scheduler-owned stamps (ADR-0045) — the scheduler's own write path. */
+  readonly scheduleMark: ScheduleMarker
+  /** Fire one schedule's prompt as a background session (ADR-0045 决定 2). */
+  readonly runSchedule: ScheduleRunner
   /** Read the model gateway's config view — the 配置 dialog's open read. */
   readonly loadModelsConfig: () => Promise<ModelsConfigView>
   /** Commit a 配置 dialog draft; the result separates conflict from refusal. */
@@ -172,6 +182,16 @@ const LINK_GRAPH_DEBOUNCE_MS = 350
 
 /** How often the KB's change counter is compared (ADR-0017). */
 const REVISION_POLL_MS = 3000
+
+/** How often the scheduler scans the definitions (ADR-0045 决定 2). */
+const SCHEDULE_SCAN_MS = 30_000
+
+/** How stale a due time may be and still fire live; older is a missed fire — marked, never
+ *  caught up (ADR-0045 决定 3). Well above SCHEDULE_SCAN_MS because a tray-hidden window is
+ *  timer-throttled (Chromium clamps hidden pages to ≈1 tick/minute after ~5 minutes hidden):
+ *  the tolerance must cover the worst-case throttled cadence, or tray-resident fires would be
+ *  misclassified as missed (OCR 2026-10-03). */
+const SCHEDULE_TOLERANCE_MS = 300_000
 
 const frameStyle = {
   display: 'grid',
@@ -366,6 +386,7 @@ export function Frame({
   promptSession, memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
   sessionDetail, onKbRootChanged, mailDelete, mailArchive,
   promptShortcutList, promptShortcutSave, fillShortcut,
+  scheduleList, scheduleSave, scheduleMark, runSchedule,
   loadModelsConfig, saveModelsConfig,
 }: FrameProps): ReactElement {
   const [configOpen, setConfigOpen] = useState(false)
@@ -577,6 +598,154 @@ export function Frame({
   // into a distill session. Frontend memory, this session only.
   const [capabilityRuns, setCapabilityRuns] = useState<readonly CapabilityRunRecord[]>([])
   const capabilityRunSeq = useRef(0)
+
+  // ── the 调度 tab and its scheduler (ADR-0045) ────────────────────────────
+  // Definitions persist in the KB store; instances are ordinary task rows.
+  // The scheduler lives and dies with this renderer: alive while the window
+  // hides in the tray, dead on refresh or quit — a fire found stale on a tick
+  // is marked missed, never caught up (决定 2/3).
+  const [schedules, setSchedules] = useState<readonly KbSchedule[]>([])
+  const [schedulesLoaded, setSchedulesLoaded] = useState(false)
+  // The tick reads the ref (the interval's closure never goes stale); every
+  // write below keeps the ref ahead of React's render so one tick's several
+  // patches never clobber each other.
+  const schedulesRef = useRef<readonly KbSchedule[]>([])
+  useEffect(() => { schedulesRef.current = schedules }, [schedules])
+  // Schedule ids with a run in flight: the scan never double-fires them
+  // (lastFiredAt already advanced, but a re-mounted effect must not either).
+  const scheduleFiring = useRef<ReadonlySet<string>>(new Set())
+  // The 任务 row's cancel line: taskId → aborter (the other runners' refs' pattern).
+  const scheduleAborts = useRef(new Map<string, AbortController>())
+
+  useEffect(() => {
+    let stale = false
+    scheduleList().then(
+      (result) => {
+        if (stale) return
+        schedulesRef.current = result.schedules
+        setSchedules(result.schedules)
+        setSchedulesLoaded(true)
+      },
+      (failure: unknown) => { if (!stale) setCapabilityNotice(`调度读取失败：${remoteMessage(failure)}`) },
+    )
+    return () => { stale = true }
+  }, [scheduleList])
+
+  // One serialized write channel for every schedule write (OCR 2026-10-03):
+  // the pane's full-list saves and the scheduler's stamp patches tail-chain
+  // here, so a bookkeeping write can never resurrect a stale snapshot over a
+  // user edit (or vice versa). A failed write re-reads the store, so the
+  // optimistic local state never diverges from what the disk holds.
+  const scheduleWriteQueue = useRef<Promise<unknown>>(Promise.resolve())
+  const enqueueScheduleWrite = useCallback((write: () => Promise<readonly KbSchedule[]>, label: string): Promise<boolean> => {
+    const run = scheduleWriteQueue.current.then(async (): Promise<boolean> => {
+      try {
+        const stored = await write()
+        schedulesRef.current = stored
+        setSchedules(stored)
+        return true
+      } catch (failure: unknown) {
+        try {
+          const fresh = await scheduleList()
+          schedulesRef.current = fresh.schedules
+          setSchedules(fresh.schedules)
+        } catch { /* the notice below is the report */ }
+        setCapabilityNotice(`${label}：${remoteMessage(failure)}`)
+        return false
+      }
+    })
+    scheduleWriteQueue.current = run
+    return run
+  }, [scheduleList])
+
+  /** The 调度 tab's save seam: host validation has the last word; the host preserves stored stamps across the pane's stale snapshots. */
+  const commitSchedules = useCallback((next: readonly KbSchedule[]): Promise<boolean> =>
+    enqueueScheduleWrite(async () => (await scheduleSave({ schedules: next })).schedules, '调度保存失败'),
+  [enqueueScheduleWrite, scheduleSave])
+
+  /** The scheduler's bookkeeping seam: a single-row stamp patch, never a full-list save. */
+  const markScheduleStamps = useCallback((id: string, patch: { lastFiredAt?: string | null; lastMissedAt?: string | null }): void => {
+    void enqueueScheduleWrite(async () => (await scheduleMark({ id, ...patch })).schedules, '调度状态保存失败')
+  }, [enqueueScheduleWrite, scheduleMark])
+
+  useEffect(() => {
+    if (!schedulesLoaded) return
+    /** Optimistically apply one tick's stamp patches locally; the serialized channel persists them. */
+    const applyLocal = (next: readonly KbSchedule[]): void => {
+      schedulesRef.current = next
+      setSchedules(next)
+    }
+    const startRun = (schedule: KbSchedule): void => {
+      scheduleFiring.current = new Set([...scheduleFiring.current, schedule.id])
+      const taskId = taskBegin('schedule', `调度「${schedule.name}」`, '执行中')
+      const controller = new AbortController()
+      scheduleAborts.current.set(taskId, controller)
+      runSchedule({
+        name: schedule.name,
+        prompt: schedule.prompt,
+        signal: controller.signal,
+        onSession: (sessionId) => { taskPatch(taskId, { sessionId }) },
+      }).then((result) => {
+        taskEnd(taskId, 'done', '已完成')
+        notifySchedule({ title: `调度「${schedule.name}」完成`, body: result.answer.replace(/\s+/g, ' ').trim().slice(0, 80) || '已完成' })
+      }, (failure: unknown) => {
+        if (controller.signal.aborted) {
+          taskEnd(taskId, 'cancelled', '已取消')
+        } else {
+          const message = remoteMessage(failure)
+          taskEnd(taskId, 'failed', `失败：${message}`)
+          notifySchedule({ title: `调度「${schedule.name}」失败`, body: message })
+        }
+      }).finally(() => {
+        const next = new Set(scheduleFiring.current)
+        next.delete(schedule.id)
+        scheduleFiring.current = next
+        scheduleAborts.current.delete(taskId)
+      })
+    }
+    const tick = (): void => {
+      const now = new Date()
+      const missedIds: string[] = []
+      const firingNow: KbSchedule[] = []
+      let working = schedulesRef.current
+      for (const schedule of schedulesRef.current) {
+        if (scheduleFiring.current.has(schedule.id)) continue
+        const action = scheduleScan(schedule, now, SCHEDULE_TOLERANCE_MS)
+        if (action.kind === 'missed') {
+          missedIds.push(schedule.id)
+          // One collapsed mark for the whole downtime backlog (ADR-0045 决定 3):
+          // stamping `now` jumps the baseline past every skipped occurrence,
+          // so the next scan resumes forward instead of replaying one miss
+          // per tick.
+          working = working.map(row => row.id === schedule.id ? { ...row, lastMissedAt: now.toISOString() } : row)
+        } else if (action.kind === 'fire') {
+          firingNow.push(schedule)
+          // Advance the baseline immediately: the next scan measures from
+          // this fire, and a long run can never be re-fired by the next tick.
+          const firedAt = action.at.toISOString()
+          working = working.map((row) => {
+            if (row.id !== schedule.id) return row
+            const { lastMissedAt: _dropped, ...rest } = row
+            return { ...rest, lastFiredAt: firedAt }
+          })
+        }
+      }
+      if (working !== schedulesRef.current) applyLocal(working)
+      const stamp = now.toISOString()
+      for (const id of missedIds) markScheduleStamps(id, { lastMissedAt: stamp })
+      for (const schedule of firingNow) {
+        markScheduleStamps(schedule.id, { lastFiredAt: stamp, lastMissedAt: null })
+        startRun(schedule)
+      }
+      if (missedIds.length > 0) {
+        const names = schedulesRef.current.filter(row => missedIds.includes(row.id)).map(row => row.name)
+        setCapabilityNotice(`调度错过 ${missedIds.length} 次触发（应用未在运行，不补跑）：${names.join('、')}`)
+      }
+    }
+    tick()
+    const timer = setInterval(tick, SCHEDULE_SCAN_MS)
+    return () => { clearInterval(timer) }
+  }, [schedulesLoaded, markScheduleStamps, runSchedule, taskBegin, taskPatch, taskEnd])
   const [distillingRunId, setDistillingRunId] = useState<string | null>(null)
   // Cancellation (ADR-0031): the running script capability's abort controller.
   // The signal is both the RPC's cancel line and the witness that separates
@@ -1035,7 +1204,7 @@ export function Frame({
   // runner already owns.
   const [connectorNonce, setConnectorNonce] = useState(0)
   const jumpTask = useCallback((row: TaskRow): void => {
-    if (row.kind === 'validate') {
+    if (row.kind === 'validate' || row.kind === 'schedule') {
       if (row.sessionId !== null) setDetailRow(row)
       return
     }
@@ -1048,9 +1217,10 @@ export function Frame({
   const cancelTask = useCallback((row: TaskRow): void => {
     if (row.kind === 'refine') cancelRefine()
     else if (row.kind === 'validate') cancelValidate()
+    else if (row.kind === 'schedule') scheduleAborts.current.get(row.id)?.abort()
     else if (row.kind === 'mail' && row.id === mailFetchTaskId.current) mailFetchAbort.current?.abort()
     else if (row.kind === 'mail') mailRun.cancel()
-    // Here `row.kind` has narrowed to 'capability' (the other three arms
+    // Here `row.kind` has narrowed to 'capability' (the other four arms
     // eliminated the rest of the union), so compare only the task id: a
     // distill row cancels its own aborter, any script run falls through.
     else if (row.id === distillTaskId.current) distillAbort.current?.abort()
@@ -1381,6 +1551,19 @@ export function Frame({
         onTaskCancel={cancelTask}
         onTaskJump={jumpTask}
         onTaskDetail={onTaskDetail}
+        // Gate the pane behind the initial read (OCR 2026-10-03): before the
+        // store's rows arrive — or forever after a failed read — the pane
+        // must offer no mutating affordance, or an early full-list save would
+        // wipe every definition it never fetched.
+        schedulePane={!schedulesLoaded ? (
+          <div style={{ padding: 16, color: 'var(--yt-text-muted)' }}>调度加载中…</div>
+        ) : (
+          <SchedulePane
+            schedules={schedules}
+            onSave={commitSchedules}
+            promptShortcutList={promptShortcutList}
+          />
+        )}
         taskDetail={detailRow === null ? null : (
           <SessionDetailDrawer
             key={detailRow.id}
@@ -1495,6 +1678,15 @@ export function Frame({
       <div style={footerStripStyle}>
         <button style={footerButtonStyle} data-config-button="true" onClick={() => { setConfigOpen(true) }}>
           {t('config.open')}
+        </button>
+        {/* ADR-0045 决定 8: the 调度 entry rides beside 配置 at the window's
+            bottom-left; it opens the centre 调度 tab, not a dialog. */}
+        <button
+          style={footerButtonStyle}
+          data-schedule-button="true"
+          onClick={() => { setTabs(state => activateTab(state, SCHEDULES_TAB)) }}
+        >
+          {t('schedule.open')}
         </button>
         {renderSlot('footer.status', {})}
       </div>

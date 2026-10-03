@@ -1,0 +1,165 @@
+/**
+ * The frontend scheduler (ADR-0045 决定 2): the scan logic that decides what
+ * one schedule does on a tick, plus the runner that fires one schedule's
+ * prompt as a background session. The frame owns the interval and the task
+ * rows; this module stays React-free so the due/missed decision is pinned by
+ * unit tests.
+ *
+ * Lifecycle semantics (ADR-0045 决定 2/3): the scheduler lives and dies with
+ * the renderer — alive while the window hides in the tray, dead on refresh
+ * or quit. A fire found older than the tolerance is a *missed* fire: marked
+ * (`lastMissedAt`), never caught up. The baseline a schedule measures from
+ * is the latest of `lastFiredAt` / `lastMissedAt` / the creation time its id
+ * embeds, so a marked miss never re-fires the notice.
+ * @module @deepseek-ai/dsh-client-ui-yantao/scheduler
+ */
+
+import type { Context } from '@deepseek-ai/cordis'
+import type { KbSchedule } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import { cronNextAfter, parseCron } from './cron.ts'
+import { cancelSessionTurnOnAbort, sessionRemoteOf } from './remote.ts'
+import { askTurn } from './turn-answer.ts'
+
+/** The schedule slice the scan needs — the full row in practice. */
+export type Scannable = Pick<KbSchedule, 'id' | 'cron' | 'enabled' | 'lastFiredAt' | 'lastMissedAt'>
+
+/** What one tick decided for one schedule. */
+export type ScheduleAction =
+  /** Fire now: the due time is fresh (inside the tolerance). */
+  | { readonly kind: 'fire'; readonly at: Date }
+  /** Mark as missed: the due time is older than the tolerance — no catch-up (ADR-0045 决定 3). */
+  | { readonly kind: 'missed'; readonly at: Date }
+  /** Nothing due. */
+  | { readonly kind: 'wait' }
+
+/**
+ * The creation time a schedule id embeds (`sch_<base36 ms>_<random>`) — the
+ * baseline for a schedule that never fired and never missed, so a schedule
+ * created while its due time was already past does not instantly "miss".
+ * @param id - the schedule's stable id.
+ * @returns the creation time, or null for a foreign id shape.
+ */
+export function scheduleCreatedAt(id: string): Date | null {
+  const match = /^sch_([0-9a-z]+)_/.exec(id)
+  const stamp = match?.[1]
+  if (stamp === undefined) return null
+  const ms = Number.parseInt(stamp, 36)
+  return Number.isFinite(ms) && ms > 0 ? new Date(ms) : null
+}
+
+/**
+ * The instant a schedule measures its next fire from: the latest accounted
+ * fire — real (`lastFiredAt`) or marked-missed (`lastMissedAt`) — falling
+ * back to its creation time, and finally to the epoch (a schedule with no
+ * usable stamps at all simply misses forward to the present).
+ * @param schedule - the row to baseline.
+ */
+export function scheduleBaseline(schedule: Scannable): Date {
+  const stamps = [schedule.lastFiredAt, schedule.lastMissedAt]
+    .filter((stamp): stamp is string => typeof stamp === 'string')
+    .map(stamp => Date.parse(stamp))
+    .filter(ms => !Number.isNaN(ms))
+  const created = scheduleCreatedAt(schedule.id)?.getTime()
+  return new Date(Math.max(0, ...stamps, ...(created === undefined ? [] : [created])))
+}
+
+/**
+ * Decide one schedule's action on a tick. A disabled schedule or an
+ * unparseable cron waits; the next fire after the baseline is fresh → fire,
+ * stale → missed, future → wait.
+ * @param schedule - the row to scan.
+ * @param now - the tick's instant.
+ * @param toleranceMs - how old a due time may be and still count as a live
+ *   fire rather than a missed one; should cover the scan interval.
+ */
+export function scheduleScan(schedule: Scannable, now: Date, toleranceMs: number): ScheduleAction {
+  if (!schedule.enabled) return { kind: 'wait' }
+  const parsed = parseCron(schedule.cron)
+  if (parsed === null) return { kind: 'wait' }
+  const next = cronNextAfter(parsed, scheduleBaseline(schedule))
+  if (next === null || next.getTime() > now.getTime()) return { kind: 'wait' }
+  return now.getTime() - next.getTime() > toleranceMs
+    ? { kind: 'missed', at: next }
+    : { kind: 'fire', at: next }
+}
+
+/** The outcome of one fired schedule. */
+export interface ScheduleRunResult {
+  /** The session the run lived in — kept so the judgement can be re-read in the 任务 tab (ADR-0033). */
+  readonly sessionId: string
+  /** The turn's final assistant text, for the completion notification's body. */
+  readonly answer: string
+}
+
+/** The frame's schedule-runner face: one background session over one fired schedule. */
+export type ScheduleRunner = (args: {
+  /** The schedule's display name; the session is titled 「调度 · <name>」. */
+  readonly name: string
+  /** The snapshot prompt to run. */
+  readonly prompt: string
+  /** The 任务 row's cancel line (ADR-0031). */
+  readonly signal?: AbortSignal
+  /** Called as soon as the session exists, so the task row can anchor 「详情」. */
+  readonly onSession?: (sessionId: string) => void
+}) => Promise<ScheduleRunResult>
+
+/**
+ * Fire one schedule: a fresh, independently named session over the snapshot
+ * prompt — the mail analysis's path (ADR-0019), never an injection into the
+ * conversation the human is watching (ADR-0045 决定：独立会话).
+ * @param options - the context, the schedule's name and prompt, the session
+ *   cwd, the cancel signal, and the session-anchor sink.
+ * @returns the session id and the final answer text.
+ */
+export async function runScheduledTask(options: {
+  readonly ctx: Context
+  readonly name: string
+  readonly prompt: string
+  readonly cwd?: string
+  readonly signal?: AbortSignal
+  readonly onSession?: (sessionId: string) => void
+}): Promise<ScheduleRunResult> {
+  const { ctx, name, prompt, cwd, signal, onSession } = options
+  const session = sessionRemoteOf(ctx)
+  if (session === undefined) throw new Error('没有挂载 session Remote 命名空间')
+
+  const created = await session.create(cwd === undefined ? {} : { cwd })
+  if (!created.ok) throw created.error
+  const sessionId = created.value.sessionId
+  const named = await session.rename({ sessionId, title: `调度 · ${name}` })
+  if (!named.ok) throw named.error
+  onSession?.(sessionId)
+
+  // A cancelled run must not leave the server rounding on (the refine loop's
+  // discipline): aborting the signal tears down the local wait, and
+  // `session/cancel` ends the turn itself.
+  if (signal !== undefined) cancelSessionTurnOnAbort(signal, session, sessionId)
+
+  const answer = await askTurn({
+    session,
+    sessionId,
+    prompt,
+    ...(signal !== undefined ? { signal } : {}),
+  })
+  return { sessionId, answer }
+}
+
+declare global {
+  interface Window {
+    /** The desktop shell's bridge (preload.cjs) — absent in a plain browser. */
+    readonly yantao?: {
+      readonly notify: (message: { readonly title: string; readonly body: string }) => void
+    }
+  }
+}
+
+/**
+ * Announce a settled run through the desktop bridge. The shell decides
+ * whether that is worth a system notification (it pops one only while the
+ * window is hidden — ADR-0045 决定 7); a plain browser without the bridge
+ * stays silent.
+ * @param message - the notification's title and body.
+ */
+export function notifySchedule(message: { title: string; body: string }): void {
+  window.yantao?.notify(message)
+}

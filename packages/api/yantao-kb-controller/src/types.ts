@@ -922,3 +922,59 @@ export interface KbPromptShortcutSaveResult {
   /** KB-relative path of the store, for the UI's error copy. */
   readonly path: string
 }
+
+/** One timed task definition (ADR-0045): fires its prompt as a background session when the cron hits. */
+export interface KbSchedule {
+  /** Stable identity, assigned at creation. */
+  readonly id: string
+  /** Display name; the fired session is titled 「调度 · <name>」. */
+  readonly name: string
+  /** The prompt fired — a snapshot, not a reference (ADR-0045 决定 5). */
+  readonly prompt: string
+  /** Five-field cron (分 时 日 月 周). */
+  readonly cron: string
+  /** Disabled entries stay in the list but never fire. */
+  readonly enabled: boolean
+  /** ISO timestamp of the last reported fire; absent when never fired. */
+  readonly lastFiredAt?: string
+  /** ISO timestamp of the most recent missed fire detected at startup. */
+  readonly lastMissedAt?: string
+}
+
+/** Result of `yantaoKb.scheduleList` (ADR-0045). */
+export interface KbScheduleListResult {
+  /** The schedules in display (stored) order. */
+  readonly schedules: readonly KbSchedule[]
+}
+
+/** Parameters of `yantaoKb.scheduleSave` (ADR-0045): full-list replace. */
+export interface KbScheduleSaveArgs {
+  /** The complete new list, in display order; validation refuses bad crons. */
+  readonly schedules: readonly KbSchedule[]
+}
+
+/** Result of `yantaoKb.scheduleSave` (ADR-0045). */
+export interface KbScheduleSaveResult {
+  /** The list as stored (normalized). */
+  readonly schedules: readonly KbSchedule[]
+  /** KB-relative path of the store, for the UI's error copy. */
+  readonly path: string
+}
+
+/** Parameters of `yantaoKb.scheduleMark` (ADR-0045): patch one row's scheduler-owned stamps. */
+export interface KbScheduleMarkArgs {
+  /** The row to patch. */
+  readonly id: string
+  /** ISO stamp of a real fire; null clears. Absent leaves the field untouched. */
+  readonly lastFiredAt?: string | null
+  /** ISO stamp of a detected miss; null clears. Absent leaves the field untouched. */
+  readonly lastMissedAt?: string | null
+}
+
+/** Result of `yantaoKb.scheduleMark` (ADR-0045). */
+export interface KbScheduleMarkResult {
+  /** The full list as stored after the patch. */
+  readonly schedules: readonly KbSchedule[]
+  /** KB-relative path of the store, for the UI's error copy. */
+  readonly path: string
+}

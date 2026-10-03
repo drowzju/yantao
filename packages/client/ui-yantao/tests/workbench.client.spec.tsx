@@ -13,8 +13,10 @@ import type {
   CapabilityDeclarationLoader, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityArchiver, EntityCreator,
   ExternalOpener, FileReader,
   FileWriter, LinksLoader, MailFetcher, MailMarker, PromptShortcutLister, PromptShortcutSaver, RelationSetter,
-  RevisionLoader, RootLoader, RootSetter, SessionPrompter, ShortcutFiller, TodoLoader, TodoWriter,
+  RevisionLoader, RootLoader, RootSetter, ScheduleLister, ScheduleMarker, ScheduleSaver, SessionPrompter,
+  ShortcutFiller, TodoLoader, TodoWriter,
 } from '../src/client/remote.ts'
+import type { ScheduleRunner } from '../src/client/scheduler.ts'
 import type { MailAnalyser } from '../src/client/mail-analysis.ts'
 import type { RefineRunner } from '../src/client/refine.ts'
 import type { ValidateRunner } from '../src/client/validate.ts'
@@ -1175,6 +1177,10 @@ interface FrameFaces {
   readonly promptShortcutList: PromptShortcutLister
   readonly promptShortcutSave: PromptShortcutSaver
   readonly fillShortcut: ShortcutFiller
+  readonly scheduleList: ScheduleLister
+  readonly scheduleSave: ScheduleSaver
+  readonly scheduleMark: ScheduleMarker
+  readonly runSchedule: ScheduleRunner
   readonly mailFetch: MailFetcher
   readonly mailMarkRead: MailMarker
   readonly analyseMail: MailAnalyser
@@ -1208,6 +1214,10 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     promptShortcutList: () => Promise.resolve({ shortcuts: [] }),
     promptShortcutSave: () => Promise.resolve({ shortcuts: [], path: '.dsh/yantao/prompt-shortcuts.json' }),
     fillShortcut: () => {},
+    scheduleList: () => Promise.resolve({ schedules: [] }),
+    scheduleSave: () => Promise.resolve({ schedules: [], path: '.dsh/yantao/schedules.json' }),
+    scheduleMark: () => Promise.resolve({ schedules: [], path: '.dsh/yantao/schedules.json' }),
+    runSchedule: () => Promise.resolve({ sessionId: '', answer: '' }),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
     analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [] } }),
@@ -1263,6 +1273,10 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       promptShortcutList={kb.promptShortcutList}
       promptShortcutSave={kb.promptShortcutSave}
       fillShortcut={kb.fillShortcut}
+      scheduleList={kb.scheduleList}
+      scheduleSave={kb.scheduleSave}
+      scheduleMark={kb.scheduleMark}
+      runSchedule={kb.runSchedule}
       sessionDetail={kb.sessionDetail}
       writeTodos={kb.writeTodos}
       onKbRootChanged={onKbRootChanged}
@@ -1493,6 +1507,12 @@ describe('Frame', () => {
         capabilityRegister={() => Promise.resolve({ path: '.dsh/skills/yantao.json' })}
         capabilityRun={() => Promise.resolve({ name: '', runAt: '', artifacts: [] })}
         promptSession={kb.promptSession}
+        promptShortcutList={kb.promptShortcutList}
+        promptShortcutSave={kb.promptShortcutSave}
+        fillShortcut={kb.fillShortcut}
+        scheduleList={kb.scheduleList}
+        scheduleSave={kb.scheduleSave}
+        runSchedule={kb.runSchedule}
         sessionDetail={() => Promise.resolve({ items: [], usage: null })}
         onKbRootChanged={onKbRootChanged}
       />,

@@ -1,6 +1,6 @@
 /**
- * The centre pane: two permanent tabs — 对话 and 任务 (ADR-0031) — plus one
- * closeable tab per open KB file. The conversation is never unmounted — an
+ * The centre pane: three permanent tabs — 对话, 任务 (ADR-0031) and 调度
+ * (ADR-0045) — plus one closeable tab per open KB file. The conversation is never unmounted — an
  * inactive tab's column is only
  * hidden — because it is the host's surface (scroll position and the composer
  * draft are its own) and remounting it would cost the human their place. File
@@ -10,7 +10,7 @@
  */
 import type { ReactElement, ReactNode } from 'react'
 import {
-  CONVERSATION_TAB, TASKS_TAB,
+  CONVERSATION_TAB, SCHEDULES_TAB, TASKS_TAB,
   type FileTab, type TabState,
 } from '../tabs.ts'
 import { runningCount, type TaskRow } from '../task-view.ts'
@@ -49,6 +49,8 @@ export interface CenterPaneProps {
   readonly onTaskDetail: (row: TaskRow) => void
   /** The open drawer, when one is — rendered inside the 任务 tab's box. */
   readonly taskDetail: ReactNode
+  /** The 调度 tab's pane (ADR-0045) — rendered once, then only hidden. */
+  readonly schedulePane: ReactNode
   readonly t: WorkbenchT
 }
 
@@ -169,12 +171,14 @@ export function CenterPane({
   onTaskJump,
   onTaskDetail,
   taskDetail,
+  schedulePane,
   t,
 }: CenterPaneProps): ReactElement {
   // The conversation is rendered unconditionally and only hidden: remounting
   // it would drop the host's scroll position and composer draft.
   const conversationActive = tabs.active === CONVERSATION_TAB
   const tasksActive = tabs.active === TASKS_TAB
+  const schedulesActive = tabs.active === SCHEDULES_TAB
   // Only an editable file has two views; a read-only original is one <pre>.
   const activeFile = tabs.files.find(tab => tab.path === tabs.active)
   const toggleable = activeFile?.mode === 'edit'
@@ -206,6 +210,11 @@ export function CenterPane({
               {running}
             </span>
           )}
+        </div>
+        <div style={schedulesActive ? activeTabStyle : tabStyle}>
+          <button type="button" style={labelButtonStyle} onClick={() => { onActivate(SCHEDULES_TAB) }}>
+            {t('center.schedules')}
+          </button>
         </div>
         {tabs.files.map((tab) => {
           const status = statuses[tab.path]
@@ -264,6 +273,9 @@ export function CenterPane({
               position:relative, so the drawer scrolls independently and never
               escapes into the neighbouring tabs. */}
           {taskDetail}
+        </div>
+        <div style={{ ...pageStyle, display: schedulesActive ? 'flex' : 'none' }} data-tab={SCHEDULES_TAB}>
+          {schedulePane}
         </div>
         {tabs.files.map(tab => (
           <div

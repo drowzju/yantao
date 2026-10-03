@@ -48,6 +48,7 @@ import {
   listProposalScopes, proposalDisplayPath, removeMemoryProposalByText,
   loadSectionText, renderGlobalMemorySection, readGlobalMemoryEntries, YANTAO_SECTIONS,
   readPromptShortcuts, writePromptShortcuts, PROMPT_SHORTCUTS_DISPLAY_PATH,
+  readSchedules, writeSchedules, markSchedule, SCHEDULES_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities } from './capability/builtin.ts'
@@ -88,6 +89,11 @@ import type {
   KbPromptShortcutListResult,
   KbPromptShortcutSaveArgs,
   KbPromptShortcutSaveResult,
+  KbScheduleListResult,
+  KbScheduleMarkArgs,
+  KbScheduleMarkResult,
+  KbScheduleSaveArgs,
+  KbScheduleSaveResult,
   KbMemoryListResult,
   KbMemoryProposalApproveArgs,
   KbMemoryProposalApproveResult,
@@ -366,8 +372,20 @@ export class YantaoKbController extends TypertRemoteService {
       const decision = await next()
       if (decision.kind === 'reject') return decision
       const messages = decision.messages
-      const last = messages[messages.length - 1]
-      if (last === undefined || last.source.kind !== 'user') return decision
+      // The pending prompt is the turn's last user message, not literally the
+      // last message: on a session's first turn the system-prompt sandbox
+      // snapshot (a plugin message) lands *after* the user's gesture and used
+      // to swallow both the catalog and the `/xxx` injection. Skip trailing
+      // plugin messages; any other kind (assistant, tool) after the user
+      // spoke means the gesture is no longer the pending prompt.
+      let last: UserMessage | undefined
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const message = messages[i]
+        if (message === undefined) return decision
+        if (message.source.kind === 'user') { last = message; break }
+        if (message.source.kind !== 'plugin') return decision
+      }
+      if (last === undefined) return decision
       const injections: UserMessage[] = []
       const entries = await this.agentCapabilityCatalog()
       if (entries.length > 0) {
@@ -1305,6 +1323,99 @@ export class YantaoKbController extends TypertRemoteService {
         'yantao-kb/rejected',
         '还没有选择知识库目录，惯用提示词无处存放。',
         { path: PROMPT_SHORTCUTS_DISPLAY_PATH },
+      )
+    }
+  }
+
+  /**
+   * The schedule store's listing (ADR-0045): the human's timed tasks in
+   * display order. The 调度 tab and the frontend scheduler both read through
+   * this; the agent has no tool into this surface at all (决定 4).
+   * @returns the schedules as stored.
+   */
+  @Remote('scheduleList')
+  async scheduleList(): Promise<KbScheduleListResult> {
+    this.requireKbRootForSchedules()
+    try {
+      return { schedules: await readSchedules(this.kbRoot) }
+    } catch (error: unknown) {
+      throw this.scheduleError(error)
+    }
+  }
+
+  /**
+   * Save the whole schedule list (ADR-0045): the UI edits a handful of rows,
+   * so a full-list replace keeps reorder and delete trivially correct.
+   * Human-channel only. The scheduler-owned stamps (`lastFiredAt` /
+   * `lastMissedAt`) never travel through this save: an editor's stale
+   * snapshot must not rewind the bookkeeping, so existing rows keep the
+   * stamps the store holds — the scheduler patches them through
+   * `scheduleMark` instead.
+   * @param args - the complete new list, in display order.
+   * @returns the list as stored (normalized, stamps preserved).
+   */
+  @Remote('scheduleSave')
+  async scheduleSave(args: KbScheduleSaveArgs): Promise<KbScheduleSaveResult> {
+    this.requireKbRootForSchedules()
+    try {
+      const current = await readSchedules(this.kbRoot)
+      const merged = args.schedules.map((row) => {
+        const prev = current.find(candidate => candidate.id === row.id)
+        return prev === undefined ? row : {
+          ...row,
+          ...prev.lastFiredAt !== undefined ? { lastFiredAt: prev.lastFiredAt } : {},
+          ...prev.lastMissedAt !== undefined ? { lastMissedAt: prev.lastMissedAt } : {},
+        }
+      })
+      await writeSchedules(this.kbRoot, merged)
+      return { schedules: await readSchedules(this.kbRoot), path: SCHEDULES_DISPLAY_PATH }
+    } catch (error: unknown) {
+      throw this.scheduleError(error)
+    }
+  }
+
+  /**
+   * Patch one row's scheduler-owned stamps (ADR-0045): the scheduler's own
+   * write path — single-row patches, so bookkeeping never rides (or races) a
+   * full-list replace. `null` clears a stamp (a real fire clears the missed
+   * mark); an absent field is left alone.
+   * @param args - the row id and the stamp changes.
+   * @returns the full list as stored after the patch.
+   */
+  @Remote('scheduleMark')
+  async scheduleMark(args: KbScheduleMarkArgs): Promise<KbScheduleMarkResult> {
+    this.requireKbRootForSchedules()
+    try {
+      const schedules = await markSchedule(this.kbRoot, args.id, {
+        ...args.lastFiredAt !== undefined ? { lastFiredAt: args.lastFiredAt } : {},
+        ...args.lastMissedAt !== undefined ? { lastMissedAt: args.lastMissedAt } : {},
+      })
+      return { schedules, path: SCHEDULES_DISPLAY_PATH }
+    } catch (error: unknown) {
+      throw this.scheduleError(error)
+    }
+  }
+
+  /** Map a kb-side schedule failure to a RemoteError the UI shows verbatim. */
+  private scheduleError(error: unknown): RemoteError {
+    if (error instanceof KbError) {
+      return new RemoteError('yantao-kb/rejected', error.message, { path: SCHEDULES_DISPLAY_PATH }, { cause: error })
+    }
+    return new RemoteError(
+      'yantao-kb/rejected',
+      `调度保存失败：${(error as Error).message}`,
+      { path: SCHEDULES_DISPLAY_PATH },
+      { cause: error instanceof Error ? error : undefined },
+    )
+  }
+
+  /** Refuse schedule calls before a KB root exists — the store lives beside it. */
+  private requireKbRootForSchedules(): void {
+    if (!this.ctx.yantaoKb.configured) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        '还没有选择知识库目录，调度无处存放。',
+        { path: SCHEDULES_DISPLAY_PATH },
       )
     }
   }

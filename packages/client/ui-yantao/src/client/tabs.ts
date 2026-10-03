@@ -25,6 +25,9 @@ export const CONVERSATION_TAB = 'conversation'
 /** Tab key of the permanent 任务 tab (ADR-0031) — never closeable, never persisted. */
 export const TASKS_TAB = 'tasks'
 
+/** Tab key of the permanent 调度 tab (ADR-0045) — never closeable, never persisted. */
+export const SCHEDULES_TAB = 'schedules'
+
 /** The centre pane's tab state. */
 export interface TabState {
   /** Open file tabs in open order. */
