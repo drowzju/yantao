@@ -63,6 +63,37 @@ export interface KbWriteResult {
   readonly path: string
 }
 
+/** One attachment of a parsed `.eml` view — the listing only, never the content (ADR-0046 取舍台账第 2 行). */
+export interface KbEmlAttachment {
+  /** The attachment's filename, when the mail carries one. */
+  readonly name: string
+  /** Its MIME type, e.g. `application/pdf`. */
+  readonly contentType: string
+  /** Its size in bytes. */
+  readonly size: number
+}
+
+/**
+ * The human render view of one read-only file (ADR-0046 决定 3): the
+ * `readResourceView` answer, discriminated so the workbench picks a renderer
+ * per kind instead of sniffing extensions again client-side.
+ */
+export type KbResourceView =
+  | { readonly kind: 'text'; readonly path: string; readonly content: string }
+  | { readonly kind: 'html'; readonly path: string; readonly content: string }
+  | { readonly kind: 'pdf'; readonly path: string; readonly base64: string; readonly size: number }
+  | {
+    readonly kind: 'eml'
+    readonly path: string
+    readonly subject?: string
+    readonly from?: string
+    readonly to?: string
+    readonly date?: string
+    readonly html?: string
+    readonly text?: string
+    readonly attachments: readonly KbEmlAttachment[]
+  }
+
 /** Parameters of `yantaoKb.setRelation`. */
 export interface KbSetRelationArgs {
   /** KB-relative path of the person entity. */

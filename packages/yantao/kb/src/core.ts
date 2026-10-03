@@ -19,6 +19,7 @@ import { assembleEntityFile, builtinEntityBody, entityFrontmatter, KB_README, te
 import type { EntityType } from './types.ts'
 import { ENTITY_DIRS, ENTITY_TYPES, KbError, SINGLETON_FILES } from './types.ts'
 import { MAX_DIR_ENTRIES } from './mentions.ts'
+import { extractPdfText, parseEml, renderEmlText } from './resource-content.ts'
 
 /** KB-relative path with forward slashes, for model- and human-facing output. */
 function displayPath(kbRoot: string, absolute: string): string {
@@ -587,8 +588,10 @@ export type ReadResourceResult =
  * The path gate mirrors {@link writeResource} minus sanitization: a read
  * must name the file exactly as it sits on disk, so segments are only
  * checked (resources/ prefix, no `.`/`..`), never rewritten. A file answers
- * its UTF-8 full text; NUL bytes mark it binary and the read is refused with
- * the size rather than injecting mojibake. A directory answers a recursive
+ * its UTF-8 full text — `.pdf` and `.eml` first pass through the ADR-0046
+ * transpilation (extracted text / parsed mail) so the agent reads their
+ * content, not their bytes; other NUL-bearing files are refused with the
+ * size rather than injecting mojibake. A directory answers a recursive
  * listing of path + size, capped at {@link MAX_DIR_ENTRIES} with a
  * `truncated` flag — the listing carries no content, and the agent reads
  * files from it one call at a time.
@@ -646,6 +649,29 @@ export async function readResource(kbRoot: string, path: string): Promise<ReadRe
     throw new KbError('resource-not-file', `「${display}」既不是普通文件也不是目录`)
   }
   const buffer = await readFile(target)
+  // ADR-0046 决定 2: extension dispatch precedes the NUL check — `.pdf` and
+  // `.eml` are machine-translatable, so the read answers their faithful text
+  // instead of refusing. A failed transpulation falls back to the binary
+  // refusal with the reason attached, never to half-content.
+  const lowerDisplay = display.toLowerCase()
+  const transpileFallback = (reason: string): KbError =>
+    new KbError('resource-binary', `「${display}」是二进制文件（${buffer.length} 字节）；${reason}，不注入二进制内容`)
+  if (lowerDisplay.endsWith('.pdf')) {
+    try {
+      return { kind: 'file', path: display, content: await extractPdfText(buffer) }
+    } catch (error) {
+      if (error instanceof KbError && error.code === 'resource-extract-failed') throw transpileFallback(error.message)
+      throw error
+    }
+  }
+  if (lowerDisplay.endsWith('.eml')) {
+    try {
+      return { kind: 'file', path: display, content: renderEmlText(await parseEml(buffer)) }
+    } catch (error) {
+      if (error instanceof KbError && error.code === 'resource-extract-failed') throw transpileFallback(error.message)
+      throw error
+    }
+  }
   if (buffer.includes(0)) {
     throw new KbError('resource-binary', `「${display}」是二进制文件（${buffer.length} 字节）；不注入二进制内容`)
   }

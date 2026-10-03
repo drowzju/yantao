@@ -13,10 +13,26 @@ import { readFile, readdir, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import type { CitedDirFile, CitedEntry } from './mentions.ts'
 import { MAX_DIR_CHARS, MAX_DIR_ENTRIES } from './mentions.ts'
+import { extractPdfText, parseEml, renderEmlText } from './resource-content.ts'
+import { KbError } from './types.ts'
 
-/** Read one file as text, reporting NUL-bearing files as binary instead of decoding them. */
+/**
+ * Read one file as the text a citation should carry (ADR-0046 决定 2):
+ * `.pdf`/`.eml` answer their transpiled text, NUL-bearing files report as
+ * binary instead of decoding, everything else decodes as UTF-8. A failed
+ * transpilation degrades to the binary placeholder — a citation loses one
+ * row's content, never the turn.
+ */
 async function readTextFile(absolute: string): Promise<{ kind: 'file'; content: string } | { kind: 'binary'; size: number }> {
   const buffer = await readFile(absolute)
+  const lower = absolute.toLowerCase()
+  try {
+    if (lower.endsWith('.pdf')) return { kind: 'file', content: await extractPdfText(buffer) }
+    if (lower.endsWith('.eml')) return { kind: 'file', content: renderEmlText(await parseEml(buffer)) }
+  } catch (error) {
+    if (error instanceof KbError && error.code === 'resource-extract-failed') return { kind: 'binary', size: buffer.length }
+    throw error
+  }
   if (buffer.includes(0)) return { kind: 'binary', size: buffer.length }
   return { kind: 'file', content: buffer.toString('utf8') }
 }

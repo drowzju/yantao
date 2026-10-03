@@ -40,7 +40,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
-  createEntity, entityDisplayPath, initKb, KbError, linkGraphOf, linksOf, listEntities, parseFrontmatter,
+  createEntity, entityDisplayPath, initKb, KbError, linkGraphOf, linksOf, listEntities, parseEml, parseFrontmatter,
   parseTodoFile, PERSON_RELATIONS, readCapabilityRecord, readCapabilityState,
   registerResourceContent, resolveWithinKb, serializeTodoFile, setEntityArchived, todayStamp,
   writeCapabilityState, writeMailWatermark,
@@ -103,6 +103,7 @@ import type {
   KbOpenExternalResult,
   KbPromptInjectionResult,
   KbRegisterResourceArgs,
+  KbResourceView,
   KbRegisterResourceResult,
   KbRevisionResult,
   KbRootResult,
@@ -660,6 +661,61 @@ export class YantaoKbController extends TypertRemoteService {
       )
     }
     return { path, content: bytes.toString('utf8') }
+  }
+
+  /**
+   * The human render view of one read-only file (ADR-0046 决定 3): the
+   * workbench's `ReadOnlyFile` picks its renderer from the answer's `kind`
+   * instead of sniffing extensions again client-side. `.pdf` answers base64
+   * bytes (the client turns them into a Blob URL for the built-in PDFium
+   * viewer), `.html` its raw text (the client sandboxes it), `.eml` the
+   * parsed mail (headline fields, bodies, attachment listing — never
+   * attachment content), everything else plain text with the same NUL
+   * refusal `read` has. The agent's read plane transpiles `.pdf`/`.eml`
+   * through the same kernel functions (`@deepseek-ai/dsh-yantao-kb`'s
+   * resource-content), so both faces agree on what a file "says".
+   * @param path - KB-relative path with forward slashes.
+   * @returns the discriminated render view.
+   */
+  @Remote('readResourceView')
+  async readResourceView(path: string): Promise<KbResourceView> {
+    const target = this.confine(path, path)
+    let bytes: Buffer
+    try {
+      bytes = await readFile(target)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') {
+        throw new RemoteError('yantao-kb/not-found', `找不到知识库文件：${path}`, { path }, { cause: error })
+      }
+      throw new RemoteError('yantao-kb/rejected', `无法读取知识库文件 ${path}：${(error as Error).message}`, { path }, { cause: error })
+    }
+    const lower = path.toLowerCase()
+    if (lower.endsWith('.pdf')) {
+      return { kind: 'pdf', path, base64: bytes.toString('base64'), size: bytes.length }
+    }
+    if (lower.endsWith('.html') || lower.endsWith('.htm')) {
+      if (bytes.includes(0)) {
+        throw new RemoteError('yantao-kb/binary', `「${path}」是二进制文件，工作台不直接预览原文。`, { path })
+      }
+      return { kind: 'html', path, content: bytes.toString('utf8') }
+    }
+    if (lower.endsWith('.eml')) {
+      try {
+        const mail = await parseEml(bytes)
+        return { kind: 'eml', path, ...mail }
+      } catch (error) {
+        throw new RemoteError('yantao-kb/binary', `「${path}」解析失败：${(error as Error).message}`, { path }, { cause: error })
+      }
+    }
+    if (bytes.includes(0)) {
+      throw new RemoteError(
+        'yantao-kb/binary',
+        `「${path}」是二进制文件，工作台不直接预览原文。`,
+        { path },
+      )
+    }
+    return { kind: 'text', path, content: bytes.toString('utf8') }
   }
 
   /**

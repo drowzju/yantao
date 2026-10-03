@@ -479,7 +479,8 @@ export function apply(ctx: Context, config: Config): void {
     name: 'kb_read_resource',
     description:
       '读取 resources/ 下的资源。path 是知识库内路径，必须以 resources/ 开头（如 resources/报告/2026-09/周报.md）。'
-      + 'path 指向文件时返回其 UTF-8 全文；二进制文件（含 NUL 字节）会拒绝并报大小，不注入乱码。'
+      + 'path 指向文件时返回其 UTF-8 全文；.pdf 自动抽取文本、.eml 自动解析为头部与正文（ADR-0046），'
+      + '其余二进制文件（含 NUL 字节）会拒绝并报大小，不注入乱码。'
       + 'path 指向目录时返回递归清单（每项路径与字节大小，最多 100 项，超出标注 truncated）——'
       + '清单不带内容，看中哪个文件再逐个读取。',
     parameters: {
@@ -595,6 +596,8 @@ export {
 export type { Schedule, ScheduleFile, ScheduleStampsPatch } from './schedules.ts'
 export { linksOf, linkGraphOf, resolveWikiLink, wikilinks } from './links.ts'
 export type { KbGraph, KbGraphEdge, KbLinkSource, KbLinkTarget, KbLinks, WikiLink } from './links.ts'
+export { extractPdfText, parseEml, renderEmlText } from './resource-content.ts'
+export type { EmlAttachment, EmlParsed } from './resource-content.ts'
 // The prompt-section layer's vocabulary, for host-side consumers that price
 // the yantao injection (the controller's context meter): the section roster
 // and its text loader are the exact source the plugin registers from.

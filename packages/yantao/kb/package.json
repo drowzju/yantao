@@ -29,7 +29,9 @@
   "license": "MIT",
   "dependencies": {
     "@deepseek-ai/schemastery": "workspace:^",
-    "js-yaml": "^4.2.0"
+    "js-yaml": "^4.2.0",
+    "mailparser": "^3.9.33",
+    "pdfjs-dist": "^6.3.289"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -44,6 +46,7 @@
     "@deepseek-ai/dsh-settings": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
-    "@types/js-yaml": "^4.0.9"
+    "@types/js-yaml": "^4.0.9",
+    "@types/mailparser": "^3.9.0"
   }
 }
