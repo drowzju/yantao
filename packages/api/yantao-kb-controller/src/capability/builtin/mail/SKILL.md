@@ -55,7 +55,9 @@ SKILL.md 保持纯净，方便直接复用开源 skill 目录。
   提案卡上人勾选的归档提案。本体在 `scripts/archive_mail.py`。
 - `channel` 必须是人通道，同删除刀（ADR-0037 决定 2：agent 无自主归档权）。
 - 每封的处理：COM `SaveAs` 导出 .msg → 重组为自包含 .eml（正文、头字段、
-  内嵌图片、附件全在一个文件里；依赖 `pip install extract-msg`，缺库或重组
+  内嵌图片、附件全在一个文件里；头字段优先取 .msg 内嵌传输头、缺项退 COM
+  值，正文过 Latin-1→GBK 乱码反演——extract_msg 会把 GBK 正文流误解成
+  Latin-1；依赖 `pip install extract-msg`，缺库或重组
   失败时降级存 .msg，索引备注「msg 兜底」）→ 落
   `<kbRoot>/resources/mails/YYYY/MM/YYYY-MM-DD_HHMM_主题_发件人.eml` →
   立刻往 `<kbRoot>/resources/mail-index/mailsYYYYMM.md` 追加一行八列索引

@@ -7,7 +7,9 @@
 归档路径（ADR-0037 决定 1）：`MailItem.SaveAs` 导出 .msg（COM 不支持直接导出
 RFC822），再在本模块内重组为 MIME .eml；重组失败的个别邮件降级保存 .msg 原
 件，索引里备注「msg 兜底」。重组依赖 extract_msg（pip install extract-msg），
-缺库时整批降级为 .msg——归档永不因转换器缺席而失败。
+缺库时整批降级为 .msg——归档永不因转换器缺席而失败。头字段优先取 .msg 内嵌
+的传输头（收信时的线上真相），缺项才退 COM 值；正文过一道 Latin-1→GBK 乱码
+反演（extract_msg 会把 GBK 正文流误解成 Latin-1，勘误 2026-10-03）。
 
 存储布局（决定 4）：原件落 `<kbRoot>/resources/mails/YYYY/MM/`，索引落
 `<kbRoot>/resources/mail-index/mailsYYYYMM.md`。索引由本脚本读-改-写维护，
@@ -175,12 +177,78 @@ def mime_pair_of(filename):
     return main, sub
 
 
+def header_of(parsed, name):
+    """
+    从 .msg 内嵌的传输头（parsed.header）里取原始值；没有返回 None。
+    传输头是 Outlook 收信时留在信封上的原始互联网头，解码保真——而
+    extract_msg 的结构化字段（subject 等）会把 GBK 流误解成 Latin-1。
+    折叠的多行头展平成单行；相邻编码字（?= =?）之间的空白是折叠痕迹，
+    语义上应不存在，不还原它解码后就多个伪空格（「进展 同步」）。
+    """
+    header = getattr(parsed, "header", None)
+    if header is None:
+        return None
+    try:
+        value = header.get(name)
+    except Exception:
+        return None
+    if not value:
+        return None
+    flat = re.sub(r"\r?\n\s+", " ", str(value)).strip()
+    return re.sub(r"\?=\s+=\?", "?==?", flat)
+
+
+def cjk_ratio(text):
+    """一段文本里 CJK 统一表意字的占比；空串为 0。"""
+    if not text:
+        return 0.0
+    cjk = sum(1 for ch in text if "一" <= ch <= "鿿")
+    return cjk / len(text)
+
+
+def repair_mojibake(text):
+    """
+    extract_msg 对个别 .msg 的 GBK 正文流做 Latin-1 误解码（每个字节变成一个
+    Latin-1 字符），这种损坏可无损反演：encode("latin-1") 还原原始字节，再按
+    GBK 严格解码。三道闸门保证只在确凿时出手：能反向编码到 Latin-1（含真
+    Unicode 字符的正确文本第一关就出局）、GBK 严格解码成功、解码后中文占比
+    显著上升（纯英文 ASCII 在 GBK 下自映射，占比不涨，不受影响）。
+    """
+    if not text:
+        return text
+    try:
+        raw = text.encode("latin-1")
+    except UnicodeEncodeError:
+        return text
+    try:
+        repaired = raw.decode("gbk")
+    except UnicodeDecodeError:
+        return text
+    if repaired == text:
+        return text
+    if cjk_ratio(repaired) > 0.15 and cjk_ratio(repaired) >= 3 * max(cjk_ratio(text), 0.01):
+        return repaired
+    return text
+
+
+def decode_body_bytes(data):
+    """extract_msg 偶尔吐 bytes 的正文：UTF-8 优先，退而 GBK，最后替换符。"""
+    if isinstance(data, bytes):
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            return data.decode("gbk", "replace")
+    return data
+
+
 def msg_to_eml_bytes(msg_path, mail):
     """
-    把 .msg 重组为 MIME .eml（ADR-0037 决定 1 的「本地转换」）。头字段用 COM
-    读到的权威值（发件人、收件人、主题、时间），正文与附件从 .msg 里取；
-    内嵌图片（有 Content-ID 且正文是 HTML）挂 related，其余挂 attachment。
-    任何一步不成抛 OutlookError('conversion-failed')，由调用方降级 .msg。
+    把 .msg 重组为 MIME .eml（ADR-0037 决定 1 的「本地转换」）。头字段优先用
+    .msg 内嵌的传输头（收信时的线上真相，RFC 2047 编码词保真），缺哪项才退回
+    COM 读到的权威值；正文与附件从 .msg 里取，正文过一道 Latin-1→GBK 乱码
+    反演（extract_msg 的已知误解码）。内嵌图片（有 Content-ID 且正文是 HTML）
+    挂 related，其余挂 attachment。任何一步不成抛 OutlookError
+    ('conversion-failed')，由调用方降级 .msg。
     """
     try:
         import extract_msg
@@ -192,14 +260,13 @@ def msg_to_eml_bytes(msg_path, mail):
 
     try:
         with extract_msg.openMsg(msg_path) as parsed:
-            html_body = parsed.htmlBody or b""
-            if isinstance(html_body, bytes):
-                html_body = html_body.decode("utf-8", "replace")
-            plain_body = parsed.body or ""
-            if isinstance(plain_body, bytes):
-                plain_body = plain_body.decode("utf-8", "replace")
+            html_body = repair_mojibake(decode_body_bytes(parsed.htmlBody or ""))
+            plain_body = repair_mojibake(decode_body_bytes(parsed.body or ""))
             attachments = [(att.longFilename or att.shortFilename or "附件", att.data, att.contentId)
                            for att in parsed.attachments]
+            # 传输头优先（勘误 2026-10-03）：结构化字段可能已被 extract_msg 误解码。
+            carried = {name: header_of(parsed, name)
+                       for name in ("Subject", "From", "To", "Cc", "Date", "Message-ID")}
     except OutlookError:
         raise
     except Exception as error:
@@ -210,18 +277,25 @@ def msg_to_eml_bytes(msg_path, mail):
     # 组件期的任何普通异常都统一翻译成 conversion-failed，保住 .msg 兜底的承诺，
     # 而不是让原生报错绕过分类直落 failed 桶。
     try:
-        root["Subject"] = mail["subject"]
-        name, address = mail["sender"]
-        # X.500 型地址（Exchange 内部发件人）不是合法 addr-spec，只写显示名。
-        root["From"] = formataddr((name, address)) if "@" in address else (name or address)
+        root["Subject"] = carried["Subject"] or mail["subject"]
+        if carried["From"]:
+            root["From"] = carried["From"]
+        else:
+            name, address = mail["sender"]
+            # X.500 型地址（Exchange 内部发件人）不是合法 addr-spec，只写显示名。
+            root["From"] = formataddr((name, address)) if "@" in address else (name or address)
         for header, pairs in (("To", mail["to"]), ("Cc", mail["cc"])):
+            if carried[header]:
+                root[header] = carried[header]
+                continue
             values = [formataddr((pair_name, pair_address)) if pair_address else pair_name
                       for pair_name, pair_address in pairs]
             if values:
                 root[header] = ", ".join(values)
-        root["Date"] = format_datetime(mail["received"])
-        if mail["messageId"]:
-            root["Message-ID"] = mail["messageId"]
+        root["Date"] = carried["Date"] or format_datetime(mail["received"])
+        message_id = carried["Message-ID"] or mail["messageId"]
+        if message_id:
+            root["Message-ID"] = message_id
 
         if html_body:
             root.set_content(plain_body, subtype="plain")
@@ -276,11 +350,13 @@ def existing_identity(path):
 
 
 def same_mail(existing, mail):
-    """既有件与本封是不是同一封：主题、发件地址、收件分钟戳三者皆同才算。"""
+    """既有件与本封是不是同一封：主题、发件地址、收件分钟戳三者皆同才算。
+    主题比较压缩空白——.eml 主题现取自传输头，与 COM 值可能差折叠空白。"""
     if existing is None:
         return True
     subject, address, minute = existing
-    return (subject == mail["subject"]
+    squash = lambda value: re.sub(r"\s+", "", str(value or ""))
+    return (squash(subject) == squash(mail["subject"])
             and (address == "" or address == mail["sender"][1].lower())
             and (minute == "" or minute == mail["received"].strftime("%Y%m%d%H%M")))
 
