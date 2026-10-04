@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  collapseEmptySections, frontmatterSummary, headingOutline, splitFrontmatter, taskLines, toggleTask,
+  collapseEmptySections, frontmatterSummary, headingOutline, restoreTableBreaks, splitFrontmatter, taskLines, toggleTask,
 } from '../src/client/markdown.ts'
 
 const ENTITY = [
@@ -181,5 +181,32 @@ describe('frontmatterSummary', () => {
 
   it('is empty when every field is empty', () => {
     expect(frontmatterSummary([{ key: 'relation', value: '' }])).toBe('')
+  })
+})
+
+describe('restoreTableBreaks', () => {
+  it('turns a cell\'s <br> tags into break references the grammar decodes', () => {
+    const row = '| 事项 | 进展 |\n|---|---|\n| a | 一<br>二<br />三<br/> |'
+    expect(restoreTableBreaks(row)).toBe('| 事项 | 进展 |\n|---|---|\n| a | 一&#10;二&#10;三&#10; |')
+  })
+
+  it('opens each <li> on its own line and strips the tags the renderer drops anyway', () => {
+    const row = '| a | [日期]<br><ul><li>1. 甲</li><br><li>2. <span style="color:red">乙</span></li><br>[日期] |'
+    expect(restoreTableBreaks(row)).toBe('| a | [日期]&#10;1. 甲&#10;2. 乙&#10;[日期] |')
+  })
+
+  it('leaves prose comparisons alone', () => {
+    const row = '| a | 3 < 5 且 b > 2 |'
+    expect(restoreTableBreaks(row)).toBe(row)
+  })
+
+  it('leaves lines that are not table rows alone', () => {
+    const text = '一段<br>不换\n\n```\n| 围栏里的<br>不动 |\n```'
+    expect(restoreTableBreaks(text)).toBe(text)
+  })
+
+  it('keeps a <br> inside a code span literal', () => {
+    const row = '| a | 用 `<br>` 换行<br>下一行 |'
+    expect(restoreTableBreaks(row)).toBe('| a | 用 `<br>` 换行&#10;下一行 |')
   })
 })

@@ -36,7 +36,8 @@ import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import {
-  collapseEmptySections, frontmatterSummary, headingOutline, linkPath, renderWikiLinks, splitFrontmatter, taskLines, toggleTask,
+  collapseEmptySections, frontmatterSummary, headingOutline, linkPath, renderWikiLinks, restoreTableBreaks,
+  splitFrontmatter, taskLines, toggleTask,
 } from '../markdown.ts'
 import type { WorkbenchT } from '../locales.ts'
 import css from './MarkdownView.module.css'
@@ -186,7 +187,7 @@ export function MarkdownView({
         .map(link => [link.target, link.path as string]))
       linked = renderWikiLinks(split.body, target => resolved.get(target) ?? null)
     }
-    return collapseEmptySections(linked)
+    return collapseEmptySections(restoreTableBreaks(linked))
   }, [split.body, links])
   const outline = useMemo(() => headingOutline(body), [body])
 

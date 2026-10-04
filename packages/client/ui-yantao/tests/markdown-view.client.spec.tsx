@@ -110,4 +110,17 @@ describe('MarkdownView', () => {
     expect(screen.getByText('第二版')).toBeTruthy()
     expect(screen.queryByText('第一版')).toBeNull()
   })
+
+  it('renders an exported cell\'s <br> breaks as real newlines (钉钉知识库)', () => {
+    const content = [
+      '| 事项 | 当前进展 |',
+      '|------|---------|',
+      '| 汇报 | [日期]<br>06 期已发出<br>[日期]<br>05 期已发 |',
+    ].join('\n')
+    const { container } = render(<MarkdownView content={content} t={t} />)
+    const cell = container.querySelector('td:nth-child(2)')
+    // The synthesized `&#10;` decodes through the mdast pipeline into a real
+    // newline; the view's pre-wrap cells paint it as a line break.
+    expect(cell?.textContent).toBe('[日期]\n06 期已发出\n[日期]\n05 期已发')
+  })
 })

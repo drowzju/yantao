@@ -290,6 +290,64 @@ export function renderWikiLinks(text: string, resolve: (target: string) => strin
 }
 
 /**
+ * Restore the line breaks an exported HTML table cell packs into one source
+ * line (钉钉知识库导出).
+ *
+ * The export flattens a cell's paragraphs and lists into `<br>` / `<li>`
+ * tags, and the renderer drops inline HTML silently — so every entry of a
+ * progress-log cell fuses into one wrapping blob. A GFM table row cannot
+ * hold a literal newline, so the break comes back as the character
+ * references `&#10;`: the markdown grammar decodes it into a real `\n`
+ * inside the cell's text, and the reading view's `white-space: pre-wrap`
+ * cells (MarkdownView.module.css) render that as a line break. Every other
+ * tag is stripped — the renderer drops inline HTML silently anyway — so the
+ * synthesized break runs collapse to one and no blank line appears that the
+ * source never had.
+ *
+ * Only table rows are touched: a `<br>` anywhere else is the same silent
+ * drop either way, and conservative scope keeps code spans (split out
+ * segment-wise) and fenced blocks literal.
+ * @param text - markdown text (a body, envelope already split off).
+ * @returns the text to render.
+ */
+/** A GFM table row. */
+const TABLE_ROW = /^\s*\|/
+/** An HTML line break, as exports write it. */
+const HTML_BREAK = /<br\s*\/?>/gi
+/** An HTML list-item opener; the item's own text already carries its marker. */
+const HTML_LIST_ITEM = /<li\b[^>]*>/gi
+/**
+ * Any other tag: the renderer drops inline HTML silently, so stripping it
+ * here changes nothing on screen — and lets the break runs below collapse
+ * across where it stood. The letter after `<` keeps `a < b` prose safe.
+ */
+const HTML_TAG = /<\/?[a-zA-Z][^>]*>/g
+/** A run of synthesized break references, collapsing to one. */
+const BREAK_RUN = /(?:&#10;){2,}/g
+/** A single-backtick code span; backtick-fence variants inside a cell are out of scope. */
+const CODE_SPAN = /(`[^`]*`)/
+
+export function restoreTableBreaks(text: string): string {
+  let fenced = false
+  return text.split(/\r?\n/).map((line) => {
+    if (FENCE.test(line)) {
+      fenced = !fenced
+      return line
+    }
+    if (fenced || !TABLE_ROW.test(line) || !line.includes('<')) return line
+    return line.split(CODE_SPAN).map((segment, index) => {
+      // Odd segments are code spans: their `<br>` is sample text, not layout.
+      if (index % 2 === 1) return segment
+      return segment
+        .replace(HTML_BREAK, '&#10;')
+        .replace(HTML_LIST_ITEM, '&#10;')
+        .replace(HTML_TAG, '')
+        .replace(BREAK_RUN, '&#10;')
+    }).join('')
+  }).join('\n')
+}
+
+/**
  * The one-line summary the collapsed envelope bar shows.
  * @param fields - the envelope's fields.
  * @returns `type: project · created: 2026-09-08` shaped text; empty when there is nothing to say.

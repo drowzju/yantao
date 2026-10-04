@@ -32,3 +32,28 @@
   font-weight: 600;
   margin: 16px 0 4px;
 }
+
+/*
+ * Exported wide tables (钉钉知识库 packs a whole progress log into the last
+ * column) must fit the reading column, not scroll out of it. Upstream's
+ * `md-table-wide` rule keeps natural width and reveals the bar only on
+ * hover, which pushed the tallest column off-screen and stretched every
+ * visible row into blank space. Force fill-width layout so all columns stay
+ * on screen; `pre-wrap` honors the `&#10;` breaks restoreTableBreaks()
+ * synthesizes, and `anywhere` keeps long tokens (export filenames, URLs)
+ * from re-widening a column. Same specificity ladder as the headings above:
+ * a div combinator under our wrapper beats the upstream `.tableScroll`
+ * single-class rules.
+ */
+
+.body div table {
+  width: 100%;
+  max-width: 100%;
+}
+
+.body div td,
+.body div th {
+  max-width: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
