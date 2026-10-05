@@ -115,7 +115,7 @@ export function ContextStatusBar({ useProjection, sessionId, promptInjection, t 
         onClick={() => { setOpen(!open) }}
       >
         <span className={css.bar}>
-          {percent !== null && <span className={css.fill} style={{ width: `${percent}%` }} />}
+          {percent !== null && <span className={css.fill} style={{ transform: `scaleX(${percent / 100})` }} />}
         </span>
         <span className={css.reading}>{percent === null ? '--' : `${percent}%`}</span>
       </button>

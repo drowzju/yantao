@@ -270,6 +270,25 @@ const noticeStyle = {
   cursor: 'pointer',
 } as const
 
+/** An error notice: the error pair speaks, the human must dismiss it. */
+const noticeErrorStyle = {
+  background: 'var(--yt-error-bg)',
+  borderColor: 'var(--yt-error)',
+  color: 'var(--yt-error)',
+} as const
+
+/** A progress notice: the accent edge says "moving" without stealing the eye. */
+const noticeProgressStyle = { borderColor: 'var(--yt-accent-border)' } as const
+
+/** How much a notice matters: info fades, progress awaits its outcome, error sticks. */
+type NoticeSeverity = 'info' | 'progress' | 'error'
+
+/** One foot notice: the message and the discipline its severity earns. */
+interface CapabilityNotice {
+  readonly text: string
+  readonly severity: NoticeSeverity
+}
+
 /** The tree sections that carry entities, and the entity kind each one is. */
 const ROSTER_SECTIONS: Partial<Record<KbTreeSectionId, string>> = {
   meetings: 'meeting',
@@ -602,7 +621,29 @@ export function Frame({
   // controller's pre-step (ADR-0025 决定 3) injects the SKILL.md body. The
   // message lands in the transcript exactly as if the human had typed it.
   const [capabilityProposal, setCapabilityProposal] = useState<Proposal | null>(null)
-  const [capabilityNotice, setCapabilityNotice] = useState<string | null>(null)
+  const [capabilityNotice, setCapabilityNoticeRaw] = useState<CapabilityNotice | null>(null)
+  /**
+   * The foot notice's one door. Severity is read off the message itself —
+   * 失败/错误 in the text is an error, a trailing … is progress in flight,
+   * everything else is info — so the thirty-odd call sites stay untouched.
+   * Two discipline rules live here, not at the call sites: a standing error
+   * never yields to lesser news (并发时失败不被顶掉)， and clearing never
+   * hides an error (dismissal is the human's click, not the next event).
+   */
+  const setCapabilityNotice = (update: string | null): void => {
+    setCapabilityNoticeRaw((previous) => {
+      if (update === null) return previous?.severity === 'error' ? previous : null
+      const severity: NoticeSeverity = /失败|错误/.test(update) ? 'error' : /…$/.test(update) ? 'progress' : 'info'
+      return previous?.severity === 'error' && severity !== 'error' ? previous : { text: update, severity }
+    })
+  }
+  // info 会自己走（8s）：进展由完成/失败接管，错误常驻等人处置，只有
+  // 「已完成」类的安语不该赖着不走。每条新消息重置计时。
+  useEffect(() => {
+    if (capabilityNotice === null || capabilityNotice.severity !== 'info') return
+    const timer = setTimeout(() => { setCapabilityNoticeRaw(null) }, 8000)
+    return () => { clearTimeout(timer) }
+  }, [capabilityNotice])
   // ADR-0044 决定 6: every settled script run leaves a record — the 能力
   // tab's 运行记录 renders them, and the 提炼经验 button turns one record
   // into a distill session. Frontend memory, this session only.
@@ -1825,12 +1866,20 @@ export function Frame({
       )}
       {capabilityNotice !== null && (
         <div
-          style={noticeStyle}
+          style={{
+            ...noticeStyle,
+            ...(capabilityNotice.severity === 'error'
+              ? noticeErrorStyle
+              : capabilityNotice.severity === 'progress' ? noticeProgressStyle : {}),
+          }}
           data-capability-notice="true"
+          data-capability-notice-severity={capabilityNotice.severity}
+          role={capabilityNotice.severity === 'error' ? 'alert' : 'status'}
+          aria-live={capabilityNotice.severity === 'error' ? 'assertive' : 'polite'}
           title={t('frame.closeNotice')}
           onClick={() => { setCapabilityNotice(null) }}
         >
-          {capabilityNotice}
+          {capabilityNotice.text}
           {/* A running refine is cancellable right where it announces itself
               (ADR-0031): the chip stops the run and drops the queue. */}
           {(refineActive || capabilityRunning || validateActive) && (

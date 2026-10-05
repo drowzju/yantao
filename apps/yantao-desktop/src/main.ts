@@ -50,11 +50,15 @@ const HOST_BOOT_TIMEOUT_MS = 180_000
 const WORKBENCH_LOAD_TIMEOUT_MS = 60_000
 
 /**
- * A 1×1 placeholder. There is no icon yet; a tray with no image fails to
- * construct on some builds, so an empty pixel beats a crash.
+ * The tray icon: the PARAP monogram on a warm-paper badge, rasterised from the
+ * same geometry as `packages/client/ui-yantao/src/client/brand/YantaoMark.tsx`
+ * by `scripts/gen-tray-icon.mjs` (analytic shapes + supersampling, PNG via
+ * node:zlib). A badge rather than a bare glyph because the tray sits on dark
+ * taskbars by default but light ones exist — ink on nothing vanishes on one of
+ * the two. Regenerate and paste if the mark itself ever changes.
  */
-const TRAY_ICON =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+const TRAY_ICON_16 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABGklEQVR42mNggAI9bTVGPW01YT1tNSU9bTVlHFgJqoaRARnoaatx7tq5tfn1q+cvfv/6/h8fBqkBqQXpgdsMEoAp+PH9y/+fP77+f/f2FRx///YZwyCoIYwgA4RhNj95fP+/jZXp/4jQgP962mpwbKin+T8nK+3/82ePUVwC0gsyQAkmeOLYYRSNIGxlbvTfQFcDzI4KD/7/6+c3uCEgvSADlPEZAPLClUvn/+vrqIP5V69cRDZAmSgD3rx+/t9IXwvMP3/uFGkGZGUk//dwcwSzXZxs/3/7+ok0A2AYpBnZdrwGONpZgdkwfO7sSRSbCRrg4erwn1CCQjZAiQIDlLAmpML87P/EJGlYQsJIysTYDk/KFGcmSrMzAH+zhC2FDZfeAAAAAElFTkSuQmCC'
+const TRAY_ICON_32 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB40lEQVR42mNgGKxAT1uNSU9bTVBPW01BT1tNmUysADWDiSSLmxtrbS6cP7361ctnz3/++Pr396/v/8nBIL0gM0Bmgcwk6BA9bTX23bu2tX77+uknuZbiwiAzQWaD7MDpc5ACaluMjqGOwAwJUBDh8vnH92/+//r57f+P71/+v3v7CicmNiRAdmH4HhRP6Io/f3r/Pz0l4b+ettp/DzfH/8uWLACzcWFrC+P/FaWF/2/euIrXESC7UEIBlFJBiQVd4Ypli1AssLUyw+sAGDYx1Pm/ZtUynA4A2QWyE9kBCthS+9TJ/URZiA0b6Gr8P7h/N87cAbIT2QHK2BQS44Agf+//IUG+/y3MDDHkvD2cQZZhdQTITqo4AJb4vnz+8L+kKA9D/uiRA/RxAAi/f/f6v5G+For83NnT6ecAELYyN0KRnzZlAv0csHvnNgz5jetX09YBoLJh3ZqV/7s7W/+bGumiyBkbaP9/8fwxbR2AD7e3NuIsC2jugOiIEHBJSncHGOpp/m9pqsNrOdkO8HB1AIvhwqC08PzZY6IqJbIckBgfRbVqedQBg84BRFXH1HIAtuqYqAZJQV4WVRyArUFCVJOMUFOLWIzRJCO2UUqt5jlGo3RQNMsHvGMyKLpmg6JzSm8AALYjupHDj46WAAAAAElFTkSuQmCC'
 
 /** The page shown while the host boots. */
 const LOADING_PAGE = 'data:text/html;charset=utf-8,' + encodeURIComponent(
@@ -253,7 +257,12 @@ async function loadWorkbench(target: BrowserWindow, url: string): Promise<void> 
 
 function buildTray(onRestart: () => void): void {
   tray?.destroy()
-  tray = new Tray(nativeImage.createFromDataURL(TRAY_ICON))
+  // Both densities ride one image: 16px at scale 1, 32px as its scale-2 twin,
+  // so HiDPI trays pick the sharp one instead of upscaling the small.
+  const image = nativeImage.createEmpty()
+  image.addRepresentation({ scaleFactor: 1, dataURL: TRAY_ICON_16 })
+  image.addRepresentation({ scaleFactor: 2, dataURL: TRAY_ICON_32 })
+  tray = new Tray(image)
   tray.setToolTip('yantao')
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '打开', click: () => { window?.show() } },

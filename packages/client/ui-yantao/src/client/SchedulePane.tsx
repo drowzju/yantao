@@ -202,7 +202,8 @@ const ghostDangerStyle = {
 } as const
 
 const missedBadgeStyle = {
-  color: 'var(--yt-warning)',
+  // 警告黄作文字在纸上只有 2.2:1；语义琥珀（--yt-warning-text）才过 AA。
+  color: 'var(--yt-warning-text)',
   fontSize: 'var(--yt-type-label)',
 } as const
 

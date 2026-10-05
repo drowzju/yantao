@@ -15,6 +15,21 @@ import { ytTokensFor } from './yt-tokens.ts'
 export const DARK_ATTRIBUTE = 'data-ds-dark-theme'
 /** Body variable carrying the user's content font size in px. */
 export const CONTENT_FONT_SIZE_VARIABLE = '--dsh-content-font-size'
+/** Id of the one stylesheet this presenter owns (the keyboard focus ring). */
+const FOCUS_STYLE_ID = 'yt-focus-ring'
+
+/**
+ * The workbench's keyboard focus ring. Upstream ships no `:focus-visible`
+ * rule of its own, so keyboard focus was invisible everywhere our components
+ * reach — the ring is presenter-owned like the tokens it draws from, one
+ * sheet, inserted once, retracted with the presenter.
+ */
+const FOCUS_RING_CSS = `
+:focus-visible {
+  outline: 2px solid var(--yt-accent-strong, #3a66b5);
+  outline-offset: 1px;
+}
+`
 
 /** Applies theme snapshots to the document; one instance per plugin fiber. */
 export class ThemePresenter {
@@ -22,6 +37,8 @@ export class ThemePresenter {
   #appliedTokens: string[] = []
   /** The single metadata node this presenter inserts and removes. */
   readonly #themeColorMeta: HTMLMetaElement
+  /** The focus-ring stylesheet, inserted once on first apply. */
+  #focusStyle: HTMLStyleElement | undefined
 
   constructor() {
     this.#themeColorMeta = document.createElement('meta')
@@ -33,6 +50,16 @@ export class ThemePresenter {
    * @param snapshot - resolved theme snapshot from ctx.theme.
    */
   apply(snapshot: ThemeSnapshot): void {
+    if (this.#focusStyle === undefined) {
+      const existing = document.getElementById(FOCUS_STYLE_ID)
+      this.#focusStyle = existing instanceof HTMLStyleElement ? existing : undefined
+      if (this.#focusStyle === undefined) {
+        this.#focusStyle = document.createElement('style')
+        this.#focusStyle.id = FOCUS_STYLE_ID
+        this.#focusStyle.textContent = FOCUS_RING_CSS
+        document.head.append(this.#focusStyle)
+      }
+    }
     const scheme = snapshot.active.colorScheme
     document.documentElement.style.colorScheme = scheme
     const body = document.body
@@ -63,6 +90,8 @@ export class ThemePresenter {
     body.style.removeProperty(CONTENT_FONT_SIZE_VARIABLE)
     for (const name of this.#appliedTokens) body.style.removeProperty(name)
     this.#appliedTokens = []
+    this.#focusStyle?.remove()
+    this.#focusStyle = undefined
     this.#themeColorMeta.remove()
   }
 }

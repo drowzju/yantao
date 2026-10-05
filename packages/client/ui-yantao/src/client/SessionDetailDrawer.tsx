@@ -125,7 +125,9 @@ const bubbleStyle: CSSProperties = {
 const userBubbleStyle: CSSProperties = {
   ...bubbleStyle,
   background: 'var(--yt-surface-raised)',
-  borderLeft: '3px solid var(--yt-accent)',
+  // 说话人身份靠底色差就够了：3px 侧边彩条是最容易被认出的 AI 味记号
+  // （impeccable side-tab），换成整圈细描边。
+  border: '1px solid var(--yt-accent-border)',
 }
 
 const injectedBubbleStyle: CSSProperties = {
@@ -139,7 +141,6 @@ const injectedBubbleStyle: CSSProperties = {
 const assistantBubbleStyle: CSSProperties = {
   ...bubbleStyle,
   background: 'transparent',
-  borderLeft: '3px solid var(--yt-border-strong)',
 }
 
 const toolHeaderStyle: CSSProperties = {
@@ -188,7 +189,7 @@ const usageStripStyle: CSSProperties = {
 }
 
 const usageLabelStyle: CSSProperties = {
-  color: 'var(--yt-text-tertiary)',
+  color: 'var(--yt-text-muted)',
 }
 
 /** The 「详情」 drawer over one task run's session log (ADR-0033). */
@@ -283,9 +284,9 @@ export function SessionDetailDrawer(props: {
         </button>
         {open && (
           <div style={toolBodyStyle}>
-            <div style={{ color: 'var(--yt-text-tertiary)', marginBottom: 2 }}>参数</div>
+            <div style={{ color: 'var(--yt-text-muted)', marginBottom: 2 }}>参数</div>
             <div>{item.args}</div>
-            <div style={{ color: 'var(--yt-text-tertiary)', marginTop: 6, marginBottom: 2 }}>
+            <div style={{ color: 'var(--yt-text-muted)', marginTop: 6, marginBottom: 2 }}>
               {item.error !== null ? `结果（${item.error}）` : '结果'}
             </div>
             <div>{item.result ?? '（尚未返回）'}</div>

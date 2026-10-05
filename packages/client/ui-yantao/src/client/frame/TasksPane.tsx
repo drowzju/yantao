@@ -61,13 +61,15 @@ const chipStyle = {
   whiteSpace: 'nowrap',
 } as const
 
-/** Chip text and tint per status — the row's one glanceable verdict. */
-const STATUS_CHIPS: Record<TaskStatus, { label: string; color: string }> = {
-  running: { label: '运行中', color: 'var(--yt-accent)' },
-  waiting: { label: '待确认', color: 'var(--yt-warning)' },
-  done: { label: '已完成', color: 'var(--yt-success)' },
-  cancelled: { label: '已取消', color: 'var(--yt-text-muted)' },
-  failed: { label: '失败', color: 'var(--yt-error)' },
+/** Chip text and tint per status — the row's one glanceable verdict. Tinted
+    ground + semantic text rather than white-on-solid: 白字压警告黄只有
+    2.1:1，色对全走 token 表里过了 AA 的那一档（2026-10-05 对比度修订）。 */
+const STATUS_CHIPS: Record<TaskStatus, { label: string; bg: string; color: string }> = {
+  running: { label: '运行中', bg: 'var(--yt-accent-bg)', color: 'var(--yt-accent-text)' },
+  waiting: { label: '待确认', bg: 'var(--yt-warning-bg)', color: 'var(--yt-warning-text)' },
+  done: { label: '已完成', bg: 'var(--yt-success-bg)', color: 'var(--yt-success-text)' },
+  cancelled: { label: '已取消', bg: 'var(--yt-surface-secondary)', color: 'var(--yt-text-secondary)' },
+  failed: { label: '失败', bg: 'var(--yt-error-bg)', color: 'var(--yt-error)' },
 }
 
 const actionButtonStyle = {
@@ -94,7 +96,10 @@ function TaskLine({ row, onCancel, onJump, onDetail }: {
   const elapsed = formatElapsed((row.endedAt ?? Date.now()) - row.startedAt)
   return (
     <div style={rowStyle} data-task-row={row.id} data-task-status={row.status} data-task-kind={row.kind}>
-      <span style={{ ...chipStyle, color: '#fff', background: chip.color }} data-task-chip={row.status}>
+      <span
+        style={{ ...chipStyle, color: chip.color, background: chip.bg, border: '1px solid var(--yt-border-subtle)' }}
+        data-task-chip={row.status}
+      >
         {chip.label}
       </span>
       <span style={titleStyle}>{row.title}</span>

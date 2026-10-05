@@ -9,7 +9,7 @@
  * chose; the caller does the writing once, after confirmation — through
  * {@link ./proposal-apply.ts} `applyProposal`'s direct RPCs.
  */
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react'
 import type { Proposal, ProposalAction } from './proposal.ts'
 import { allProposalActions, GROUP_KEYS } from './proposal.ts'
 import { entityNameOf } from './validate.ts'
@@ -34,6 +34,8 @@ const cardStyle = {
   maxHeight: '80vh',
   overflow: 'auto',
   boxShadow: '0 12px 32px rgba(28, 26, 22, 0.25)',
+  // 卡自身接收初始焦点（tabIndex=-1）；轮廓交给卡内的真控件去画。
+  outline: 'none',
 } as const
 
 // 层级秩序（2026-09-30 展示修订）：片区有物理边界，组头是全卡最大的字，
@@ -120,7 +122,30 @@ const inputStyle = {
   fontSize: 'var(--yt-type-body)',
 } as const
 
-const buttonStyle = { padding: '4px 10px' } as const
+/** 次级动作（全部接受/全部忽略/取消/发送指令）：安静的幽灵钮——决策重心
+    必须留给「写入 N 项」，四个同重的裸按钮是认知过载的源头之一
+    （2026-10-05 裁决卡减负）。 */
+const ghostButtonStyle = {
+  padding: '4px 10px',
+  background: 'transparent',
+  border: '1px solid var(--yt-border-subtle)',
+  borderRadius: 6,
+  color: 'var(--yt-text-secondary)',
+  cursor: 'pointer',
+} as const
+
+/** 主行动钮「写入 N 项」：实心 accent 面，白/墨字随主题取表面色。 */
+const primaryButtonStyle = {
+  padding: '4px 12px',
+  background: 'var(--yt-accent-strong)',
+  border: '1px solid transparent',
+  borderRadius: 6,
+  color: 'var(--yt-surface-primary)',
+  cursor: 'pointer',
+} as const
+
+/** Disabled 的统一弱化：内联样式画不了 :disabled，随 props 现算。 */
+const disabledOverlay = { opacity: 0.45, cursor: 'default' } as const
 
 const footerStyle = {
   display: 'flex',
@@ -248,6 +273,44 @@ export function ProposalCard(props: {
   // The free-input box's draft and its in-flight state.
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  // 模态语义（2026-10-05 补课）：提案卡是全 UI 最高危的裁决面——读屏必须能
+  // 感知它的存在（role=dialog + aria-modal），Tab 必须被关在卡里，Esc 必须
+  // 是一等逃生口（与 ConfigDialog/SessionDetailDrawer 对齐）。busy 时 Esc
+  // 不动：确认在途，半路丢弃会让「写了什么」变得不可知。
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    cardRef.current?.focus()
+    return () => { previous?.focus() }
+  }, [])
+  const onPanelKeyDown = (event: ReactKeyboardEvent): void => {
+    // IME 组合中的按键（选字/取消选字）不属于这张卡。
+    if (event.nativeEvent.isComposing) return
+    if (event.key === 'Escape') {
+      if (props.busy !== true) {
+        event.stopPropagation()
+        props.onDismiss()
+      }
+      return
+    }
+    if (event.key !== 'Tab') return
+    const card = cardRef.current
+    if (card === null) return
+    const focusable = Array.from(card.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])'))
+    if (focusable.length === 0) { event.preventDefault(); return }
+    const first = focusable.at(0)
+    const last = focusable.at(-1)
+    if (first === undefined || last === undefined) { event.preventDefault(); return }
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === card)) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
   // A revision round produces a fresh proposal object; the tick state of the
   // previous round must not leak into it (OCR review 2026-09-30).
   useEffect(() => {
@@ -561,8 +624,15 @@ export function ProposalCard(props: {
   const prescan = proposal.prescan
 
   return (
-    <div style={panelStyle} data-proposal-card="true">
-      <div style={cardStyle}>
+    <div style={panelStyle} data-proposal-card="true" ref={panelRef} onKeyDown={onPanelKeyDown}>
+      <div
+        style={cardStyle}
+        role="dialog"
+        aria-modal="true"
+        aria-label={proposal.title}
+        tabIndex={-1}
+        ref={cardRef}
+      >
         <div style={{ fontSize: 'var(--yt-type-title)', fontWeight: 600 }}>{proposal.title}</div>
         {proposal.note !== undefined && <div style={{ ...detailStyle, marginTop: 2 }}>{proposal.note}</div>}
         {proposal.highlights !== undefined && proposal.highlights.length > 0 && (
@@ -688,7 +758,7 @@ export function ProposalCard(props: {
             />
             <button
               type="button"
-              style={buttonStyle}
+              style={ghostButtonStyle}
               data-validate-instruction-send="true"
               disabled={sending || props.busy === true || draft.trim() === ''}
               onClick={() => { void sendInstruction() }}
@@ -698,19 +768,22 @@ export function ProposalCard(props: {
           </div>
         )}
         <div style={footerStyle}>
-          <button type="button" style={buttonStyle} disabled={props.busy === true || nothing} onClick={all}>
+          <button type="button" style={ghostButtonStyle} disabled={props.busy === true || nothing} onClick={all}>
             {t('proposal.acceptAll')}
           </button>
-          <button type="button" style={buttonStyle} disabled={props.busy === true} onClick={none}>
+          <button type="button" style={ghostButtonStyle} disabled={props.busy === true} onClick={none}>
             {t('proposal.ignoreAll')}
           </button>
           <span style={{ flex: 1 }} />
-          <button type="button" style={buttonStyle} disabled={props.busy === true} onClick={props.onDismiss}>
+          <button type="button" style={ghostButtonStyle} disabled={props.busy === true} onClick={props.onDismiss}>
             {t('common.cancel')}
           </button>
           <button
             type="button"
-            style={buttonStyle}
+            style={{
+              ...primaryButtonStyle,
+              ...(props.busy === true || count === 0 ? disabledOverlay : {}),
+            }}
             disabled={props.busy === true || count === 0}
             onClick={() => { props.onConfirm(ticked, Object.keys(areaPicks).length > 0 ? areaPicks : undefined) }}
           >

@@ -37,10 +37,13 @@
 
 .fill {
   display: block;
+  width: 100%;
   height: 100%;
   border-radius: 2px;
   background: var(--yt-accent);
-  transition: width 0.2s ease;
+  /* 合成器友好的填充动画：scaleX 替代 width，不触发布局。 */
+  transform-origin: left center;
+  transition: transform 0.2s ease;
 }
 
 .reading {
@@ -50,7 +53,7 @@
 }
 
 .idle .reading {
-  color: var(--yt-text-tertiary);
+  color: var(--yt-text-muted);
 }
 
 .warning .fill {
@@ -107,7 +110,7 @@
 
 .subRow {
   padding-left: 14px;
-  color: var(--yt-text-tertiary);
+  color: var(--yt-text-muted);
 }
 
 .rowDd {
@@ -117,6 +120,6 @@
 
 .footnote {
   margin: 8px 0 0;
-  color: var(--yt-text-tertiary);
+  color: var(--yt-text-muted);
   font-size: 11px;
 }

@@ -125,11 +125,12 @@ const bodyStyle = { position: 'relative', flex: 1, minHeight: 0, display: 'flex'
 
 const pageStyle = { flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' } as const
 
-/** Dot colour per save status. */
+/** Dot colour per save status. dirty 走语义琥珀：警告黄作 3:1 的图形色都
+    不够（2.2:1），琥珀档在两张表上都过线。 */
 const DOT_COLORS: Record<SaveStatus, string> = {
   loading: 'var(--yt-text-muted)',
   saved: 'var(--yt-success)',
-  dirty: 'var(--yt-warning)',
+  dirty: 'var(--yt-warning-text)',
   saving: 'var(--yt-accent)',
   failed: 'var(--yt-error)',
   conflict: 'var(--yt-error)',
