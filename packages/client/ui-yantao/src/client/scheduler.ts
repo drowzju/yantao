@@ -99,6 +99,36 @@ export interface ScheduleRunResult {
   readonly proposalId?: string
 }
 
+/**
+ * The proposal-envelope convention (ADR-0047), appended by the scheduler to
+ * every fired prompt — acceptance finding 2026-10-05: relying on the schedule
+ * author to hand-write the convention meant no schedule actually carried it
+ * (the mail run answered with a prose report and the inbox stayed empty).
+ * The convention now rides the fire, not the author's memory: the suffix
+ * teaches the model the one envelope schema the card's applier knows, tells
+ * it to nominate rather than execute, and permits no-envelope silence (the
+ * plain notice stays the honest fallback).
+ * @param prompt - the schedule's snapshot prompt.
+ * @returns the prompt with the convention appended.
+ */
+export function withProposalEnvelope(prompt: string): string {
+  return `${prompt}
+【调度约定（ADR-0047）】任务完成后，若有值得人拍板的写入动作，请在回答的最末尾单独输出一个提议信封 JSON（可放在 \`\`\`json 围栏中），形如：
+{"title":"一句话概括这批动作","actions":[ … ]}
+actions 每项是一个待人工批准的写入动作，常用类别与字段：
+- {"kind":"append-log","entityPath":"<实体文件路径>","entityName":"<实体名>","text":"<流水一行>","reason":"<缘由>"}
+- {"kind":"append-section","path":"<实体文件路径>","section":"决议|待办|…","text":"<内容>","why":"<缘由>"}
+- {"kind":"edit-section","path":"<路径>","section":"<节名>","before":"<现状>","after":"<改为>","why":"<缘由>"}
+- {"kind":"create-entity","entityType":"person|meeting|area|project","name":"<名>","reason":"<缘由>"}
+- {"kind":"create-project","name":"<名>","reason":"<缘由>","areas":["<库中已有领域>"]}
+- {"kind":"write-state","entityPath":"<路径>","entityName":"<名>","text":"<状态一行>","reason":"<缘由>"}
+- {"kind":"save-resource","path":"resources/<名>.md","content":"<全文>","reason":"<缘由>"}
+- {"kind":"add-todo","title":"<题目>","due":"YYYY-MM-DD 或省略","body":"<详情>","reason":"<缘由>"}
+- {"kind":"add-memory","scope":"<能力名>","text":"<规则一句话>","reason":"<缘由>"}
+- {"kind":"archive-mails","entryId":"<邮件 EntryID>","sender":"<发件人>","subject":"<主题>","summary":"<摘要>","reason":"<缘由>"}
+规则：只把值得人批准的写入列进信封，不为凑数编造；没有值得提议的就完全不输出信封（纯文字汇报即可）。信封里的动作不要自行执行（不要经 kb_write_state / kb_edit_section / kb_append_log 等落库），留给人在「提议」卡上勾选批准后再写入。`
+}
+
 /** The frame's schedule-runner face: one background session over one fired schedule. */
 export type ScheduleRunner = (args: {
   /** The schedule's stable id — the inbox entry's provenance (ADR-0047). */
@@ -153,7 +183,9 @@ export async function runScheduledTask(options: {
   const answer = await askTurn({
     session,
     sessionId,
-    prompt,
+    // ADR-0047: the envelope convention rides every fire (see
+    // withProposalEnvelope) — the schedule author never hand-writes it.
+    prompt: withProposalEnvelope(prompt),
     ...(signal !== undefined ? { signal } : {}),
   })
 

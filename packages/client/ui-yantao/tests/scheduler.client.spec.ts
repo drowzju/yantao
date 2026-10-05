@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { proposalOfAnswer, proposalOfPayload } from '../src/client/capability-match.ts'
-import { scheduleBaseline, scheduleCreatedAt, scheduleScan } from '../src/client/scheduler.ts'
+import { scheduleBaseline, scheduleCreatedAt, scheduleScan, withProposalEnvelope } from '../src/client/scheduler.ts'
 
 /** One enabled daily-9am row; overrides land on top. */
 function row(overrides: Partial<Parameters<typeof scheduleScan>[0]> = {}) {
@@ -91,6 +91,23 @@ describe('scheduleScan', () => {
     const local = new Date(2026, 9, 3, 9, 1, 0) // 60 秒整
     const action = scheduleScan(row({ lastFiredAt: new Date(2026, 9, 2, 9, 0).toISOString() }), local, MINUTE)
     expect(action.kind).toBe('fire')
+  })
+})
+
+describe('withProposalEnvelope（ADR-0047 验收修正：约定随 fire 附加）', () => {
+  it('原样保留提示词并在末尾拼上信封约定', () => {
+    const composed = withProposalEnvelope('/mail 向后解析邮件')
+    expect(composed.startsWith('/mail 向后解析邮件')).toBe(true)
+    expect(composed).toContain('【调度约定（ADR-0047）】')
+    expect(composed).toContain('"actions"')
+  })
+
+  it('约定教的是应用器认识的 kind，且允许无提议沉默', () => {
+    const composed = withProposalEnvelope('任意任务')
+    expect(composed).toContain('"kind":"append-log"')
+    expect(composed).toContain('"kind":"save-resource"')
+    expect(composed).toContain('不要自行执行')
+    expect(composed).toContain('完全不输出信封')
   })
 })
 

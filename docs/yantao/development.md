@@ -103,9 +103,10 @@ powershell -File scripts\sync-in.ps1 -Bundle <bundle 路径>
 调度到点的任务由前端(人类通道代码)直接起一次 run,不走 agent 工具面;run 结束后前端尝试从回答里解析出
 提议信封并入队。整条链路的约定:
 
-- **提示词约定**:调度任务的提示词末尾应要求模型输出**单个**提议信封 JSON——形如
-  `{"title":"…","actions":[{"kind":"…","path":"…",…}]}`,kind 必须是已知类别。裸 JSON、围栏包裹、正文夹带皆可
-  (解析依次尝试:围栏块 → 全文 → 最外层花括号候选);解析不出就退化为纯通知,run 本身仍算成功。
+- **提示词约定**：调度器在每次 fire 时**自动**把提议信封约定拼到提示词末尾（`scheduler.ts` 的
+  `withProposalEnvelope`，ADR-0047 验收修正）——调度作者无需手写。模型被要求：值得人拍板的写入动作不自行执行，
+  以单个信封 JSON `{"title":"…","actions":[…]}` 收尾（裸 JSON、围栏包裹、正文夹带皆可，解析依次尝试：围栏块 →
+  全文 → 最外层花括号候选）；没有值得提议的就完全不输出信封，run 退化为纯通知，本身仍算成功。
 - **提议队列**在 controller 侧持久化:`<kbRoot>/.dsh/yantao/proposal-inbox.json`,经 Remote 三方法
   `proposalInboxList` / `proposalInboxEnqueue` / `proposalInboxResolve` 读写。生产者只有前端调度器;agent 没有任何
   工具能碰到这张队列。载荷按不透明 JSON 存储,解释权在客户端插件的 `proposalOfPayload`。
