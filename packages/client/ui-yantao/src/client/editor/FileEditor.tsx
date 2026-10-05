@@ -73,7 +73,7 @@ const wrapStyle = {
   flexDirection: 'column',
   minHeight: 0,
   height: '100%',
-  fontFamily: 'system-ui, "Microsoft YaHei", sans-serif',
+  fontFamily: 'var(--yt-font-ui)',
   fontSize: 'var(--yt-type-body)',
 } as const
 
@@ -92,7 +92,7 @@ const textareaStyle = {
   borderStyle: 'solid',
   borderColor: 'var(--yt-border-subtle)',
   padding: 8,
-  fontFamily: 'ui-monospace, Consolas, monospace',
+  fontFamily: 'var(--yt-font-code)',
   fontSize: 'var(--yt-type-body)',
   lineHeight: 1.5,
 } as const
@@ -107,7 +107,7 @@ const preStyle = {
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
-  fontFamily: 'ui-monospace, Consolas, monospace',
+  fontFamily: 'var(--yt-font-code)',
   fontSize: 'var(--yt-type-label)',
   whiteSpace: 'pre-wrap',
 } as const

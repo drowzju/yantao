@@ -31,7 +31,7 @@ const wrapStyle = {
   flexDirection: 'column',
   minHeight: 0,
   height: '100%',
-  fontFamily: 'system-ui, "Microsoft YaHei", sans-serif',
+  fontFamily: 'var(--yt-font-ui)',
   fontSize: 'var(--yt-type-body)',
 } as const
 
@@ -50,7 +50,7 @@ const preStyle = {
   padding: 8,
   overflow: 'auto',
   whiteSpace: 'pre-wrap',
-  fontFamily: 'ui-monospace, Consolas, monospace',
+  fontFamily: 'var(--yt-font-code)',
   fontSize: 'var(--yt-type-label)',
 } as const
 

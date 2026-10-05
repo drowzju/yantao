@@ -29,6 +29,7 @@ import {
   type MemoryProposalApprover, type MemoryProposalDiscarder, type MemoryProposalLister,
 } from './remote.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
+import { ghostButtonStyle, primaryButtonStyle } from './buttons.ts'
 
 /** What the panel needs: the three memory RPCs, already bound to the context. */
 export interface MemoryPanelProps {
@@ -119,10 +120,9 @@ const addScopeStyle = { padding: '4px 8px', alignSelf: 'flex-start', maxWidth: '
 
 const inputStyle = { padding: '4px 8px', width: '100%', boxSizing: 'border-box' } as const
 
-/** The form's verdict row: 保存 primary, 取消 ghost (ConfigDialog's ghost cut). */
+/** The form's verdict row: 保存 primary, 取消 ghost — both faces from
+    ./buttons.ts (the shared cuts, 2026-10-05). */
 const addActionsStyle = { display: 'flex', gap: 8 } as const
-
-const ghostButtonStyle = { ...buttonStyle, background: 'transparent', border: '1px solid var(--yt-border-subtle)' } as const
 
 /** The 待批准 zone's heading, one step above the scope titles. */
 const zoneTitleStyle = {
@@ -398,7 +398,7 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
             }}
           />
           <div style={addActionsStyle}>
-            <button type="button" style={buttonStyle} disabled={busy || text.trim() === ''} onClick={() => { void remember() }}>
+            <button type="button" style={primaryButtonStyle} disabled={busy || text.trim() === ''} onClick={() => { void remember() }}>
               {t('memory.save')}
             </button>
             <button

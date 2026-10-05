@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import type { KbPromptShortcut, KbSchedule } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { cronNextFire } from './cron.ts'
+import { primaryButtonStyle } from './buttons.ts'
 import type { PromptShortcutLister } from './remote.ts'
 
 /** The pane's props: the store's rows, the save seam, and the shortcut source. */
@@ -87,10 +88,10 @@ function formatStamp(iso: string): string {
   return `${at.getMonth() + 1}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
 }
 
-const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
+const FONT = 'var(--yt-font-ui)'
 
 /** The code font (design.md §3): code fragments only — the cron string here. */
-const CODE_FONT = 'var(--ds-font-family-code, ui-monospace, monospace)'
+const CODE_FONT = 'var(--yt-font-code)'
 
 const paneStyle = {
   display: 'flex',
@@ -188,7 +189,9 @@ const buttonStyle = {
   whiteSpace: 'nowrap',
 } as const
 
-const primaryButtonStyle = { ...buttonStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } as const
+/** 主行动钮（创建/保存）的实心 accent 面孔收敛到 ./buttons.ts —— 与裁决卡
+    同一副面孔；accent-bg 淡底回归其文档角色：选中态。（2026-10-05） */
+
 
 /** The destructive action's ghost clothes (design.md §7): no border, transparent, muted ink, the explanation rides the tooltip. */
 const ghostDangerStyle = {

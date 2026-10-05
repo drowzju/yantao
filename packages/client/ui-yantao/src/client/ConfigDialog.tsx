@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import type { ModelRow, ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from './model-config.ts'
 import { apiKeyIssue, draftIssue } from './model-config.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
+import { primaryButtonStyle } from './buttons.ts'
 import type { WorkbenchT } from './locales.ts'
 import { remoteMessage } from './remote.ts'
 
@@ -252,7 +253,7 @@ export function ConfigDialog(props: ConfigDialogProps): ReactElement {
               </select>
             </label>
             <footer style={footerStyle}>
-              <button style={buttonStyle} disabled={busy} onClick={() => { void saveDraft() }}>
+              <button style={primaryButtonStyle} disabled={busy} onClick={() => { void saveDraft() }}>
                 {busy ? t('config.saving') : t('config.save')}
               </button>
             </footer>

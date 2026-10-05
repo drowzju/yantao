@@ -93,31 +93,33 @@ const IMPORTANCE_STYLES: Record<MailImportance, CSSProperties> = {
   normal: { color: 'var(--yt-text-secondary)' },
 }
 
-const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' } as const
+// 密度放宽（2026-10-05 第三轮评审 #9）：间距吃 space 阶梯、字号吃 type
+// 阶梯——之前 4px/6px 的挤压节奏让三个节拍糊成一团。
+const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 8, padding: 'var(--yt-space-2) var(--yt-space-3)' } as const
 
-const buttonStyle = { padding: '3px 8px', alignSelf: 'flex-start' } as const
+const buttonStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', minHeight: 'var(--yt-control-min-h)', boxSizing: 'border-box', alignSelf: 'flex-start' } as const
 
-const mutedStyle = { color: 'var(--yt-text-muted)', fontSize: 12 } as const
+const mutedStyle = { color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)' } as const
 
-const errorStyle = { color: 'var(--yt-error)', fontSize: 12 } as const
+const errorStyle = { color: 'var(--yt-error)', fontSize: 'var(--yt-type-label)' } as const
 
-const hintStyle = { color: 'var(--yt-text-secondary)', fontSize: 12 } as const
+const hintStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
 
 const mailListStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 2,
+  gap: 4,
   maxHeight: 240,
   overflow: 'auto',
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
   borderTop: '1px solid var(--yt-border-subtle)',
   borderBottom: '1px solid var(--yt-border-subtle)',
-  padding: '4px 0',
+  padding: 'var(--yt-space-1) 0',
 } as const
 
 const mailRowStyle = { display: 'flex', gap: 6, alignItems: 'baseline', minWidth: 0 } as const
 
-const mailBadgeStyle = { flexShrink: 0, fontSize: 12 } as const
+const mailBadgeStyle = { flexShrink: 0, fontSize: 'var(--yt-type-label)' } as const
 
 const mailTextMutedStyle = { color: 'var(--yt-text-muted)', whiteSpace: 'nowrap' } as const
 
@@ -130,13 +132,13 @@ const threadHeadStyle = {
   alignItems: 'baseline',
   minWidth: 0,
   width: '100%',
-  padding: '2px 0',
+  padding: 'var(--yt-space-1) 0',
   background: 'none',
   border: 'none',
   textAlign: 'left',
   cursor: 'pointer',
   font: 'inherit',
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
 } as const
 
 const threadMemberIndent = { paddingLeft: 14 } as const
@@ -247,7 +249,7 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
         </div>
       )}
       {mails.length > 0 && (
-        <div style={{ fontSize: 12 }} data-mail-batch="true">
+        <div style={{ fontSize: 'var(--yt-type-label)' }} data-mail-batch="true">
           {t('mail.countUnit', { count: mails.length })}
           {' '}
           {day(mails[mails.length - 1]?.receivedAt ?? '')}
@@ -322,7 +324,7 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
       {memoryAdd !== undefined && (
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }} data-mail-memory="true">
           <input
-            style={{ flex: 1, minWidth: 0, padding: '3px 6px' }}
+            style={{ flex: 1, minWidth: 0, padding: 'var(--yt-space-1) var(--yt-space-2)' }}
             value={memory}
             placeholder={t('memory.addPlaceholder')}
             onChange={(event) => { setMemory(event.target.value) }}

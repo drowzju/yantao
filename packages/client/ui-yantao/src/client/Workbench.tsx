@@ -133,7 +133,7 @@ function relationsFor(t: WorkbenchT, relation: string | undefined): readonly Rel
   return relation === 'self' ? [] : relationOptions(t)
 }
 
-const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
+const FONT = 'var(--yt-font-ui)'
 
 /** The expanded rail: it fills the column the frame hands it. */
 const railStyle = {

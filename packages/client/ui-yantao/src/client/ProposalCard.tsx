@@ -13,6 +13,7 @@ import { useEffect, useState, type ReactElement } from 'react'
 import type { Proposal, ProposalAction } from './proposal.ts'
 import { allProposalActions, GROUP_KEYS } from './proposal.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
+import { disabledOverlay, ghostButtonStyle, primaryButtonStyle } from './buttons.ts'
 import { entityNameOf } from './validate.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 
@@ -123,32 +124,7 @@ const inputStyle = {
   fontSize: 'var(--yt-type-body)',
 } as const
 
-/** 次级动作（全部接受/全部忽略/取消/发送指令）：安静的幽灵钮——决策重心
-    必须留给「写入 N 项」，四个同重的裸按钮是认知过载的源头之一
-    （2026-10-05 裁决卡减负）。 */
-const ghostButtonStyle = {
-  padding: '4px 10px',
-  minHeight: 'var(--yt-control-min-h)',
-  background: 'transparent',
-  border: '1px solid var(--yt-border-subtle)',
-  borderRadius: 6,
-  color: 'var(--yt-text-secondary)',
-  cursor: 'pointer',
-} as const
-
-/** 主行动钮「写入 N 项」：实心 accent 面，白/墨字随主题取表面色。 */
-const primaryButtonStyle = {
-  padding: '4px 12px',
-  minHeight: 'var(--yt-control-min-h)',
-  background: 'var(--yt-accent-strong)',
-  border: '1px solid transparent',
-  borderRadius: 6,
-  color: 'var(--yt-surface-primary)',
-  cursor: 'pointer',
-} as const
-
-/** Disabled 的统一弱化：内联样式画不了 :disabled，随 props 现算。 */
-const disabledOverlay = { opacity: 0.45, cursor: 'default' } as const
+/** 主/次钮面孔与 disabled 弱化收敛到 ./buttons.ts —— 全 UI 一套（2026-10-05）。 */
 
 const footerStyle = {
   display: 'flex',

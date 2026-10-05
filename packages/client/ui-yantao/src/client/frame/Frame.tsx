@@ -189,7 +189,7 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'fo
   readonly onKbRootChanged: () => void
 }
 
-const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
+const FONT = 'var(--yt-font-ui)'
 
 /**
  * How long the link graph waits after a keystroke. `linksOf` re-reads every

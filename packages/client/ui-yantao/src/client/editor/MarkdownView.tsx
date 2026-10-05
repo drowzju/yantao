@@ -60,7 +60,7 @@ const wrapStyle = {
   flexDirection: 'column',
   minHeight: 0,
   height: '100%',
-  fontFamily: 'system-ui, "Microsoft YaHei", sans-serif',
+  fontFamily: 'var(--yt-font-ui)',
   fontSize: 'var(--yt-type-body)',
   overflowY: 'auto',
 } as const

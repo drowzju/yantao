@@ -18,6 +18,7 @@ import { useState, type ReactElement } from 'react'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { remoteMessage } from './remote.ts'
+import { ghostButtonStyle, primaryButtonStyle } from './buttons.ts'
 import { WORKBENCH_NS } from './locales.ts'
 
 /** The two human-channel RPCs the verdict buttons call, injected at registration. */
@@ -136,7 +137,8 @@ const errorRowStyle = {
 
 const footerStyle = { display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 } as const
 
-const buttonStyle = { padding: '4px 10px' } as const
+/** 裁决钮面孔收敛到 ./buttons.ts：批准是这张卡的主行动（实心 accent），
+    丢弃穿幽灵装——与裁决卡的决策重心语法一致（2026-10-05）。 */
 
 /**
  * Render one `kb_propose_memory` call as the light approval card.
@@ -178,7 +180,7 @@ export function MemoryProposalCard(props: MemoryProposalCardProps): ReactElement
         <>
           <button
             type="button"
-            style={buttonStyle}
+            style={primaryButtonStyle}
             data-memory-proposal-approve="true"
             disabled={verdict.phase === 'busy'}
             onClick={() => { act('approve') }}
@@ -187,7 +189,7 @@ export function MemoryProposalCard(props: MemoryProposalCardProps): ReactElement
           </button>
           <button
             type="button"
-            style={buttonStyle}
+            style={ghostButtonStyle}
             data-memory-proposal-discard="true"
             disabled={verdict.phase === 'busy'}
             onClick={() => { act('discard') }}

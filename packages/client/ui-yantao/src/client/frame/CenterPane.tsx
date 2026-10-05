@@ -59,7 +59,7 @@ export interface CenterPaneProps {
   readonly t: WorkbenchT
 }
 
-const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
+const FONT = 'var(--yt-font-ui)'
 
 const paneStyle = {
   display: 'flex',

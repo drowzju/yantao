@@ -63,8 +63,13 @@ export const YT_COLOR_TOKENS: { light: Record<string, string>; dark: Record<stri
   },
 }
 
-/** Scheme-independent tokens: the type ladder (§3) and the space ladder (§4). */
+/** Scheme-independent tokens: the type ladder (§3), the space ladder (§4),
+ * and the two font stacks (2026-10-05 第三轮评审 #7：此前 system-ui 硬编码
+ * 散在七个文件的本地 FONT 常量里，一处改动要追七个地方）。 */
 export const YT_STATIC_TOKENS: Record<string, string> = {
+  '--yt-font-ui': 'system-ui, "Microsoft YaHei", sans-serif',
+  // 等宽栈沿用上游别名打头：跟随宿主的代码字体设置，缺失时落到本产品的栈。
+  '--yt-font-code': 'var(--ds-font-family-code, ui-monospace, Consolas, monospace)',
   '--yt-type-label': '12px',
   '--yt-type-body': '13px',
   '--yt-type-section': '14px',

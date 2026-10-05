@@ -9,6 +9,7 @@
 import { useState, type ReactElement } from 'react'
 import type { RefineQuestion } from './refine.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
+import { primaryButtonStyle } from './buttons.ts'
 import type { WorkbenchT } from './locales.ts'
 
 /**
@@ -41,7 +42,7 @@ const cardStyle = {
   maxHeight: '80vh',
   overflow: 'auto',
   boxShadow: '0 12px 32px rgba(28, 26, 22, 0.25)',
-  fontFamily: 'system-ui, "Microsoft YaHei", sans-serif',
+  fontFamily: 'var(--yt-font-ui)',
   fontSize: 'var(--yt-type-body)',
   // 卡自身接收初始焦点（tabIndex=-1）；轮廓交给卡内的真控件去画。
   outline: 'none',
@@ -123,7 +124,7 @@ export function QuestionDialog(props: {
           {settled && <span style={{ color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' }}>{t('workbench.questionBusy')}</span>}
           <button
             type="button"
-            style={buttonStyle}
+            style={primaryButtonStyle}
             disabled={settled}
             data-question-submit="true"
             onClick={() => { onSubmit(questions.map((_, index) => answers[index] ?? '')) }}

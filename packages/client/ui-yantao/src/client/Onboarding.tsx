@@ -28,7 +28,7 @@ const overlayStyle = {
   alignItems: 'center',
   justifyContent: 'center',
   background: 'color-mix(in srgb, var(--yt-surface-primary) 94%, transparent)',
-  fontFamily: 'system-ui, "Microsoft YaHei", sans-serif',
+  fontFamily: 'var(--yt-font-ui)',
   fontSize: 'var(--yt-type-body)',
 } as const
 

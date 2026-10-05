@@ -12,7 +12,7 @@ import type { KbCapabilitySummary } from '@deepseek-ai/dsh-api-yantao-kb-control
 import type { WorkbenchT } from './locales.ts'
 import { useFloatingMenu } from './menu-behavior.ts'
 
-const FONT = 'system-ui, "Microsoft YaHei", sans-serif'
+const FONT = 'var(--yt-font-ui)'
 
 const menuStyle = {
   position: 'fixed',

@@ -49,7 +49,9 @@ yantao 是一个**工具**,不是报告、不是营销页。界面气质:暖纸�
 | token | 浅色 | 暗色 | 用途 |
 |---|---|---|---|
 | `--yt-accent` | `#4a7fd4` | `#7ba3e0` | 链接、选中、主操作 |
-| `--yt-accent-bg` | `#eef3ff` | `#232c3d` | 选中态底 |
+| `--yt-accent-text` | `#3a66b5` | `#7ba3e0` | accent 作文字的场合(芯片、链接) |
+| `--yt-accent-strong` | `#3a66b5` | `#7ba3e0` | 实心 accent 面——主行动钮的唯一底色 |
+| `--yt-accent-bg` | `#eef3ff` | `#232c3d` | 选中态底(不作主按钮) |
 | `--yt-accent-border` | `#c7d7ff` | `#3a4d75` | 选中态边 |
 
 ### 2.5 语义色(semantic)——只表达状态
@@ -76,6 +78,14 @@ yantao 是一个**工具**,不是报告、不是营销页。界面气质:暖纸�
 | `--yt-type-section` | 14px | 面板内小节标题 |
 | `--yt-type-title` | 16px | 窗格标题、对话框标题 |
 | `--yt-type-display` | 20px | 页面级唯一主标题(一处界面至多一个) |
+
+字体栈只有两条,新代码**禁止内联硬编码**(2026-10-05 第三轮评审 #7:此前
+`system-ui` 栈散在七个文件的本地常量里,一处改动要追七处):
+
+| token | 栈 | 用途 |
+|---|---|---|
+| `--yt-font-ui` | `system-ui, "Microsoft YaHei", sans-serif` | 全部界面文字 |
+| `--yt-font-code` | `var(--ds-font-family-code, ui-monospace, Consolas, monospace)` | 路径、ID、时间戳、代码片段 |
 
 - 字重只用 regular / medium / semibold 三档;同级同类元素永远同字号同字重,不因内容长短或数值大小改变。
 - 等宽字体(上游 `--ds-font-family-code`)只用于路径、ID、时间戳、代码片段——只设那个标识符本身,不设整句整表。

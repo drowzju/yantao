@@ -100,8 +100,11 @@ const confirmStyle = {
   background: 'var(--yt-surface-secondary)',
 } as const
 
+/** The code font (design.md §3): command fragments and tool payloads wear it. */
+const CODE_FONT = 'var(--yt-font-code)'
+
 const codeStyle = {
-  fontFamily: 'monospace',
+  fontFamily: CODE_FONT,
   fontSize: 'var(--yt-type-label)',
   background: 'var(--yt-surface-secondary)',
   padding: '2px 4px',
@@ -222,9 +225,6 @@ const clampedMutedStyle = {
 } as const
 
 const shortcutRowStyle = { display: 'flex', alignItems: 'flex-start', gap: 2, margin: '1px 0' } as const
-
-/** The code font (design.md §3): a shortcut's `/command` lead is a code fragment. */
-const CODE_FONT = 'var(--ds-font-family-code, ui-monospace, monospace)'
 
 /**
  * One shortcut's expansion line: a leading `/command` (the skill-invocation
