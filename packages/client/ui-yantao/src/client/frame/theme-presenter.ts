@@ -19,15 +19,29 @@ export const CONTENT_FONT_SIZE_VARIABLE = '--dsh-content-font-size'
 const FOCUS_STYLE_ID = 'yt-focus-ring'
 
 /**
- * The workbench's keyboard focus ring. Upstream ships no `:focus-visible`
- * rule of its own, so keyboard focus was invisible everywhere our components
- * reach — the ring is presenter-owned like the tokens it draws from, one
- * sheet, inserted once, retracted with the presenter.
+ * The workbench's presenter sheet, inserted once, retracted with the
+ * presenter. Three residents:
+ * - the keyboard focus ring — upstream ships no `:focus-visible` rule of its
+ *   own, so keyboard focus was invisible everywhere our components reach;
+ * - the placeholder ink — the embedded conversation composer hardcodes a
+ *   2.1:1 grey for its placeholder (detected 2026-10-05); muted token ink
+ *   reads the same intent at AA contrast in both schemes;
+ * - the body motion ban — a layout-property transition (`max-width`,
+ *   `margin-right`) was observed live on `body` (detected 2026-10-05);
+ *   layout transitions jitter every frame, so the presenter forbids them at
+ *   the one element it owns outright.
  */
 const FOCUS_RING_CSS = `
 :focus-visible {
   outline: 2px solid var(--yt-accent-strong, #3a66b5);
   outline-offset: 1px;
+}
+::placeholder {
+  color: var(--yt-text-muted, #726c5e);
+  opacity: 1;
+}
+body {
+  transition: none !important;
 }
 `
 

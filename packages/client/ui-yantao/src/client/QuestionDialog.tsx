@@ -8,6 +8,7 @@
  */
 import { useState, type ReactElement } from 'react'
 import type { RefineQuestion } from './refine.ts'
+import { useDialogModal } from './use-dialog-modal.ts'
 import type { WorkbenchT } from './locales.ts'
 
 /**
@@ -42,6 +43,8 @@ const cardStyle = {
   boxShadow: '0 12px 32px rgba(28, 26, 22, 0.25)',
   fontFamily: 'system-ui, "Microsoft YaHei", sans-serif',
   fontSize: 'var(--yt-type-body)',
+  // 卡自身接收初始焦点（tabIndex=-1）；轮廓交给卡内的真控件去画。
+  outline: 'none',
 } as const
 
 const questionStyle = { margin: '12px 0 2px', fontWeight: 600 } as const
@@ -68,7 +71,7 @@ const footerStyle = {
   borderTop: '1px solid var(--yt-border-subtle)',
 } as const
 
-const buttonStyle = { padding: '4px 10px' } as const
+const buttonStyle = { padding: '4px 10px', minHeight: 'var(--yt-control-min-h)' } as const
 
 /**
  * Render the question dialog.
@@ -87,9 +90,12 @@ export function QuestionDialog(props: {
   const questions = run.questions ?? []
   const [answers, setAnswers] = useState<readonly string[]>(() => questions.map(() => ''))
   const settled = busy === true
+  // 模态纪律（2026-10-05 收敛）：与 ProposalCard 同一套——初始焦点进卡、
+  // Tab 圈在卡里、Esc 走 放弃本次提炼；续跑在途（settled）时 Esc 不动。
+  const { cardRef, onPanelKeyDown } = useDialogModal({ busy: settled, onClose: onAbort })
   return (
-    <div style={panelStyle} data-question-dialog="true">
-      <div style={cardStyle}>
+    <div style={panelStyle} data-question-dialog="true" onKeyDown={onPanelKeyDown}>
+      <div style={cardStyle} role="dialog" aria-modal="true" aria-label={t('workbench.questionTitle')} tabIndex={-1} ref={cardRef}>
         <div style={{ fontSize: 13, fontWeight: 600 }}>{t('workbench.questionTitle')}</div>
         {run.reason !== '' && <div style={{ ...whyStyle, marginTop: 2 }}>{run.reason}</div>}
         {questions.map((question, index) => (

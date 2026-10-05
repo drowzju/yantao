@@ -19,6 +19,7 @@ import type { UseProjection } from '@deepseek-ai/dsh-api-session-controller/clie
 // Type-only: the `contextPressure` / `contextBreakdown` projection key merges.
 import type {} from '@deepseek-ai/dsh-token-meter/client'
 import type { KbPromptInjectionResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import { useDialogModal } from './use-dialog-modal.ts'
 import type { WorkbenchT } from './locales.ts'
 import css from './ContextStatusBar.module.css'
 
@@ -95,6 +96,11 @@ export function ContextStatusBar({ useProjection, sessionId, promptInjection, t 
     }
   }, [open])
 
+  // 模态纪律（2026-10-05 收敛）：弹层打开时焦点进面板、关闭时还给触发点、
+  // Tab 圈在面板里——此前开合全不管焦点，键盘用户「进了又出不来」。外点
+  // 关闭仍由上面的 document 监听负责，两层各管各的通道。
+  const { cardRef, onPanelKeyDown } = useDialogModal({ active: open, onClose: () => { setOpen(false) } })
+
   const ariaLabel = percent === null
     ? (sessionId === undefined ? t('context.noSession') : t('context.unavailable'))
     : t('context.aria', { percent })
@@ -120,7 +126,7 @@ export function ContextStatusBar({ useProjection, sessionId, promptInjection, t 
         <span className={css.reading}>{percent === null ? '--' : `${percent}%`}</span>
       </button>
       {open && (
-        <div className={css.panel} role="dialog" aria-label={t('context.title')}>
+        <div className={css.panel} role="dialog" aria-modal="true" aria-label={t('context.title')} tabIndex={-1} ref={cardRef} onKeyDown={onPanelKeyDown} style={{ outline: 'none' }}>
           <p className={css.panelTitle}>{t('context.title')}</p>
           {!hasData ? (
             <p className={css.footnote}>{sessionId === undefined ? t('context.noSession') : t('context.unavailable')}</p>

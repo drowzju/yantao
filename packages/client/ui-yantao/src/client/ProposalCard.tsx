@@ -9,9 +9,10 @@
  * chose; the caller does the writing once, after confirmation — through
  * {@link ./proposal-apply.ts} `applyProposal`'s direct RPCs.
  */
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import type { Proposal, ProposalAction } from './proposal.ts'
 import { allProposalActions, GROUP_KEYS } from './proposal.ts'
+import { useDialogModal } from './use-dialog-modal.ts'
 import { entityNameOf } from './validate.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 
@@ -127,6 +128,7 @@ const inputStyle = {
     （2026-10-05 裁决卡减负）。 */
 const ghostButtonStyle = {
   padding: '4px 10px',
+  minHeight: 'var(--yt-control-min-h)',
   background: 'transparent',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 6,
@@ -137,6 +139,7 @@ const ghostButtonStyle = {
 /** 主行动钮「写入 N 项」：实心 accent 面，白/墨字随主题取表面色。 */
 const primaryButtonStyle = {
   padding: '4px 12px',
+  minHeight: 'var(--yt-control-min-h)',
   background: 'var(--yt-accent-strong)',
   border: '1px solid transparent',
   borderRadius: 6,
@@ -281,47 +284,19 @@ export function ProposalCard(props: {
   // The free-input box's draft and its in-flight state.
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
-  // 模态语义（2026-10-05 补课）：提案卡是全 UI 最高危的裁决面——读屏必须能
-  // 感知它的存在（role=dialog + aria-modal），Tab 必须被关在卡里，Esc 必须
-  // 是一等逃生口（与 ConfigDialog/SessionDetailDrawer 对齐）。busy 时 Esc
-  // 不动：确认在途，半路丢弃会让「写了什么」变得不可知。
-  const panelRef = useRef<HTMLDivElement | null>(null)
-  const cardRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    cardRef.current?.focus()
-    return () => { previous?.focus() }
-  }, [])
-  const onPanelKeyDown = (event: ReactKeyboardEvent): void => {
-    // IME 组合中的按键（选字/取消选字）不属于这张卡。
-    if (event.nativeEvent.isComposing) return
-    if (event.key === 'Escape') {
-      if (props.busy !== true) {
-        event.stopPropagation()
-        // ADR-0047 验收修正: in the inbox Esc *is* the discard — the same
-        // verdict as the footer's 丢弃, never a silent non-decision.
-        if (props.onDiscard !== undefined) props.onDiscard()
-        else props.onDismiss?.()
-      }
-      return
-    }
-    if (event.key !== 'Tab') return
-    const card = cardRef.current
-    if (card === null) return
-    const focusable = Array.from(card.querySelectorAll<HTMLElement>(
-      'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])'))
-    if (focusable.length === 0) { event.preventDefault(); return }
-    const first = focusable.at(0)
-    const last = focusable.at(-1)
-    if (first === undefined || last === undefined) { event.preventDefault(); return }
-    if (event.shiftKey && (document.activeElement === first || document.activeElement === card)) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
-  }
+  // 模态语义（2026-10-05 补课，行为收进 useDialogModal）：提案卡是全 UI
+  // 最高危的裁决面——读屏必须能感知它的存在（role=dialog + aria-modal），
+  // Tab 必须被关在卡里，Esc 必须是一等逃生口。busy 时 Esc 不动：确认在途，
+  // 半路丢弃会让「写了什么」变得不可知。
+  const { cardRef, onPanelKeyDown } = useDialogModal({
+    busy: props.busy === true,
+    // ADR-0047 验收修正: in the inbox Esc *is* the discard — the same
+    // verdict as the footer's 丢弃, never a silent non-decision.
+    onClose: () => {
+      if (props.onDiscard !== undefined) props.onDiscard()
+      else props.onDismiss?.()
+    },
+  })
   // A revision round produces a fresh proposal object; the tick state of the
   // previous round must not leak into it (OCR review 2026-09-30).
   useEffect(() => {
@@ -635,7 +610,7 @@ export function ProposalCard(props: {
   const prescan = proposal.prescan
 
   return (
-    <div style={panelStyle} data-proposal-card="true" ref={panelRef} onKeyDown={onPanelKeyDown}>
+    <div style={panelStyle} data-proposal-card="true" onKeyDown={onPanelKeyDown}>
       <div
         style={cardStyle}
         role="dialog"

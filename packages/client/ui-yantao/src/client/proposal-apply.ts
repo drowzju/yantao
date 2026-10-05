@@ -22,7 +22,20 @@
 import type {
   KbMailArchiveResult, KbMailDeleteResult, KbTodoItem, KbTodosResult, KbWriteTodosResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import { isDuplicateMemory, type Archiver, type EntityCreator, type FileReader, type FileWriter, type MailDeleter, type MemoryAdder, type TodoLoader, type TodoWriter } from './remote.ts'
+import {
+  isDuplicateMemory,
+  type Archiver,
+  type EntityArchiver,
+  type EntityCreator,
+  type FileReader,
+  type FileWriter,
+  type MailDeleter,
+  type MemoryAdder,
+  type MemoryDeleter,
+  type ResourceDeleter,
+  type TodoLoader,
+  type TodoWriter,
+} from './remote.ts'
 import type { Proposal, ProposalAction } from './proposal.ts'
 import { allProposalActions, stamp } from './proposal.ts'
 
@@ -54,6 +67,32 @@ export interface ProposalTarget {
    * loop's target) skips archive-mails rows honestly.
    */
   readonly archiveMails?: Archiver
+  /**
+   * Archive one entity (the frame's 归档 gesture, ADR-0041) — optional,
+   * because it exists only for the undo safety net: a target without it
+   * reports created entities as irreversible instead of pretending.
+   */
+  readonly archiveEntity?: EntityArchiver
+  /** Delete one memory entry by id — likewise undo-only, hence optional. */
+  readonly memoryDelete?: MemoryDeleter
+  /** Delete one resource file — likewise undo-only, hence optional. */
+  readonly deleteResource?: ResourceDeleter
+}
+
+/** One reversible write's inverse: what it was, and how to take it back. */
+export interface ProposalUndoStep {
+  /** The written line this step retracts (mirrors the notice's wording). */
+  readonly label: string
+  /** The inverse operation; throws on failure, one step's failure isolates. */
+  readonly run: () => Promise<unknown>
+}
+
+/** What a confirmed card left behind that the human can still take back. */
+export interface ProposalUndo {
+  /** Inverse steps in application order — execute in reverse. */
+  readonly steps: readonly ProposalUndoStep[]
+  /** Writes that landed but cannot be retracted, named honestly. */
+  readonly irreversible: readonly string[]
 }
 
 /** What one confirmed card produced. */
@@ -62,6 +101,30 @@ export interface ProposalApplyResult {
   readonly written: readonly string[]
   /** Actions that could not be written, with the reason. */
   readonly skipped: readonly string[]
+  /** Present only when at least one write is reversible. */
+  readonly undo?: ProposalUndo
+}
+
+/**
+ * Take back what a confirmed card wrote: the steps run in reverse order (a
+ * later write to a file restores over an earlier one, so unwinding must walk
+ * back through them), and one failing step is collected, not fatal — the
+ * rest of the retraction still lands.
+ * @param undo - the undo record `applyProposal` returned.
+ * @returns the steps that failed, with reasons.
+ */
+export async function runUndo(undo: ProposalUndo): Promise<{ readonly failed: readonly string[] }> {
+  const failed: string[] = []
+  for (let index = undo.steps.length - 1; index >= 0; index -= 1) {
+    const step = undo.steps[index] as ProposalUndoStep
+    try {
+      await step.run()
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      failed.push(`${step.label}：${message}`)
+    }
+  }
+  return { failed }
 }
 
 /**
@@ -214,6 +277,11 @@ export async function applyProposal(options: {
   const written: string[] = []
   const skipped: string[] = []
   const reportedWarnings = new Set<string>()
+  // The undo safety net: every branch that can be taken back records its
+  // inverse here; the knife kinds (mails) and the append-only 流水 name
+  // themselves irreversible instead.
+  const undoSteps: ProposalUndoStep[] = []
+  const irreversible: string[] = []
 
   const todos = picked
     .map(row => row.action)
@@ -245,6 +313,14 @@ export async function applyProposal(options: {
         )
         created.set(action.name, path)
         written.push(writtenLine(action))
+        // Undo retracts a fresh entity by archiving it — recoverable, never
+        // a delete; a target without the verb reports honestly instead.
+        if (target.archiveEntity !== undefined) {
+          const archiver = target.archiveEntity
+          undoSteps.push({ label: writtenLine(action), run: () => archiver(path) })
+        } else {
+          irreversible.push(writtenLine(action))
+        }
         continue
       }
       if (action.kind === 'create-project') {
@@ -269,6 +345,14 @@ export async function applyProposal(options: {
           }
         }
         written.push(writtenLine(action))
+        // The 领域 association rode the same breath into the same fresh
+        // file — archiving the entity retracts both.
+        if (target.archiveEntity !== undefined) {
+          const archiver = target.archiveEntity
+          undoSteps.push({ label: writtenLine(action), run: () => archiver(path) })
+        } else {
+          irreversible.push(writtenLine(action))
+        }
         continue
       }
       if (action.kind === 'save-resource') {
@@ -276,16 +360,43 @@ export async function applyProposal(options: {
           skipped.push(`资源「${action.reason}」：名字不能作为文件名`)
           continue
         }
+        // A resource that already exists rolls back to its prior bytes; a
+        // fresh one is removed outright. A read that fails for any reason
+        // reads as "was not there" — the write below fails too if it was
+        // something worse.
+        let existing: string | undefined
+        try {
+          existing = await target.read(action.path)
+        } catch {
+          existing = undefined
+        }
         await target.write(action.path, action.content)
         written.push(writtenLine(action))
+        if (existing !== undefined) {
+          const path = action.path
+          const prior = existing
+          undoSteps.push({ label: writtenLine(action), run: () => target.write(path, prior) })
+        } else if (target.deleteResource !== undefined) {
+          const remover = target.deleteResource
+          undoSteps.push({ label: writtenLine(action), run: () => remover(action.path) })
+        } else {
+          irreversible.push(writtenLine(action))
+        }
         continue
       }
       if (action.kind === 'add-memory') {
         // ADR-0032 批次③: the host refuses an exact duplicate — that is the
         // rule already being remembered, which reads as 已记得, not a failure.
         try {
-          await target.memoryAdd(action.scope, action.text)
+          const added = await target.memoryAdd(action.scope, action.text)
           written.push(writtenLine(action))
+          if (target.memoryDelete !== undefined) {
+            const remover = target.memoryDelete
+            const scope = action.scope
+            undoSteps.push({ label: writtenLine(action), run: () => remover(scope, added.entry.id) })
+          } else {
+            irreversible.push(writtenLine(action))
+          }
         } catch (error: unknown) {
           skipped.push(isDuplicateMemory(error)
             ? `${writtenLine(action)}：已记得，无需重记`
@@ -306,6 +417,9 @@ export async function applyProposal(options: {
         const outcome: KbMailDeleteResult = await deleter([action.entryId])
         if (outcome.moved.includes(action.entryId)) {
           written.push(writtenLine(action))
+          // The knife has no sheath: Outlook's 已删除 folder is not ours to
+          // reach into, so a retraction cannot be promised here.
+          irreversible.push(writtenLine(action))
         } else if (outcome.missing.includes(action.entryId)) {
           skipped.push(`${writtenLine(action)}：邮箱里找不到这封邮件（可能已被移走）`)
         } else {
@@ -328,6 +442,9 @@ export async function applyProposal(options: {
         if (saved !== undefined) {
           const suffix = saved.remark !== '' ? `（${saved.remark}）` : ''
           written.push(`${writtenLine(action)} → ${saved.path}${suffix}`)
+          // Same honesty as delete-mails: the archive box is not ours to
+          // reach back into within an undo window.
+          irreversible.push(writtenLine(action))
         } else if (outcome.oversized.some(entry => entry.entryId === action.entryId)) {
           // Over the 25 MB cap: refused on disk, but the index row was
           // written (决定 9) — the human asked for a record, and got one.
@@ -373,6 +490,7 @@ export async function applyProposal(options: {
         const content = await target.read(path)
         await target.write(path, replaceSection(content, heading, action.after))
         written.push(writtenLine(action))
+        undoSteps.push({ label: writtenLine(action), run: () => target.write(path, content) })
         continue
       }
       if (action.kind === 'append-section') {
@@ -401,6 +519,7 @@ export async function applyProposal(options: {
         const content = await target.read(path)
         await target.write(path, insertIntoSection(content, heading, action.text))
         written.push(writtenLine(action))
+        undoSteps.push({ label: writtenLine(action), run: () => target.write(path, content) })
         continue
       }
       // The entity-bodied kinds: an unresolved path is reported, not written.
@@ -420,6 +539,9 @@ export async function applyProposal(options: {
       const content = await target.read(entityPath)
       if (action.kind === 'append-log') {
         await target.write(entityPath, appendLog(content, action.text))
+        // 流水只增不改 (ADR-0029): even a byte-exact restore is a rewrite of
+        // the journal, so the undo net never promises one back.
+        irreversible.push(writtenLine(action))
       } else {
         // Domain data, not UI copy: `## 状态` is the KB's own section heading
         // (the glossary's 状态), independent of the workbench locale. A file
@@ -427,6 +549,7 @@ export async function applyProposal(options: {
         // bare line stranded at the file's end.
         const line = action.kind === 'create-link' ? action.link : action.text
         await target.write(entityPath, insertIntoStateSection(content, line))
+        undoSteps.push({ label: writtenLine(action), run: () => target.write(entityPath, content) })
       }
       written.push(writtenLine(action))
     } catch (error) {
@@ -451,11 +574,32 @@ export async function applyProposal(options: {
         expectedText: current.text,
       })
       written.push(`待办 ${todos.length} 条（${result.path}）`)
+      // Retraction reads the board afresh and lifts the just-added titles —
+      // matched from the end, so a repeated title lifts its own twin first.
+      undoSteps.push({
+        label: `待办 ${todos.length} 条`,
+        run: async () => {
+          const now: KbTodosResult = await target.todos()
+          let remaining = [...now.items]
+          for (const todo of [...todos].reverse()) {
+            let at = -1
+            for (let index = remaining.length - 1; index >= 0; index -= 1) {
+              if (remaining[index]?.title === todo.title) { at = index; break }
+            }
+            if (at >= 0) remaining = [...remaining.slice(0, at), ...remaining.slice(at + 1)]
+          }
+          await target.writeTodos({ items: remaining, expectedText: now.text })
+        },
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       skipped.push(`待办 ${todos.length} 条：${message}`)
     }
   }
 
-  return { written, skipped }
+  return {
+    written,
+    skipped,
+    ...(undoSteps.length > 0 ? { undo: { steps: undoSteps, irreversible } } : {}),
+  }
 }

@@ -299,6 +299,7 @@ export const zh = {
   'onboarding.choose': '选择目录',
 
   // Proposal card
+  'proposal.arrived': '新的提案待裁决：{title}',
   'proposal.highlight': '重点提醒',
   'proposal.digest': '日常通知（汇总）',
   'proposal.digestSummary': '共 {count} 条',
@@ -621,6 +622,7 @@ export const en = {
   'onboarding.choose': 'Choose directory',
 
   // Proposal card
+  'proposal.arrived': 'New proposal awaiting review: {title}',
   'proposal.highlight': 'Key reminders',
   'proposal.digest': 'Routine notices (digest)',
   'proposal.digestSummary': '{count} in total',

@@ -307,14 +307,18 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
       )}
       {phase === 'analysing' && progress !== null && (
         <div style={hintStyle} data-mail-progress={progress.stage}>
-          {t(STAGE_KEYS[progress.stage])}
-          {progress.done !== undefined && progress.total !== undefined
-            ? ` ${t('mail.analysedProgress', { done: progress.done, total: progress.total })}`
-            : ''}
+          {/* 阶段与计数进 live region；逐秒跳动的等待计时留在外面——
+              否则读屏每秒被吵一次。 */}
+          <span role="status">
+            {t(STAGE_KEYS[progress.stage])}
+            {progress.done !== undefined && progress.total !== undefined
+              ? ` ${t('mail.analysedProgress', { done: progress.done, total: progress.total })}`
+              : ''}
+          </span>
           {` ${t('mail.waited', { seconds: elapsed })}`}
         </div>
       )}
-      {error !== null && <div style={errorStyle} data-mail-error="true">{error}</div>}
+      {error !== null && <div style={errorStyle} role="alert" data-mail-error="true">{error}</div>}
       {memoryAdd !== undefined && (
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }} data-mail-memory="true">
           <input
@@ -323,6 +327,9 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
             placeholder={t('memory.addPlaceholder')}
             onChange={(event) => { setMemory(event.target.value) }}
             onKeyDown={(event) => {
+              // IME 组合中的回车（选字确认）不是「记住」——与 MemoryPanel
+              // 同一守卫，中文输入法选词回车不再误提交。
+              if (event.nativeEvent.isComposing) return
               if (event.key === 'Enter') { void remember() }
             }}
           />
@@ -331,10 +338,10 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
           </button>
         </div>
       )}
-      {memoryNotice !== null && <div style={hintStyle} data-mail-memory-notice="true">{memoryNotice}</div>}
+      {memoryNotice !== null && <div style={hintStyle} role="status" data-mail-memory-notice="true">{memoryNotice}</div>}
       {hint !== null && <div style={hintStyle}>{hint}</div>}
       {summary.length > 0 && (
-        <div style={mutedStyle} data-mail-summary="true">
+        <div style={mutedStyle} role="status" data-mail-summary="true">
           {summary.map(line => <div key={line}>{line}</div>)}
         </div>
       )}

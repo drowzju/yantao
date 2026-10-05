@@ -12,6 +12,7 @@
 import { useEffect, useState, type CSSProperties, type ReactElement } from 'react'
 import { formatTokens } from './ContextStatusBar.tsx'
 import type { DetailItem, SessionDetailLoader, SessionUsage } from './session-detail.ts'
+import { useDialogModal } from './use-dialog-modal.ts'
 import type { TaskRow } from './task-view.ts'
 import type { WorkbenchT } from './locales.ts'
 
@@ -46,6 +47,8 @@ const panelStyle: CSSProperties = {
   boxShadow: '0 8px 32px rgba(0, 0, 0, 0.25)',
   minWidth: 0,
   overflow: 'hidden',
+  // 面板自身接收初始焦点（tabIndex=-1）；轮廓交给面板内的真控件去画。
+  outline: 'none',
 }
 
 const headerStyle: CSSProperties = {
@@ -226,13 +229,10 @@ export function SessionDetailDrawer(props: {
   }, [row, load])
 
   // Esc closes — the drawer is an overlay, so the escape hatch is keyboard-first.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => { window.removeEventListener('keydown', onKey) }
-  }, [onClose])
+  // 模态纪律（2026-10-05 收敛）：Esc 与 Tab 圈闭走 useDialogModal，初始焦点
+  // 落在面板上、关闭时还给触发点——与 ProposalCard/ConfigDialog 同一套，
+  // 替代原先只挂在 window 上、不管焦点的裸 Esc 监听。
+  const { cardRef, onPanelKeyDown } = useDialogModal({ onClose })
 
   const toggleTool = (seq: number): void => {
     setOpenTools((current) => {
@@ -299,7 +299,7 @@ export function SessionDetailDrawer(props: {
   return (
     <>
       <div style={backdropStyle} onClick={onClose} />
-      <div style={panelStyle} role="dialog" aria-label={row.title} data-task-detail-panel="true">
+      <div style={panelStyle} role="dialog" aria-modal="true" aria-label={row.title} tabIndex={-1} ref={cardRef} onKeyDown={onPanelKeyDown} data-task-detail-panel="true">
         <div style={headerStyle}>
           <span style={titleStyle}>{`${row.title} · 会话详情`}</span>
           <button type="button" style={closeButtonStyle} onClick={onClose} aria-label="关闭">✕</button>

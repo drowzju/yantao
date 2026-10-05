@@ -33,7 +33,7 @@ import { formatElapsed, type TaskKind, type TaskRow, type TaskStatus } from '../
 import type { SessionDetailLoader } from '../session-detail.ts'
 import { SessionDetailDrawer } from '../SessionDetailDrawer.tsx'
 import type { Proposal, ProposalMailRange } from '../proposal.ts'
-import { applyProposal, type ProposalApplyResult } from '../proposal-apply.ts'
+import { applyProposal, runUndo, type ProposalApplyResult } from '../proposal-apply.ts'
 import { proposalOfPayload, proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
 import { capabilityGestureMessage } from '../capability-gesture.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
@@ -289,10 +289,15 @@ const noticeProgressStyle = { borderColor: 'var(--yt-accent-border)' } as const
 /** How much a notice matters: info fades, progress awaits its outcome, error sticks. */
 type NoticeSeverity = 'info' | 'progress' | 'error'
 
-/** One foot notice: the message and the discipline its severity earns. */
+/** One foot notice: the message, the discipline its severity earns, and —
+ * for a written report — the one chip that takes the writes back. */
 interface CapabilityNotice {
   readonly text: string
   readonly severity: NoticeSeverity
+  readonly action?: {
+    readonly label: string
+    readonly run: () => void
+  }
 }
 
 /** The tree sections that carry entities, and the entity kind each one is. */
@@ -574,24 +579,20 @@ export function Frame({
 
   // ADR-0021 决定 4: the confirmed proposal lands through the shared applier's
   // direct RPCs — the frame owns the KB seams, the task owns the state machine.
-  // ADR-0032 批次③: the card's 记忆 rows go through the same memoryAdd.
+  // ADR-0032 批次③: the card's 记忆 rows go through the same memoryAdd. The
+  // three undo-only verbs ride along so the written report can offer 撤销.
   const applyConfirmed = useCallback(
     (options: { proposal: Proposal; ticked: readonly number[] }): Promise<ProposalApplyResult> =>
-      applyProposal({ ...options, target: { createEntity, read, write, todos, writeTodos, memoryAdd } }),
-    [createEntity, read, write, todos, writeTodos, memoryAdd],
+      applyProposal({
+        ...options,
+        target: { createEntity, read, write, todos, writeTodos, memoryAdd, archiveEntity, memoryDelete, deleteResource },
+      }),
+    [createEntity, read, write, todos, writeTodos, memoryAdd, archiveEntity, memoryDelete, deleteResource],
   )
 
   // The one confirm path every proposal card shares (capability runs'
   // ADR-0021 决定 4, refine's ADR-0029 决定 3): apply, reload the trees, and
   // report the writes — or the failure — in the foot notice.
-  const confirmProposal = useCallback((proposal: Proposal, ticked: readonly number[]): void => {
-    void applyConfirmed({ proposal, ticked }).then((result) => {
-      setTreeKey(key => key + 1)
-      setCapabilityNotice([...result.written, ...result.skipped].join('；') || '没有写入任何内容。')
-    }, (failure: unknown) => {
-      setCapabilityNotice(`写入失败：${remoteMessage(failure)}`)
-    })
-  }, [applyConfirmed])
 
   // ── the 任务 tab's rows (ADR-0031) ────────────────────────────────────────
   // One row per execution the workbench itself started — refine gestures,
@@ -637,11 +638,13 @@ export function Frame({
    * never yields to lesser news (并发时失败不被顶掉)， and clearing never
    * hides an error (dismissal is the human's click, not the next event).
    */
-  const setCapabilityNotice = (update: string | null): void => {
+  const setCapabilityNotice = (update: string | null, action?: CapabilityNotice['action']): void => {
     setCapabilityNoticeRaw((previous) => {
       if (update === null) return previous?.severity === 'error' ? previous : null
       const severity: NoticeSeverity = /失败|错误/.test(update) ? 'error' : /…$/.test(update) ? 'progress' : 'info'
-      return previous?.severity === 'error' && severity !== 'error' ? previous : { text: update, severity }
+      return previous?.severity === 'error' && severity !== 'error'
+        ? previous
+        : { text: update, severity, ...(action !== undefined ? { action } : {}) }
     })
   }
   // info 会自己走（8s）：进展由完成/失败接管，错误常驻等人处置，只有
@@ -651,6 +654,40 @@ export function Frame({
     const timer = setTimeout(() => { setCapabilityNoticeRaw(null) }, 8000)
     return () => { clearTimeout(timer) }
   }, [capabilityNotice])
+
+  // The written report both confirm paths share (ADR-0021 决定 4): the
+  // writes and misses in one line, plus a 撤销 chip when the applier left
+  // anything reversible. The 8-second fade above IS the undo window — when
+  // the notice goes, the chance goes with it; irreversible writes (the mail
+  // knives, the append-only 流水) are named in the line, never promised back.
+  const confirmWritten = (result: ProposalApplyResult): void => {
+    const text = [...result.written, ...result.skipped].join('；') || '没有写入任何内容。'
+    const undo = result.undo
+    if (undo === undefined) {
+      setCapabilityNotice(text)
+      return
+    }
+    const suffix = undo.irreversible.length > 0 ? `（其中 ${undo.irreversible.length} 项不可撤销）` : ''
+    setCapabilityNotice(text + suffix, {
+      label: '撤销',
+      run: () => {
+        setCapabilityNotice(null)
+        void runUndo(undo).then(({ failed }) => {
+          setTreeKey(key => key + 1)
+          setCapabilityNotice(failed.length === 0 ? '已撤销刚才的写入。' : `撤销失败：${failed.join('；')}`)
+        })
+      },
+    })
+  }
+
+  const confirmProposal = useCallback((proposal: Proposal, ticked: readonly number[]): void => {
+    void applyConfirmed({ proposal, ticked }).then((result) => {
+      setTreeKey(key => key + 1)
+      confirmWritten(result)
+    }, (failure: unknown) => {
+      setCapabilityNotice(`写入失败：${remoteMessage(failure)}`)
+    })
+  }, [applyConfirmed])
   // ADR-0044 决定 6: every settled script run leaves a record — the 能力
   // tab's 运行记录 renders them, and the 提炼经验 button turns one record
   // into a distill session. Frontend memory, this session only.
@@ -755,7 +792,7 @@ export function Frame({
           setInboxBusyId(null)
           setInboxEntries(resolved.proposals)
           setTreeKey(key => key + 1)
-          setCapabilityNotice([...result.written, ...result.skipped].join('；') || '没有写入任何内容。')
+          confirmWritten(result)
         },
         (failure: unknown) => {
           setInboxBusyId(null)
@@ -1160,6 +1197,10 @@ export function Frame({
   const validateCancelled = useRef(false)
   const validateBusy = useRef(false)
   const [validateActive, setValidateActive] = useState(false)
+  // 提案换届播报（2026-10-05 补课）：卡片换了届，读屏原本一片寂静。一张
+  // 视觉隐藏的 live region 播报当前在场的提案标题——文字变了才播，撤场
+  // 归空，不打扰别的消息。
+  const liveProposal = capabilityProposal ?? refineProposal ?? validateProposal
 
   /** One validate run's end: the stats notice, then the card. */
   const showValidateRun = useCallback((run: ValidateRun, taskId: string): void => {
@@ -1977,6 +2018,23 @@ export function Frame({
           t={t}
         />
       )}
+      {/* 视觉隐藏的提案播报（aria-live）：只给读屏。 */}
+      <div
+        style={{
+          position: 'absolute',
+          width: 1,
+          height: 1,
+          margin: -1,
+          overflow: 'hidden',
+          clipPath: 'rect(0 0 0 0)',
+          whiteSpace: 'nowrap',
+        }}
+        role="status"
+        aria-live="polite"
+        data-proposal-announcement="true"
+      >
+        {liveProposal !== null ? t('proposal.arrived', { title: liveProposal.title }) : ''}
+      </div>
       {capabilityNotice !== null && (
         <div
           style={{
@@ -1993,6 +2051,28 @@ export function Frame({
           onClick={() => { setCapabilityNotice(null) }}
         >
           {capabilityNotice.text}
+          {/* The written report's undo chip: takes back what the applier
+              just wrote, inside the notice's own 8-second lifetime. */}
+          {capabilityNotice.action !== undefined && (
+            <button
+              type="button"
+              style={{
+                marginLeft: 10,
+                padding: '1px 8px',
+                border: '1px solid var(--yt-border-strong)',
+                borderRadius: 4,
+                background: 'var(--yt-surface-raised)',
+                cursor: 'pointer',
+                fontSize: 12,
+              }}
+              onClick={(event) => {
+                event.stopPropagation()
+                capabilityNotice.action?.run()
+              }}
+            >
+              {capabilityNotice.action.label}
+            </button>
+          )}
           {/* A running refine is cancellable right where it announces itself
               (ADR-0031): the chip stops the run and drops the queue. */}
           {(refineActive || capabilityRunning || validateActive) && (

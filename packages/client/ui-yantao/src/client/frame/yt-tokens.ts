@@ -76,6 +76,9 @@ export const YT_STATIC_TOKENS: Record<string, string> = {
   '--yt-space-4': '16px',
   '--yt-space-5': '24px',
   '--yt-space-6': '32px',
+  // 交互控件的最小高度（2026-10-05 命中目标修订）：裁决类按钮的误触代价是
+  // 写脏知识库，Fitts 定律不吃商量——按钮统一 minHeight 到这一档。
+  '--yt-control-min-h': '28px',
 }
 
 /**

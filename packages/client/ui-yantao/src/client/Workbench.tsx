@@ -167,7 +167,10 @@ const rowStyle = {
   display: 'block',
   width: '100%',
   textAlign: 'left',
-  padding: '4px 6px',
+  // 侧边距 ≥8px（2026-10-05 命中目标修订）：检测器实测 6px 挤掉了文本
+  // 呼吸空间（cramped-padding），行也是左栏的主点击面。
+  padding: '4px 8px',
+  minHeight: 'var(--yt-control-min-h)',
   margin: '1px 0',
   borderWidth: 1,
   borderStyle: 'solid',
@@ -249,7 +252,7 @@ function FileRow({
       style={{
         ...(selection === file.path ? selectedRowStyle : rowStyle),
         ...(dropHover ? dropHoverStyle : {}),
-        paddingLeft: 6 + indent * 14,
+        paddingLeft: 8 + indent * 14,
       }}
       data-selected={selection === file.path || undefined}
       data-drop-target={drop !== undefined || undefined}
@@ -475,7 +478,7 @@ function ResourceTree({
         <button
           key={`dir:${child.dir}`}
           type="button"
-          style={{ ...rowStyle, paddingLeft: 6 + depth * 14, color: 'var(--yt-text-secondary)' }}
+          style={{ ...rowStyle, paddingLeft: 8 + depth * 14, color: 'var(--yt-text-secondary)' }}
           data-resource-dir={child.dir}
           aria-expanded={!folded}
           onClick={() => { toggle(child.dir) }}

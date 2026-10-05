@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { KbTodosResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { Proposal } from '../src/client/proposal.ts'
 import type { ProposalTarget } from '../src/client/proposal-apply.ts'
-import { applyProposal, insertIntoSection, insertIntoStateSection, replaceSection } from '../src/client/proposal-apply.ts'
+import { applyProposal, insertIntoSection, insertIntoStateSection, replaceSection, runUndo } from '../src/client/proposal-apply.ts'
 
 const TODOS_PATH = 'entities/todos.md'
 const TEXT = '- [ ] 已有的待办\n'
@@ -649,5 +649,139 @@ describe('prescan fix rows resolve ahead of the model actions (ADR-0036 决定 6
     }
     const result = await applyProposal({ proposal, ticked: [1], target: t })
     expect(result.written).toEqual(['资源 resources/note.md'])
+  })
+})
+
+describe('applyProposal undo records', () => {
+  const ORIGINAL = '# 张三\n\n## 状态\n\n\n## 流水\n\n- 2026-01-01 创建\n'
+
+  it('records an archive step for a created entity', async () => {
+    const t = target({ archiveEntity: vi.fn(async (locator: string) => ({ path: locator, archived: true })) })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'create-entity', entityType: 'person', name: '张三', reason: 'r' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(result.undo).toBeDefined()
+    expect(result.undo?.irreversible).toEqual([])
+    await runUndo(result.undo!)
+    expect(t.archiveEntity).toHaveBeenCalledWith('entities/people/张三.md')
+  })
+
+  it('reports a created entity as irreversible without the archive verb', async () => {
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'create-entity', entityType: 'person', name: '张三', reason: 'r' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: target() })
+    expect(result.undo).toBeUndefined()
+  })
+
+  it('restores the prior bytes for a state write', async () => {
+    const t = target({ read: vi.fn(async () => ORIGINAL) })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'write-state', entityPath: 'entities/people/张三.md', entityName: '张三', text: '合作中', reason: 'r' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(result.undo).toBeDefined()
+    ;(t.write as ReturnType<typeof vi.fn>).mockClear()
+    await runUndo(result.undo!)
+    const [path, content] = (t.write as ReturnType<typeof vi.fn>).mock.calls.at(-1) as [string, string]
+    expect(path).toBe('entities/people/张三.md')
+    expect(content).toBe(ORIGINAL)
+  })
+
+  it('deletes a fresh resource and restores an overwritten one', async () => {
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'save-resource', path: 'resources/note.md', content: '新内容', reason: 'r' }],
+    }
+    // Fresh file: the read misses, so the undo is a delete.
+    const fresh = target({
+      read: vi.fn(async () => { throw new Error('没有这个文件') }),
+      deleteResource: vi.fn(async (path: string) => ({ path })),
+    })
+    const freshResult = await applyProposal({ proposal, ticked: [0], target: fresh })
+    await runUndo(freshResult.undo!)
+    expect(fresh.deleteResource).toHaveBeenCalledWith('resources/note.md')
+
+    // Existing file: the undo writes the prior bytes back.
+    const existing = target({
+      read: vi.fn(async () => '旧内容'),
+      deleteResource: vi.fn(async (path: string) => ({ path })),
+    })
+    const existingResult = await applyProposal({ proposal, ticked: [0], target: existing })
+    await runUndo(existingResult.undo!)
+    expect(existing.deleteResource).not.toHaveBeenCalled()
+    expect(existing.write).toHaveBeenCalledWith('resources/note.md', '旧内容')
+  })
+
+  it('retracts a memory by the entry id the host answered', async () => {
+    const t = target({ memoryDelete: vi.fn(async () => {}) })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'add-memory', scope: 'behavior', text: '周三站会前发周报', reason: 'r' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(result.undo).toBeDefined()
+    await runUndo(result.undo!)
+    expect(t.memoryDelete).toHaveBeenCalledWith('behavior', 'm1')
+  })
+
+  it('names the mail knives irreversible and offers no undo for them alone', async () => {
+    const t = target({
+      deleteMails: vi.fn(async (ids: readonly string[]) => ({ moved: [...ids], missing: [], failed: [] })),
+    })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'delete-mails', entryId: 'm-1', subject: '广告', reason: 'r' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(result.written).toEqual(['删除邮件 广告'])
+    expect(result.undo).toBeUndefined()
+  })
+
+  it('lifts the just-added todos back off the board', async () => {
+    const board = {
+      path: TODOS_PATH,
+      text: TEXT,
+      items: [{ done: false, title: '已有的待办', body: '', extra: [] }],
+    }
+    const t = target({
+      todos: vi.fn(async () => board),
+      writeTodos: vi.fn(async (args: { items: readonly unknown[] }) => {
+        board.items = args.items as typeof board.items
+        return { path: TODOS_PATH, text: TEXT }
+      }),
+    })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{ kind: 'add-todo', title: '新待办', reason: 'r' }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(board.items).toHaveLength(2)
+    await runUndo(result.undo!)
+    expect(board.items).toHaveLength(1)
+    expect(board.items[0]?.title).toBe('已有的待办')
+  })
+
+  it('keeps undoing the rest when one step fails', async () => {
+    const t = target({
+      read: vi.fn(async () => '# 张三\n\n## 状态\n\n\n## 流水\n\n- 2026-01-01 创建\n'),
+      memoryDelete: vi.fn(async () => { throw new Error('记忆文件被占用') }),
+    })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [
+        { kind: 'add-memory', scope: 'behavior', text: '规则一', reason: 'r' },
+        { kind: 'write-state', entityPath: 'entities/people/张三.md', entityName: '张三', text: '合作中', reason: 'r' },
+      ],
+    }
+    const result = await applyProposal({ proposal, ticked: [0, 1], target: t })
+    const outcome = await runUndo(result.undo!)
+    expect(outcome.failed).toEqual(['记忆（behavior）规则一：记忆文件被占用'])
+    // The state write — applied after the memory — still rolled back.
+    expect(t.write).toHaveBeenCalledWith('entities/people/张三.md', '# 张三\n\n## 状态\n\n\n## 流水\n\n- 2026-01-01 创建\n')
   })
 })

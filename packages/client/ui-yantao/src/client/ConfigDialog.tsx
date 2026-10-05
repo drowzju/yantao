@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { ModelRow, ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from './model-config.ts'
 import { apiKeyIssue, draftIssue } from './model-config.ts'
+import { useDialogModal } from './use-dialog-modal.ts'
 import type { WorkbenchT } from './locales.ts'
 import { remoteMessage } from './remote.ts'
 
@@ -37,6 +38,8 @@ const cardStyle = {
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
+  // 卡自身接收初始焦点（tabIndex=-1）；轮廓交给卡内的真控件去画。
+  outline: 'none',
 } as const
 
 const headerStyle = {
@@ -89,7 +92,7 @@ const footerStyle = {
   borderTop: '1px solid var(--yt-border-subtle)',
 } as const
 
-const buttonStyle = { padding: '5px 14px' } as const
+const buttonStyle = { padding: '5px 14px', minHeight: 'var(--yt-control-min-h)' } as const
 
 const ghostStyle = { ...buttonStyle, background: 'transparent', border: '1px solid var(--yt-border-subtle)' } as const
 
@@ -121,6 +124,10 @@ export function ConfigDialog(props: ConfigDialogProps): ReactElement {
   // The load generation guards against a stale read racing a close: only the
   // latest mount's read may paint the form.
   const generation = useRef(0)
+  // 模态纪律（2026-10-05 收敛）：与 ProposalCard 同一套——初始焦点进卡、
+  // Tab 圈在卡里、Esc 关闭；保存在途（busy）时 Esc 不动，半途丢掉保存态
+  // 会让「存到哪一步」变得不可知。
+  const { cardRef, onPanelKeyDown } = useDialogModal({ busy, onClose })
 
   const applyView = useCallback((loaded: ModelsConfigView): void => {
     setView(loaded)
@@ -185,8 +192,8 @@ export function ConfigDialog(props: ConfigDialogProps): ReactElement {
   const modelOption = (row: ModelRow): string => row.name === '' || row.name === row.id ? row.id : `${row.id}（${row.name}）`
 
   return (
-    <div style={backdropStyle} onClick={onClose} data-config-backdrop="true">
-      <div style={cardStyle} role="dialog" aria-label={t('config.title')} onClick={(event) => { event.stopPropagation() }}>
+    <div style={backdropStyle} onClick={onClose} data-config-backdrop="true" onKeyDown={onPanelKeyDown}>
+      <div style={cardStyle} role="dialog" aria-modal="true" aria-label={t('config.title')} tabIndex={-1} ref={cardRef} onClick={(event) => { event.stopPropagation() }}>
         <header style={headerStyle}>
           <span style={titleStyle}>{t('config.title')}</span>
           <button style={ghostStyle} onClick={onClose}>{t('config.close')}</button>
