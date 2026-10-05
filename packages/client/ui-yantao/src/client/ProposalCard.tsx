@@ -246,14 +246,18 @@ interface EntityRow {
  *   `onInstruction`, when given (the validate card), adds the bottom
  *   free-input box: the human's instruction goes back to the run for a
  *   revised proposal, as many rounds as wanted. `onDiscard`, when given (the
- *   提议收件箱 card, ADR-0047), adds a 丢弃 ghost beside the primary confirm —
- *   an explicit final verdict, distinct from 取消 which only closes the card.
+ *   提议收件箱 card, ADR-0047), turns the footer's 取消 into 丢弃 — in the
+ *   inbox a card left without approving *is* a discard (2026-10-05 验收修正：
+ *   取消即丢弃，不让人再点第二次), so the two ghosts collapse into one button
+ *   and Esc takes the same verdict; without `onDiscard` the cancel keeps its
+ *   close-only sense.
  * @returns the card element.
  */
 export function ProposalCard(props: {
   readonly proposal: Proposal
   readonly onConfirm: (ticked: readonly number[], areaPicks?: Readonly<Record<number, readonly string[]>>) => void
-  readonly onDismiss: () => void
+  /** The close-only escape — required unless `onDiscard` replaces it (ADR-0047 验收修正). */
+  readonly onDismiss?: () => void
   /** The free-input continuation — present only when the run can take instructions. */
   readonly onInstruction?: (text: string) => Promise<void>
   /** The explicit 丢弃 verdict (ADR-0047) — renders the ghost beside the primary confirm. */
@@ -294,7 +298,10 @@ export function ProposalCard(props: {
     if (event.key === 'Escape') {
       if (props.busy !== true) {
         event.stopPropagation()
-        props.onDismiss()
+        // ADR-0047 验收修正: in the inbox Esc *is* the discard — the same
+        // verdict as the footer's 丢弃, never a silent non-decision.
+        if (props.onDiscard !== undefined) props.onDiscard()
+        else props.onDismiss?.()
       }
       return
     }
@@ -779,10 +786,10 @@ export function ProposalCard(props: {
             {t('proposal.ignoreAll')}
           </button>
           <span style={{ flex: 1 }} />
-          <button type="button" style={ghostButtonStyle} disabled={props.busy === true} onClick={props.onDismiss}>
-            {t('common.cancel')}
-          </button>
-          {props.onDiscard !== undefined && (
+          {/* ADR-0047 验收修正: with onDiscard the cancel ghost *becomes* the
+              丢弃 verdict — one button, one meaning; the separate discard
+              ghost beside it was a second click for the same judgement. */}
+          {props.onDiscard !== undefined ? (
             <button
               type="button"
               style={ghostButtonStyle}
@@ -791,6 +798,10 @@ export function ProposalCard(props: {
               onClick={props.onDiscard}
             >
               {t('inbox.discard')}
+            </button>
+          ) : (
+            <button type="button" style={ghostButtonStyle} disabled={props.busy === true} onClick={() => { props.onDismiss?.() }}>
+              {t('common.cancel')}
             </button>
           )}
           <button

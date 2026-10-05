@@ -110,8 +110,11 @@ powershell -File scripts\sync-in.ps1 -Bundle <bundle 路径>
 - **提议队列**在 controller 侧持久化:`<kbRoot>/.dsh/yantao/proposal-inbox.json`,经 Remote 三方法
   `proposalInboxList` / `proposalInboxEnqueue` / `proposalInboxResolve` 读写。生产者只有前端调度器;agent 没有任何
   工具能碰到这张队列。载荷按不透明 JSON 存储,解释权在客户端插件的 `proposalOfPayload`。
-- **决策面**是「提议」tab:复用共享 ProposalCard,批准走 applyProposal 先写入、后 resolve;两步任一失败行都保持
-  待决。细节取舍见 ADR-0047 台账。
+- **决策面**是「提议」tab:复用共享 ProposalCard,**取消/Esc 即丢弃**(验收修正:卡一关必有裁决,不让人再点
+  第二次);批准走 applyProposal 先写入、后 resolve;两步任一失败行都保持待决。细节取舍见 ADR-0047 台账。
+- **邮件水位联动**(验收修正 2):信封约定含可选 `mails` 范围字段(模型抄实际批次首尾的 `receivedAt`);
+  人**批准或丢弃**提议时,Frame 经 `mailMarkRead` 把水位推过该范围——与手动面板 confirm/dismiss 的「看过即处理」
+  同义,下次读邮件不再重推同批。范围同时显示在队列行的 note 上,隐式簿记变明面。
 
 ## 排障方向(出了问题先往哪看)
 

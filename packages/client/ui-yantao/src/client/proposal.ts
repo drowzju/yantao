@@ -215,6 +215,21 @@ export interface ProposalHighlight {
 }
 
 /**
+ * The mail range one proposal's task covered (ADR-0047 验收修正 2): the
+ * envelope's optional `mails` field, copied by the model from the batch it
+ * actually fetched. When the human settles the inbox entry — approving or
+ * discarding, the same "seen and judged" sense the manual panel's
+ * confirm/dismiss carries — the frame moves the mail watermark past the
+ * range, so the next read never re-offers the batch.
+ */
+export interface ProposalMailRange {
+  /** The newest covered mail's `receivedAt` — where the watermark moves to. */
+  readonly lastReadAt: string
+  /** The oldest covered mail's `receivedAt` — extends the processed range's start. */
+  readonly firstReadAt?: string
+}
+
+/**
  * One finding of the validate gesture (ADR-0035 决定 3): a pure display row
  * on the card — never ticked, never an action. The fix, when the model
  * proposed one, lives in the action groups on its own.
@@ -297,6 +312,12 @@ export interface Proposal {
    * from — everything the model said. Absent for the other gestures.
    */
   readonly prescan?: ProposalPrescan
+  /**
+   * The mail range the task covered (ADR-0047 验收修正 2), when the answer's
+   * envelope carried one — the inbox verdict moves the mail watermark past
+   * it. Absent for non-mail proposals and for envelopes that named no range.
+   */
+  readonly mails?: ProposalMailRange
 }
 
 /**

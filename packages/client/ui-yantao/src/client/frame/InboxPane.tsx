@@ -2,9 +2,10 @@
  * The 提议 tab's pane (ADR-0047): the inbox's rows — pending first, decided
  * after — with the shared ProposalCard opening over a clicked pending row.
  * The card is the one decision surface (零新面孔，样式统一裁决直接适用):
- * 批准 ticks rows and writes through the frame's human-channel seams, 丢弃
- * is the explicit final verdict beside the primary confirm, and closing the
- * card (取消/Esc) decides nothing — the row stays pending for later.
+ * 批准 ticks rows and writes through the frame's human-channel seams, and
+ * leaving the card any other way — 丢弃钮、取消、Esc — is the discard verdict
+ * (2026-10-05 验收修正：取消即丢弃，卡一关必有裁决，行不留悬而未决的第三态).
+ * Both verdicts close the card; the row's chip tells what happened.
  *
  * Like SchedulePane this pane speaks plain Chinese (the panes skip i18n);
  * colors and metrics ride the `--yt-*` tokens. Pure presentation: the rows
@@ -161,7 +162,8 @@ function ordered(entries: readonly KbQueuedProposal[]): readonly KbQueuedProposa
  * @returns the pane element.
  */
 export function InboxPane({ entries, busyId, onConfirm, onDiscard, t }: InboxPaneProps): ReactElement {
-  // The open card's entry id; closing it decides nothing.
+  // The open card's entry id; either verdict closes it — the row's chip
+  // carries the outcome (取消即丢弃，ADR-0047 验收修正).
   const [openId, setOpenId] = useState<string | null>(null)
   const openEntry = openId === null ? undefined : entries.find(entry => entry.id === openId)
   const openProposal = openEntry === undefined ? null : proposalOfPayload(openEntry.proposal)
@@ -210,9 +212,8 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, t }: InboxPan
       {openEntry !== undefined && openProposal !== null && (
         <ProposalCard
           proposal={openProposal}
-          onConfirm={(ticked) => { onConfirm(openEntry, ticked) }}
-          onDismiss={() => { setOpenId(null) }}
-          onDiscard={() => { onDiscard(openEntry) }}
+          onConfirm={(ticked) => { setOpenId(null); onConfirm(openEntry, ticked) }}
+          onDiscard={() => { setOpenId(null); onDiscard(openEntry) }}
           busy={busyId === openEntry.id}
           t={t}
         />

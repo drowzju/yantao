@@ -32,7 +32,7 @@ import type { ValidateRun, ValidateRunner, ValidateScope, ValidateStage } from '
 import { formatElapsed, type TaskKind, type TaskRow, type TaskStatus } from '../task-view.ts'
 import type { SessionDetailLoader } from '../session-detail.ts'
 import { SessionDetailDrawer } from '../SessionDetailDrawer.tsx'
-import type { Proposal } from '../proposal.ts'
+import type { Proposal, ProposalMailRange } from '../proposal.ts'
 import { applyProposal, type ProposalApplyResult } from '../proposal-apply.ts'
 import { proposalOfPayload, proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
 import { capabilityGestureMessage } from '../capability-gesture.ts'
@@ -699,6 +699,19 @@ export function Frame({
   const [inboxLoaded, setInboxLoaded] = useState(false)
   const [inboxBusyId, setInboxBusyId] = useState<string | null>(null)
 
+  // ADR-0047 验收修正 2: settling a mail-covering entry moves the mail
+  // watermark past the envelope's range — the same "seen and judged" sense
+  // the manual panel's confirm/dismiss carries, so the next read never
+  // re-offers the batch. A failed cursor move stays silent, exactly like the
+  // manual path's: the host answers from its watermark on the next read.
+  const moveMailCursor = useCallback((range: ProposalMailRange | undefined): void => {
+    if (range === undefined) return
+    void mailMarkRead({
+      lastReadAt: range.lastReadAt,
+      ...(range.firstReadAt !== undefined ? { firstReadAt: range.firstReadAt } : {}),
+    }).catch(() => { /* the next read re-derives from the host's watermark */ })
+  }, [mailMarkRead])
+
   const loadInbox = useCallback((): void => {
     void proposalInboxList().then(
       (result) => { setInboxEntries(result.proposals); setInboxLoaded(true) },
@@ -714,6 +727,8 @@ export function Frame({
       (result) => {
         setInboxBusyId(null)
         setInboxEntries(result.proposals)
+        // 丢弃也算看过 (the manual dismiss's own sense, ADR-0047 验收修正 2).
+        moveMailCursor(proposalOfPayload(entry.proposal)?.mails)
         setCapabilityNotice(`已丢弃提议「${entry.title}」。`)
       },
       (failure: unknown) => {
@@ -721,7 +736,7 @@ export function Frame({
         setCapabilityNotice(`提议处置失败：${remoteMessage(failure)}`)
       },
     )
-  }, [proposalInboxResolve])
+  }, [proposalInboxResolve, moveMailCursor])
 
   // 批准: the writes land first — the same applyConfirmed every card shares —
   // and only then is the row settled approved. A failed apply leaves the row
@@ -732,6 +747,9 @@ export function Frame({
     if (proposal === null) return
     setInboxBusyId(entry.id)
     void applyConfirmed({ proposal, ticked }).then((result) => {
+      // The writes landed — the covered mails count as processed now, in
+      // both settle branches (ADR-0047 验收修正 2).
+      moveMailCursor(proposal.mails)
       void proposalInboxResolve({ id: entry.id, status: 'approved' }).then(
         (resolved) => {
           setInboxBusyId(null)
@@ -748,7 +766,7 @@ export function Frame({
       setInboxBusyId(null)
       setCapabilityNotice(`写入失败：${remoteMessage(failure)}`)
     })
-  }, [applyConfirmed, proposalInboxResolve])
+  }, [applyConfirmed, proposalInboxResolve, moveMailCursor])
 
   // One serialized write channel for every schedule write (OCR 2026-10-03):
   // the pane's full-list saves and the scheduler's stamp patches tail-chain

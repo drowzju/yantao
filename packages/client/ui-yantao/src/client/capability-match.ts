@@ -11,7 +11,7 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/capability-match
  */
 import type { KbCapabilityRunResult, KbCapabilitySummary } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { Proposal, ProposalAction } from './proposal.ts'
+import type { Proposal, ProposalAction, ProposalMailRange } from './proposal.ts'
 
 /** The row a menu is open for, in the shape the matcher reads. */
 export type CapabilityRowTarget =
@@ -64,6 +64,26 @@ function actionsOf(raw: readonly unknown[]): readonly ProposalAction[] {
     if (typeof entry !== 'object' || entry === null) return false
     return KINDS.includes((entry as Record<string, unknown>).kind as ProposalAction['kind'])
   })
+}
+
+/**
+ * The envelope's optional `mails` range (ADR-0047 验收修正 2), as the parsers
+ * accept it: an object whose `lastReadAt` is a non-empty string (the model
+ * copies the stamps off fetched mails; strict ISO parsing stays the
+ * watermark writer's business). Anything else — absent, mistyped, empty —
+ * is simply no range, and the inbox verdict moves no cursor.
+ */
+function mailsOf(raw: unknown): ProposalMailRange | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const candidate = raw as Record<string, unknown>
+  if (typeof candidate.lastReadAt !== 'string' || candidate.lastReadAt.trim() === '') return undefined
+  const range: ProposalMailRange = {
+    lastReadAt: candidate.lastReadAt.trim(),
+    ...(typeof candidate.firstReadAt === 'string' && candidate.firstReadAt.trim() !== ''
+      ? { firstReadAt: candidate.firstReadAt.trim() }
+      : {}),
+  }
+  return range
 }
 
 /**
@@ -123,7 +143,8 @@ export function proposalOfAnswer(answer: string, title: string): Proposal | null
     if (!Array.isArray(raw) || raw.length === 0) continue
     const actions = actionsOf(raw)
     if (actions.length === 0) continue
-    return { title, actions }
+    const mails = mailsOf((parsed as Record<string, unknown>).mails)
+    return { title, actions, ...(mails !== undefined ? { mails } : {}) }
   }
   return null
 }
@@ -144,7 +165,8 @@ export function proposalOfPayload(raw: unknown): Proposal | null {
   if (!Array.isArray(candidate.actions) || candidate.actions.length === 0) return null
   const actions = actionsOf(candidate.actions)
   if (actions.length === 0) return null
-  return { title: candidate.title.trim(), actions }
+  const mails = mailsOf(candidate.mails)
+  return { title: candidate.title.trim(), actions, ...(mails !== undefined ? { mails } : {}) }
 }
 
 /**

@@ -109,6 +109,13 @@ describe('withProposalEnvelope（ADR-0047 验收修正：约定随 fire 附加�
     expect(composed).toContain('不要自行执行')
     expect(composed).toContain('完全不输出信封')
   })
+
+  it('约定带上 mails 范围字段（验收修正 2：裁决联动邮件水位）', () => {
+    const composed = withProposalEnvelope('邮件任务')
+    expect(composed).toContain('"mails"')
+    expect(composed).toContain('lastReadAt')
+    expect(composed).toContain('firstReadAt')
+  })
 })
 
 describe('proposalOfAnswer（ADR-0047 调度答案解析）', () => {
@@ -141,6 +148,23 @@ describe('proposalOfAnswer（ADR-0047 调度答案解析）', () => {
     expect(proposalOfAnswer('今天的检查一切正常，无需写入。', 't')).toBeNull()
     expect(proposalOfAnswer('', 't')).toBeNull()
   })
+
+  it('信封的 mails 范围随提议透传（验收修正 2）', () => {
+    const envelope = JSON.stringify({
+      title: '忽略', actions: [ACTION],
+      mails: { lastReadAt: '2026-10-01T06:23:54Z', firstReadAt: '2026-09-17T06:23:54Z' },
+    })
+    const proposal = proposalOfAnswer(envelope, 't')
+    expect(proposal?.mails).toEqual({ lastReadAt: '2026-10-01T06:23:54Z', firstReadAt: '2026-09-17T06:23:54Z' })
+  })
+
+  it('mails 缺失或畸形时不携带范围，但不影响提议本身', () => {
+    const noMails = proposalOfAnswer(JSON.stringify({ title: 'x', actions: [ACTION] }), 't')
+    expect(noMails?.mails).toBeUndefined()
+    const badMails = proposalOfAnswer(JSON.stringify({ title: 'x', actions: [ACTION], mails: { lastReadAt: '' } }), 't')
+    expect(badMails?.mails).toBeUndefined()
+    expect(badMails?.actions).toEqual([ACTION])
+  })
 })
 
 describe('proposalOfPayload（ADR-0047 收件箱载荷回读）', () => {
@@ -162,5 +186,12 @@ describe('proposalOfPayload（ADR-0047 收件箱载荷回读）', () => {
   it('混合已知与未知 kind 时保留已知行', () => {
     const proposal = proposalOfPayload({ title: 'x', actions: [{ kind: 'format-disk' }, ACTION] })
     expect(proposal?.actions).toEqual([ACTION])
+  })
+
+  it('回读透传 mails 范围，畸形范围剔除（验收修正 2）', () => {
+    const range = { lastReadAt: '2026-10-01T06:23:54Z', firstReadAt: '2026-09-17T06:23:54Z' }
+    expect(proposalOfPayload({ title: 'x', actions: [ACTION], mails: range })?.mails).toEqual(range)
+    expect(proposalOfPayload({ title: 'x', actions: [ACTION], mails: '乱写' })?.mails).toBeUndefined()
+    expect(proposalOfPayload({ title: 'x', actions: [ACTION], mails: { firstReadAt: '2026-09-17' } })?.mails).toBeUndefined()
   })
 })

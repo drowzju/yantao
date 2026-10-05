@@ -27,8 +27,8 @@ function entry(overrides: Partial<KbQueuedProposal> = {}): KbQueuedProposal {
 function renderPane(entries: readonly KbQueuedProposal[], overrides: {
   onConfirm?: (entry: KbQueuedProposal, ticked: readonly number[]) => void
   onDiscard?: (entry: KbQueuedProposal) => void
-} = {}): void {
-  render(
+} = {}): ReturnType<typeof render> {
+  return render(
     <InboxPane
       entries={entries}
       busyId={null}
@@ -64,15 +64,23 @@ describe('InboxPane', () => {
     expect(screen.getByText('发周报')).toBeTruthy()
   })
 
-  it('closing the card decides nothing — the row stays as it was', () => {
-    const onDiscard = vi.fn()
-    renderPane([entry()], { onDiscard })
+  it('closing the card without approving IS the discard (取消即丢弃，验收修正)', () => {
+    const onDiscard = vi.fn<(called: KbQueuedProposal) => void>()
+    const { container } = renderPane([entry()], { onDiscard })
     fireEvent.click(screen.getByText('调度「每日摘要」的提议'))
-    fireEvent.click(screen.getByText('取消'))
-    expect(screen.queryByText('待办')).toBeNull()
-    expect(onDiscard).not.toHaveBeenCalled()
-    // The row is still there, still pending.
-    expect(screen.getByText('调度「每日摘要」的提议')).toBeTruthy()
+    // 取消 — the ghost that used to only close — now settles discarded.
+    // Scoped: the row-level 丢弃 sits behind the modal with the same label.
+    fireEvent.click(container.querySelector('[data-inbox-discard="true"]') as HTMLElement)
+    expect(onDiscard).toHaveBeenCalledTimes(1)
+    expect(onDiscard.mock.calls[0][0].id).toBe('prp_1')
+  })
+
+  it('Esc on the card takes the same discard verdict', () => {
+    const onDiscard = vi.fn<(called: KbQueuedProposal) => void>()
+    const { container } = renderPane([entry()], { onDiscard })
+    fireEvent.click(screen.getByText('调度「每日摘要」的提议'))
+    fireEvent.keyDown(container.querySelector('[data-proposal-card="true"]') as HTMLElement, { key: 'Escape' })
+    expect(onDiscard).toHaveBeenCalledTimes(1)
   })
 
   it('confirms with the ticked row indexes through the frame', () => {

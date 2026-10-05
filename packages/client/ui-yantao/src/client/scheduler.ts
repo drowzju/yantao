@@ -19,6 +19,7 @@ import type { KbSchedule } from '@deepseek-ai/dsh-api-yantao-kb-controller/types
 import { cronNextAfter, parseCron } from './cron.ts'
 import { proposalOfAnswer } from './capability-match.ts'
 import { cancelSessionTurnOnAbort, enqueueInboxProposal, sessionRemoteOf } from './remote.ts'
+import type { Proposal } from './proposal.ts'
 import { askTurn } from './turn-answer.ts'
 
 /** The schedule slice the scan needs — the full row in practice. */
@@ -126,7 +127,28 @@ actions 每项是一个待人工批准的写入动作，常用类别与字段：
 - {"kind":"add-todo","title":"<题目>","due":"YYYY-MM-DD 或省略","body":"<详情>","reason":"<缘由>"}
 - {"kind":"add-memory","scope":"<能力名>","text":"<规则一句话>","reason":"<缘由>"}
 - {"kind":"archive-mails","entryId":"<邮件 EntryID>","sender":"<发件人>","subject":"<主题>","summary":"<摘要>","reason":"<缘由>"}
+若本任务读取或处理过邮件，信封再加一个 "mails" 字段，抄自实际取到的批次首尾："mails":{"lastReadAt":"<最新一封的 receivedAt>","firstReadAt":"<最早一封的 receivedAt>"}——人裁决提议后，这批邮件就计为已处理，不再重推。
 规则：只把值得人批准的写入列进信封，不为凑数编造；没有值得提议的就完全不输出信封（纯文字汇报即可）。信封里的动作不要自行执行（不要经 kb_write_state / kb_edit_section / kb_append_log 等落库），留给人在「提议」卡上勾选批准后再写入。`
+}
+
+/**
+ * The inbox note for one filed proposal (ADR-0047): the session pointer, plus
+ * the covered mail range when the envelope carried one — the hidden
+ * watermark bookkeeping made visible on the row and the card, so the human
+ * settles the entry knowing exactly which mails the verdict will close out.
+ * @param proposal - what the answer parsed into.
+ * @returns the note text.
+ */
+function inboxNoteOf(proposal: Proposal): string {
+  const base = '会话可在任务页回看'
+  const range = proposal.mails
+  if (range === undefined) return base
+  const day = (iso: string): string => {
+    const at = new Date(iso)
+    return Number.isNaN(at.getTime()) ? iso : `${at.getMonth() + 1}-${at.getDate()}`
+  }
+  const span = range.firstReadAt !== undefined ? `${day(range.firstReadAt)} → ${day(range.lastReadAt)}` : day(range.lastReadAt)
+  return `${base} · 覆盖邮件 ${span}`
 }
 
 /** The frame's schedule-runner face: one background session over one fired schedule. */
@@ -200,7 +222,7 @@ export async function runScheduledTask(options: {
         source: `schedule:${id}`,
         sourceName: name,
         title: proposal.title,
-        note: '会话可在任务页回看',
+        note: inboxNoteOf(proposal),
         proposal: proposal as unknown as Parameters<typeof enqueueInboxProposal>[1]['proposal'],
       })
       return { sessionId, answer, proposalId: enqueued.id }
