@@ -13,7 +13,8 @@ import type {
   CapabilityDeclarationLoader, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityArchiver, EntityCreator,
   ExternalOpener, FileReader,
   FileWriter, LinksLoader, MailFetcher, MailMarker, PromptShortcutLister, PromptShortcutSaver, RelationSetter,
-  ResourceDeleter, ResourceViewReader, RevisionLoader, RootLoader, RootSetter, ScheduleLister, ScheduleMarker,
+  ResourceDeleter, ResourceViewReader, RevisionLoader, RootLoader, RootSetter, ProposalInboxLister, ProposalInboxResolver,
+  ScheduleLister, ScheduleMarker,
   ScheduleSaver, SessionPrompter,
   ShortcutFiller, TodoLoader, TodoWriter,
 } from '../src/client/remote.ts'
@@ -1216,6 +1217,8 @@ interface FrameFaces {
   readonly scheduleSave: ScheduleSaver
   readonly scheduleMark: ScheduleMarker
   readonly runSchedule: ScheduleRunner
+  readonly proposalInboxList: ProposalInboxLister
+  readonly proposalInboxResolve: ProposalInboxResolver
   readonly mailFetch: MailFetcher
   readonly mailMarkRead: MailMarker
   readonly analyseMail: MailAnalyser
@@ -1255,6 +1258,8 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     scheduleSave: () => Promise.resolve({ schedules: [], path: '.dsh/yantao/schedules.json' }),
     scheduleMark: () => Promise.resolve({ schedules: [], path: '.dsh/yantao/schedules.json' }),
     runSchedule: () => Promise.resolve({ sessionId: '', answer: '' }),
+    proposalInboxList: () => Promise.resolve({ proposals: [], path: '.dsh/yantao/proposal-inbox.json' }),
+    proposalInboxResolve: () => Promise.resolve({ proposals: [], path: '.dsh/yantao/proposal-inbox.json' }),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
     analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [] } }),
@@ -1317,6 +1322,8 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       scheduleSave={kb.scheduleSave}
       scheduleMark={kb.scheduleMark}
       runSchedule={kb.runSchedule}
+      proposalInboxList={kb.proposalInboxList}
+      proposalInboxResolve={kb.proposalInboxResolve}
       sessionDetail={kb.sessionDetail}
       writeTodos={kb.writeTodos}
       onKbRootChanged={onKbRootChanged}
@@ -1554,6 +1561,8 @@ describe('Frame', () => {
         scheduleList={kb.scheduleList}
         scheduleSave={kb.scheduleSave}
         runSchedule={kb.runSchedule}
+        proposalInboxList={kb.proposalInboxList}
+        proposalInboxResolve={kb.proposalInboxResolve}
         sessionDetail={() => Promise.resolve({ items: [], usage: null })}
         onKbRootChanged={onKbRootChanged}
       />,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { proposalOfAnswer } from '../src/client/capability-match.ts'
+import { proposalOfAnswer, proposalOfPayload } from '../src/client/capability-match.ts'
 import { scheduleBaseline, scheduleCreatedAt, scheduleScan } from '../src/client/scheduler.ts'
 
 /** One enabled daily-9am row; overrides land on top. */
@@ -123,5 +123,27 @@ describe('proposalOfAnswer（ADR-0047 调度答案解析）', () => {
     expect(proposalOfAnswer('[1,2,3]', 't')).toBeNull()
     expect(proposalOfAnswer('今天的检查一切正常，无需写入。', 't')).toBeNull()
     expect(proposalOfAnswer('', 't')).toBeNull()
+  })
+})
+
+describe('proposalOfPayload（ADR-0047 收件箱载荷回读）', () => {
+  const ACTION = { kind: 'append-log', entityPath: '项目/dsh 学习.md', entityName: 'dsh 学习', text: '有进展', reason: '晨检' }
+
+  it('合法载荷原样读回，标题取载荷自带', () => {
+    const proposal = proposalOfPayload({ title: '晨检提议', actions: [ACTION] })
+    expect(proposal).toEqual({ title: '晨检提议', actions: [ACTION] })
+  })
+
+  it('缺标题、空 actions、未知 kind 剔光、非对象都返回 null', () => {
+    expect(proposalOfPayload({ actions: [ACTION] })).toBeNull()
+    expect(proposalOfPayload({ title: 'x', actions: [] })).toBeNull()
+    expect(proposalOfPayload({ title: 'x', actions: [{ kind: 'format-disk' }] })).toBeNull()
+    expect(proposalOfPayload('不是对象')).toBeNull()
+    expect(proposalOfPayload(null)).toBeNull()
+  })
+
+  it('混合已知与未知 kind 时保留已知行', () => {
+    const proposal = proposalOfPayload({ title: 'x', actions: [{ kind: 'format-disk' }, ACTION] })
+    expect(proposal?.actions).toEqual([ACTION])
   })
 })

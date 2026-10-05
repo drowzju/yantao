@@ -19,7 +19,7 @@ import type {
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceDeleter, ResourceRegistrar, RevisionLoader, ScheduleLister, ScheduleMarker,
-  ScheduleSaver, ShortcutFiller,
+  ScheduleSaver, ProposalInboxLister, ProposalInboxResolver, ShortcutFiller,
   RootLoader, RootSetter,
   Archiver,
   SessionPrompter, TodoLoader, TodoWriter,
@@ -34,7 +34,7 @@ import type { SessionDetailLoader } from '../session-detail.ts'
 import { SessionDetailDrawer } from '../SessionDetailDrawer.tsx'
 import type { Proposal } from '../proposal.ts'
 import { applyProposal, type ProposalApplyResult } from '../proposal-apply.ts'
-import { proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
+import { proposalOfPayload, proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
 import { capabilityGestureMessage } from '../capability-gesture.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
 import { QuestionDialog } from '../QuestionDialog.tsx'
@@ -45,16 +45,18 @@ import { obsidianUri, remoteMessage, type ResourceViewReader } from '../remote.t
 import { notifySchedule, scheduleScan, type ScheduleRunner } from '../scheduler.ts'
 import { SchedulePane } from '../SchedulePane.tsx'
 import { frontmatterArchived } from '../markdown.ts'
-import type { KbCapabilitySummary, KbDeleteResourceResult, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbSchedule, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary, KbDeleteResourceResult, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbQueuedProposal, KbSchedule, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
 import { Onboarding } from '../Onboarding.tsx'
 import {
-  CONVERSATION_TAB, SCHEDULES_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath, restoreTabs,
+  CONVERSATION_TAB, SCHEDULES_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath,
+  restoreTabs,
   type TabMode, type TabState,
 } from '../tabs.ts'
 import { CenterPane, type ViewMode } from './CenterPane.tsx'
+import { InboxPane } from './InboxPane.tsx'
 import './frame.module.css'
 import type { PanelToggles } from './layout.ts'
 import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
@@ -173,6 +175,10 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'fo
   readonly scheduleMark: ScheduleMarker
   /** Fire one schedule's prompt as a background session (ADR-0045 决定 2). */
   readonly runSchedule: ScheduleRunner
+  /** Read the proposal inbox (ADR-0047) — the 提议 tab's read. */
+  readonly proposalInboxList: ProposalInboxLister
+  /** Record the human's decision on one pending inbox entry (ADR-0047). */
+  readonly proposalInboxResolve: ProposalInboxResolver
   /** Read the model gateway's config view — the 配置 dialog's open read. */
   readonly loadModelsConfig: () => Promise<ModelsConfigView>
   /** Commit a 配置 dialog draft; the result separates conflict from refusal. */
@@ -416,6 +422,7 @@ export function Frame({
   sessionDetail, onKbRootChanged, mailDelete, mailArchive,
   promptShortcutList, promptShortcutSave, fillShortcut,
   scheduleList, scheduleSave, scheduleMark, runSchedule,
+  proposalInboxList, proposalInboxResolve,
   loadModelsConfig, saveModelsConfig,
 }: FrameProps): ReactElement {
   const [configOpen, setConfigOpen] = useState(false)
@@ -682,6 +689,67 @@ export function Frame({
     return () => { stale = true }
   }, [scheduleList])
 
+  // ── the 提议 tab and its inbox (ADR-0047) ────────────────────────────────
+  // The scheduler's proposals wait here for the human's verdict: 批准
+  // applies through the same human-channel seams as every other card and
+  // only then settles the row approved; 丢弃 settles it without writing;
+  // closing the card decides nothing. The read rides the scheduler's scan
+  // (declared below), so a fired run's proposal surfaces without a remount.
+  const [inboxEntries, setInboxEntries] = useState<readonly KbQueuedProposal[]>([])
+  const [inboxLoaded, setInboxLoaded] = useState(false)
+  const [inboxBusyId, setInboxBusyId] = useState<string | null>(null)
+
+  const loadInbox = useCallback((): void => {
+    void proposalInboxList().then(
+      (result) => { setInboxEntries(result.proposals); setInboxLoaded(true) },
+      (failure: unknown) => { setCapabilityNotice(`提议读取失败：${remoteMessage(failure)}`) },
+    )
+  }, [proposalInboxList])
+
+  useEffect(() => { loadInbox() }, [loadInbox])
+
+  const discardInboxEntry = useCallback((entry: KbQueuedProposal): void => {
+    setInboxBusyId(entry.id)
+    void proposalInboxResolve({ id: entry.id, status: 'discarded' }).then(
+      (result) => {
+        setInboxBusyId(null)
+        setInboxEntries(result.proposals)
+        setCapabilityNotice(`已丢弃提议「${entry.title}」。`)
+      },
+      (failure: unknown) => {
+        setInboxBusyId(null)
+        setCapabilityNotice(`提议处置失败：${remoteMessage(failure)}`)
+      },
+    )
+  }, [proposalInboxResolve])
+
+  // 批准: the writes land first — the same applyConfirmed every card shares —
+  // and only then is the row settled approved. A failed apply leaves the row
+  // pending for another try; a failed settle after successful writes also
+  // leaves it pending, and the notice says why re-approving would write twice.
+  const confirmInboxEntry = useCallback((entry: KbQueuedProposal, ticked: readonly number[]): void => {
+    const proposal = proposalOfPayload(entry.proposal)
+    if (proposal === null) return
+    setInboxBusyId(entry.id)
+    void applyConfirmed({ proposal, ticked }).then((result) => {
+      void proposalInboxResolve({ id: entry.id, status: 'approved' }).then(
+        (resolved) => {
+          setInboxBusyId(null)
+          setInboxEntries(resolved.proposals)
+          setTreeKey(key => key + 1)
+          setCapabilityNotice([...result.written, ...result.skipped].join('；') || '没有写入任何内容。')
+        },
+        (failure: unknown) => {
+          setInboxBusyId(null)
+          setCapabilityNotice(`提议已写入，但标记失败：${remoteMessage(failure)}`)
+        },
+      )
+    }, (failure: unknown) => {
+      setInboxBusyId(null)
+      setCapabilityNotice(`写入失败：${remoteMessage(failure)}`)
+    })
+  }, [applyConfirmed, proposalInboxResolve])
+
   // One serialized write channel for every schedule write (OCR 2026-10-03):
   // the pane's full-list saves and the scheduler's stamp patches tail-chain
   // here, so a bookkeeping write can never resurrect a stale snapshot over a
@@ -747,6 +815,9 @@ export function Frame({
             ? '产生了待决策的提议，去「提议」页处理'
             : result.answer.replace(/\s+/g, ' ').trim().slice(0, 80) || '已完成',
         })
+        // The proposal is on the disk store the moment the run ends: pull it
+        // into the pane now rather than waiting for the next scan.
+        if (result.proposalId !== undefined) loadInbox()
       }, (failure: unknown) => {
         if (controller.signal.aborted) {
           taskEnd(taskId, 'cancelled', '已取消')
@@ -800,11 +871,15 @@ export function Frame({
         const names = schedulesRef.current.filter(row => missedIds.includes(row.id)).map(row => row.name)
         setCapabilityNotice(`调度错过 ${missedIds.length} 次触发（应用未在运行，不补跑）：${names.join('、')}`)
       }
+      // ADR-0047: the inbox read rides the scan — a proposal enqueued by any
+      // producer (today the scheduler, tomorrow others) surfaces within one
+      // tick without a remount.
+      loadInbox()
     }
     tick()
     const timer = setInterval(tick, SCHEDULE_SCAN_MS)
     return () => { clearInterval(timer) }
-  }, [schedulesLoaded, markScheduleStamps, runSchedule, taskBegin, taskPatch, taskEnd])
+  }, [schedulesLoaded, markScheduleStamps, runSchedule, taskBegin, taskPatch, taskEnd, loadInbox])
   const [distillingRunId, setDistillingRunId] = useState<string | null>(null)
   // Cancellation (ADR-0031): the running script capability's abort controller.
   // The signal is both the RPC's cancel line and the witness that separates
@@ -1635,6 +1710,18 @@ export function Frame({
             promptShortcutList={promptShortcutList}
           />
         )}
+        inboxPane={!inboxLoaded ? (
+          <div style={{ padding: 16, color: 'var(--yt-text-muted)' }}>提议加载中…</div>
+        ) : (
+          <InboxPane
+            entries={inboxEntries}
+            busyId={inboxBusyId}
+            onConfirm={confirmInboxEntry}
+            onDiscard={discardInboxEntry}
+            t={t}
+          />
+        )}
+        inboxPending={inboxEntries.filter(entry => entry.status === 'pending').length}
         taskDetail={detailRow === null ? null : (
           <SessionDetailDrawer
             key={detailRow.id}

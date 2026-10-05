@@ -276,6 +276,12 @@ export type ScheduleSaver = (args: KbScheduleSaveArgs) => Promise<KbScheduleSave
 /** Patch one row's scheduler-owned stamps (ADR-0045). */
 export type ScheduleMarker = (args: KbScheduleMarkArgs) => Promise<KbScheduleMarkResult>
 
+/** Read the proposal inbox (ADR-0047) — the 提议 tab's read. */
+export type ProposalInboxLister = () => Promise<KbProposalInboxListResult>
+
+/** Record the human's decision on one pending inbox entry (ADR-0047). */
+export type ProposalInboxResolver = (args: KbProposalInboxResolveArgs) => Promise<KbProposalInboxResolveResult>
+
 /**
  * Fill the current conversation's composer with `/alias ` without sending
  * (ADR-0040 决定 5) — the 能力 tab row's click. Throws when no session is

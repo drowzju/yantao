@@ -109,6 +109,19 @@ describe('ProposalCard', () => {
     fireEvent.click(screen.getByText('取消'))
     expect(onDismiss).toHaveBeenCalled()
   })
+
+  it('offers the 丢弃 verdict only when the caller passes onDiscard (ADR-0047)', () => {
+    const onDiscard = vi.fn()
+    const { rerender } = render(
+      <ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />,
+    )
+    expect(screen.queryByText('丢弃')).toBeNull()
+    rerender(
+      <ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} onDiscard={onDiscard} t={t} />,
+    )
+    fireEvent.click(screen.getByText('丢弃'))
+    expect(onDiscard).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('ProposalCard create-project 领域勾选 (ADR-0034 决定 4)', () => {

@@ -284,9 +284,13 @@ export const zh = {
   'center.conversation': '对话',
   'center.tasks': '任务',
   'center.schedules': '调度',
+  'center.inbox': '提议',
   'center.close': '关闭',
   'center.read': '阅读',
   'center.source': '源码',
+
+  // Proposal inbox (ADR-0047)
+  'inbox.discard': '丢弃',
 
   // Onboarding
   'onboarding.title': '选择知识库目录',
@@ -602,9 +606,13 @@ export const en = {
   'center.conversation': 'Conversation',
   'center.tasks': 'Tasks',
   'center.schedules': 'Schedules',
+  'center.inbox': 'Proposals',
   'center.close': 'Close',
   'center.read': 'Read',
   'center.source': 'Source',
+
+  // Proposal inbox (ADR-0047)
+  'inbox.discard': 'Discard',
 
   // Onboarding
   'onboarding.title': 'Choose the KB directory',

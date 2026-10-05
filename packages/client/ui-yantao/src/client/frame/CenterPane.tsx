@@ -1,6 +1,7 @@
 /**
- * The centre pane: three permanent tabs — 对话, 任务 (ADR-0031) and 调度
- * (ADR-0045) — plus one closeable tab per open KB file. The conversation is never unmounted — an
+ * The centre pane: four permanent tabs — 对话, 任务 (ADR-0031), 调度
+ * (ADR-0045) and 提议 (ADR-0047) — plus one closeable tab per open KB file.
+ * The conversation is never unmounted — an
  * inactive tab's column is only
  * hidden — because it is the host's surface (scroll position and the composer
  * draft are its own) and remounting it would cost the human their place. File
@@ -10,7 +11,7 @@
  */
 import type { ReactElement, ReactNode } from 'react'
 import {
-  CONVERSATION_TAB, SCHEDULES_TAB, TASKS_TAB,
+  CONVERSATION_TAB, INBOX_TAB, SCHEDULES_TAB, TASKS_TAB,
   type FileTab, type TabState,
 } from '../tabs.ts'
 import { runningCount, type TaskRow } from '../task-view.ts'
@@ -51,6 +52,10 @@ export interface CenterPaneProps {
   readonly taskDetail: ReactNode
   /** The 调度 tab's pane (ADR-0045) — rendered once, then only hidden. */
   readonly schedulePane: ReactNode
+  /** The 提议 tab's pane (ADR-0047) — rendered once, then only hidden. */
+  readonly inboxPane: ReactNode
+  /** The 提议 tab's badge: the undecided backlog's size. */
+  readonly inboxPending: number
   readonly t: WorkbenchT
 }
 
@@ -173,6 +178,8 @@ export function CenterPane({
   onTaskDetail,
   taskDetail,
   schedulePane,
+  inboxPane,
+  inboxPending,
   t,
 }: CenterPaneProps): ReactElement {
   // The conversation is rendered unconditionally and only hidden: remounting
@@ -180,6 +187,7 @@ export function CenterPane({
   const conversationActive = tabs.active === CONVERSATION_TAB
   const tasksActive = tabs.active === TASKS_TAB
   const schedulesActive = tabs.active === SCHEDULES_TAB
+  const inboxActive = tabs.active === INBOX_TAB
   // Only an editable file has two views; a read-only original is one <pre>.
   const activeFile = tabs.files.find(tab => tab.path === tabs.active)
   const toggleable = activeFile?.mode === 'edit'
@@ -216,6 +224,26 @@ export function CenterPane({
           <button type="button" style={labelButtonStyle} onClick={() => { onActivate(SCHEDULES_TAB) }}>
             {t('center.schedules')}
           </button>
+        </div>
+        <div style={inboxActive ? activeTabStyle : tabStyle}>
+          <button type="button" style={labelButtonStyle} onClick={() => { onActivate(INBOX_TAB) }}>
+            {t('center.inbox')}
+          </button>
+          {inboxPending > 0 && (
+            <span
+              data-inbox-badge="true"
+              style={{
+                background: 'var(--yt-accent)',
+                borderRadius: 8,
+                color: '#fff',
+                fontSize: 'var(--yt-type-label)',
+                lineHeight: '16px',
+                padding: '0 6px',
+              }}
+            >
+              {inboxPending}
+            </span>
+          )}
         </div>
         {tabs.files.map((tab) => {
           const status = statuses[tab.path]
@@ -277,6 +305,12 @@ export function CenterPane({
         </div>
         <div style={{ ...pageStyle, display: schedulesActive ? 'flex' : 'none' }} data-tab={SCHEDULES_TAB}>
           {schedulePane}
+        </div>
+        <div
+          style={{ ...pageStyle, display: inboxActive ? 'flex' : 'none', position: 'relative' }}
+          data-tab={INBOX_TAB}
+        >
+          {inboxPane}
         </div>
         {tabs.files.map(tab => (
           <div

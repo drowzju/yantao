@@ -245,7 +245,9 @@ interface EntityRow {
  *   index (ADR-0034 决定 4) — the human adjusts the association before writing.
  *   `onInstruction`, when given (the validate card), adds the bottom
  *   free-input box: the human's instruction goes back to the run for a
- *   revised proposal, as many rounds as wanted.
+ *   revised proposal, as many rounds as wanted. `onDiscard`, when given (the
+ *   提议收件箱 card, ADR-0047), adds a 丢弃 ghost beside the primary confirm —
+ *   an explicit final verdict, distinct from 取消 which only closes the card.
  * @returns the card element.
  */
 export function ProposalCard(props: {
@@ -254,6 +256,8 @@ export function ProposalCard(props: {
   readonly onDismiss: () => void
   /** The free-input continuation — present only when the run can take instructions. */
   readonly onInstruction?: (text: string) => Promise<void>
+  /** The explicit 丢弃 verdict (ADR-0047) — renders the ghost beside the primary confirm. */
+  readonly onDiscard?: () => void
   readonly busy?: boolean
   readonly t: WorkbenchT
 }): ReactElement {
@@ -778,6 +782,17 @@ export function ProposalCard(props: {
           <button type="button" style={ghostButtonStyle} disabled={props.busy === true} onClick={props.onDismiss}>
             {t('common.cancel')}
           </button>
+          {props.onDiscard !== undefined && (
+            <button
+              type="button"
+              style={ghostButtonStyle}
+              data-inbox-discard="true"
+              disabled={props.busy === true}
+              onClick={props.onDiscard}
+            >
+              {t('inbox.discard')}
+            </button>
+          )}
           <button
             type="button"
             style={{

@@ -129,6 +129,25 @@ export function proposalOfAnswer(answer: string, title: string): Proposal | null
 }
 
 /**
+ * Read one inbox entry's stored payload back as a proposal (ADR-0047): the
+ * store kept it opaquely, so the client re-validates here — a `title` string
+ * and a non-empty, known-kind `actions` array, the same invariant the parser
+ * enforced at enqueue. A payload that fails (a hand-edited store, an older
+ * vocabulary) yields null and the pane degrades the row to a plain notice.
+ * @param raw - the opaque payload as the store returned it.
+ * @returns the proposal, or null when the payload is not one.
+ */
+export function proposalOfPayload(raw: unknown): Proposal | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const candidate = raw as Record<string, unknown>
+  if (typeof candidate.title !== 'string' || candidate.title.trim() === '') return null
+  if (!Array.isArray(candidate.actions) || candidate.actions.length === 0) return null
+  const actions = actionsOf(candidate.actions)
+  if (actions.length === 0) return null
+  return { title: candidate.title.trim(), actions }
+}
+
+/**
  * The one-line notice a non-proposal run answers with: what ran, and what it
  * left behind, if anything.
  * @param result - what `capabilityRun` answered.
