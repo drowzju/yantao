@@ -38,6 +38,8 @@ import type {
   KbMemoryProposalDiscardResult, KbMemoryProposalListResult,
   KbOpenExternalResult, KbPersonRelation, KbPromptInjectionResult, KbPromptShortcutListResult,
   KbPromptShortcutSaveArgs, KbPromptShortcutSaveResult,
+  KbProposalInboxEnqueueArgs, KbProposalInboxEnqueueResult, KbProposalInboxListResult,
+  KbProposalInboxResolveArgs, KbProposalInboxResolveResult,
   KbResourceView,
   KbScheduleListResult, KbScheduleMarkArgs, KbScheduleMarkResult, KbScheduleSaveArgs, KbScheduleSaveResult,
   KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
@@ -115,6 +117,12 @@ export interface KbRemote {
   scheduleSave(args: KbScheduleSaveArgs): Promise<RemoteResult<KbScheduleSaveResult>>
   /** Patch one row's scheduler-owned stamps (ADR-0045); `null` clears, an absent field is left alone. */
   scheduleMark(args: KbScheduleMarkArgs): Promise<RemoteResult<KbScheduleMarkResult>>
+  /** The proposal inbox's listing (ADR-0047), in enqueue order — pending and decided alike. */
+  proposalInboxList(): Promise<RemoteResult<KbProposalInboxListResult>>
+  /** Append one proposal to the inbox (ADR-0047); the store assigns id, stamp and pending status. */
+  proposalInboxEnqueue(args: KbProposalInboxEnqueueArgs): Promise<RemoteResult<KbProposalInboxEnqueueResult>>
+  /** Record the human's decision on one pending inbox entry (ADR-0047); a decision is final. */
+  proposalInboxResolve(args: KbProposalInboxResolveArgs): Promise<RemoteResult<KbProposalInboxResolveResult>>
 }
 
 /**
@@ -953,6 +961,46 @@ export async function markSchedule(ctx: Context, args: KbScheduleMarkArgs): Prom
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.scheduleMark(args))
+}
+
+/**
+ * List the proposal inbox (ADR-0047) — the 提议 tab's queue and the frame's
+ * pending-count badge.
+ * @param ctx - client root context.
+ * @returns the entries in enqueue order, or a rejected promise carrying the
+ *   reason.
+ */
+export async function loadProposalInbox(ctx: Context): Promise<KbProposalInboxListResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.proposalInboxList())
+}
+
+/**
+ * Append one proposal to the inbox (ADR-0047): the scheduler's write path
+ * after a fired session's answer parsed into a unified proposal. The host
+ * assigns the id, the enqueue stamp and the pending status.
+ * @param ctx - client root context.
+ * @param args - the proposal and its provenance.
+ * @returns the full list as stored, plus the fresh entry's id.
+ */
+export async function enqueueInboxProposal(ctx: Context, args: KbProposalInboxEnqueueArgs): Promise<KbProposalInboxEnqueueResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.proposalInboxEnqueue(args))
+}
+
+/**
+ * Record the human's decision on one pending inbox entry (ADR-0047): the
+ * apply itself is the caller's business, this only settles the row.
+ * @param ctx - client root context.
+ * @param args - the entry id and the decision.
+ * @returns the full list as stored after the resolve.
+ */
+export async function resolveInboxProposal(ctx: Context, args: KbProposalInboxResolveArgs): Promise<KbProposalInboxResolveResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.proposalInboxResolve(args))
 }
 
 /**

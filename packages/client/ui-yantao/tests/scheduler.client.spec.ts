@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { proposalOfAnswer } from '../src/client/capability-match.ts'
 import { scheduleBaseline, scheduleCreatedAt, scheduleScan } from '../src/client/scheduler.ts'
 
 /** One enabled daily-9am row; overrides land on top. */
@@ -90,5 +91,37 @@ describe('scheduleScan', () => {
     const local = new Date(2026, 9, 3, 9, 1, 0) // 60 秒整
     const action = scheduleScan(row({ lastFiredAt: new Date(2026, 9, 2, 9, 0).toISOString() }), local, MINUTE)
     expect(action.kind).toBe('fire')
+  })
+})
+
+describe('proposalOfAnswer（ADR-0047 调度答案解析）', () => {
+  const ACTION = { kind: 'append-log', entityPath: '项目/dsh 学习.md', entityName: 'dsh 学习', text: '有进展', reason: '晨检' }
+
+  it('裸 JSON 信封直接解析', () => {
+    const proposal = proposalOfAnswer(JSON.stringify({ title: '忽略', actions: [ACTION] }), '调度「晨检」的提议')
+    expect(proposal).not.toBeNull()
+    expect(proposal?.title).toBe('调度「晨检」的提议')
+    expect(proposal?.actions).toEqual([ACTION])
+  })
+
+  it('围栏 JSON 与散文尾随 JSON 都能取出', () => {
+    const fenced = `检查完成。\n\n\`\`\`json\n${JSON.stringify({ actions: [ACTION] }, null, 2)}\n\`\`\`\n`
+    expect(proposalOfAnswer(fenced, 't')?.actions).toEqual([ACTION])
+    const trailing = `检查完成，建议如下：\n${JSON.stringify({ actions: [ACTION] })}`
+    expect(proposalOfAnswer(trailing, 't')?.actions).toEqual([ACTION])
+  })
+
+  it('未知 kind 的行被静默剔除，剔光则不算提议', () => {
+    const alien = JSON.stringify({ actions: [{ kind: 'format-disk', reason: 'x' }] })
+    expect(proposalOfAnswer(alien, 't')).toBeNull()
+    const mixed = JSON.stringify({ actions: [{ kind: 'format-disk' }, ACTION] })
+    expect(proposalOfAnswer(mixed, 't')?.actions).toEqual([ACTION])
+  })
+
+  it('空 actions、非对象、纯散文都返回 null', () => {
+    expect(proposalOfAnswer(JSON.stringify({ actions: [] }), 't')).toBeNull()
+    expect(proposalOfAnswer('[1,2,3]', 't')).toBeNull()
+    expect(proposalOfAnswer('今天的检查一切正常，无需写入。', 't')).toBeNull()
+    expect(proposalOfAnswer('', 't')).toBeNull()
   })
 })

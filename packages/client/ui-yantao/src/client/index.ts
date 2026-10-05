@@ -39,7 +39,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {
   KbCapabilityRunArgs, KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation,
-  KbPromptShortcutSaveArgs, KbScheduleMarkArgs, KbScheduleSaveArgs, KbWriteTodosArgs,
+  KbPromptShortcutSaveArgs, KbProposalInboxEnqueueArgs, KbProposalInboxResolveArgs,
+  KbScheduleMarkArgs, KbScheduleSaveArgs, KbWriteTodosArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
@@ -69,6 +70,7 @@ import {
   loadRevision, loadRoot, loadTodos,
   loadWorkspace, loadResourceView, markMailRead, openExternal, readFile, registerCapability, registerResource, restoreEntity, runCapability,
   loadSchedules, markSchedule, savePromptShortcuts, saveSchedules, setKbRoot,
+  enqueueInboxProposal, loadProposalInbox, resolveInboxProposal,
   setRelation, writeFile, writeTodos,
 } from './remote.ts'
 import type { CapabilityRegisterReach } from './remote.ts'
@@ -284,7 +286,19 @@ export function apply(ctx: Context): void {
       scheduleList: () => loadSchedules(ctx),
       scheduleSave: (args: KbScheduleSaveArgs) => saveSchedules(ctx, args),
       scheduleMark: (args: KbScheduleMarkArgs) => markSchedule(ctx, args),
-      runSchedule: async (args: { name: string; prompt: string; signal?: AbortSignal; onSession?: (sessionId: string) => void }) => {
+      // ADR-0047: the 提议 surface — the scheduler's enqueue after a fired
+      // session's answer parsed into a proposal, the inbox tab's read and
+      // the two verdicts.
+      proposalInboxList: () => loadProposalInbox(ctx),
+      proposalInboxEnqueue: (args: KbProposalInboxEnqueueArgs) => enqueueInboxProposal(ctx, args),
+      proposalInboxResolve: (args: KbProposalInboxResolveArgs) => resolveInboxProposal(ctx, args),
+      runSchedule: async (args: {
+        id: string
+        name: string
+        prompt: string
+        signal?: AbortSignal
+        onSession?: (sessionId: string) => void
+      }) => {
         const cwd = await kbCwd()
         return runScheduledTask({ ctx, ...args, ...(cwd !== undefined ? { cwd } : {}) })
       },

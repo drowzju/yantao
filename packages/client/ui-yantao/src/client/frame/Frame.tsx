@@ -732,13 +732,21 @@ export function Frame({
       const controller = new AbortController()
       scheduleAborts.current.set(taskId, controller)
       runSchedule({
+        id: schedule.id,
         name: schedule.name,
         prompt: schedule.prompt,
         signal: controller.signal,
         onSession: (sessionId) => { taskPatch(taskId, { sessionId }) },
       }).then((result) => {
         taskEnd(taskId, 'done', '已完成')
-        notifySchedule({ title: `调度「${schedule.name}」完成`, body: result.answer.replace(/\s+/g, ' ').trim().slice(0, 80) || '已完成' })
+        // ADR-0047: a run that filed a proposal points at the decision
+        // surface instead of paraphrasing itself — the card is the answer.
+        notifySchedule({
+          title: `调度「${schedule.name}」完成`,
+          body: result.proposalId !== undefined
+            ? '产生了待决策的提议，去「提议」页处理'
+            : result.answer.replace(/\s+/g, ' ').trim().slice(0, 80) || '已完成',
+        })
       }, (failure: unknown) => {
         if (controller.signal.aborted) {
           taskEnd(taskId, 'cancelled', '已取消')

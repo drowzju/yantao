@@ -17,7 +17,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { KbSchedule } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { cronNextAfter, parseCron } from './cron.ts'
-import { cancelSessionTurnOnAbort, sessionRemoteOf } from './remote.ts'
+import { proposalOfAnswer } from './capability-match.ts'
+import { cancelSessionTurnOnAbort, enqueueInboxProposal, sessionRemoteOf } from './remote.ts'
 import { askTurn } from './turn-answer.ts'
 
 /** The schedule slice the scan needs — the full row in practice. */
@@ -89,10 +90,19 @@ export interface ScheduleRunResult {
   readonly sessionId: string
   /** The turn's final assistant text, for the completion notification's body. */
   readonly answer: string
+  /**
+   * The inbox entry the answer parsed into (ADR-0047), when the run closed
+   * with an actions-envelope JSON — the 提议 tab's queue holds the decision
+   * now. Absent when the answer carried no proposal or the enqueue failed
+   * (the plain notice is the fallback, the session keeps the answer).
+   */
+  readonly proposalId?: string
 }
 
 /** The frame's schedule-runner face: one background session over one fired schedule. */
 export type ScheduleRunner = (args: {
+  /** The schedule's stable id — the inbox entry's provenance (ADR-0047). */
+  readonly id: string
   /** The schedule's display name; the session is titled 「调度 · <name>」. */
   readonly name: string
   /** The snapshot prompt to run. */
@@ -106,20 +116,25 @@ export type ScheduleRunner = (args: {
 /**
  * Fire one schedule: a fresh, independently named session over the snapshot
  * prompt — the mail analysis's path (ADR-0019), never an injection into the
- * conversation the human is watching (ADR-0045 决定：独立会话).
- * @param options - the context, the schedule's name and prompt, the session
- *   cwd, the cancel signal, and the session-anchor sink.
- * @returns the session id and the final answer text.
+ * conversation the human is watching (ADR-0045 决定：独立会话). When the
+ * answer closes with an actions-envelope JSON (the prompt convention,
+ * ADR-0047), it lands in the proposal inbox for the human's decision; an
+ * enqueue failure degrades to the plain notice — the run itself succeeded.
+ * @param options - the context, the schedule's id, name and prompt, the
+ *   session cwd, the cancel signal, and the session-anchor sink.
+ * @returns the session id, the final answer text, and the inbox entry id
+ *   when one was filed.
  */
 export async function runScheduledTask(options: {
   readonly ctx: Context
+  readonly id: string
   readonly name: string
   readonly prompt: string
   readonly cwd?: string
   readonly signal?: AbortSignal
   readonly onSession?: (sessionId: string) => void
 }): Promise<ScheduleRunResult> {
-  const { ctx, name, prompt, cwd, signal, onSession } = options
+  const { ctx, id, name, prompt, cwd, signal, onSession } = options
   const session = sessionRemoteOf(ctx)
   if (session === undefined) throw new Error('没有挂载 session Remote 命名空间')
 
@@ -141,6 +156,24 @@ export async function runScheduledTask(options: {
     prompt,
     ...(signal !== undefined ? { signal } : {}),
   })
+
+  // ADR-0047: an answer that closes with the actions-envelope JSON becomes
+  // an inbox entry — the human decides from the 提议 tab, the session stays
+  // the evidence. Enqueue trouble never fails the run: the plain completion
+  // notice is the fallback, and the answer lives on in the session.
+  const proposal = proposalOfAnswer(answer, `调度「${name}」的提议`)
+  if (proposal !== null) {
+    try {
+      const enqueued = await enqueueInboxProposal(ctx, {
+        source: `schedule:${id}`,
+        sourceName: name,
+        title: proposal.title,
+        note: '会话可在任务页回看',
+        proposal: proposal as unknown as Parameters<typeof enqueueInboxProposal>[1]['proposal'],
+      })
+      return { sessionId, answer, proposalId: enqueued.id }
+    } catch { /* the plain notice is the report */ }
+  }
   return { sessionId, answer }
 }
 

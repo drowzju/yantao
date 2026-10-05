@@ -47,10 +47,24 @@ export function matchCapabilities(
   })
 }
 
-/** The action kinds a run's answer may carry, as the applier knows them. */
+/**
+ * The action kinds a run's answer may carry, as the applier knows them —
+ * the full unified vocabulary (ADR-0021 决定 4): the card renders whatever
+ * fields each kind needs, and the applier degrades an unserviceable row
+ * honestly (an absent seam skips it, never executes it elsewhere).
+ */
 const KINDS: readonly ProposalAction['kind'][] = [
-  'create-entity', 'append-log', 'write-state', 'save-resource', 'create-link', 'add-todo',
+  'create-entity', 'create-project', 'append-log', 'write-state', 'save-resource', 'create-link',
+  'add-todo', 'edit-section', 'append-section', 'add-memory', 'delete-mails', 'archive-mails',
 ]
+
+/** Keep the entries whose `kind` the applier knows; drop the rest silently. */
+function actionsOf(raw: readonly unknown[]): readonly ProposalAction[] {
+  return raw.filter((entry): entry is ProposalAction => {
+    if (typeof entry !== 'object' || entry === null) return false
+    return KINDS.includes((entry as Record<string, unknown>).kind as ProposalAction['kind'])
+  })
+}
 
 /**
  * Read a run's answer as a proposal: an object carrying a non-empty
@@ -66,12 +80,52 @@ export function proposalOfRunResult(result: KbCapabilityRunResult): Proposal | n
   if (typeof value !== 'object' || value === null) return null
   const raw = (value as Record<string, unknown>).actions
   if (!Array.isArray(raw) || raw.length === 0) return null
-  const actions = raw.filter((entry): entry is ProposalAction => {
-    if (typeof entry !== 'object' || entry === null) return false
-    return KINDS.includes((entry as Record<string, unknown>).kind as ProposalAction['kind'])
-  })
+  const actions = actionsOf(raw)
   if (actions.length === 0) return null
   return { title: `能力「${result.name}」的提议`, actions }
+}
+
+/** The JSON fragments one answer text may hide: fenced blocks, then the whole text, then the outermost brace span. */
+function jsonCandidatesOf(answer: string): readonly string[] {
+  const candidates: string[] = []
+  for (const match of answer.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/g)) {
+    if (match[1] !== undefined) candidates.push(match[1].trim())
+  }
+  const trimmed = answer.trim()
+  candidates.push(trimmed)
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start !== -1 && end > start) candidates.push(trimmed.slice(start, end + 1))
+  return candidates
+}
+
+/**
+ * Read one session's final answer text as a proposal (ADR-0047): the
+ * schedule prompt's convention asks the model to close with a single
+ * actions-envelope JSON — bare, fenced, or trailing its prose. The first
+ * fragment that parses into a non-empty, known-kind action list wins;
+ * anything else is not a proposal and the caller keeps the plain notice.
+ * @param answer - the turn's final assistant text.
+ * @param title - the card's heading, framed by the caller.
+ * @returns the proposal, or null when the answer carries none.
+ */
+export function proposalOfAnswer(answer: string, title: string): Proposal | null {
+  for (const candidate of jsonCandidatesOf(answer)) {
+    if (candidate === '') continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(candidate)
+    } catch {
+      continue
+    }
+    if (typeof parsed !== 'object' || parsed === null) continue
+    const raw = (parsed as Record<string, unknown>).actions
+    if (!Array.isArray(raw) || raw.length === 0) continue
+    const actions = actionsOf(raw)
+    if (actions.length === 0) continue
+    return { title, actions }
+  }
+  return null
 }
 
 /**
