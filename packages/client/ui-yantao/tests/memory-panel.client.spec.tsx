@@ -113,8 +113,16 @@ describe('MemoryPanel', () => {
     })
     const { container } = render(<MemoryPanel {...panel} />)
     await screen.findByText('汇报先发给直属上级')
+    const deleteButton = () => container.querySelector('[data-memory-delete="m1"]') as Element
+    // Two-strike arming: the first click arms the button (确认删除？), the
+    // second strike performs the deletion.
     await act(async () => {
-      fireEvent.click(container.querySelector('[data-memory-delete="m1"]') as Element)
+      fireEvent.click(deleteButton())
+    })
+    expect(panel.remove).not.toHaveBeenCalled()
+    expect(deleteButton().textContent).toContain('确认删除？')
+    await act(async () => {
+      fireEvent.click(deleteButton())
     })
     expect(panel.remove).toHaveBeenCalledWith('global', 'm1')
     expect(await screen.findByText(/没有这条记忆/)).toBeTruthy()

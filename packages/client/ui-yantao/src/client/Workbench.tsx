@@ -19,6 +19,7 @@ import type {
   TodoLoader, TodoWriter, Archiver,
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
+import { useFloatingMenu } from './menu-behavior.ts'
 import type { CapabilityRunRecord } from './capability-distill.ts'
 import type { MailAnalyser } from './mail-analysis.ts'
 import { RESOURCE_DRAG_TYPE, dropPayloadOf, type RefineGesture } from './refine.ts'
@@ -161,7 +162,9 @@ const compactStyle = {
 
 const titleStyle = { margin: '12px 0 4px', fontSize: 12, fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
 
-const errorStyle = { color: 'var(--yt-error)', padding: '4px 6px' } as const
+// 错误行（2026-10-05 第三轮评审 P2#6）：正文字号 + role=alert——12px 彩字
+// 视觉上近乎隐形，读屏则整段错过写失败。
+const errorStyle = { color: 'var(--yt-error)', padding: '4px 6px', fontSize: 'var(--yt-type-body)' } as const
 
 const rowStyle = {
   display: 'block',
@@ -546,6 +549,8 @@ const menuItemStyle = {
   width: '100%',
   textAlign: 'left',
   padding: '3px 8px',
+  minHeight: 'var(--yt-control-min-h)',
+  boxSizing: 'border-box',
   border: 'none',
   background: 'transparent',
   cursor: 'pointer',
@@ -585,33 +590,10 @@ async function copyText(text: string): Promise<void> {
 }
 
 /**
- * Dismiss-on-Escape/outside-click, shared by every floating menu. The
- * `mousedown` that opened the menu has already been dispatched, so it cannot
- * close itself the moment it appears.
- * @param ref - the menu's root element.
- * @param onClose - the close callback.
- */
-function useMenuDismiss(ref: React.RefObject<HTMLDivElement | null>, onClose: () => void): void {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
-    }
-    const onPointerDown = (event: MouseEvent): void => {
-      if (ref.current !== null && !ref.current.contains(event.target as Node)) onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    document.addEventListener('mousedown', onPointerDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      document.removeEventListener('mousedown', onPointerDown)
-    }
-  }, [ref, onClose])
-}
-
-/**
  * The row menu: a person's relations, each set the moment it is picked; the
- * entity gestures (能力, 提炼, 归档/还原); and 拷贝链接. Escape or a click
- * anywhere else dismisses it; the `mousedown` that opened it has already been
+ * entity gestures (能力, 提炼, 归档/还原); and 拷贝链接. Keyboard users land
+ * on the first item and walk with the arrows; Escape or a click anywhere
+ * else dismisses it; the `mousedown` that opened it has already been
  * dispatched, so it cannot close itself the moment it appears.
  *
  * `relations` is the whole story the rail tells about the row: absent for a
@@ -654,10 +636,10 @@ function RowMenu(props: {
   const { t, target, busy, relations, onRelate, capabilities, onRunCapability, onRefine, onDistill, kbRoot = '', onArchive, onDelete, onClose } = props
   const ref = useRef<HTMLDivElement | null>(null)
   const [deleteArmed, setDeleteArmed] = useState(false)
-  useMenuDismiss(ref, onClose)
+  const position = useFloatingMenu(ref, onClose, target)
 
   return (
-    <div ref={ref} style={{ ...menuStyle, left: target.x, top: target.y }} data-row-menu={target.path}>
+    <div ref={ref} role="menu" style={{ ...menuStyle, left: position.left, top: position.top }} data-row-menu={target.path}>
       {relations !== undefined && (
         <div data-row-relations="true">
           <div style={menuNoteStyle}>{t('relation.label')}</div>
@@ -666,6 +648,7 @@ function RowMenu(props: {
             <button
               key={option.value}
               type="button"
+              role="menuitem"
               style={menuItemStyle}
               disabled={busy}
               data-relation={option.value}
@@ -684,6 +667,7 @@ function RowMenu(props: {
             <button
               key={capability.name}
               type="button"
+              role="menuitem"
               style={menuItemStyle}
               disabled={busy}
               data-capability={capability.name}
@@ -698,6 +682,7 @@ function RowMenu(props: {
       {onRefine !== undefined && (
         <button
           type="button"
+          role="menuitem"
           style={menuItemStyle}
           disabled={busy}
           data-row-refine="true"
@@ -709,6 +694,7 @@ function RowMenu(props: {
       {onDistill !== undefined && (
         <button
           type="button"
+          role="menuitem"
           style={menuItemStyle}
           disabled={busy}
           data-row-distill="true"
@@ -731,6 +717,7 @@ function RowMenu(props: {
       {onArchive !== undefined && (
         <button
           type="button"
+          role="menuitem"
           style={menuItemStyle}
           disabled={busy}
           data-row-archive="true"
@@ -742,6 +729,7 @@ function RowMenu(props: {
       {onDelete !== undefined && (
         <button
           type="button"
+          role="menuitem"
           style={menuItemStyle}
           disabled={busy}
           data-row-delete="true"
@@ -765,8 +753,8 @@ function RowMenu(props: {
 /**
  * The resource directory's right-click menu (ADR-0030): one item, 提炼到实体,
  * which turns the whole directory — every file under it, however nested —
- * into one distill gesture each, queued in the frame. Escape or a click
- * anywhere else dismisses it, like the row menu.
+ * into one distill gesture each, queued in the frame. Keyboard and dismissal
+ * behave like the row menu (shared useFloatingMenu).
  * @param props - the targeted directory, the busy flag, and the actions.
  * @returns the menu element.
  */
@@ -779,11 +767,12 @@ function DirMenu(props: {
 }): ReactElement {
   const { t, target, busy, onDistill, onClose } = props
   const ref = useRef<HTMLDivElement | null>(null)
-  useMenuDismiss(ref, onClose)
+  const position = useFloatingMenu(ref, onClose, target)
   return (
-    <div ref={ref} style={{ ...menuStyle, left: target.x, top: target.y }} data-dir-menu={target.dir}>
+    <div ref={ref} role="menu" style={{ ...menuStyle, left: position.left, top: position.top }} data-dir-menu={target.dir}>
       <button
         type="button"
+        role="menuitem"
         style={menuItemStyle}
         disabled={busy}
         data-dir-distill="true"
@@ -1282,7 +1271,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           </button>
         ))}
       </div>
-      {actionError !== null && <div style={errorStyle}>{actionError}</div>}
+      {actionError !== null && <div style={errorStyle} role="alert">{actionError}</div>}
       {tab === 'todos' && (
         <TodoBoard
           t={t}
@@ -1453,7 +1442,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
           </button>
         ))}
       </div>
-      {actionError !== null && <div style={errorStyle}>{actionError}</div>}
+      {actionError !== null && <div style={errorStyle} role="alert">{actionError}</div>}
       {/* ADR-0035, 2026-09-29 修订: the validate entry lives in the two tabs
           it scopes — 人物 / 项目. It rides NewEntityRow's trailing slot, so
           新建 and 校验 hug each other instead of splitting to opposite ends

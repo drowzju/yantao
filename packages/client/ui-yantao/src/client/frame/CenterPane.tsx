@@ -85,6 +85,10 @@ const tabStyle = {
   alignItems: 'center',
   gap: 4,
   padding: '4px 6px',
+  // 页签是中列的主点击面之一（2026-10-05 第三轮评审 P2#4）：28px 命中目标
+  // 此前只覆盖了对话框系，这里补上。
+  minHeight: 'var(--yt-control-min-h)',
+  boxSizing: 'border-box',
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: 'transparent',

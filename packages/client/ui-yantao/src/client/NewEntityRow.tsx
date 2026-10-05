@@ -43,7 +43,8 @@ export interface NewEntityRowProps {
 
 const rowStyle = { display: 'flex', gap: 4, margin: '4px 0' } as const
 
-const errorStyle = { color: 'var(--yt-error)', padding: '0 6px' } as const
+// 错误行（2026-10-05 第三轮评审 P2#6）：正文字号 + role=alert，读屏必播报。
+const errorStyle = { color: 'var(--yt-error)', padding: '0 6px', fontSize: 'var(--yt-type-body)' } as const
 
 /**
  * Render the inline creation row.
@@ -130,7 +131,7 @@ export function NewEntityRow({ t, label, placeholder, submit, choice, trailing }
             <button type="button" style={{ padding: '2px 6px' }} disabled={busy} onClick={close}>{t('common.cancel')}</button>
           </div>
         )}
-        {error !== null && <div style={errorStyle}>{error}</div>}
+        {error !== null && <div style={errorStyle} role="alert">{error}</div>}
       </div>
       {trailing}
     </div>

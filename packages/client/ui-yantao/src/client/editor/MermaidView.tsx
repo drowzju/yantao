@@ -146,8 +146,8 @@ export function MermaidBlock({ code }: MermaidBlockProps): ReactElement {
     // must be able to see both the complaint and what drew it.
     return (
       <div data-mermaid-error="true" style={{ margin: '4px 0' }}>
-        <div style={{
-          color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)', marginBottom: 2,
+        <div role="alert" style={{
+          color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-body)', marginBottom: 2,
         }}>
           mermaid: {error}
         </div>

@@ -235,7 +235,7 @@ const footerStripStyle = {
   background: 'var(--yt-surface-primary)',
 } as const
 
-const footerButtonStyle = { padding: '2px 10px', fontSize: 12 } as const
+const footerButtonStyle = { padding: '2px 10px', minHeight: 'var(--yt-control-min-h)', boxSizing: 'border-box', fontSize: 12 } as const
 
 /** The stack holding one file's two views; both stay mounted, one is shown. */
 const bothPanesStyle = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } as const
@@ -270,7 +270,12 @@ const noticeStyle = {
   maxWidth: '80%',
   padding: '6px 12px',
   background: 'var(--yt-surface-raised)',
-  border: '1px solid var(--yt-border-subtle)',
+  // Split longhand, not the `border` shorthand: the severity variants below
+  // swap borderColor alone, and mixing shorthand with a longhand makes React
+  // warn on rerender when the variant drops off.
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'var(--yt-border-subtle)',
   borderRadius: 6,
   boxShadow: '0 4px 12px rgba(28, 26, 22, 0.15)',
   fontSize: 12,
@@ -288,14 +293,39 @@ const noticeErrorStyle = {
 /** A progress notice: the accent edge says "moving" without stealing the eye. */
 const noticeProgressStyle = { borderColor: 'var(--yt-accent-border)' } as const
 
-/** How much a notice matters: info fades, progress awaits its outcome, error sticks. */
-type NoticeSeverity = 'info' | 'progress' | 'error'
+/** An undo notice: the strongest accent edge short of an error — this strip
+ * is the only carrier a just-made write's reversal will ever have. */
+const noticeUndoStyle = { borderColor: 'var(--yt-accent-strong)' } as const
+
+/** How much a notice matters: info fades, progress awaits its outcome, error
+ * sticks, undo holds a bounded window (longer than info, shorter than forever). */
+type NoticeSeverity = 'info' | 'progress' | 'error' | 'undo'
+
+/** Standing severities outrank passing ones: a lower-ranked notice never
+ * displaces a higher-ranked one already on foot. */
+const NOTICE_RANK: Record<NoticeSeverity, number> = { info: 0, progress: 1, undo: 2, error: 3 }
+
+/** The undo window's length — long enough to leave the notice and come back,
+ * far shorter than "forever": the next write supersedes the chance anyway. */
+const UNDO_WINDOW_MS = 90_000
+
+/** Caller-declared notice shape: severity is stated, never guessed off the
+ * text; the action rides along for the written report's 撤销 chip. */
+interface CapabilityNoticeOptions {
+  readonly severity?: NoticeSeverity
+  readonly action?: {
+    readonly label: string
+    readonly run: () => void
+  }
+}
 
 /** One foot notice: the message, the discipline its severity earns, and —
  * for a written report — the one chip that takes the writes back. */
 interface CapabilityNotice {
   readonly text: string
   readonly severity: NoticeSeverity
+  /** When an undo notice expires (epoch ms) — the countdown's truth. */
+  readonly expiresAt?: number
   readonly action?: {
     readonly label: string
     readonly run: () => void
@@ -634,51 +664,82 @@ export function Frame({
   const [capabilityProposal, setCapabilityProposal] = useState<Proposal | null>(null)
   const [capabilityNotice, setCapabilityNoticeRaw] = useState<CapabilityNotice | null>(null)
   /**
-   * The foot notice's one door. Severity is read off the message itself —
-   * 失败/错误 in the text is an error, a trailing … is progress in flight,
-   * everything else is info — so the thirty-odd call sites stay untouched.
-   * Two discipline rules live here, not at the call sites: a standing error
-   * never yields to lesser news (并发时失败不被顶掉)， and clearing never
-   * hides an error (dismissal is the human's click, not the next event).
+   * The foot notice's one door. Severity is declared by the caller ({@link
+   * CapabilityNoticeOptions}); the text-shape guess below is a fallback only,
+   * kept for any call site a future edit forgets to annotate — semantics
+   * never ride on string shape by design, only by omission. Two discipline
+   * rules live here, not at the call sites: a standing higher-ranked notice
+   * never yields to lesser news (并发时失败不被顶掉，撤销窗不被闲话顶掉)，
+   * and clearing never hides an error (dismissal is the human's click, not
+   * the next event).
    */
-  const setCapabilityNotice = (update: string | null, action?: CapabilityNotice['action']): void => {
+  const setCapabilityNotice = (update: string | null, options?: CapabilityNoticeOptions): void => {
     setCapabilityNoticeRaw((previous) => {
       if (update === null) return previous?.severity === 'error' ? previous : null
-      const severity: NoticeSeverity = /失败|错误/.test(update) ? 'error' : /…$/.test(update) ? 'progress' : 'info'
-      return previous?.severity === 'error' && severity !== 'error'
-        ? previous
-        : { text: update, severity, ...(action !== undefined ? { action } : {}) }
+      const severity = options?.severity
+        ?? (/失败|错误/.test(update) ? 'error' : /…$/.test(update) ? 'progress' : 'info') satisfies NoticeSeverity
+      // Only error and undo are protected seats: lesser news never displaces
+      // them. progress/info stay first-come-first-served — a completion must
+      // be able to retire its own 提炼中… announcement.
+      if (previous !== null && (previous.severity === 'error' || previous.severity === 'undo')
+        && NOTICE_RANK[severity] < NOTICE_RANK[previous.severity]) return previous
+      return {
+        text: update,
+        severity,
+        ...(severity === 'undo' ? { expiresAt: Date.now() + UNDO_WINDOW_MS } : {}),
+        ...(options?.action !== undefined ? { action: options.action } : {}),
+      }
     })
   }
-  // info 会自己走（8s）：进展由完成/失败接管，错误常驻等人处置，只有
-  // 「已完成」类的安语不该赖着不走。每条新消息重置计时。
+  // info 会自己走（8s）：进展由完成/失败接管，错误常驻等人处置，撤销窗
+  // 有自己的 90s 计时，只有「已完成」类的安语不该赖着不走。每条新消息重置计时。
   useEffect(() => {
     if (capabilityNotice === null || capabilityNotice.severity !== 'info') return
     const timer = setTimeout(() => { setCapabilityNoticeRaw(null) }, 8000)
     return () => { clearTimeout(timer) }
   }, [capabilityNotice])
 
+  // The undo window's clock: one tick a second feeds the countdown read-out,
+  // one timeout closes the window. When it shuts, the chance goes with it —
+  // the notice is the only carrier this undo ever has.
+  const [undoRemaining, setUndoRemaining] = useState<number | null>(null)
+  useEffect(() => {
+    if (capabilityNotice?.severity !== 'undo' || capabilityNotice.expiresAt === undefined) {
+      setUndoRemaining(null)
+      return
+    }
+    const expiry = capabilityNotice.expiresAt
+    const tick = setInterval(() => { setUndoRemaining(Math.max(0, Math.ceil((expiry - Date.now()) / 1000))) }, 1000)
+    setUndoRemaining(Math.max(0, Math.ceil((expiry - Date.now()) / 1000)))
+    const timer = setTimeout(() => { setCapabilityNoticeRaw(null) }, expiry - Date.now())
+    return () => { clearInterval(tick); clearTimeout(timer) }
+  }, [capabilityNotice])
+
   // The written report both confirm paths share (ADR-0021 决定 4): the
   // writes and misses in one line, plus a 撤销 chip when the applier left
-  // anything reversible. The 8-second fade above IS the undo window — when
-  // the notice goes, the chance goes with it; irreversible writes (the mail
+  // anything reversible. The undo severity owns its 90-second window — no
+  // longer shackled to info's 8-second fade; irreversible writes (the mail
   // knives, the append-only 流水) are named in the line, never promised back.
   const confirmWritten = (result: ProposalApplyResult): void => {
     const text = [...result.written, ...result.skipped].join('；') || '没有写入任何内容。'
     const undo = result.undo
     if (undo === undefined) {
-      setCapabilityNotice(text)
+      setCapabilityNotice(text, { severity: 'info' })
       return
     }
     const suffix = undo.irreversible.length > 0 ? `（其中 ${undo.irreversible.length} 项不可撤销）` : ''
     setCapabilityNotice(text + suffix, {
-      label: '撤销',
-      run: () => {
-        setCapabilityNotice(null)
-        void runUndo(undo).then(({ failed }) => {
-          setTreeKey(key => key + 1)
-          setCapabilityNotice(failed.length === 0 ? '已撤销刚才的写入。' : `撤销失败：${failed.join('；')}`)
-        })
+      severity: 'undo',
+      action: {
+        label: '撤销',
+        run: () => {
+          setCapabilityNotice(null)
+          void runUndo(undo).then(({ failed }) => {
+            setTreeKey(key => key + 1)
+            setCapabilityNotice(failed.length === 0 ? '已撤销刚才的写入。' : `撤销失败：${failed.join('；')}`,
+              { severity: failed.length === 0 ? 'info' : 'error' })
+          })
+        },
       },
     })
   }
@@ -688,7 +749,7 @@ export function Frame({
       setTreeKey(key => key + 1)
       confirmWritten(result)
     }, (failure: unknown) => {
-      setCapabilityNotice(`写入失败：${remoteMessage(failure)}`)
+      setCapabilityNotice(`写入失败：${remoteMessage(failure)}`, { severity: 'error' })
     })
   }, [applyConfirmed])
   // ADR-0044 决定 6: every settled script run leaves a record — the 能力
@@ -724,7 +785,7 @@ export function Frame({
         setSchedules(result.schedules)
         setSchedulesLoaded(true)
       },
-      (failure: unknown) => { if (!stale) setCapabilityNotice(`调度读取失败：${remoteMessage(failure)}`) },
+      (failure: unknown) => { if (!stale) setCapabilityNotice(`调度读取失败：${remoteMessage(failure)}`, { severity: 'error' }) },
     )
     return () => { stale = true }
   }, [scheduleList])
@@ -755,7 +816,7 @@ export function Frame({
   const loadInbox = useCallback((): void => {
     void proposalInboxList().then(
       (result) => { setInboxEntries(result.proposals); setInboxLoaded(true) },
-      (failure: unknown) => { setCapabilityNotice(`提议读取失败：${remoteMessage(failure)}`) },
+      (failure: unknown) => { setCapabilityNotice(`提议读取失败：${remoteMessage(failure)}`, { severity: 'error' }) },
     )
   }, [proposalInboxList])
 
@@ -769,11 +830,11 @@ export function Frame({
         setInboxEntries(result.proposals)
         // 丢弃也算看过 (the manual dismiss's own sense, ADR-0047 验收修正 2).
         moveMailCursor(proposalOfPayload(entry.proposal)?.mails)
-        setCapabilityNotice(`已丢弃提议「${entry.title}」。`)
+        setCapabilityNotice(`已丢弃提议「${entry.title}」。`, { severity: 'info' })
       },
       (failure: unknown) => {
         setInboxBusyId(null)
-        setCapabilityNotice(`提议处置失败：${remoteMessage(failure)}`)
+        setCapabilityNotice(`提议处置失败：${remoteMessage(failure)}`, { severity: 'error' })
       },
     )
   }, [proposalInboxResolve, moveMailCursor])
@@ -799,12 +860,12 @@ export function Frame({
         },
         (failure: unknown) => {
           setInboxBusyId(null)
-          setCapabilityNotice(`提议已写入，但标记失败：${remoteMessage(failure)}`)
+          setCapabilityNotice(`提议已写入，但标记失败：${remoteMessage(failure)}`, { severity: 'error' })
         },
       )
     }, (failure: unknown) => {
       setInboxBusyId(null)
-      setCapabilityNotice(`写入失败：${remoteMessage(failure)}`)
+      setCapabilityNotice(`写入失败：${remoteMessage(failure)}`, { severity: 'error' })
     })
   }, [applyConfirmed, proposalInboxResolve, moveMailCursor])
 
@@ -827,7 +888,7 @@ export function Frame({
           schedulesRef.current = fresh.schedules
           setSchedules(fresh.schedules)
         } catch { /* the notice below is the report */ }
-        setCapabilityNotice(`${label}：${remoteMessage(failure)}`)
+        setCapabilityNotice(`${label}：${remoteMessage(failure)}`, { severity: 'error' })
         return false
       }
     })
@@ -927,7 +988,7 @@ export function Frame({
       }
       if (missedIds.length > 0) {
         const names = schedulesRef.current.filter(row => missedIds.includes(row.id)).map(row => row.name)
-        setCapabilityNotice(`调度错过 ${missedIds.length} 次触发（应用未在运行，不补跑）：${names.join('、')}`)
+        setCapabilityNotice(`调度错过 ${missedIds.length} 次触发（应用未在运行，不补跑）：${names.join('、')}`, { severity: 'info' })
       }
       // ADR-0047: the inbox read rides the scan — a proposal enqueued by any
       // producer (today the scheduler, tomorrow others) surfaces within one
@@ -953,14 +1014,14 @@ export function Frame({
     if (capability.entry === undefined) {
       void promptSession(capabilityGestureMessage(capability.name, { path })).then(
         () => {},
-        (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`) },
+        (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`, { severity: 'error' }) },
       )
       return
     }
     const aborter = new AbortController()
     capabilityAbort.current = aborter
     setCapabilityRunning(true)
-    setCapabilityNotice(`能力「${capability.name}」执行中…`)
+    setCapabilityNotice(`能力「${capability.name}」执行中…`, { severity: 'progress' })
     // The run is a task row too (ADR-0031); its 取消 drives the same aborter.
     const taskId = taskBegin('capability', `能力「${capability.name}」`, '执行中')
     void capabilityRun({ name: capability.name, input: { path } }, aborter.signal).then((result) => {
@@ -982,7 +1043,7 @@ export function Frame({
         setCapabilityProposal(proposal)
         taskEnd(taskId, 'done', '提议已出，待确认')
       } else {
-        setCapabilityNotice(runNoticeOf(result))
+        setCapabilityNotice(runNoticeOf(result), { severity: 'info' })
         taskEnd(taskId, 'done', runNoticeOf(result))
       }
     }, (failure: unknown) => {
@@ -1001,10 +1062,10 @@ export function Frame({
         at: Date.now(),
       }, ...rows])
       if (aborter.signal.aborted) {
-        setCapabilityNotice(`能力「${capability.name}」已取消。`)
+        setCapabilityNotice(`能力「${capability.name}」已取消。`, { severity: 'info' })
         taskEnd(taskId, 'cancelled', '已取消')
       } else {
-        setCapabilityNotice(`能力「${capability.name}」失败：${remoteMessage(failure)}`)
+        setCapabilityNotice(`能力「${capability.name}」失败：${remoteMessage(failure)}`, { severity: 'error' })
         taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
       }
     })
@@ -1023,7 +1084,7 @@ export function Frame({
   const distillRun = useCallback((record: CapabilityRunRecord): void => {
     if (distillingRunId !== null) return
     setDistillingRunId(record.id)
-    setCapabilityNotice(`提炼「${record.name}」经验中…`)
+    setCapabilityNotice(`提炼「${record.name}」经验中…`, { severity: 'progress' })
     const taskId = taskBegin('capability', `提炼「${record.name}」经验`, '提炼中')
     // The distill is a task row too, and its 取消 must bite (ADR-0031): a
     // dedicated aborter rides the RPC — cancelling tears down the local wait
@@ -1035,15 +1096,15 @@ export function Frame({
     distillAbort.current = aborter
     void capabilityDistill(record, aborter.signal).then((outcome) => {
       setDistillingRunId(null)
-      setCapabilityNotice(`提炼完成：提案队列共 ${outcome.pending} 条待批准。`)
+      setCapabilityNotice(`提炼完成：提案队列共 ${outcome.pending} 条待批准。`, { severity: 'info' })
       taskEnd(taskId, 'done', `提案队列共 ${outcome.pending} 条待批准`)
     }, (failure: unknown) => {
       setDistillingRunId(null)
       if (aborter.signal.aborted) {
-        setCapabilityNotice(`提炼「${record.name}」已取消。`)
+        setCapabilityNotice(`提炼「${record.name}」已取消。`, { severity: 'info' })
         taskEnd(taskId, 'cancelled', '已取消')
       } else {
-        setCapabilityNotice(`提炼失败：${remoteMessage(failure)}`)
+        setCapabilityNotice(`提炼失败：${remoteMessage(failure)}`, { severity: 'error' })
         taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
       }
     }).finally(() => {
@@ -1109,14 +1170,14 @@ export function Frame({
   const showRefineRun = useCallback((run: RefineRun, gesture: RefineGesture, taskId: string): void => {
     if (run.skippedEmpty === true) {
       const what = gesture.resource?.name ?? gesture.entityName
-      setCapabilityNotice(`「${what}」是空文件（只有标题），已跳过。`)
+      setCapabilityNotice(`「${what}」是空文件（只有标题），已跳过。`, { severity: 'info' })
       taskEnd(taskId, 'done', '空文件，已跳过')
       settleRefine()
       return
     }
     if (!run.relevant) {
       const what = gesture.resource?.name ?? gesture.entityName
-      setCapabilityNotice(`「${what}」与「${gesture.entityName ?? '知识库'}」无关：${run.reason}`)
+      setCapabilityNotice(`「${what}」与「${gesture.entityName ?? '知识库'}」无关：${run.reason}`, { severity: 'info' })
       taskEnd(taskId, 'done', `无关：${run.reason}`)
       settleRefine()
       return
@@ -1142,7 +1203,7 @@ export function Frame({
     setRefineActive(true)
     taskPatch(queued.taskId, { stage: '分析中' })
     const label = queued.gesture.mode === 'distill' ? queued.gesture.resource?.name ?? '资源' : queued.gesture.entityName ?? ''
-    setCapabilityNotice(`提炼「${label}」中…`)
+    setCapabilityNotice(`提炼「${label}」中…`, { severity: 'progress' })
     void (async () => {
       if (queued.gesture.mode === 'distill') {
         const [intakeTree, workspaceTree] = await Promise.all([intake(), workspace()])
@@ -1169,7 +1230,8 @@ export function Frame({
       setRefineActive(false)
       setCapabilityNotice(refineCancelled.current
         ? '提炼已取消。'
-        : `提炼失败：${remoteMessage(failure)}`)
+        : `提炼失败：${remoteMessage(failure)}`,
+      { severity: refineCancelled.current ? 'info' : 'error' })
       taskEnd(queued.taskId, refineCancelled.current ? 'cancelled' : 'failed',
         refineCancelled.current ? '已取消' : `失败：${remoteMessage(failure)}`)
       settleRefine()
@@ -1215,7 +1277,7 @@ export function Frame({
       filtered: run.stats.filtered,
       tokens: run.stats.tokens,
       elapsed: formatElapsed(run.stats.elapsedMs),
-    }))
+    }), { severity: 'info' })
     if (run.proposal !== undefined) {
       setValidateProposal(run.proposal)
       setValidateLive({ run, taskId })
@@ -1237,11 +1299,11 @@ export function Frame({
       showValidateRun(final, live.taskId)
     }, (failure: unknown) => {
       if (validateCancelled.current) {
-        setCapabilityNotice('实体校验修订已取消。')
+        setCapabilityNotice('实体校验修订已取消。', { severity: 'info' })
         taskEnd(live.taskId, 'cancelled', '已取消')
         return
       }
-      setCapabilityNotice(`实体校验修订失败：${remoteMessage(failure)}`)
+      setCapabilityNotice(`实体校验修订失败：${remoteMessage(failure)}`, { severity: 'error' })
       taskEnd(live.taskId, 'failed', `失败：${remoteMessage(failure)}`)
       // Rethrow so the card's free-input box keeps the draft for retry.
       throw failure
@@ -1289,7 +1351,8 @@ export function Frame({
       setValidateActive(false)
       setCapabilityNotice(validateCancelled.current
         ? '实体校验已取消。'
-        : `实体校验失败：${remoteMessage(failure)}`)
+        : `实体校验失败：${remoteMessage(failure)}`,
+      { severity: validateCancelled.current ? 'info' : 'error' })
       taskEnd(taskId, validateCancelled.current ? 'cancelled' : 'failed',
         validateCancelled.current ? '已取消' : `失败：${remoteMessage(failure)}`)
     })
@@ -1474,7 +1537,7 @@ export function Frame({
   const toggleArchive = useCallback((path: string, archived: boolean): void => {
     setArchiveBusy(true)
     flipArchive(path, archived).catch((failure: unknown) => {
-      setCapabilityNotice(remoteMessage(failure))
+      setCapabilityNotice(remoteMessage(failure), { severity: 'error' })
     }).finally(() => {
       setArchiveBusy(false)
     })
@@ -1538,8 +1601,8 @@ export function Frame({
   const sendSelection = useCallback((text: string): void => {
     setCapabilityNotice(null)
     void promptSession(text).then(
-      () => { setCapabilityNotice('已发送到当前会话。') },
-      (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`) },
+      () => { setCapabilityNotice('已发送到当前会话。', { severity: 'info' }) },
+      (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`, { severity: 'error' }) },
     )
   }, [promptSession])
 
@@ -1589,7 +1652,7 @@ export function Frame({
     setCapabilityNotice(null)
     void promptSession(capabilityGestureMessage(name, { selection })).then(
       () => {},
-      (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`) },
+      (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`, { severity: 'error' }) },
     )
   }, [promptSession])
 
@@ -1966,7 +2029,7 @@ export function Frame({
             }, (failure: unknown) => {
               setRefineQuestion(null)
               setRefineContinuing(false)
-              setCapabilityNotice(`提炼失败：${remoteMessage(failure)}`)
+              setCapabilityNotice(`提炼失败：${remoteMessage(failure)}`, { severity: 'error' })
               taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
               settleRefine()
             })
@@ -2012,7 +2075,7 @@ export function Frame({
             }, (failure: unknown) => {
               setValidateQuestion(null)
               setValidateContinuing(false)
-              setCapabilityNotice(`实体校验失败：${remoteMessage(failure)}`)
+              setCapabilityNotice(`实体校验失败：${remoteMessage(failure)}`, { severity: 'error' })
               taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
             })
           }}
@@ -2046,7 +2109,8 @@ export function Frame({
             ...noticeStyle,
             ...(capabilityNotice.severity === 'error'
               ? noticeErrorStyle
-              : capabilityNotice.severity === 'progress' ? noticeProgressStyle : {}),
+              : capabilityNotice.severity === 'undo' ? noticeUndoStyle
+                : capabilityNotice.severity === 'progress' ? noticeProgressStyle : {}),
           }}
           data-capability-notice="true"
           data-capability-notice-severity={capabilityNotice.severity}
@@ -2057,7 +2121,9 @@ export function Frame({
         >
           {capabilityNotice.text}
           {/* The written report's undo chip: takes back what the applier
-              just wrote, inside the notice's own 8-second lifetime. */}
+              just wrote, inside the undo severity's own 90-second window —
+              the countdown beside the label makes the expiry legible instead
+              of silent. */}
           {capabilityNotice.action !== undefined && (
             <button
               type="button"
@@ -2076,6 +2142,9 @@ export function Frame({
               }}
             >
               {capabilityNotice.action.label}
+              {capabilityNotice.severity === 'undo' && undoRemaining !== null && (
+                <span style={{ marginLeft: 4, color: 'var(--yt-text-tertiary)' }}>· {undoRemaining}s</span>
+              )}
             </button>
           )}
           {/* A running refine is cancellable right where it announces itself

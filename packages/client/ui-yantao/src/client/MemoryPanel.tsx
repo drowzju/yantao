@@ -89,6 +89,18 @@ const deleteStyle = {
   color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)', cursor: 'pointer',
 } as const
 
+/** The delete ✕ once armed: danger text on the raised surface, so the
+ * second click's consequence is visible before it lands. */
+const armedDeleteStyle = {
+  ...deleteStyle,
+  color: 'var(--yt-error)',
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-border-strong)',
+  borderRadius: 3,
+  padding: '0 6px',
+  whiteSpace: 'nowrap',
+} as const
+
 const buttonStyle = { padding: '4px 8px', flexShrink: 0 } as const
 
 /** The collapsed creation affordance: one quiet button (design.md §7 —
@@ -202,6 +214,9 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [adding, setAdding] = useState(false)
+  // 删除的两击武装（2026-10-05 第三轮评审 P2#3）：✕ 首击只武装该行（变
+  // 「确认删除？」），再击才执行；武装另一行或收起即解除。此前唯独这里例外。
+  const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null)
   const [scope, setScope] = useState('global')
   const [text, setText] = useState('')
 
@@ -428,13 +443,20 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
               </div>
               <button
                 type="button"
-                style={deleteStyle}
+                style={armedDeleteId === entry.id ? armedDeleteStyle : deleteStyle}
                 disabled={busy}
-                title={t('workbench.delete')}
+                data-armed={armedDeleteId === entry.id || undefined}
                 data-memory-delete={entry.id}
-                onClick={() => { void forget(group, entry.id) }}
+                onClick={() => {
+                  if (armedDeleteId !== entry.id) {
+                    setArmedDeleteId(entry.id)
+                    return
+                  }
+                  setArmedDeleteId(null)
+                  void forget(group, entry.id)
+                }}
               >
-                ✕
+                {armedDeleteId === entry.id ? t('workbench.deleteArm') : '✕'}
               </button>
             </div>
           ))}

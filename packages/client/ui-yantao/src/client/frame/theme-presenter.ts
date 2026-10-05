@@ -25,7 +25,13 @@ const FOCUS_STYLE_ID = 'yt-focus-ring'
  *   own, so keyboard focus was invisible everywhere our components reach;
  * - the placeholder ink — the embedded conversation composer hardcodes a
  *   2.1:1 grey for its placeholder (detected 2026-10-05); muted token ink
- *   reads the same intent at AA contrast in both schemes;
+ *   reads the same intent at AA contrast in both schemes. Two rules, because
+ *   the composer has two placeholders: the real `::placeholder` pseudo, and
+ *   a simulated one — upstream's styled `div.PNvALW_placeholder` (hashed
+ *   CSS-module class, third-round forensics 2026-10-05) that the pseudo
+ *   rule cannot reach. The class is addressed directly; if upstream renames
+ *   the hash the rule quietly stops matching and the detector re-flags the
+ *   contrast — the honest failure mode.
  * - the body motion ban — a layout-property transition (`max-width`,
  *   `margin-right`) was observed live on `body` (detected 2026-10-05);
  *   layout transitions jitter every frame, so the presenter forbids them at
@@ -39,6 +45,9 @@ const FOCUS_RING_CSS = `
 ::placeholder {
   color: var(--yt-text-muted, #726c5e);
   opacity: 1;
+}
+.PNvALW_placeholder {
+  color: var(--yt-text-muted, #726c5e) !important;
 }
 body {
   transition: none !important;

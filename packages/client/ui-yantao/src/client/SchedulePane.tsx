@@ -217,6 +217,9 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<EditorDraft | null>(null)
   const [busy, setBusy] = useState(false)
+  // 删除的两击武装（2026-10-05 第三轮评审 P2#3）：首击只进入确认态，再击
+  // 才执行——本产品自己的删除惯例，此前唯独这里例外。换选中/关编辑器即解除。
+  const [deleteArmed, setDeleteArmed] = useState(false)
   const [shortcuts, setShortcuts] = useState<readonly KbPromptShortcut[]>([])
   const [shortcutAlias, setShortcutAlias] = useState('')
 
@@ -232,11 +235,13 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
 
   const openEditor = (schedule: KbSchedule): void => {
     setSelectedId(schedule.id)
+    setDeleteArmed(false)
     setDraft({ id: schedule.id, name: schedule.name, prompt: schedule.prompt, rule: ruleOfCron(schedule.cron), enabled: schedule.enabled })
   }
 
   const openNew = (): void => {
     setSelectedId(null)
+    setDeleteArmed(false)
     setDraft({ id: null, name: '', prompt: '', rule: { mode: 'daily', time: '09:00' }, enabled: true })
   }
 
@@ -279,6 +284,7 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
       }
     } finally {
       setBusy(false)
+      setDeleteArmed(false)
     }
   }
 
@@ -456,7 +462,7 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
               <button type="button" style={primaryButtonStyle} disabled={busy || draft.name.trim() === '' || draft.prompt.trim() === ''} onClick={() => { void saveDraft() }}>
                 {draft.id === null ? '创建' : '保存'}
               </button>
-              <button type="button" style={buttonStyle} disabled={busy} onClick={() => { setDraft(null); setSelectedId(null) }}>
+              <button type="button" style={buttonStyle} disabled={busy} onClick={() => { setDraft(null); setSelectedId(null); setDeleteArmed(false) }}>
                 取消
               </button>
               {draft.id !== null && (
@@ -464,10 +470,17 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
                   type="button"
                   style={ghostDangerStyle}
                   disabled={busy}
+                  data-armed={deleteArmed || undefined}
                   title="删除这条调度，不可恢复"
-                  onClick={() => { void removeDraft() }}
+                  onClick={() => {
+                    if (!deleteArmed) {
+                      setDeleteArmed(true)
+                      return
+                    }
+                    void removeDraft()
+                  }}
                 >
-                  删除
+                  {deleteArmed ? '确认删除？' : '删除'}
                 </button>
               )}
             </div>
