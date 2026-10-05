@@ -42,7 +42,7 @@ import type {
   KbProposalInboxResolveArgs, KbProposalInboxResolveResult,
   KbResourceView,
   KbScheduleListResult, KbScheduleMarkArgs, KbScheduleMarkResult, KbScheduleSaveArgs, KbScheduleSaveResult,
-  KbRegisterResourceArgs, KbRegisterResourceResult, KbRevisionResult,
+  KbRegisterResourceArgs, KbRegisterResourceResult, KbResourceBinary, KbRevisionResult,
   KbRootResult, KbSetEntityArchivedResult, KbSetRelationArgs, KbSetRelationResult,
   KbSetRootResult, KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
@@ -55,6 +55,8 @@ export interface KbRemote {
   read(path: string): Promise<RemoteResult<KbFileContent>>
   /** The human render view of one read-only file (ADR-0046 决定 3). */
   readResourceView(path: string): Promise<RemoteResult<KbResourceView>>
+  /** One local image's bytes as base64 (ADR-0048 一期，ADR-0046 同构通路). */
+  readResourceBinary(path: string): Promise<RemoteResult<KbResourceBinary>>
   links(path: string): Promise<RemoteResult<KbLinksResult>>
   /** The whole KB's link graph in one payload (ADR-0035) — the validate gesture's prescan. */
   graph(): Promise<RemoteResult<KbGraphResult>>
@@ -158,6 +160,12 @@ export type FileReader = (path: string) => Promise<string>
  * a parsed mail.
  */
 export type ResourceViewReader = (path: string) => Promise<KbResourceView>
+
+/**
+ * Fetch one local image's binary payload (ADR-0048 一期)：KB 相对路径进，
+ * base64 字节出 —— ADR-0046 的 base64-over-RPC 通路的图片特例。
+ */
+export type ImageBinaryLoader = (path: string) => Promise<KbResourceBinary>
 
 /** Write one KB file's full content; rejects with the Remote's own message. */
 export type FileWriter = (path: string, content: string) => Promise<void>
@@ -410,6 +418,21 @@ export async function loadResourceView(ctx: Context, path: string): Promise<KbRe
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.readResourceView(path))
+}
+
+/**
+ * Fetch one local image's bytes (ADR-0048 一期): the reading view's `![…](…)`
+ * references resolve through this — base64 over the host RPC, the same
+ * transport ADR-0046 chose for PDFs, because the render process has no fs and
+ * the host exposes no static route.
+ * @param ctx - client root context.
+ * @param path - KB-relative path of the image, extension-gated host-side.
+ * @returns the binary payload, or a rejected promise carrying the reason.
+ */
+export async function loadImageBinary(ctx: Context, path: string): Promise<KbResourceBinary> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.readResourceBinary(path))
 }
 
 /**

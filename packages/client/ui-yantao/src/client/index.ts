@@ -69,6 +69,7 @@ import {
   loadCapabilities, loadCapabilityDeclaration, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
   loadRevision, loadRoot, loadTodos,
   loadWorkspace, loadResourceView, markMailRead, openExternal, readFile, registerCapability, registerResource, restoreEntity, runCapability,
+  loadImageBinary,
   loadSchedules, markSchedule, savePromptShortcuts, saveSchedules, setKbRoot,
   enqueueInboxProposal, loadProposalInbox, resolveInboxProposal,
   setRelation, writeFile, writeTodos,
@@ -181,6 +182,9 @@ export function apply(ctx: Context): void {
       // ADR-0046 决定 3: the render view feeds the read-only file tab's
       // pdf/html/eml renderers.
       readView: (path: string) => loadResourceView(ctx, path),
+      // ADR-0048 一期: the reading view's local image preloads ride the same
+      // base64-over-RPC transport.
+      readImage: (path: string) => loadImageBinary(ctx, path),
       write: (path: string, content: string) => writeFile(ctx, path, content),
       // ADR-0041 决定 7/8: the archive gestures — entities are never deleted
       // (决定 8), so they retire through the archive mechanism's two

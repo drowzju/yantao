@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  collapseEmptySections, frontmatterSummary, headingOutline, restoreTableBreaks, splitFrontmatter, taskLines, toggleTask,
+  collapseEmptySections, fileDirOf, frontmatterSummary, headingOutline, localImageRefs, restoreTableBreaks,
+  resolveLocalImagePath, splitFrontmatter, taskLines, toggleTask,
 } from '../src/client/markdown.ts'
 
 const ENTITY = [
@@ -208,5 +209,76 @@ describe('restoreTableBreaks', () => {
   it('keeps a <br> inside a code span literal', () => {
     const row = '| a | 用 `<br>` 换行<br>下一行 |'
     expect(restoreTableBreaks(row)).toBe('| a | 用 `<br>` 换行&#10;下一行 |')
+  })
+})
+
+describe('localImageRefs', () => {
+  it('collects inline and reference-style destinations, deduplicated in order', () => {
+    const body = [
+      '![首图](_assets/a.png)',
+      '',
+      '![别名][second]',
+      '',
+      '[second]: _assets/b.jpg',
+      '![重复](_assets/a.png)',
+    ].join('\n')
+    expect(localImageRefs(body)).toEqual(['_assets/a.png', '_assets/b.jpg'])
+  })
+
+  it('drops remote, scheme-carrying, and fragment destinations', () => {
+    const body = [
+      '![远](https://example.com/x.png)',
+      '![数据](data:image/png;base64,AAAA)',
+      '![锚](#section)',
+      '![本地](_assets/a.png)',
+    ].join('\n')
+    expect(localImageRefs(body)).toEqual(['_assets/a.png'])
+  })
+
+  it('skips image mentions inside a fenced block', () => {
+    const body = ['```', '![示例](sample.png)', '```', '![真](real.png)'].join('\n')
+    expect(localImageRefs(body)).toEqual(['real.png'])
+  })
+
+  it('reads a title suffix and angle-wrapped destination', () => {
+    expect(localImageRefs('![图](<_assets/a b.png> "标题")')).toEqual(['_assets/a b.png'])
+  })
+})
+
+describe('resolveLocalImagePath', () => {
+  it('resolves a sibling reference against the file\'s directory', () => {
+    expect(resolveLocalImagePath('entities/projects', '_assets/a.png')).toBe('entities/projects/_assets/a.png')
+  })
+
+  it('folds ./ and ../ segments', () => {
+    expect(resolveLocalImagePath('entities/projects', './a.png')).toBe('entities/projects/a.png')
+    expect(resolveLocalImagePath('entities/projects', '../shared/a.png')).toBe('entities/shared/a.png')
+  })
+
+  it('treats a leading slash as KB-root-relative', () => {
+    expect(resolveLocalImagePath('entities/projects', '/_assets/a.png')).toBe('_assets/a.png')
+  })
+
+  it('decodes percent escapes', () => {
+    expect(resolveLocalImagePath('', '%E5%9B%BE%20%E7%89%87.png')).toBe('图 片.png')
+  })
+
+  it('refuses schemes, fragments, escapes past the root, and non-images', () => {
+    expect(resolveLocalImagePath('entities', 'https://a/b.png')).toBeNull()
+    expect(resolveLocalImagePath('entities', '#frag')).toBeNull()
+    expect(resolveLocalImagePath('entities', '../../outside.png')).toBeNull()
+    expect(resolveLocalImagePath('entities', '../notes.md')).toBeNull()
+    expect(resolveLocalImagePath('entities', '')).toBeNull()
+  })
+
+  it('tolerates backslashes the way Windows writers leave them', () => {
+    expect(resolveLocalImagePath('entities', '..\\_assets\\a.png')).toBe('_assets/a.png')
+  })
+})
+
+describe('fileDirOf', () => {
+  it('returns the directory before the last slash, empty at the root', () => {
+    expect(fileDirOf('entities/projects/todo.md')).toBe('entities/projects')
+    expect(fileDirOf('todo.md')).toBe('')
   })
 })

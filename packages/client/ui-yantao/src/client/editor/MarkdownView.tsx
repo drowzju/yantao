@@ -28,16 +28,28 @@
  *   the design ladder via `MarkdownView.module.css`. The outline is computed
  *   from the same collapsed text the body renders.
  *
+ * - **Local images (v5, ADR-0048 一期).** `![…](…)` destinations that name
+ *   files next to the document resolve like Obsidian's: the view collects the
+ *   references, fetches each through `resolveImage` (base64 over the host RPC,
+ *   ADR-0046's transport), and hands the renderer object URLs through the
+ *   `imageSources` hook — the sanitizer stays byte-for-byte untouched, so a
+ *   `blob:` URL can never ride the markdown path itself.
+ *
+ * - **Diagrams (v5, ADR-0048 决定 4).** A ```mermaid fence renders live once
+ *   the message settles, through `MermaidBlock`'s lazy-loaded library and
+ *   opaque-origin frame; while streaming it stays an honest code fence.
+ *
  * Both ordinal mappings (checkboxes, headings) refuse when the counts disagree
  * rather than acting on the wrong line.
  */
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { KbLinksResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { MarkdownDiagrams, MarkdownImageSources, MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { KbLinksResult, KbResourceBinary } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import { MermaidBlock } from './MermaidView.tsx'
 import {
-  collapseEmptySections, frontmatterSummary, headingOutline, linkPath, renderWikiLinks, restoreTableBreaks,
-  splitFrontmatter, taskLines, toggleTask,
+  collapseEmptySections, fileDirOf, frontmatterSummary, headingOutline, linkPath, localImageRefs, renderWikiLinks,
+  resolveLocalImagePath, restoreTableBreaks, splitFrontmatter, taskLines, toggleTask,
 } from '../markdown.ts'
 import type { WorkbenchT } from '../locales.ts'
 import css from './MarkdownView.module.css'
@@ -119,6 +131,31 @@ const outlineItemStyle = {
 
 const bodyStyle = { position: 'relative', flex: 1, minHeight: 0, padding: '8px 12px' } as const
 
+/**
+ * Loaded local images: KB path → object URL (ADR-0048 一期). Module-scoped so
+ * every reading view shares one cache — reopening a tab must not re-fetch,
+ * and eviction revokes the URL so the blob does not outlive its welcome.
+ */
+const imageUrlCache = new Map<string, string>()
+
+/** Local images whose fetch already failed; never retried, keeping the preload effect loop-free. */
+const failedImages = new Set<string>()
+
+/** The image cache's FIFO ceiling. */
+const IMAGE_CACHE_LIMIT = 128
+
+/**
+ * Decode one base64 payload into bytes — ADR-0046's transport encoding, the
+ * same shape `ReadOnlyFile` decodes for PDFs (kept local: five lines, and the
+ * two views evolve on different ADRs).
+ */
+function base64Bytes(base64: string): Uint8Array<ArrayBuffer> {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  return bytes
+}
+
 /** Props: the file's content, and the one edit this view performs itself. */
 export interface MarkdownViewProps {
   /** The workbench translate face. */
@@ -154,6 +191,17 @@ export interface MarkdownViewProps {
     /** Flip the flag through the host's RPC. */
     readonly onToggle: () => void
   } | undefined
+  /**
+   * This file's KB-relative path — the anchor local image references resolve
+   * against (ADR-0048 一期). Absent in standalone use, and images stay
+   * unresolved there.
+   */
+  readonly path?: string | undefined
+  /**
+   * Fetch one local image's bytes (ADR-0048 一期): KB-relative path in, base64
+   * payload out. Absent when the embedder has no yantaoKb face.
+   */
+  readonly resolveImage?: ((kbPath: string) => Promise<KbResourceBinary>) | undefined
 }
 
 /**
@@ -167,11 +215,15 @@ export interface MarkdownViewProps {
  * @returns the reading view.
  */
 export function MarkdownView({
-  t, content, onEdit, onUnresolved, links, onOpen, onOpenExternal, archive,
+  t, content, onEdit, onUnresolved, links, onOpen, onOpenExternal, archive, path, resolveImage,
 }: MarkdownViewProps): ReactElement {
   const [open, setOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [backlinksOpen, setBacklinksOpen] = useState(false)
+  // Bumped whenever the image cache gains an entry (or a fetch definitively
+  // fails): the `imageSources` memo below depends on it so freshly landed
+  // URLs reach the renderer.
+  const [imageEpoch, setImageEpoch] = useState(0)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const split = useMemo(() => splitFrontmatter(content), [content])
   const summary = useMemo(() => frontmatterSummary(split.fields), [split.fields])
@@ -190,6 +242,55 @@ export function MarkdownView({
     return collapseEmptySections(restoreTableBreaks(linked))
   }, [split.body, links])
   const outline = useMemo(() => headingOutline(body), [body])
+
+  // Preload the document's local images (ADR-0048 一期): each reference the
+  // collector finds and the resolver normalizes gets one fetch through the
+  // host RPC — cached or already-failed paths skip, so the effect stays
+  // loop-free however often it reruns.
+  useEffect(() => {
+    if (path === undefined || resolveImage === undefined) return
+    const dir = fileDirOf(path)
+    let live = true
+    for (const ref of localImageRefs(split.body)) {
+      const kbPath = resolveLocalImagePath(dir, ref)
+      if (kbPath === null || imageUrlCache.has(kbPath) || failedImages.has(kbPath)) continue
+      resolveImage(kbPath).then((binary) => {
+        if (!live) return
+        imageUrlCache.set(kbPath, URL.createObjectURL(new Blob([base64Bytes(binary.base64)], { type: binary.mime })))
+        while (imageUrlCache.size > IMAGE_CACHE_LIMIT) {
+          const oldest = imageUrlCache.keys().next().value
+          if (oldest === undefined) break
+          URL.revokeObjectURL(imageUrlCache.get(oldest) ?? '')
+          imageUrlCache.delete(oldest)
+        }
+        setImageEpoch(epoch => epoch + 1)
+      }).catch(() => {
+        if (!live) return
+        failedImages.add(kbPath)
+        setImageEpoch(epoch => epoch + 1)
+      })
+    }
+    return () => { live = false }
+  }, [path, resolveImage, split.body])
+
+  // The renderer's image hook: a destination as written goes through the same
+  // resolver the preloader used, so the two sides can never disagree about
+  // what a reference names. Epoch in deps: a fresh cache entry must yield a
+  // fresh object or MarkdownText's memo would keep the image-less render.
+  const imageSources = useMemo<MarkdownImageSources | undefined>(() => {
+    if (path === undefined) return undefined
+    const dir = fileDirOf(path)
+    return {
+      resolve: (url) => {
+        const kbPath = resolveLocalImagePath(dir, url)
+        return kbPath === null ? undefined : imageUrlCache.get(kbPath)
+      },
+    }
+  }, [path, imageEpoch])
+
+  // ```mermaid fences go live on the settled pass; the hook object is a
+  // constant so MarkdownText's memo never churns because of it.
+  const diagrams = useMemo<MarkdownDiagrams>(() => ({ mermaid: MermaidBlock }), [])
 
 
   // MarkdownText renders task checkboxes disabled, and browsers do not
@@ -355,6 +456,8 @@ export function MarkdownView({
         <MarkdownText
           text={body}
           labels={{ code: { copyLabel: t('md.copy'), copiedLabel: t('md.copied') }, footnotes: t('md.footnotes') } satisfies MarkdownLabels}
+          imageSources={imageSources}
+          diagrams={diagrams}
         />
       </div>
     </div>

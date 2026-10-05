@@ -12,7 +12,7 @@ import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
 import type {
   CapabilityDeclarationLoader, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityArchiver, EntityCreator,
   ExternalOpener, FileReader,
-  FileWriter, LinksLoader, MailFetcher, MailMarker, PromptShortcutLister, PromptShortcutSaver, RelationSetter,
+  FileWriter, ImageBinaryLoader, LinksLoader, MailFetcher, MailMarker, PromptShortcutLister, PromptShortcutSaver, RelationSetter,
   ResourceDeleter, ResourceViewReader, RevisionLoader, RootLoader, RootSetter, ProposalInboxLister, ProposalInboxResolver,
   ScheduleLister, ScheduleMarker,
   ScheduleSaver, SessionPrompter,
@@ -1193,6 +1193,7 @@ describe('CapabilityPanel', () => {
 interface FrameFaces {
   readonly read: FileReader
   readonly readView: ResourceViewReader
+  readonly readImage: ImageBinaryLoader
   readonly write: FileWriter
   readonly archiveEntity: EntityArchiver
   readonly restoreEntity: EntityArchiver
@@ -1234,6 +1235,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     links: path => Promise.resolve({ path, outgoing: [], incoming: [] }),
     read: () => Promise.resolve(TODO_FILE),
     readView: path => Promise.resolve({ kind: 'text', path, content: TODO_FILE }),
+    readImage: () => Promise.reject(new Error('no images in these tests')),
     write: () => Promise.resolve(),
     archiveEntity: locator => Promise.resolve({ path: locator, archived: true }),
     restoreEntity: locator => Promise.resolve({ path: locator, archived: false }),
@@ -1286,6 +1288,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       workspace={loader(workspace)}
       read={kb.read}
       readView={kb.readView}
+      readImage={kb.readImage}
       write={kb.write}
       archiveEntity={kb.archiveEntity}
       restoreEntity={kb.restoreEntity}

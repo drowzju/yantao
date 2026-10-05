@@ -130,8 +130,31 @@
 
 ### 阶段 2 —— 三栏 UI(ADR-0010)
 
-1. **阅读视图 v4 —— Mermaid 与本地图片** —— 两者都要付代价:客户端包是单文件 CJS,mermaid 会被内联成 ~3.5MB(或要改宿主模块表);
-   本地图片需要新 RPC + 宿主路由,因为 `read()` 是 utf8,二进制会被解坏。等知识库里真出现一个再开工。
+### Obsidian 语法兼容(ADR-0048,2026-10-05)
+
+设计裁定见 [ADR-0048](../adr/0048-obsidian-syntax-compatibility.md)。兼容承诺正式化:
+阅读视图以 Obsidian 语法为兼容目标,分期清偿,推翻下方旧 v4 的"等真出现再开工"等待策略
+(使用率是被供给压制的果,不作需求依据)。实施层混合:预处理优先,必要时下沉渲染器,
+`sanitizeUrl` 白名单原则上不动(唯一例外:脚注 fragment 放行)。
+
+1. ~~**一期 —— 本地图片通路 + 脚注锚点 + mermaid 懒加载**~~(**已落地 2026-10-05**,
+   ADR 落地注记:图片供数改走 `imageSources` owner 钩子而非预处理改写——`blob:`
+   过不了 sanitizer 而白名单一字不动;Blob 走模块级共享缓存而非逐 tab revoke;
+   mermaid 经 `diagrams` 钩子下沉,主包 0.65MB/核心 chunk 1.2MB 实测分离):controller
+   `readResourceBinary` RPC(`{ base64, mime }`,扩展名门控 + `confine` 围栏),客户端
+   Blob URL;脚注锚点页内跳转修复(fragment 放行,夹具再生);mermaid 独立 chunk 懒加载 +
+   sandbox iframe(opaque origin + postMessage 高度协商)。语料现状:图片 0% 渲染
+   (2554 钉钉死链 + 42 本地相对引用全灭)、mermaid 14 文件。
+2. **数据面配套(非代码)** —— 重跑 dingtalk-docs 导出补附件下载
+   (`download_doc_attachment` 落 `_assets/`),消灭 2554 个 `/core/api` 死链;渲染通路
+   就绪后重导即自动受益。
+3. ~~**一期遗留清偿 —— mermaid 主题适配**~~(**已落地 2026-10-05**,ADR 落地注记二:
+   `MermaidBlock` 以 `body[data-ds-dark-theme]` 为明暗信号,MutationObserver 翻转即
+   全体重渲,旧图保持上屏不闪源码;`themeVariables` 逐色对齐色板明确不做,观感抱怨
+   出现再议)。
+4. **二期 —— callout + `==高亮==` + `#tag`**(标签点击筛选可后置)。
+5. **三期 —— `![[嵌入]]`(复用一期资源通路)+ `[[页#节]]` 标题引用**。
+6. **四期 —— 上下标、`%%注释%%`**(冷门兜底)。
 2. **拖入登记保留子路径?** —— 2026-09-16 资源子目录递归展示已完整落地(宿主 `resourceSection` 递归 + 前端
    `ResourceTree` 树状分组,ADR-0028)。剩余:`registerResource` 拖入登记是否保留子路径(目前仍登记到
    `resources/` 根)。

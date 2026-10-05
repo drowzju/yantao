@@ -15,7 +15,7 @@ import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
   CapabilityAdopter, CapabilityCreator, CapabilityDeclarationLoader, CapabilityLoader, CapabilityRegistrar, CapabilityRunner,
   DirectoryPicker, EntityArchiver, EntityCreator,
-  ExternalOpener, FileReader, FileWriter, LinksLoader,
+  ExternalOpener, FileReader, FileWriter, ImageBinaryLoader, LinksLoader,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceDeleter, ResourceRegistrar, RevisionLoader, ScheduleLister, ScheduleMarker,
@@ -76,6 +76,8 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'fo
   readonly read: FileReader
   /** Load one read-only file's render view (ADR-0046 决定 3). */
   readonly readView: ResourceViewReader
+  /** Fetch one local image's bytes (ADR-0048 一期) — the reading view's image preloads. */
+  readonly readImage: ImageBinaryLoader
   /** Write one KB file's content. */
   readonly write: FileWriter
   /** Archive one entity (ADR-0041 决定 7) — the entity gestures' 「归档」. */
@@ -418,7 +420,8 @@ function DragHandle(props: {
  * @returns the frame element.
  */
 export function Frame({
-  t, renderSlot, panels, intake, workspace, read, readView, write, archiveEntity, restoreEntity, setRelation, createEntity, root, setRoot,
+  t, renderSlot, panels, intake, workspace, read, readView, readImage, write, archiveEntity, restoreEntity, setRelation,
+  createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine, validate,
   registerResource, deleteResource, capabilityList, capabilityDeclaration, capabilityCreate, capabilityAdopt,
   capabilityRegister, capabilityRun,
@@ -1814,6 +1817,8 @@ export function Frame({
               <div style={paneStyleFor(viewMode === 'read')}>
                 <MarkdownView
                   content={drafts[tab.path] ?? ''}
+                  path={tab.path}
+                  resolveImage={readImage}
                   links={tab.path === linkGraph?.path ? linkGraph : undefined}
                   onOpenExternal={() => { openInObsidian(tab.path) }}
                   onOpen={(path) => { openFile(path, 'edit') }}

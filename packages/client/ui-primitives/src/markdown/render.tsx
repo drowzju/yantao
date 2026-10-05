@@ -7,9 +7,10 @@
  * Untrusted-output policy (unchanged from the replaced pipeline): link and
  * image destinations pass a protocol allowlist, images additionally require
  * absolute HTTP(S), raw HTML renders as literal text (no HTML enters the
- * DOM), and KaTeX runs without trusted commands. Fragment-anchor URLs fail
- * the allowlist, so footnote references and back-references render as plain
- * text rather than in-page links.
+ * DOM), and KaTeX runs without trusted commands. Fragment-anchor URLs
+ * (`#…`, ADR-0048 决定 5) pass the allowlist so footnote references and
+ * back-references render as in-page links; they carry no protocol face, so
+ * the worst case is a scroll to nowhere.
  *
  * Merge-extensible node unions fall through the documented default (render
  * nothing) rather than ending in assertNever: grammars registered elsewhere
@@ -17,7 +18,7 @@
  */
 
 import { Fragment, createElement } from 'react'
-import type { Key, ReactNode } from 'react'
+import type { ComponentType, Key, ReactNode } from 'react'
 import clsx from 'clsx'
 import type * as Md from 'mdast'
 import type {} from 'mdast-util-math'
@@ -43,6 +44,10 @@ export interface MarkdownLabels {
 }
 
 function sanitizeUrl(url: string): string {
+  // Fragment-only destinations are in-page anchors: no protocol face, so the
+  // worst case is a scroll to nowhere (ADR-0048 决定 5). Everything else must
+  // parse as an absolute URL on the allowlisted schemes.
+  if (url.startsWith('#')) return url
   try {
     switch (new URL(url).protocol) {
       case 'http:':
@@ -123,6 +128,37 @@ export interface MarkdownFileMentions {
 }
 
 /**
+ * Image-source affordance for the protocol gate (ADR-0048 决定 3): the owner
+ * resolves an image destination the allowlist rejected — a KB-local relative
+ * path, say — to a same-document URL it minted itself (a `blob:` URL), or
+ * leaves it undefined to keep the alt-text arm. Like {@link MarkdownFileMentions},
+ * the renderer never guesses: no resolution vocabulary lives here, and an
+ * unresolvable destination stays exactly as inert as before.
+ */
+export interface MarkdownImageSources {
+  /**
+   * Resolve one image destination.
+   * @param url - The destination as authored (post-normalizeUri).
+   * @returns The URL to render, or undefined to keep the alt-text arm.
+   */
+  resolve(url: string): string | undefined
+}
+
+/** Props one diagram component receives: the fence's code, exactly as authored. */
+export interface MarkdownDiagramProps {
+  /** The fenced code, trailing fence line stripped by the grammar. */
+  readonly code: string
+}
+
+/**
+ * Diagram affordance for code fences (ADR-0048 决定 4): the owner maps a
+ * fence language (`mermaid`) to a component that renders it live. Like the
+ * other owner hooks, the renderer carries no diagram vocabulary of its own —
+ * an unmapped language keeps the plain CodeBlock arm.
+ */
+export type MarkdownDiagrams = Readonly<Record<string, ComponentType<MarkdownDiagramProps>>>
+
+/**
  * One render pass's state: immutable options and targets plus the footnote
  * numbering accumulated in document order while references render.
  */
@@ -135,6 +171,10 @@ export interface MarkdownRenderContext {
   readonly inBlockquote?: boolean
   /** Inline-code file mentions; absent wherever no opener vocabulary exists. */
   readonly fileMentions: MarkdownFileMentions | undefined
+  /** Image destinations the owner resolves (KB-local pictures); absent keeps every gate rejection. */
+  readonly imageSources: MarkdownImageSources | undefined
+  /** Fence languages the owner renders as live diagrams; absent keeps every fence as code. */
+  readonly diagrams: MarkdownDiagrams | undefined
   /** Inside an anchor's children: interactive mentions must not nest there. */
   readonly inLink?: boolean
   /** Reference targets visible to this pass. */
@@ -293,7 +333,7 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
     case 'linkReference':
       return renderLinkReference(node, key, context)
     case 'image':
-      return renderImage(node.url, node.alt ?? '', key)
+      return renderImage(node.url, node.alt ?? '', key, context)
     case 'imageReference':
       return renderImageReference(node, key, context)
     case 'footnoteReference':
@@ -328,6 +368,13 @@ function renderCode(node: Md.Code, key: Key, context: MarkdownRenderContext): Re
     // ```math fences render as display TeX once settled (rehype-katex parity);
     // its text extraction saw the code block's trailing newline.
     return <Fragment key={key}>{renderTexToReact(`${node.value}\n`, true)}</Fragment>
+  }
+  if (!context.streaming && lang !== undefined && context.diagrams?.[lang] !== undefined) {
+    // Owner-mapped diagram languages render live once settled (ADR-0048 决定
+    // 4); while streaming the plain CodeBlock arm below keeps the fence
+    // honest, and the swap happens on the settled pass.
+    const Diagram = context.diagrams[lang]
+    return <Diagram key={key} code={node.value} />
   }
   return (
     <CodeBlock
@@ -480,7 +527,7 @@ function anchorWrapsOnlyImages(children: Md.PhrasingContent[]): boolean {
 function renderSafeLink(href: string, children: ReactNode[], key: Key, glyph = true): ReactNode {
   const safeHref = sanitizeUrl(href)
   if (safeHref === '') return <Fragment key={key}>{children}</Fragment>
-  const external = ['http:', 'https:'].includes(new URL(safeHref).protocol)
+  const external = !safeHref.startsWith('#') && ['http:', 'https:'].includes(new URL(safeHref).protocol)
   return (
     <a
       key={key}
@@ -513,8 +560,14 @@ function inlineCodeHttpUrl(value: string): string | undefined {
   }
 }
 
-function renderImage(url: string, alt: string, key: Key): ReactNode {
-  const imageSrc = remoteImageUrl(sanitizeUrl(normalizeUri(url)))
+function renderImage(url: string, alt: string, key: Key, context: MarkdownRenderContext): ReactNode {
+  const normalized = normalizeUri(url)
+  let imageSrc = remoteImageUrl(sanitizeUrl(normalized))
+  if (imageSrc === undefined && context.imageSources !== undefined) {
+    // The gate rejected the destination; the owner may still know it (a
+    // KB-local picture it prefetched into a blob URL, ADR-0048 决定 3).
+    imageSrc = context.imageSources.resolve(normalized)
+  }
   if (imageSrc === undefined) {
     return <span key={key} className={css.imageAlt}>{alt}</span>
   }
@@ -562,7 +615,7 @@ function renderImageReference(
 ): ReactNode {
   const definition = context.targets.definitions.get(node.identifier.toUpperCase())
   if (definition === undefined) return `![${node.alt ?? ''}${referenceSuffix(node)}`
-  return renderImage(definition.url, node.alt ?? '', key)
+  return renderImage(definition.url, node.alt ?? '', key, context)
 }
 
 function renderFootnoteReference(
@@ -573,10 +626,16 @@ function renderFootnoteReference(
   const id = node.identifier.toUpperCase()
   const seen = context.footnoteCounts.get(id)
   if (seen === undefined) context.footnoteOrder.push(id)
-  context.footnoteCounts.set(id, (seen ?? 0) + 1)
-  // The in-page anchor fails the protocol allowlist, so only the numbered
-  // superscript renders (matching the replaced pipeline's unwrapped link).
-  return <sup key={key}>{String(context.footnoteOrder.indexOf(id) + 1)}</sup>
+  const reference = (seen ?? 0) + 1
+  context.footnoteCounts.set(id, reference)
+  // In-page anchor restored (ADR-0048 决定 5): the superscript links to the
+  // trailing footnote section; its own id is each back-reference's target.
+  const normId = normalizeUri(node.identifier.toLowerCase())
+  return (
+    <sup key={key} id={`user-content-fnref-${normId}-${reference}`}>
+      <a href={`#user-content-fn-${normId}`}>{String(context.footnoteOrder.indexOf(id) + 1)}</a>
+    </sup>
+  )
 }
 
 /**
@@ -592,11 +651,17 @@ export function renderFootnoteSection(context: MarkdownRenderContext): ReactNode
     const definition = context.targets.footnotes.get(id)
     if (definition === undefined) continue
     const count = context.footnoteCounts.get(id) ?? 0
+    // Each back-reference jumps to its own reference site (ADR-0048 决定 5).
+    const normId = normalizeUri(id.toLowerCase())
     const backrefs: ReactNode[] = []
     for (let reference = 1; reference <= count; reference++) {
       if (backrefs.length > 0) backrefs.push(' ')
-      backrefs.push('↩')
-      if (reference > 1) backrefs.push(<sup key={`re-${reference}`}>{String(reference)}</sup>)
+      backrefs.push(
+        <a key={`br-${reference}`} href={`#user-content-fnref-${normId}-${reference}`}>
+          {'↩'}
+          {reference > 1 && <sup>{String(reference)}</sup>}
+        </a>,
+      )
     }
     const entries = renderBlockEntries(definition.children, context)
     const tail = entries[entries.length - 1]

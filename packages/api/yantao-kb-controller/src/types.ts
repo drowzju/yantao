@@ -63,6 +63,23 @@ export interface KbWriteResult {
   readonly path: string
 }
 
+/**
+ * Result of `yantaoKb.readResourceBinary` (ADR-0048 决定 3): one image's
+ * complete bytes for the reading view. The client turns them into a Blob URL
+ * (the ADR-0046 pattern); the RPC returns base64 rather than introducing an
+ * HTTP byte-stream route.
+ */
+export interface KbResourceBinary {
+  /** The KB-relative path that was read. */
+  readonly path: string
+  /** The image's MIME type, e.g. `image/png`. */
+  readonly mime: string
+  /** The complete file content, base64-encoded. */
+  readonly base64: string
+  /** Byte length of the decoded content. */
+  readonly size: number
+}
+
 /** One attachment of a parsed `.eml` view — the listing only, never the content (ADR-0046 取舍台账第 2 行). */
 export interface KbEmlAttachment {
   /** The attachment's filename, when the mail carries one. */

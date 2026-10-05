@@ -369,3 +369,109 @@ export function frontmatterSummary(fields: readonly FrontmatterField[]): string 
 export function frontmatterArchived(text: string): boolean {
   return splitFrontmatter(text).fields.some(field => field.key === 'archive' && field.value === 'true')
 }
+
+/**
+ * Local-image support (ADR-0048 一期).
+ *
+ * A markdown file's `![…](…)` destinations may point at files sitting next to
+ * it (`_assets/foo.png`), the way Obsidian resolves them. The renderer only
+ * accepts http(s), so the reading view pre-fetches each referenced image
+ * through the host RPC and hands the render an object URL via the
+ * `imageSources` hook. These two helpers are the textual half: collecting the
+ * references worth fetching, and turning a reference as written into the
+ * KB-relative path to fetch.
+ */
+
+/** Image file extensions the host serves as images — mirrors the controller's own gate. */
+const IMAGE_SUFFIX = /\.(?:png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i
+
+/** Any URI scheme prefix (`http:`, `data:`, `mailto:`…) — none of those is KB-relative. */
+const URI_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/
+
+/** An inline image token: `![alt](url "title")` — angle-wrapped destinations may carry spaces. */
+const INLINE_IMAGE = /!\[[^\]\n]*\]\(\s*(?:<([^<>\n]*)>|([^<>()\s]+))(?:\s+"[^"\n]*")?\s*\)/g
+
+/** A reference-style image definition: `[label]: url`, one per line. */
+const IMAGE_DEFINITION = /^\s{0,3}\[[^\]\n]+\]:\s*<?([^<>\s]+)>?/
+
+/**
+ * The local image references a document makes, in order, deduplicated.
+ *
+ * Inline `![…](…)` tokens and `[label]: url` definitions both count; fenced
+ * blocks are skipped (an image mention inside sample code is sample text).
+ * A destination carrying a scheme or a fragment is not local and is dropped
+ * here already — the resolver would refuse it anyway.
+ * @param text - markdown text (a body, envelope already split off).
+ * @returns the references as written, e.g. `_assets/foo.png`.
+ */
+export function localImageRefs(text: string): readonly string[] {
+  const found: string[] = []
+  const seen = new Set<string>()
+  const record = (candidate: string | undefined): void => {
+    const ref = candidate?.trim()
+    if (ref === undefined || ref === '' || ref.startsWith('#') || URI_SCHEME.test(ref)) return
+    if (seen.has(ref)) return
+    seen.add(ref)
+    found.push(ref)
+  }
+  let fenced = false
+  for (const line of text.split(/\r?\n/)) {
+    if (FENCE.test(line)) {
+      fenced = !fenced
+      continue
+    }
+    if (fenced) continue
+    if (!line.includes('![') && !IMAGE_DEFINITION.test(line)) continue
+    for (const match of line.matchAll(INLINE_IMAGE)) record(match[1] ?? match[2])
+    const definition = IMAGE_DEFINITION.exec(line)
+    if (definition !== null) record(definition[1])
+  }
+  return found
+}
+
+/**
+ * The KB-relative path one local image reference names.
+ *
+ * Relative references sit against the containing file's directory; a leading
+ * `/` is KB-root-relative; `.` and `..` segments fold, and a `..` climbing
+ * past the root refuses outright — a reference may not escape the KB.
+ * Percent escapes decode (with a malformed-sequence fallback to the raw
+ * text), backslashes stand in for slashes, and the result must carry an
+ * image extension or it is not something to fetch.
+ * @param fileDir - the containing file's directory, KB-relative, possibly empty.
+ * @param ref - the reference as written in the markdown source.
+ * @returns the normalized KB-relative path, or null when the reference is not
+ * a resolvable local image.
+ */
+export function resolveLocalImagePath(fileDir: string, ref: string): string | null {
+  const raw = ref.trim()
+  if (raw === '' || raw.startsWith('#') || URI_SCHEME.test(raw)) return null
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(raw)
+  } catch {
+    decoded = raw
+  }
+  const stack: string[] = decoded.startsWith('/') ? [] : fileDir.split('/').filter(segment => segment !== '')
+  for (const segment of decoded.replaceAll('\\', '/').split('/')) {
+    if (segment === '' || segment === '.') continue
+    if (segment === '..') {
+      if (stack.length === 0) return null
+      stack.pop()
+      continue
+    }
+    stack.push(segment)
+  }
+  const path = stack.join('/')
+  return path === '' || !IMAGE_SUFFIX.test(path) ? null : path
+}
+
+/**
+ * The directory part of a KB-relative file path.
+ * @param path - a KB-relative file path.
+ * @returns everything before the last `/`, or the empty string when the file sits at the root.
+ */
+export function fileDirOf(path: string): string {
+  const cut = path.lastIndexOf('/')
+  return cut < 0 ? '' : path.slice(0, cut)
+}

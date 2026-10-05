@@ -111,6 +111,7 @@ import type {
   KbOpenExternalResult,
   KbPromptInjectionResult,
   KbRegisterResourceArgs,
+  KbResourceBinary,
   KbResourceView,
   KbRegisterResourceResult,
   KbRevisionResult,
@@ -167,6 +168,24 @@ const WORKSPACE_ENTITY_SECTIONS = [
 
 /** KB-relative path of the todo singleton (ADR-0018); a singleton kind resolves whatever its name. */
 const TODOS_PATH = entityDisplayPath('todo', 'todos')
+
+/**
+ * Image extensions `readResourceBinary` serves (ADR-0048 决定 3), mapped to
+ * their MIME types. The reading view's image pathway is the sole caller;
+ * bounding the answer to pictures keeps the RPC from becoming a general
+ * binary read.
+ */
+const IMAGE_MIME_BY_EXTENSION: ReadonlyMap<string, string> = new Map([
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.gif', 'image/gif'],
+  ['.webp', 'image/webp'],
+  ['.bmp', 'image/bmp'],
+  ['.svg', 'image/svg+xml'],
+  ['.avif', 'image/avif'],
+  ['.ico', 'image/x-icon'],
+])
 
 /**
  * Rewrite one scalar field of a KB file's frontmatter, adding it just above
@@ -724,6 +743,36 @@ export class YantaoKbController extends TypertRemoteService {
       )
     }
     return { kind: 'text', path, content: bytes.toString('utf8') }
+  }
+
+  /**
+   * One image's complete bytes for the reading view (ADR-0048 决定 3): the
+   * client turns the answer into a Blob URL for an `<img src>` — the same
+   * base64-over-RPC pattern `readResourceView` established for PDFs (its
+   * 决定 4 explains why no HTTP byte route exists). Image extensions only:
+   * the reading view's image pathway is the sole caller, and bounding the
+   * answer to pictures keeps this RPC from becoming a general binary read.
+   * @param path - KB-relative path with forward slashes.
+   * @returns the image's MIME type and base64 bytes.
+   */
+  @Remote('readResourceBinary')
+  async readResourceBinary(path: string): Promise<KbResourceBinary> {
+    const mime = IMAGE_MIME_BY_EXTENSION.get(path.slice(path.lastIndexOf('.')).toLowerCase())
+    if (mime === undefined) {
+      throw new RemoteError('yantao-kb/rejected', `「${path}」不是受支持的图片格式。`, { path })
+    }
+    const target = this.confine(path, path)
+    let bytes: Buffer
+    try {
+      bytes = await readFile(target)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') {
+        throw new RemoteError('yantao-kb/not-found', `找不到知识库文件：${path}`, { path }, { cause: error })
+      }
+      throw new RemoteError('yantao-kb/rejected', `无法读取知识库文件 ${path}：${(error as Error).message}`, { path }, { cause: error })
+    }
+    return { path, mime, base64: bytes.toString('base64'), size: bytes.length }
   }
 
   /**

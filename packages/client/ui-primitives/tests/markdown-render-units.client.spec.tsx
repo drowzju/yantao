@@ -22,6 +22,7 @@ function makeContext(): MarkdownRenderContext {
     streaming: false,
     labels: markdownLabels,
     fileMentions: undefined,
+    imageSources: undefined,
     targets: createReferenceTargets(),
     footnoteOrder: [],
     footnoteCounts: new Map(),
@@ -231,5 +232,44 @@ describe('MarkdownText under StrictMode', () => {
     expect(strict.container.innerHTML).toBe(plain.container.innerHTML)
     strict.unmount()
     plain.unmount()
+  })
+})
+
+describe('diagram fences (ADR-0048 决定 4)', () => {
+  /** A diagram component that records what it was handed. */
+  function diagramSpy(seen: string[]): NonNullable<MarkdownRenderContext['diagrams']>['mermaid'] {
+    return ({ code }) => {
+      seen.push(code)
+      return null
+    }
+  }
+
+  it('hands a mapped language to its component with the code verbatim', () => {
+    const seen: string[] = []
+    const context = { ...makeContext(), diagrams: { mermaid: diagramSpy(seen) } }
+    renderNodes([{ type: 'code', lang: 'mermaid', value: 'graph TD;A-->B' }], context)
+    expect(seen).toEqual(['graph TD;A-->B'])
+  })
+
+  it('keeps an unmapped language as plain code', () => {
+    const seen: string[] = []
+    const context = { ...makeContext(), diagrams: { mermaid: diagramSpy(seen) } }
+    const container = renderNodes([{ type: 'code', lang: 'python', value: 'print(1)' }], context)
+    expect(seen).toEqual([])
+    expect(container.textContent).toContain('print(1)')
+  })
+
+  it('keeps a mapped language as code while streaming', () => {
+    const seen: string[] = []
+    const context = { ...makeContext(), streaming: true, diagrams: { mermaid: diagramSpy(seen) } }
+    const container = renderNodes([{ type: 'code', lang: 'mermaid', value: 'graph TD;A-->B' }], context)
+    expect(seen).toEqual([])
+    expect(container.querySelector('code')).not.toBeNull()
+  })
+
+  it('routes a settled MarkdownText render through the diagrams prop', () => {
+    const seen: string[] = []
+    render(<MarkdownText text={'```mermaid\ngraph TD;A-->B\n```'} diagrams={{ mermaid: diagramSpy(seen) }} />)
+    expect(seen).toEqual(['graph TD;A-->B'])
   })
 })

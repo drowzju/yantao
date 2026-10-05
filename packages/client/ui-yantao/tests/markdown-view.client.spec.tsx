@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MarkdownView } from '../src/client/editor/MarkdownView.tsx'
 import { t } from './helpers.client.ts'
 
@@ -122,5 +122,34 @@ describe('MarkdownView', () => {
     // The synthesized `&#10;` decodes through the mdast pipeline into a real
     // newline; the view's pre-wrap cells paint it as a line break.
     expect(cell?.textContent).toBe('[日期]\n06 期已发出\n[日期]\n05 期已发')
+  })
+
+  it('fetches a local image reference and points the rendered img at its object URL (ADR-0048 一期)', async () => {
+    // jsdom ships no object-URL factory; the stub stands in for one.
+    const mimes: string[] = []
+    // oxlint-disable-next-line typescript/unbound-method -- restore slots, not calls
+    const createObjectURL = URL.createObjectURL
+    // oxlint-disable-next-line typescript/unbound-method -- restore slots, not calls
+    const revokeObjectURL = URL.revokeObjectURL
+    URL.createObjectURL = vi.fn((blob: Blob) => `blob:test-${mimes.length}-${(blob).type}`)
+    URL.revokeObjectURL = vi.fn()
+    const resolveImage = vi.fn(() => Promise.resolve({ path: 'notes/_assets/a.png', mime: 'image/png', base64: 'aGVsbG8=', size: 5 }))
+    const content = ['---', 'type: note', '---', '', '![示意图](_assets/a.png)'].join('\n')
+    try {
+      const { container } = render(
+        <MarkdownView content={content} t={t} path="notes/todo.md" resolveImage={resolveImage} />,
+      )
+      // Wait on the src, not the element: the img exists before the fetch lands.
+      await waitFor(() =>{  expect(container.querySelector('img')?.getAttribute('src')).toBe('blob:test-0-image/png') })
+      expect(resolveImage).toHaveBeenCalledWith('notes/_assets/a.png')
+    } finally {
+      URL.createObjectURL = createObjectURL
+      URL.revokeObjectURL = revokeObjectURL
+    }
+  })
+
+  it('never fetches when no path or resolver is supplied', () => {
+    const { container } = render(<MarkdownView content="![图](_assets/a.png)" t={t} />)
+    expect(container.querySelector('img[src]')).toBeNull()
   })
 })
