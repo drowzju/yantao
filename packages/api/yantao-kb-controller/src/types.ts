@@ -1015,3 +1015,79 @@ export interface KbScheduleMarkResult {
   /** KB-relative path of the store, for the UI's error copy. */
   readonly path: string
 }
+
+/**
+ * One queued proposal in the inbox (ADR-0047): a structured proposal produced
+ * outside a human-initiated card flow — today, a schedule's background
+ * session — awaiting the human's decision. The `proposal` payload is the
+ * unified proposal (ADR-0021 决定 4) carried opaquely: its schema authority
+ * is the client, the store persists it verbatim.
+ */
+export interface KbQueuedProposal {
+  /** Stable identity, assigned at enqueue. */
+  readonly id: string
+  /** ISO timestamp of the enqueue moment. */
+  readonly createdAt: string
+  /** Where it came from, e.g. `schedule:sch_xxx`. */
+  readonly source: string
+  /** The producer's display name, shown on the card's provenance line. */
+  readonly sourceName: string
+  /** The card's heading. */
+  readonly title: string
+  /** One line under the title, when the producer added one. */
+  readonly note?: string
+  /** The unified proposal, opaque on this wire. */
+  readonly proposal: JsonValue
+  /** Pending until the human decides; a decision is final. */
+  readonly status: 'pending' | 'approved' | 'discarded'
+  /** ISO timestamp of the decision; present exactly when status is not `pending`. */
+  readonly decidedAt?: string
+}
+
+/** Result of `yantaoKb.proposalInboxList` (ADR-0047). */
+export interface KbProposalInboxListResult {
+  /** The entries in enqueue order — pending and decided alike. */
+  readonly proposals: readonly KbQueuedProposal[]
+  /** KB-relative path of the store, for the UI's error copy. */
+  readonly path: string
+}
+
+/** Parameters of `yantaoKb.proposalInboxEnqueue` (ADR-0047). */
+export interface KbProposalInboxEnqueueArgs {
+  /** Where it came from, e.g. `schedule:sch_xxx`. */
+  readonly source: string
+  /** The producer's display name. */
+  readonly sourceName: string
+  /** The card's heading. */
+  readonly title: string
+  /** One line under the title, optional. */
+  readonly note?: string
+  /** The unified proposal, opaque on this wire. */
+  readonly proposal: JsonValue
+}
+
+/** Result of `yantaoKb.proposalInboxEnqueue` (ADR-0047). */
+export interface KbProposalInboxEnqueueResult {
+  /** The full list as stored after the append. */
+  readonly proposals: readonly KbQueuedProposal[]
+  /** The freshly assigned entry id. */
+  readonly id: string
+  /** KB-relative path of the store, for the UI's error copy. */
+  readonly path: string
+}
+
+/** Parameters of `yantaoKb.proposalInboxResolve` (ADR-0047). */
+export interface KbProposalInboxResolveArgs {
+  /** The entry to resolve. */
+  readonly id: string
+  /** The decision: `approved` (the applier runs separately) or `discarded`. */
+  readonly status: 'approved' | 'discarded'
+}
+
+/** Result of `yantaoKb.proposalInboxResolve` (ADR-0047). */
+export interface KbProposalInboxResolveResult {
+  /** The full list as stored after the resolve. */
+  readonly proposals: readonly KbQueuedProposal[]
+  /** KB-relative path of the store, for the UI's error copy. */
+  readonly path: string
+}

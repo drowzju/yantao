@@ -49,6 +49,7 @@ import {
   loadSectionText, renderGlobalMemorySection, readGlobalMemoryEntries, YANTAO_SECTIONS,
   readPromptShortcuts, writePromptShortcuts, PROMPT_SHORTCUTS_DISPLAY_PATH,
   readSchedules, writeSchedules, markSchedule, SCHEDULES_DISPLAY_PATH,
+  enqueueProposal, readProposalInbox, resolveProposalInboxEntry, PROPOSAL_INBOX_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities } from './capability/builtin.ts'
@@ -90,6 +91,12 @@ import type {
   KbPromptShortcutListResult,
   KbPromptShortcutSaveArgs,
   KbPromptShortcutSaveResult,
+  KbProposalInboxEnqueueArgs,
+  KbProposalInboxEnqueueResult,
+  KbProposalInboxListResult,
+  KbProposalInboxResolveArgs,
+  KbProposalInboxResolveResult,
+  KbQueuedProposal,
   KbScheduleListResult,
   KbScheduleMarkArgs,
   KbScheduleMarkResult,
@@ -1506,6 +1513,102 @@ export class YantaoKbController extends TypertRemoteService {
         'yantao-kb/rejected',
         '还没有选择知识库目录，调度无处存放。',
         { path: SCHEDULES_DISPLAY_PATH },
+      )
+    }
+  }
+
+  /**
+   * The proposal inbox's listing (ADR-0047): structured proposals produced
+   * outside a human-initiated card flow — today, a schedule's background
+   * session — pending and decided alike, in enqueue order. The 提议 tab and
+   * the frontend scheduler both read through this; the agent has no tool
+   * into this surface (the scheduler is human-channel code).
+   * @returns the entries as stored.
+   */
+  @Remote('proposalInboxList')
+  async proposalInboxList(): Promise<KbProposalInboxListResult> {
+    this.requireKbRootForInbox()
+    try {
+      // The store holds the payload as `unknown` (schema authority is the
+      // client, ADR-0047); it entered as JSON and returns as JSON.
+      const proposals = await readProposalInbox(this.kbRoot) as readonly KbQueuedProposal[]
+      return { proposals, path: PROPOSAL_INBOX_DISPLAY_PATH }
+    } catch (error: unknown) {
+      throw this.inboxError(error)
+    }
+  }
+
+  /**
+   * Append one proposal to the inbox (ADR-0047): the producer's write path —
+   * today the frontend scheduler, after a fired session's answer parsed into
+   * a unified proposal. The store assigns the id, the enqueue stamp, and the
+   * pending status; the payload rides opaquely (ADR-0021 决定 4's schema
+   * authority stays with the client).
+   * @param args - the proposal and its provenance.
+   * @returns the full list as stored, plus the fresh entry's id.
+   */
+  @Remote('proposalInboxEnqueue')
+  async proposalInboxEnqueue(args: KbProposalInboxEnqueueArgs): Promise<KbProposalInboxEnqueueResult> {
+    this.requireKbRootForInbox()
+    try {
+      const stored = await enqueueProposal(this.kbRoot, args)
+      const proposals = stored as readonly KbQueuedProposal[]
+      const fresh = proposals.at(-1)
+      return {
+        proposals,
+        id: fresh === undefined ? '' : fresh.id,
+        path: PROPOSAL_INBOX_DISPLAY_PATH,
+      }
+    } catch (error: unknown) {
+      throw this.inboxError(error)
+    }
+  }
+
+  /**
+   * Record the human's decision on one pending proposal (ADR-0047): approve
+   * or discard. The apply itself is the UI's business (the human channel's
+   * `applyProposal`), this only settles the row — a decision is final, an
+   * already-decided entry refuses.
+   * @param args - the entry id and the decision.
+   * @returns the full list as stored after the resolve.
+   */
+  @Remote('proposalInboxResolve')
+  async proposalInboxResolve(args: KbProposalInboxResolveArgs): Promise<KbProposalInboxResolveResult> {
+    this.requireKbRootForInbox()
+    try {
+      const stored = await resolveProposalInboxEntry(this.kbRoot, args.id, args.status)
+      return { proposals: stored as readonly KbQueuedProposal[], path: PROPOSAL_INBOX_DISPLAY_PATH }
+    } catch (error: unknown) {
+      throw this.inboxError(error)
+    }
+  }
+
+  /** Map a kb-side inbox failure to a RemoteError the UI shows verbatim. */
+  private inboxError(error: unknown): RemoteError {
+    if (error instanceof KbError) {
+      const notFound = error.code === 'inbox-entry-not-found'
+      return new RemoteError(
+        notFound ? 'yantao-kb/not-found' : 'yantao-kb/rejected',
+        error.message,
+        { path: PROPOSAL_INBOX_DISPLAY_PATH },
+        { cause: error },
+      )
+    }
+    return new RemoteError(
+      'yantao-kb/rejected',
+      `提议收件箱操作失败：${(error as Error).message}`,
+      { path: PROPOSAL_INBOX_DISPLAY_PATH },
+      { cause: error instanceof Error ? error : undefined },
+    )
+  }
+
+  /** Refuse inbox calls before a KB root exists — the store lives beside it. */
+  private requireKbRootForInbox(): void {
+    if (!this.ctx.yantaoKb.configured) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        '还没有选择知识库目录，提议收件箱无处存放。',
+        { path: PROPOSAL_INBOX_DISPLAY_PATH },
       )
     }
   }

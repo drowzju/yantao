@@ -594,6 +594,11 @@ export {
   SCHEDULES_DISPLAY_PATH, SCHEDULES_SOFT_CAP, writeSchedules,
 } from './schedules.ts'
 export type { Schedule, ScheduleFile, ScheduleStampsPatch } from './schedules.ts'
+export {
+  enqueueProposal, INBOX_PENDING_SOFT_CAP, newProposalInboxId, normalizeInboxEntries,
+  PROPOSAL_INBOX_DISPLAY_PATH, readProposalInbox, resolveProposalInboxEntry, writeProposalInbox,
+} from './proposal-inbox.ts'
+export type { InboxEnqueueInput, ProposalInboxFile, QueuedProposal } from './proposal-inbox.ts'
 export { linksOf, linkGraphOf, resolveWikiLink, wikilinks } from './links.ts'
 export type { KbGraph, KbGraphEdge, KbLinkSource, KbLinkTarget, KbLinks, WikiLink } from './links.ts'
 export { extractPdfText, parseEml, renderEmlText } from './resource-content.ts'
