@@ -601,6 +601,8 @@ export {
 export type { InboxEnqueueInput, ProposalInboxFile, QueuedProposal } from './proposal-inbox.ts'
 export { linksOf, linkGraphOf, resolveWikiLink, wikilinks } from './links.ts'
 export type { KbGraph, KbGraphEdge, KbLinkSource, KbLinkTarget, KbLinks, WikiLink } from './links.ts'
+export { relationGraphOf } from './relations.ts'
+export type { KbRelationEdge, KbRelationGraph, RelationKind } from './relations.ts'
 export { extractPdfText, parseEml, renderEmlText } from './resource-content.ts'
 export type { EmlAttachment, EmlParsed } from './resource-content.ts'
 // The prompt-section layer's vocabulary, for host-side consumers that price

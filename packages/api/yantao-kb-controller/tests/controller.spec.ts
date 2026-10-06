@@ -137,6 +137,26 @@ describe('yantaoKb.graph', () => {
   })
 })
 
+describe('yantaoKb.relationGraph', () => {
+  it('delegates the typed relation graph: wiki edges filtered, frontmatter areas included', async () => {
+    await seedKb()
+    await seedFile('entities/projects/dsh 学习.md',
+      entityFileContent('project', 'dsh 学习', TODAY).replace('areas: []', 'areas: [健康]')
+      + '\n负责人 [[我自己]]，关联 [[健康]] 与 [[不存在]]\n')
+    await seedFile('entities/meetings/2026-09-08 周会.md',
+      entityFileContent('meeting', '2026-09-08 周会', TODAY) + '\n来了 [[我自己]]\n')
+    const graph = await ctx.yantaoKbController.relationGraph()
+    expect(graph.edges).toEqual([
+      { kind: 'person-project', from: 'entities/people/我自己.md', to: 'entities/projects/dsh 学习.md' },
+      { kind: 'area-project', from: 'entities/areas/健康.md', to: 'entities/projects/dsh 学习.md' },
+    ])
+  })
+
+  it('returns an empty relation graph for an empty KB', async () => {
+    expect(await ctx.yantaoKbController.relationGraph()).toEqual({ nodes: [], edges: [] })
+  })
+})
+
 describe('yantaoKb.workspaceTree', () => {
   it('returns projects, areas, people and meetings even when the KB is empty', async () => {
     const tree = await ctx.yantaoKbController.workspaceTree()

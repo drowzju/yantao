@@ -13,7 +13,8 @@ import type {
   CapabilityDeclarationLoader, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityArchiver, EntityCreator,
   ExternalOpener, FileReader,
   FileWriter, ImageBinaryLoader, LinksLoader, MailFetcher, MailMarker, PromptShortcutLister, PromptShortcutSaver, RelationSetter,
-  ResourceDeleter, ResourceViewReader, RevisionLoader, RootLoader, RootSetter, ProposalInboxLister, ProposalInboxResolver,
+  ResourceDeleter, ResourceViewReader, RevisionLoader, RelationGraphLoader, RootLoader, RootSetter,
+  ProposalInboxLister, ProposalInboxResolver,
   ScheduleLister, ScheduleMarker,
   ScheduleSaver, SessionPrompter,
   ShortcutFiller, TodoLoader, TodoWriter,
@@ -1220,6 +1221,7 @@ interface FrameFaces {
   readonly runSchedule: ScheduleRunner
   readonly proposalInboxList: ProposalInboxLister
   readonly proposalInboxResolve: ProposalInboxResolver
+  readonly relationGraph: RelationGraphLoader
   readonly mailFetch: MailFetcher
   readonly mailMarkRead: MailMarker
   readonly analyseMail: MailAnalyser
@@ -1262,6 +1264,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     runSchedule: () => Promise.resolve({ sessionId: '', answer: '' }),
     proposalInboxList: () => Promise.resolve({ proposals: [], path: '.dsh/yantao/proposal-inbox.json' }),
     proposalInboxResolve: () => Promise.resolve({ proposals: [], path: '.dsh/yantao/proposal-inbox.json' }),
+    relationGraph: () => Promise.resolve({ nodes: [], edges: [] }),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
     analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [] } }),
@@ -1327,6 +1330,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       runSchedule={kb.runSchedule}
       proposalInboxList={kb.proposalInboxList}
       proposalInboxResolve={kb.proposalInboxResolve}
+      relationGraph={kb.relationGraph}
       sessionDetail={kb.sessionDetail}
       writeTodos={kb.writeTodos}
       onKbRootChanged={onKbRootChanged}
@@ -1566,6 +1570,7 @@ describe('Frame', () => {
         runSchedule={kb.runSchedule}
         proposalInboxList={kb.proposalInboxList}
         proposalInboxResolve={kb.proposalInboxResolve}
+        relationGraph={kb.relationGraph}
         sessionDetail={() => Promise.resolve({ items: [], usage: null })}
         onKbRootChanged={onKbRootChanged}
       />,

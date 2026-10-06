@@ -2979,6 +2979,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the path and the file\'s complete UTF-8 content.',
       },
       {
+        signature: '@Remote(\'readResourceView\') async readResourceView(path: string): Promise<KbResourceView>',
+        description: 'The human render view of one read-only file (ADR-0046 决定 3): the workbench\'s `ReadOnlyFile` picks its renderer from the answer\'s `kind` instead of sniffing extensions again client-side. `.pdf` answers base64 bytes (the client turns them into a Blob URL for the built-in PDFium viewer), `.html` its raw text (the client sandboxes it), `.eml` the parsed mail (headline fields, bodies, attachment listing — never attachment content), everything else plain text with the same NUL refusal `read` has. The agent\'s read plane transpiles `.pdf`/`.eml` through the same kernel functions (`@deepseek-ai/dsh-yantao-kb`\'s resource-content), so both faces agree on what a file "says".',
+        parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }],
+        returns: 'the discriminated render view.',
+      },
+      {
+        signature: '@Remote(\'readResourceBinary\') async readResourceBinary(path: string): Promise<KbResourceBinary>',
+        description: 'One image\'s complete bytes for the reading view (ADR-0048 决定 3): the client turns the answer into a Blob URL for an `<img src>` — the same base64-over-RPC pattern `readResourceView` established for PDFs (its 决定 4 explains why no HTTP byte route exists). Image extensions only: the reading view\'s image pathway is the sole caller, and bounding the answer to pictures keeps this RPC from becoming a general binary read.',
+        parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }],
+        returns: 'the image\'s MIME type and base64 bytes.',
+      },
+      {
         signature: '@Remote(\'links\') async links(path: string): Promise<KbLinksResult>',
         description: 'Both halves of one file\'s `[[…]]` link graph (ADR-0015): what it links out to, resolved to entity files, and which files link back into it.\n\nThe scan lives here rather than in the Client because it reads every entity note — one round trip instead of one per file — and because resolution is a host-side rule (`类型:名字` locators, dated meetings).',
         parameters: [{ name: 'path', description: 'KB-relative path with forward slashes.' }],
@@ -2991,6 +3003,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'every entity path plus every resolved-or-not edge.',
       },
       {
+        signature: '@Remote(\'relationGraph\') async relationGraph(): Promise<KbRelationGraphResult>',
+        description: 'The whole KB\'s typed relation graph (ADR-0049): the three relations the 图谱 tab draws — person–project, area–project (the project frontmatter `areas` list included), person–person — as one payload. Edges touching meetings, the todo singleton, archived entities, or unresolved targets never appear; the scan reuses `linkGraphOf` so the two graphs agree on every resolution rule.',
+        parameters: [],
+        returns: 'every active entity path plus every deduplicated relation edge.',
+      },
+      {
         signature: '@Remote(\'root\') root(): Promise<KbRootResult>',
         description: 'The live KB root and whether the human has chosen one yet.',
         parameters: [],
@@ -2998,7 +3016,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'promptInjection\') promptInjection(): Promise<KbPromptInjectionResult>',
-        description: 'The yantao layer\'s own share of the system prompt, for the workbench\'s context meter (ADR-0039): the four static discipline sections priced from the same files the plugin registers, plus the dynamic global behavior- memory section priced from the live store. Priced with the meter\'s fixed density heuristic (4 characters per token) so the figures speak the same vocabulary as the `contextBreakdown` projection\'s system bucket, of which they are the yantao-attributable slice.',
+        description: 'The yantao layer\'s own share of the system prompt, for the workbench\'s context meter (ADR-0039): the static discipline sections priced from the same files the plugin registers, the filesystem discipline priced as rendered (ADR-0042: `{{kbRoot}}` resolved against the live root), plus the dynamic global behavior-memory section priced from the live store. Priced with the meter\'s fixed density heuristic (4 characters per token) so the figures speak the same vocabulary as the `contextBreakdown` projection\'s system bucket, of which they are the yantao-attributable slice.',
         parameters: [],
         returns: 'the static and behavior-memory shares, in heuristic tokens.',
       },
@@ -3043,6 +3061,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Restore one archived entity — the same mechanism, the other direction (ADR-0041 决定 6): the frontmatter flag comes off and the entity rejoins the active roster, one dated 「还原」 bullet appended to its 流水. Idempotent like archiving: restoring an active entity writes nothing.',
         parameters: [{ name: 'locator', description: 'entity locator: `type:name` or an entity file path.' }],
         returns: 'the KB-relative path and the flag now in effect.',
+      },
+      {
+        signature: '@Remote(\'deleteResource\') async deleteResource(path: string): Promise<KbDeleteResourceResult>',
+        description: 'Delete one resource file — the workbench\'s 「删除」 gesture on a resource row. Resources are dumb raw material (ADR-0020): unlike entities (ADR-0041 决定 8 — never deleted, only archived) a resource can go away for good. The trust boundary is untouched: this lives on the UI\'s Remote namespace, which the agent\'s tool layer never sees — the agent keeps its creation- only / read-only resource tools (ADR-0028). Confined twice over: the KB confinement, then a `resources/` prefix — entity notes, the todo singleton and anything else in the KB are refused. The UI confirms before invoking (the menu\'s armed second click); the server does not second-guess a confirmed human gesture.',
+        parameters: [{ name: 'path', description: 'KB-relative path with forward slashes, under `resources/`.' }],
+        returns: 'the deleted path.',
       },
       {
         signature: '@Remote(\'todos\') async todos(): Promise<KbTodosResult>',
@@ -3093,6 +3117,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the scope\'s path.',
       },
       {
+        signature: '@Remote(\'memoryProposalList\') async memoryProposalList(): Promise<KbMemoryProposalListResult>',
+        description: 'The proposal queue\'s listing (ADR-0044): every scope that has a queue file under `.dsh/yantao/memory/proposals/` — `global.md` first, then the capability scopes name-sorted — each with its exact text and parsed pending proposals, source annotations included for the human\'s judgment. The queue is never injected into any prompt; this listing and the conversation approval cards are its only readers.',
+        parameters: [],
+        returns: 'the scopes, global first.',
+      },
+      {
+        signature: '@Remote(\'memoryProposalApprove\') async memoryProposalApprove(args: KbMemoryProposalApproveArgs): Promise<KbMemoryProposalApproveResult>',
+        description: 'Approve one pending proposal (ADR-0044 决定 7): the bare text lands in the target scope\'s memory file through `appendMemoryEntry` — dedup, ordering and line format come for free — and only then leaves the queue. The target scope is re-judgeable per approval (default: the source scope). An already-remembered text is refused (`duplicate-memory`) and the pending copy stays for the human to discard explicitly; a stale text (processed meanwhile) is a `not-found` and the caller refreshes.',
+        parameters: [{ name: 'args', description: 'the source scope, the proposal\'s text, and the optional re-judged target scope.' }],
+        returns: 'the queue path, the memory path, and the entry as written.',
+      },
+      {
+        signature: '@Remote(\'memoryProposalDiscard\') async memoryProposalDiscard(args: KbMemoryProposalDiscardArgs): Promise<KbMemoryProposalDiscardResult>',
+        description: 'Discard one pending proposal (ADR-0044 决定 7): the line leaves the queue and nothing is remembered. Addressed by text — the conversation approval card holds the tool args (scope+text), and per-scope dedup makes text unique within a queue.',
+        parameters: [{ name: 'args', description: 'the source scope and the proposal\'s text.' }],
+        returns: 'the queue path.',
+      },
+      {
         signature: '@Remote(\'promptShortcutList\') async promptShortcutList(): Promise<KbPromptShortcutListResult>',
         description: 'The prompt-shortcut store\'s listing (ADR-0040): the human\'s favorite slash aliases in display order. The `/` menu\'s shortcut group and the capability tab\'s home list both read through this; the agent\'s own view is the injected prompt section, never this RPC.',
         parameters: [],
@@ -3105,10 +3147,52 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the list as stored (normalized).',
       },
       {
+        signature: '@Remote(\'scheduleList\') async scheduleList(): Promise<KbScheduleListResult>',
+        description: 'The schedule store\'s listing (ADR-0045): the human\'s timed tasks in display order. The 调度 tab and the frontend scheduler both read through this; the agent has no tool into this surface at all (决定 4).',
+        parameters: [],
+        returns: 'the schedules as stored.',
+      },
+      {
+        signature: '@Remote(\'scheduleSave\') async scheduleSave(args: KbScheduleSaveArgs): Promise<KbScheduleSaveResult>',
+        description: 'Save the whole schedule list (ADR-0045): the UI edits a handful of rows, so a full-list replace keeps reorder and delete trivially correct. Human-channel only. The scheduler-owned stamps (`lastFiredAt` / `lastMissedAt`) never travel through this save: an editor\'s stale snapshot must not rewind the bookkeeping, so existing rows keep the stamps the store holds — the scheduler patches them through `scheduleMark` instead.',
+        parameters: [{ name: 'args', description: 'the complete new list, in display order.' }],
+        returns: 'the list as stored (normalized, stamps preserved).',
+      },
+      {
+        signature: '@Remote(\'scheduleMark\') async scheduleMark(args: KbScheduleMarkArgs): Promise<KbScheduleMarkResult>',
+        description: 'Patch one row\'s scheduler-owned stamps (ADR-0045): the scheduler\'s own write path — single-row patches, so bookkeeping never rides (or races) a full-list replace. `null` clears a stamp (a real fire clears the missed mark); an absent field is left alone.',
+        parameters: [{ name: 'args', description: 'the row id and the stamp changes.' }],
+        returns: 'the full list as stored after the patch.',
+      },
+      {
+        signature: '@Remote(\'proposalInboxList\') async proposalInboxList(): Promise<KbProposalInboxListResult>',
+        description: 'The proposal inbox\'s listing (ADR-0047): structured proposals produced outside a human-initiated card flow — today, a schedule\'s background session — pending and decided alike, in enqueue order. The 提议 tab and the frontend scheduler both read through this; the agent has no tool into this surface (the scheduler is human-channel code).',
+        parameters: [],
+        returns: 'the entries as stored.',
+      },
+      {
+        signature: '@Remote(\'proposalInboxEnqueue\') async proposalInboxEnqueue(args: KbProposalInboxEnqueueArgs): Promise<KbProposalInboxEnqueueResult>',
+        description: 'Append one proposal to the inbox (ADR-0047): the producer\'s write path — today the frontend scheduler, after a fired session\'s answer parsed into a unified proposal. The store assigns the id, the enqueue stamp, and the pending status; the payload rides opaquely (ADR-0021 决定 4\'s schema authority stays with the client).',
+        parameters: [{ name: 'args', description: 'the proposal and its provenance.' }],
+        returns: 'the full list as stored, plus the fresh entry\'s id.',
+      },
+      {
+        signature: '@Remote(\'proposalInboxResolve\') async proposalInboxResolve(args: KbProposalInboxResolveArgs): Promise<KbProposalInboxResolveResult>',
+        description: 'Record the human\'s decision on one pending proposal (ADR-0047): approve or discard. The apply itself is the UI\'s business (the human channel\'s `applyProposal`), this only settles the row — a decision is final, an already-decided entry refuses.',
+        parameters: [{ name: 'args', description: 'the entry id and the decision.' }],
+        returns: 'the full list as stored after the resolve.',
+      },
+      {
         signature: '@Remote(\'capabilityRun\') async capabilityRun(args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<KbCapabilityRunResult>',
         description: 'Run one capability\'s host entry (ADR-0021) — the human channel\'s execution seam, the mail connector\'s and the extractor\'s subprocess pattern generalized. The capability is resolved through `ctx.skills` (the skill-filesystem provider discovers the directories; this controller only consumes the winner), its `yantao.json` declaration (legacy `metadata.yantao` frontmatter accepted) picks the entry script, and the run is one Python subprocess with a JSON stdin/stdout contract (`capability/run.ts`).\n\nThe controller, not the script, owns every write: artifacts land under `.dsh/yantao/capabilities/<name>/` at paths the script cannot choose, and the returned state is persisted under `capabilities.<name>.state` in the KB\'s `.dsh/yantao/state.json` (ADR-0024) — machine state inside the KB, which stays markdown for humans. The agent has its own channel into the same seam: `kb_run_capability` (ADR-0023), gated per capability by the sidecar\'s `invocation` declaration.',
         parameters: [{ name: 'args', description: 'the capability\'s skill name and the caller\'s input, handed to the entry script verbatim.' }, { name: 'signal', description: 'the human channel\'s cancel line (ADR-0031): an abort kills the entry script\'s subprocess and rejects with the `cancelled` kind. The agent channel has no cancel — its runs answer or time out.' }],
         returns: 'what the run answered, when it ran, and which artifact paths were written.',
+      },
+      {
+        signature: '@Remote(\'capabilityDeclaration\') async capabilityDeclaration(args: KbCapabilityDeclarationArgs): Promise<KbCapabilityDeclarationResult>',
+        description: 'One capability\'s declaration, parsed and resolved (ADR-0043 决定 7): both declaration channels answered in data — the directory\'s own sidecar (raw text included, legacy frontmatter accepted) and the central routing file — plus the same dual-gate agent-invocability the run paths apply. A registration problem (missing sidecar, unregistered route, missing entry file, broken routing file) is stated in the answer, never thrown: the 能力 tab renders it, and an agent troubleshooting a refused call reads the very same resolution the run would have applied. Only an unconfigured KB throws — then nothing could resolve anyway.',
+        parameters: [{ name: 'args', description: 'the capability\'s skill name.' }],
+        returns: 'the parsed declaration, both channels, and the gate\'s answer.',
       },
       {
         signature: '@Remote(\'capabilityList\') async capabilityList(): Promise<KbCapabilityListResult>',
@@ -4593,6 +4677,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbCapabilityCreateResult {\n    readonly path: string;\n}',
   },
   {
+    name: 'KbCapabilityDeclarationArgs',
+    declaration: 'export interface KbCapabilityDeclarationArgs {\n    readonly name: string;\n}',
+  },
+  {
+    name: 'KbCapabilityDeclarationResult',
+    declaration: 'export interface KbCapabilityDeclarationResult {\n    readonly name: string;\n    readonly directory?: string;\n    readonly sidecar: KbCapabilitySidecarAnswer;\n    readonly route: KbCapabilityRouteAnswer;\n    readonly agentInvocable: boolean;\n}',
+  },
+  {
+    name: 'KbCapabilityExec',
+    declaration: 'export interface KbCapabilityExec {\n    readonly command: string;\n    readonly exitCode: number | null;\n    readonly durationMs: number;\n    readonly stdoutTail: string;\n    readonly stderrTail: string;\n}',
+  },
+  {
     name: 'KbCapabilityListResult',
     declaration: 'export interface KbCapabilityListResult {\n    readonly capabilities: readonly KbCapabilitySummary[];\n    readonly unregistered: readonly KbUnregisteredSkill[];\n}',
   },
@@ -4605,12 +4701,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbCapabilityRegisterResult {\n    readonly path: string;\n}',
   },
   {
+    name: 'KbCapabilityResolvedDeclaration',
+    declaration: 'export interface KbCapabilityResolvedDeclaration {\n    readonly kind: \'instruction\' | \'script\';\n    readonly entry?: string;\n    readonly runtime?: string;\n    readonly version?: string;\n    readonly invocation: readonly string[];\n    readonly appliesTo?: KbCapabilityAppliesTo;\n    readonly entryCandidates?: readonly string[];\n    readonly entryPath?: string;\n}',
+  },
+  {
+    name: 'KbCapabilityRouteAnswer',
+    declaration: 'export interface KbCapabilityRouteAnswer {\n    readonly registered: boolean;\n    readonly path?: string;\n    readonly invocation?: readonly string[];\n    readonly appliesTo?: KbCapabilityAppliesTo;\n    readonly problem?: string;\n}',
+  },
+  {
     name: 'KbCapabilityRunArgs',
     declaration: 'export interface KbCapabilityRunArgs {\n    readonly name: string;\n    readonly input?: JsonValue;\n}',
   },
   {
     name: 'KbCapabilityRunResult',
-    declaration: 'export interface KbCapabilityRunResult {\n    readonly name: string;\n    readonly runAt: string;\n    readonly result?: JsonValue;\n    readonly content?: string;\n    readonly memory?: string;\n    readonly artifacts: readonly string[];\n}',
+    declaration: 'export interface KbCapabilityRunResult {\n    readonly name: string;\n    readonly runAt: string;\n    readonly result?: JsonValue;\n    readonly content?: string;\n    readonly memory?: string;\n    readonly artifacts: readonly string[];\n    readonly exec?: KbCapabilityExec;\n}',
+  },
+  {
+    name: 'KbCapabilitySidecarAnswer',
+    declaration: 'export interface KbCapabilitySidecarAnswer {\n    readonly present: boolean;\n    readonly source?: \'sidecar\' | \'frontmatter\';\n    readonly raw?: string;\n    readonly resolved?: KbCapabilityResolvedDeclaration;\n    readonly problem?: string;\n}',
   },
   {
     name: 'KbCapabilitySummary',
@@ -4627,6 +4735,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KbCreateEntityResult',
     declaration: 'export interface KbCreateEntityResult {\n    readonly path: string;\n}',
+  },
+  {
+    name: 'KbDeleteResourceResult',
+    declaration: 'export interface KbDeleteResourceResult {\n    readonly path: string;\n}',
+  },
+  {
+    name: 'KbEmlAttachment',
+    declaration: 'export interface KbEmlAttachment {\n    readonly name: string;\n    readonly contentType: string;\n    readonly size: number;\n}',
   },
   {
     name: 'KbFileContent',
@@ -4677,6 +4793,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbMemoryListResult {\n    readonly groups: readonly KbMemoryGroup[];\n}',
   },
   {
+    name: 'KbMemoryProposal',
+    declaration: 'export interface KbMemoryProposal {\n    readonly id: string;\n    readonly date?: string;\n    readonly text: string;\n    readonly source: string;\n}',
+  },
+  {
+    name: 'KbMemoryProposalApproveArgs',
+    declaration: 'export interface KbMemoryProposalApproveArgs {\n    readonly scope: string;\n    readonly text: string;\n    readonly targetScope?: string;\n}',
+  },
+  {
+    name: 'KbMemoryProposalApproveResult',
+    declaration: 'export interface KbMemoryProposalApproveResult {\n    readonly path: string;\n    readonly targetPath: string;\n    readonly entry: KbMemoryEntry;\n}',
+  },
+  {
+    name: 'KbMemoryProposalDiscardArgs',
+    declaration: 'export interface KbMemoryProposalDiscardArgs {\n    readonly scope: string;\n    readonly text: string;\n}',
+  },
+  {
+    name: 'KbMemoryProposalDiscardResult',
+    declaration: 'export interface KbMemoryProposalDiscardResult {\n    readonly path: string;\n}',
+  },
+  {
+    name: 'KbMemoryProposalGroup',
+    declaration: 'export interface KbMemoryProposalGroup {\n    readonly scope: string;\n    readonly path: string;\n    readonly text: string;\n    readonly entries: readonly KbMemoryProposal[];\n}',
+  },
+  {
+    name: 'KbMemoryProposalListResult',
+    declaration: 'export interface KbMemoryProposalListResult {\n    readonly groups: readonly KbMemoryProposalGroup[];\n}',
+  },
+  {
     name: 'KbOpenExternalResult',
     declaration: 'export interface KbOpenExternalResult {\n    readonly target: string;\n}',
   },
@@ -4701,6 +4845,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbPromptShortcutSaveResult {\n    readonly shortcuts: readonly KbPromptShortcut[];\n    readonly path: string;\n}',
   },
   {
+    name: 'KbProposalInboxEnqueueArgs',
+    declaration: 'export interface KbProposalInboxEnqueueArgs {\n    readonly source: string;\n    readonly sourceName: string;\n    readonly title: string;\n    readonly note?: string;\n    readonly proposal: JsonValue;\n}',
+  },
+  {
+    name: 'KbProposalInboxEnqueueResult',
+    declaration: 'export interface KbProposalInboxEnqueueResult {\n    readonly proposals: readonly KbQueuedProposal[];\n    readonly id: string;\n    readonly path: string;\n}',
+  },
+  {
+    name: 'KbProposalInboxListResult',
+    declaration: 'export interface KbProposalInboxListResult {\n    readonly proposals: readonly KbQueuedProposal[];\n    readonly path: string;\n}',
+  },
+  {
+    name: 'KbProposalInboxResolveArgs',
+    declaration: 'export interface KbProposalInboxResolveArgs {\n    readonly id: string;\n    readonly status: \'approved\' | \'discarded\';\n}',
+  },
+  {
+    name: 'KbProposalInboxResolveResult',
+    declaration: 'export interface KbProposalInboxResolveResult {\n    readonly proposals: readonly KbQueuedProposal[];\n    readonly path: string;\n}',
+  },
+  {
+    name: 'KbQueuedProposal',
+    declaration: 'export interface KbQueuedProposal {\n    readonly id: string;\n    readonly createdAt: string;\n    readonly source: string;\n    readonly sourceName: string;\n    readonly title: string;\n    readonly note?: string;\n    readonly proposal: JsonValue;\n    readonly status: \'pending\' | \'approved\' | \'discarded\';\n    readonly decidedAt?: string;\n}',
+  },
+  {
     name: 'KbRegisterResourceArgs',
     declaration: 'export interface KbRegisterResourceArgs {\n    readonly name: string;\n    readonly contentBase64: string;\n}',
   },
@@ -4709,12 +4877,48 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbRegisterResourceResult {\n    readonly resource: string;\n}',
   },
   {
+    name: 'KbRelationGraphResult',
+    declaration: 'export interface KbRelationGraphResult {\n    readonly nodes: readonly string[];\n    readonly edges: readonly KbRelationEdge[];\n}',
+  },
+  {
+    name: 'KbResourceBinary',
+    declaration: 'export interface KbResourceBinary {\n    readonly path: string;\n    readonly mime: string;\n    readonly base64: string;\n    readonly size: number;\n}',
+  },
+  {
+    name: 'KbResourceView',
+    declaration: 'export type KbResourceView = {\n    readonly kind: \'text\';\n    readonly path: string;\n    readonly content: string;\n} | {\n    readonly kind: \'html\';\n    readonly path: string;\n    readonly content: string;\n} | {\n    readonly kind: \'pdf\';\n    readonly path: string;\n    readonly base64: string;\n    readonly size: number;\n} | {\n    readonly kind: \'eml\';\n    readonly path: string;\n    readonly subject?: string;\n    readonly from?: string;\n    readonly to?: string;\n    readonly date?: string;\n    readonly html?: string;\n    readonly text?: string;\n    readonly attachments: readonly KbEmlAttachment[];\n};',
+  },
+  {
     name: 'KbRevisionResult',
     declaration: 'export interface KbRevisionResult {\n    readonly root: string;\n    readonly revision: number;\n}',
   },
   {
     name: 'KbRootResult',
     declaration: 'export interface KbRootResult {\n    readonly root: string;\n    readonly configured: boolean;\n}',
+  },
+  {
+    name: 'KbSchedule',
+    declaration: 'export interface KbSchedule {\n    readonly id: string;\n    readonly name: string;\n    readonly prompt: string;\n    readonly cron: string;\n    readonly enabled: boolean;\n    readonly lastFiredAt?: string;\n    readonly lastMissedAt?: string;\n}',
+  },
+  {
+    name: 'KbScheduleListResult',
+    declaration: 'export interface KbScheduleListResult {\n    readonly schedules: readonly KbSchedule[];\n}',
+  },
+  {
+    name: 'KbScheduleMarkArgs',
+    declaration: 'export interface KbScheduleMarkArgs {\n    readonly id: string;\n    readonly lastFiredAt?: string | null;\n    readonly lastMissedAt?: string | null;\n}',
+  },
+  {
+    name: 'KbScheduleMarkResult',
+    declaration: 'export interface KbScheduleMarkResult {\n    readonly schedules: readonly KbSchedule[];\n    readonly path: string;\n}',
+  },
+  {
+    name: 'KbScheduleSaveArgs',
+    declaration: 'export interface KbScheduleSaveArgs {\n    readonly schedules: readonly KbSchedule[];\n}',
+  },
+  {
+    name: 'KbScheduleSaveResult',
+    declaration: 'export interface KbScheduleSaveResult {\n    readonly schedules: readonly KbSchedule[];\n    readonly path: string;\n}',
   },
   {
     name: 'KbSetEntityArchivedResult',

@@ -285,9 +285,16 @@ export const zh = {
   'center.tasks': '任务',
   'center.schedules': '调度',
   'center.inbox': '提议',
+  'center.graph': '图谱',
   'center.close': '关闭',
   'center.read': '阅读',
   'center.source': '源码',
+
+  // 图谱 tab (ADR-0049)
+  'graph.empty': '暂无实体',
+  'graph.legend.personProject': '人 — 项目',
+  'graph.legend.areaProject': '领域 — 项目',
+  'graph.legend.personPerson': '人 — 人',
 
   // Proposal inbox (ADR-0047)
   'inbox.discard': '丢弃',
@@ -608,9 +615,16 @@ export const en = {
   'center.tasks': 'Tasks',
   'center.schedules': 'Schedules',
   'center.inbox': 'Proposals',
+  'center.graph': 'Graph',
   'center.close': 'Close',
   'center.read': 'Read',
   'center.source': 'Source',
+
+  // 图谱 tab (ADR-0049)
+  'graph.empty': 'No entities yet',
+  'graph.legend.personProject': 'person — project',
+  'graph.legend.areaProject': 'area — project',
+  'graph.legend.personPerson': 'person — person',
 
   // Proposal inbox (ADR-0047)
   'inbox.discard': 'Discard',

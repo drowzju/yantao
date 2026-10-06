@@ -144,6 +144,34 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('read') async read(path: string): Promise<KbFileContent>
 
 /**
+ * The human render view of one read-only file (ADR-0046 决定 3): the
+ * workbench's `ReadOnlyFile` picks its renderer from the answer's `kind`
+ * instead of sniffing extensions again client-side. `.pdf` answers base64
+ * bytes (the client turns them into a Blob URL for the built-in PDFium
+ * viewer), `.html` its raw text (the client sandboxes it), `.eml` the
+ * parsed mail (headline fields, bodies, attachment listing — never
+ * attachment content), everything else plain text with the same NUL
+ * refusal `read` has. The agent's read plane transpiles `.pdf`/`.eml`
+ * through the same kernel functions (`@deepseek-ai/dsh-yantao-kb`'s
+ * resource-content), so both faces agree on what a file "says".
+ * @param path - KB-relative path with forward slashes.
+ * @returns the discriminated render view.
+ */
+@Remote('readResourceView') async readResourceView(path: string): Promise<KbResourceView>
+
+/**
+ * One image's complete bytes for the reading view (ADR-0048 决定 3): the
+ * client turns the answer into a Blob URL for an `<img src>` — the same
+ * base64-over-RPC pattern `readResourceView` established for PDFs (its
+ * 决定 4 explains why no HTTP byte route exists). Image extensions only:
+ * the reading view's image pathway is the sole caller, and bounding the
+ * answer to pictures keeps this RPC from becoming a general binary read.
+ * @param path - KB-relative path with forward slashes.
+ * @returns the image's MIME type and base64 bytes.
+ */
+@Remote('readResourceBinary') async readResourceBinary(path: string): Promise<KbResourceBinary>
+
+/**
  * Both halves of one file's `[[…]]` link graph (ADR-0015): what it links out
  * to, resolved to entity files, and which files link back into it.
  *
@@ -167,6 +195,17 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('graph') async graph(): Promise<KbGraphResult>
 
 /**
+ * The whole KB's typed relation graph (ADR-0049): the three relations the
+ * 图谱 tab draws — person–project, area–project (the project frontmatter
+ * `areas` list included), person–person — as one payload. Edges touching
+ * meetings, the todo singleton, archived entities, or unresolved targets
+ * never appear; the scan reuses `linkGraphOf` so the two graphs agree on
+ * every resolution rule.
+ * @returns every active entity path plus every deduplicated relation edge.
+ */
+@Remote('relationGraph') async relationGraph(): Promise<KbRelationGraphResult>
+
+/**
  * The live KB root and whether the human has chosen one yet.
  * @returns the root in force and `configured` — true when a persisted root override exists.
  */
@@ -174,12 +213,14 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 
 /**
  * The yantao layer's own share of the system prompt, for the workbench's
- * context meter (ADR-0039): the four static discipline sections priced from
- * the same files the plugin registers, plus the dynamic global behavior-
- * memory section priced from the live store. Priced with the meter's fixed
- * density heuristic (4 characters per token) so the figures speak the same
- * vocabulary as the `contextBreakdown` projection's system bucket, of which
- * they are the yantao-attributable slice.
+ * context meter (ADR-0039): the static discipline sections priced from
+ * the same files the plugin registers, the filesystem discipline priced
+ * as rendered (ADR-0042: `{{kbRoot}}` resolved against the live root),
+ * plus the dynamic global behavior-memory section priced from the live
+ * store. Priced with the meter's fixed density heuristic (4 characters
+ * per token) so the figures speak the same vocabulary as the
+ * `contextBreakdown` projection's system bucket, of which they are the
+ * yantao-attributable slice.
  * @returns the static and behavior-memory shares, in heuristic tokens.
  */
 @Remote('promptInjection') promptInjection(): Promise<KbPromptInjectionResult>
@@ -261,6 +302,22 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * @returns the KB-relative path and the flag now in effect.
  */
 @Remote('restoreEntity') async restoreEntity(locator: string): Promise<KbSetEntityArchivedResult>
+
+/**
+ * Delete one resource file — the workbench's 「删除」 gesture on a resource
+ * row. Resources are dumb raw material (ADR-0020): unlike entities (ADR-0041
+ * 决定 8 — never deleted, only archived) a resource can go away for good.
+ * The trust boundary is untouched: this lives on the UI's Remote namespace,
+ * which the agent's tool layer never sees — the agent keeps its creation-
+ * only / read-only resource tools (ADR-0028). Confined twice over: the KB
+ * confinement, then a `resources/` prefix — entity notes, the todo
+ * singleton and anything else in the KB are refused. The UI confirms
+ * before invoking (the menu's armed second click); the server does not
+ * second-guess a confirmed human gesture.
+ * @param path - KB-relative path with forward slashes, under `resources/`.
+ * @returns the deleted path.
+ */
+@Remote('deleteResource') async deleteResource(path: string): Promise<KbDeleteResourceResult>
 
 /**
  * The structured todo board (ADR-0018): the `entities/todos.md` singleton
@@ -360,6 +417,40 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 @Remote('memoryDelete') async memoryDelete(args: KbMemoryDeleteArgs): Promise<KbMemoryDeleteResult>
 
 /**
+ * The proposal queue's listing (ADR-0044): every scope that has a queue
+ * file under `.dsh/yantao/memory/proposals/` — `global.md` first, then the
+ * capability scopes name-sorted — each with its exact text and parsed
+ * pending proposals, source annotations included for the human's judgment.
+ * The queue is never injected into any prompt; this listing and the
+ * conversation approval cards are its only readers.
+ * @returns the scopes, global first.
+ */
+@Remote('memoryProposalList') async memoryProposalList(): Promise<KbMemoryProposalListResult>
+
+/**
+ * Approve one pending proposal (ADR-0044 决定 7): the bare text lands in
+ * the target scope's memory file through `appendMemoryEntry` — dedup,
+ * ordering and line format come for free — and only then leaves the queue.
+ * The target scope is re-judgeable per approval (default: the source
+ * scope). An already-remembered text is refused (`duplicate-memory`) and
+ * the pending copy stays for the human to discard explicitly; a stale text
+ * (processed meanwhile) is a `not-found` and the caller refreshes.
+ * @param args - the source scope, the proposal's text, and the optional re-judged target scope.
+ * @returns the queue path, the memory path, and the entry as written.
+ */
+@Remote('memoryProposalApprove') async memoryProposalApprove(args: KbMemoryProposalApproveArgs): Promise<KbMemoryProposalApproveResult>
+
+/**
+ * Discard one pending proposal (ADR-0044 决定 7): the line leaves the
+ * queue and nothing is remembered. Addressed by text — the conversation
+ * approval card holds the tool args (scope+text), and per-scope dedup
+ * makes text unique within a queue.
+ * @param args - the source scope and the proposal's text.
+ * @returns the queue path.
+ */
+@Remote('memoryProposalDiscard') async memoryProposalDiscard(args: KbMemoryProposalDiscardArgs): Promise<KbMemoryProposalDiscardResult>
+
+/**
  * The prompt-shortcut store's listing (ADR-0040): the human's favorite
  * slash aliases in display order. The `/` menu's shortcut group and the
  * capability tab's home list both read through this; the agent's own view
@@ -379,6 +470,68 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * @returns the list as stored (normalized).
  */
 @Remote('promptShortcutSave') async promptShortcutSave(args: KbPromptShortcutSaveArgs): Promise<KbPromptShortcutSaveResult>
+
+/**
+ * The schedule store's listing (ADR-0045): the human's timed tasks in
+ * display order. The 调度 tab and the frontend scheduler both read through
+ * this; the agent has no tool into this surface at all (决定 4).
+ * @returns the schedules as stored.
+ */
+@Remote('scheduleList') async scheduleList(): Promise<KbScheduleListResult>
+
+/**
+ * Save the whole schedule list (ADR-0045): the UI edits a handful of rows,
+ * so a full-list replace keeps reorder and delete trivially correct.
+ * Human-channel only. The scheduler-owned stamps (`lastFiredAt` /
+ * `lastMissedAt`) never travel through this save: an editor's stale
+ * snapshot must not rewind the bookkeeping, so existing rows keep the
+ * stamps the store holds — the scheduler patches them through
+ * `scheduleMark` instead.
+ * @param args - the complete new list, in display order.
+ * @returns the list as stored (normalized, stamps preserved).
+ */
+@Remote('scheduleSave') async scheduleSave(args: KbScheduleSaveArgs): Promise<KbScheduleSaveResult>
+
+/**
+ * Patch one row's scheduler-owned stamps (ADR-0045): the scheduler's own
+ * write path — single-row patches, so bookkeeping never rides (or races) a
+ * full-list replace. `null` clears a stamp (a real fire clears the missed
+ * mark); an absent field is left alone.
+ * @param args - the row id and the stamp changes.
+ * @returns the full list as stored after the patch.
+ */
+@Remote('scheduleMark') async scheduleMark(args: KbScheduleMarkArgs): Promise<KbScheduleMarkResult>
+
+/**
+ * The proposal inbox's listing (ADR-0047): structured proposals produced
+ * outside a human-initiated card flow — today, a schedule's background
+ * session — pending and decided alike, in enqueue order. The 提议 tab and
+ * the frontend scheduler both read through this; the agent has no tool
+ * into this surface (the scheduler is human-channel code).
+ * @returns the entries as stored.
+ */
+@Remote('proposalInboxList') async proposalInboxList(): Promise<KbProposalInboxListResult>
+
+/**
+ * Append one proposal to the inbox (ADR-0047): the producer's write path —
+ * today the frontend scheduler, after a fired session's answer parsed into
+ * a unified proposal. The store assigns the id, the enqueue stamp, and the
+ * pending status; the payload rides opaquely (ADR-0021 决定 4's schema
+ * authority stays with the client).
+ * @param args - the proposal and its provenance.
+ * @returns the full list as stored, plus the fresh entry's id.
+ */
+@Remote('proposalInboxEnqueue') async proposalInboxEnqueue(args: KbProposalInboxEnqueueArgs): Promise<KbProposalInboxEnqueueResult>
+
+/**
+ * Record the human's decision on one pending proposal (ADR-0047): approve
+ * or discard. The apply itself is the UI's business (the human channel's
+ * `applyProposal`), this only settles the row — a decision is final, an
+ * already-decided entry refuses.
+ * @param args - the entry id and the decision.
+ * @returns the full list as stored after the resolve.
+ */
+@Remote('proposalInboxResolve') async proposalInboxResolve(args: KbProposalInboxResolveArgs): Promise<KbProposalInboxResolveResult>
 
 /**
  * Run one capability's host entry (ADR-0021) — the human channel's execution
@@ -405,6 +558,22 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * @returns what the run answered, when it ran, and which artifact paths were written.
  */
 @Remote('capabilityRun') async capabilityRun(args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<KbCapabilityRunResult>
+
+/**
+ * One capability's declaration, parsed and resolved (ADR-0043 决定 7):
+ * both declaration channels answered in data — the directory's own
+ * sidecar (raw text included, legacy frontmatter accepted) and the
+ * central routing file — plus the same dual-gate agent-invocability the
+ * run paths apply. A registration problem (missing sidecar, unregistered
+ * route, missing entry file, broken routing file) is stated in the
+ * answer, never thrown: the 能力 tab renders it, and an agent
+ * troubleshooting a refused call reads the very same resolution the run
+ * would have applied. Only an unconfigured KB throws — then nothing
+ * could resolve anyway.
+ * @param args - the capability's skill name.
+ * @returns the parsed declaration, both channels, and the gate's answer.
+ */
+@Remote('capabilityDeclaration') async capabilityDeclaration(args: KbCapabilityDeclarationArgs): Promise<KbCapabilityDeclarationResult>
 
 /**
  * The capabilities the workbench's 能力 tab shows (ADR-0021 决定 8):

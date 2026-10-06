@@ -40,6 +40,7 @@ import type {
   KbPromptShortcutSaveArgs, KbPromptShortcutSaveResult,
   KbProposalInboxEnqueueArgs, KbProposalInboxEnqueueResult, KbProposalInboxListResult,
   KbProposalInboxResolveArgs, KbProposalInboxResolveResult,
+  KbRelationGraphResult,
   KbResourceView,
   KbScheduleListResult, KbScheduleMarkArgs, KbScheduleMarkResult, KbScheduleSaveArgs, KbScheduleSaveResult,
   KbRegisterResourceArgs, KbRegisterResourceResult, KbResourceBinary, KbRevisionResult,
@@ -60,6 +61,8 @@ export interface KbRemote {
   links(path: string): Promise<RemoteResult<KbLinksResult>>
   /** The whole KB's link graph in one payload (ADR-0035) — the validate gesture's prescan. */
   graph(): Promise<RemoteResult<KbGraphResult>>
+  /** The whole KB's typed relation graph (ADR-0049) — the 图谱 tab's read. */
+  relationGraph(): Promise<RemoteResult<KbRelationGraphResult>>
   write(path: string, content: string): Promise<RemoteResult<KbWriteResult>>
   /** Archive one entity (ADR-0041 决定 6): frontmatter `archive: true` plus one dated 流水 line. */
   archiveEntity(locator: string): Promise<RemoteResult<KbSetEntityArchivedResult>>
@@ -286,6 +289,9 @@ export type ScheduleMarker = (args: KbScheduleMarkArgs) => Promise<KbScheduleMar
 
 /** Read the proposal inbox (ADR-0047) — the 提议 tab's read. */
 export type ProposalInboxLister = () => Promise<KbProposalInboxListResult>
+
+/** Read the whole KB's typed relation graph (ADR-0049) — the 图谱 tab's read. */
+export type RelationGraphLoader = () => Promise<KbRelationGraphResult>
 
 /** Record the human's decision on one pending inbox entry (ADR-0047). */
 export type ProposalInboxResolver = (args: KbProposalInboxResolveArgs) => Promise<KbProposalInboxResolveResult>
@@ -1003,6 +1009,18 @@ export async function loadProposalInbox(ctx: Context): Promise<KbProposalInboxLi
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.proposalInboxList())
+}
+
+/**
+ * Load the whole KB's typed relation graph (ADR-0049) — the 图谱 tab's one
+ * round trip: three drawable relations, frontmatter `areas` edges included.
+ * @param ctx - client root context.
+ * @returns the nodes and typed edges, or a rejected promise carrying the reason.
+ */
+export async function loadRelationGraph(ctx: Context): Promise<KbRelationGraphResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.relationGraph())
 }
 
 /**

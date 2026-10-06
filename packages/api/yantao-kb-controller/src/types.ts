@@ -185,6 +185,24 @@ export interface KbGraphResult {
   readonly edges: readonly KbGraphEdge[]
 }
 
+/** One typed relation edge of the whole-KB relation graph (ADR-0049). */
+export interface KbRelationEdge {
+  /** One endpoint, normalized: the person (or area) half of a cross-kind pair. */
+  readonly from: string
+  /** The other endpoint: the project half of a cross-kind pair. */
+  readonly to: string
+  /** Which relation this edge carries. */
+  readonly kind: 'person-project' | 'area-project' | 'person-person'
+}
+
+/** Result of `yantaoKb.relationGraph`: the whole KB's typed relation graph (ADR-0049). */
+export interface KbRelationGraphResult {
+  /** Every active entity, as KB-relative paths, in type-then-directory order. */
+  readonly nodes: readonly string[]
+  /** Every relation edge, deduplicated. */
+  readonly edges: readonly KbRelationEdge[]
+}
+
 /** Result of `yantaoKb.root`. */
 export interface KbRootResult {
   /** The live knowledge-base root directory. */

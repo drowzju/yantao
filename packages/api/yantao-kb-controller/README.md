@@ -41,6 +41,7 @@ kind: "package-reference"
 | `yantaoKb.createEntity` | `({ type, name, date?, relation?, email?, source? })` | `{ path }`——按 canonical 模板创建一个实体笔记；`source` 只对读书项目有意义（ADR-0020） |
 | `yantaoKb.links` | `(path)` | `{ outgoing, incoming }`——该文件的 `[[双链]]` 图，在宿主侧解析，且绝不指向 `resources/`（ADR-0015） |
 | `yantaoKb.graph` | `()` | `{ nodes, edges }`——全库 `[[双链]]` 图一次拿全：nodes 为全部实体路径，edges 每条 `{ from, target, to }`（`to` 为 null 即失链；自链丢弃）；实体校验手势的确定性预扫吃它（ADR-0035） |
+| `yantaoKb.relationGraph` | `()` | `{ nodes, edges }`——全库带类型的关系图（ADR-0049）：只收图谱页签画的三种关系（person-project、area-project、person-person），双向采集并规范化去重，领域-项目并读项目 frontmatter 的 `areas` 列表；触及会议、待办、归档实体或失链目标的边一概不出现 |
 | `yantaoKb.revision` | `()` | `{ root, revision }`——知识库根目录下任何文件变动就自增的计数器，随 `setRoot` 重建（ADR-0017） |
 | `yantaoKb.openExternal` | `(target)` | `{ target }`——把知识库内路径或白名单协议的 URL 交给系统打开，拒绝 shell 元字符（ADR-0017） |
 | `yantaoKb.todos` | `()` | `{ path, text, items }`——`entities/todos.md` 单例解析出的结构化条目，外加文件原文（ADR-0018） |

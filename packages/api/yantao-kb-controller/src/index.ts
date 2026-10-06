@@ -42,7 +42,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
   createEntity, entityDisplayPath, initKb, KbError, linkGraphOf, linksOf, listEntities, parseEml, parseFrontmatter,
   parseTodoFile, PERSON_RELATIONS, readCapabilityRecord, readCapabilityState,
-  registerResourceContent, resolveWithinKb, serializeTodoFile, setEntityArchived, todayStamp,
+  registerResourceContent, relationGraphOf, resolveWithinKb, serializeTodoFile, setEntityArchived, todayStamp,
   writeCapabilityState, writeMailWatermark,
   appendMemoryEntry, listMemoryScopes, readMemoryScope, removeMemoryEntry, renderCapabilityMemoryBlock,
   listProposalScopes, proposalDisplayPath, removeMemoryProposalByText,
@@ -97,6 +97,7 @@ import type {
   KbProposalInboxResolveArgs,
   KbProposalInboxResolveResult,
   KbQueuedProposal,
+  KbRelationGraphResult,
   KbScheduleListResult,
   KbScheduleMarkArgs,
   KbScheduleMarkResult,
@@ -803,6 +804,20 @@ export class YantaoKbController extends TypertRemoteService {
   @Remote('graph')
   async graph(): Promise<KbGraphResult> {
     return linkGraphOf(this.kbRoot)
+  }
+
+  /**
+   * The whole KB's typed relation graph (ADR-0049): the three relations the
+   * 图谱 tab draws — person–project, area–project (the project frontmatter
+   * `areas` list included), person–person — as one payload. Edges touching
+   * meetings, the todo singleton, archived entities, or unresolved targets
+   * never appear; the scan reuses `linkGraphOf` so the two graphs agree on
+   * every resolution rule.
+   * @returns every active entity path plus every deduplicated relation edge.
+   */
+  @Remote('relationGraph')
+  async relationGraph(): Promise<KbRelationGraphResult> {
+    return relationGraphOf(this.kbRoot)
   }
 
   /**

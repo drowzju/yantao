@@ -71,7 +71,7 @@ import {
   loadWorkspace, loadResourceView, markMailRead, openExternal, readFile, registerCapability, registerResource, restoreEntity, runCapability,
   loadImageBinary,
   loadSchedules, markSchedule, savePromptShortcuts, saveSchedules, setKbRoot,
-  enqueueInboxProposal, loadProposalInbox, resolveInboxProposal,
+  enqueueInboxProposal, loadProposalInbox, loadRelationGraph, resolveInboxProposal,
   setRelation, writeFile, writeTodos,
 } from './remote.ts'
 import type { CapabilityRegisterReach } from './remote.ts'
@@ -296,6 +296,9 @@ export function apply(ctx: Context): void {
       proposalInboxList: () => loadProposalInbox(ctx),
       proposalInboxEnqueue: (args: KbProposalInboxEnqueueArgs) => enqueueInboxProposal(ctx, args),
       proposalInboxResolve: (args: KbProposalInboxResolveArgs) => resolveInboxProposal(ctx, args),
+      // ADR-0049: the 图谱 tab's relation graph — wiki edges plus project
+      // frontmatter areas, typed and deduplicated.
+      relationGraph: () => loadRelationGraph(ctx),
       runSchedule: async (args: {
         id: string
         name: string

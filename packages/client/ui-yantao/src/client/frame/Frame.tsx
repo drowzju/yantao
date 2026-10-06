@@ -18,7 +18,8 @@ import type {
   ExternalOpener, FileReader, FileWriter, ImageBinaryLoader, LinksLoader,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
-  PromptShortcutSaver, RelationSetter, ResourceDeleter, ResourceRegistrar, RevisionLoader, ScheduleLister, ScheduleMarker,
+  PromptShortcutSaver, RelationGraphLoader, RelationSetter, ResourceDeleter, ResourceRegistrar, RevisionLoader,
+  ScheduleLister, ScheduleMarker,
   ScheduleSaver, ProposalInboxLister, ProposalInboxResolver, ShortcutFiller,
   RootLoader, RootSetter,
   Archiver,
@@ -45,7 +46,7 @@ import { obsidianUri, remoteMessage, type ResourceViewReader } from '../remote.t
 import { notifySchedule, scheduleScan, type ScheduleRunner } from '../scheduler.ts'
 import { SchedulePane } from '../SchedulePane.tsx'
 import { frontmatterArchived } from '../markdown.ts'
-import type { KbCapabilitySummary, KbDeleteResourceResult, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbQueuedProposal, KbSchedule, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary, KbDeleteResourceResult, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbQueuedProposal, KbRelationGraphResult, KbSchedule, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
@@ -56,6 +57,7 @@ import {
   type TabMode, type TabState,
 } from '../tabs.ts'
 import { CenterPane, type ViewMode } from './CenterPane.tsx'
+import { GraphPane } from './GraphPane.tsx'
 import { InboxPane } from './InboxPane.tsx'
 import './frame.module.css'
 import type { PanelToggles } from './layout.ts'
@@ -181,6 +183,8 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'fo
   readonly proposalInboxList: ProposalInboxLister
   /** Record the human's decision on one pending inbox entry (ADR-0047). */
   readonly proposalInboxResolve: ProposalInboxResolver
+  /** Read the whole KB's typed relation graph (ADR-0049) — the 图谱 tab's read. */
+  readonly relationGraph: RelationGraphLoader
   /** Read the model gateway's config view — the 配置 dialog's open read. */
   readonly loadModelsConfig: () => Promise<ModelsConfigView>
   /** Commit a 配置 dialog draft; the result separates conflict from refusal. */
@@ -460,7 +464,7 @@ export function Frame({
   sessionDetail, onKbRootChanged, mailDelete, mailArchive,
   promptShortcutList, promptShortcutSave, fillShortcut,
   scheduleList, scheduleSave, scheduleMark, runSchedule,
-  proposalInboxList, proposalInboxResolve,
+  proposalInboxList, proposalInboxResolve, relationGraph,
   loadModelsConfig, saveModelsConfig,
 }: FrameProps): ReactElement {
   const [configOpen, setConfigOpen] = useState(false)
@@ -821,6 +825,21 @@ export function Frame({
   }, [proposalInboxList])
 
   useEffect(() => { loadInbox() }, [loadInbox])
+
+  // ── the 图谱 tab and its relation graph (ADR-0049) ───────────────────────
+  // One read at mount: the graph is a browsing overview, not a live monitor —
+  // the revision poll's refresh affordances don't extend here. A failed read
+  // leaves the pane on its loading text and reports through the notice line.
+  const [graphData, setGraphData] = useState<KbRelationGraphResult | null>(null)
+
+  useEffect(() => {
+    let stale = false
+    relationGraph().then(
+      (result) => { if (!stale) setGraphData(result) },
+      (failure: unknown) => { if (!stale) setCapabilityNotice(`图谱读取失败：${remoteMessage(failure)}`, { severity: 'error' }) },
+    )
+    return () => { stale = true }
+  }, [relationGraph])
 
   const discardInboxEntry = useCallback((entry: KbQueuedProposal): void => {
     setInboxBusyId(entry.id)
@@ -1845,6 +1864,11 @@ export function Frame({
             onDiscard={discardInboxEntry}
             t={t}
           />
+        )}
+        graphPane={graphData === null ? (
+          <div style={{ padding: 16, color: 'var(--yt-text-muted)' }}>图谱加载中…</div>
+        ) : (
+          <GraphPane data={graphData} onOpen={(path) => { openFile(path, 'edit') }} t={t} />
         )}
         inboxPending={inboxEntries.filter(entry => entry.status === 'pending').length}
         taskDetail={detailRow === null ? null : (

@@ -31,6 +31,9 @@ export const SCHEDULES_TAB = 'schedules'
 /** Tab key of the permanent 提议 tab (ADR-0047) — never closeable, never persisted. */
 export const INBOX_TAB = 'inbox'
 
+/** Tab key of the permanent 图谱 tab (ADR-0049) — never closeable, never persisted. */
+export const GRAPH_TAB = 'graph'
+
 /** The centre pane's tab state. */
 export interface TabState {
   /** Open file tabs in open order. */
