@@ -330,3 +330,40 @@
       name: '@deepseek-ai/dsh-agent-preset-registry'
       config:
         default: yantao
+
+# The yantao preset's BODY (0.2.1 moved the agent plane behind presets — the
+# registry above only names the default; without this declaration every
+# session create fails with `agent-preset/not-found`). The composition is the
+# compaction group and NOTHING else — no tool rows (the kb_ family is host-
+# plane; tool-lessness is the ADR-0004 boundary), no persona row (the
+# deployment persona in packages/bundle/yantao/cordis.patch.yml is the single
+# source; gate: packages/bundle/yantao/tests/persona.spec.ts). The rows are
+# copied from packages/preset/agent-presets/presets/yantao/agent.cordis.yml —
+# the 0.1.3 discovery format this bundle no longer loads; the file remains as
+# that gate's read-side and the historical reference.
+- insert:
+    - id: preset-yantao
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: yantao
+        name: yantao 工作台
+        description: 个人知识工作台 Agent：只有 kb_ 系列工具读写知识库，没有 shell、编辑器或任何通用写入能力。
+        order: 4
+        plugins:
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024

@@ -506,12 +506,10 @@ export function Frame({
     setWorkspaceOpen(!narrow)
   }, [narrow])
 
-  // Publish this frame's toggles into the seat `ctx.layout` reads, and the
+  // Publish this frame's toggle into the seat `ctx.layout` reads, and the
   // file opener into the seat `ctx.sidebarRight` (the 0.2.1 stand-in) reads.
   useEffect(() => {
     panels.toggleIntake = () => { setIntakeOpen(open => !open) }
-    panels.openWorkspace = () => { setWorkspaceOpen(true) }
-    panels.closeWorkspace = () => { setWorkspaceOpen(false) }
     sidebarFiles.openFile = (path) => { setTabs(state => openTab(state, path, readOnlyPath(path) ? 'read' : 'edit')) }
   }, [panels, sidebarFiles])
 

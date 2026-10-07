@@ -163,21 +163,29 @@ describe('solveColumns', () => {
 })
 
 describe('WorkbenchLayout', () => {
-  it('forwards the panel face onto the frame seat', () => {
+  it('forwards the sidebar toggle onto the frame seat', () => {
     const seat = createPanelSeat()
     const toggled = vi.fn()
-    const opened = vi.fn()
-    const closed = vi.fn()
     seat.toggleIntake = toggled
-    seat.openWorkspace = opened
-    seat.closeWorkspace = closed
     const layout = new WorkbenchLayout(seat)
     layout.toggleSidebar()
-    layout.openDetails()
-    layout.closeDetails()
     expect(toggled).toHaveBeenCalledOnce()
-    expect(opened).toHaveBeenCalledOnce()
-    expect(closed).toHaveBeenCalledOnce()
+  })
+
+  it('offers the 0.2.1 navigation protocol with a live signal', () => {
+    const layout = new WorkbenchLayout(createPanelSeat())
+    const first = layout.beginNavigation()
+    expect(first.aborted).toBe(false)
+    const second = layout.beginNavigation()
+    expect(first.aborted).toBe(true)
+    expect(second.aborted).toBe(false)
+  })
+
+  it('reports the conversation as the only panel and rejects other ids', () => {
+    const layout = new WorkbenchLayout(createPanelSeat())
+    expect(layout.panelInfo.getSnapshot()).toEqual({ activePanelId: null })
+    expect(() => layout.selectPanel('plugins' as never)).toThrow('not registered')
+    expect(() => layout.selectPanel(null)).not.toThrow()
   })
 })
 

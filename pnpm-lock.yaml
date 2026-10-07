@@ -2946,6 +2946,9 @@ importers:
 
   packages/bundle/yantao-web-app:
     dependencies:
+      '@deepseek-ai/dsh-agent-preset':
+        specifier: workspace:*
+        version: link:../../preset/agent-preset
       '@deepseek-ai/dsh-agent-preset-registry':
         specifier: workspace:*
         version: link:../../preset/agent-preset-registry
