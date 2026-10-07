@@ -184,7 +184,13 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, t }: InboxPan
                   onClick={() => { if (pending) setOpenId(entry.id) }}
                   onKeyDown={(event) => {
                     if (!pending) return
-                    if (event.key === 'Enter' || event.key === ' ') setOpenId(entry.id)
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      // Space's native action on a role="button" is scrolling
+                      // — swallow it so activating the row doesn't scroll the
+                      // list beneath the card that just opened.
+                      event.preventDefault()
+                      setOpenId(entry.id)
+                    }
                   }}
                 >
                   <span style={titleStyle}>{entry.title}</span>

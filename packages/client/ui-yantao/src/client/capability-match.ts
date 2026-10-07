@@ -60,21 +60,32 @@ const KINDS: readonly ProposalAction['kind'][] = [
 
 /** The payload fields each kind needs as non-empty strings; an action missing any is not one —
  * a near-miss envelope must not reach the card as a writable row (an `append-log` without
- * `text` would interpolate the literal "undefined" into the entity's 流水 as a success). */
+ * `text` would interpolate the literal "undefined" into the entity's 流水 as a success).
+ * The list covers every field the card and the applier dereference as strings — labels,
+ * details, and written lines interpolate them verbatim. */
 const REQUIRED_FIELDS: Partial<Record<ProposalAction['kind'], readonly string[]>> = {
   'create-entity': ['entityType', 'name'],
   'create-project': ['name'],
-  'append-log': ['text'],
-  'write-state': ['text'],
+  'append-log': ['entityPath', 'entityName', 'text'],
+  'write-state': ['entityPath', 'entityName', 'text'],
   'save-resource': ['path', 'content'],
-  'create-link': ['link'],
-  'add-todo': ['title'],
-  'edit-section': ['section', 'after'],
-  'append-section': ['section', 'text'],
+  'create-link': ['entityPath', 'entityName', 'link'],
+  'add-todo': ['title', 'body'],
+  'edit-section': ['path', 'section', 'after', 'why'],
+  'append-section': ['path', 'section', 'text'],
   'add-memory': ['scope', 'text'],
-  'delete-mails': ['entryId'],
-  'archive-mails': ['entryId'],
+  'delete-mails': ['entryId', 'sender', 'subject'],
+  'archive-mails': ['entryId', 'sender', 'subject'],
 }
+
+/** Kind-scoped fields the applier reads as strings but tolerates as '' — an
+ * entity path awaiting its after-create resolution (ADR-0030), or a todo
+ * body the serializer treats as "no body"; the applier skips or writes them
+ * cleanly either way. Every other required field must be non-empty. */
+const EMPTY_OK_FIELDS: ReadonlySet<string> = new Set([
+  'append-log:entityPath', 'write-state:entityPath', 'create-link:entityPath',
+  'edit-section:path', 'append-section:path', 'add-todo:body',
+])
 
 /** Keep the entries whose `kind` the applier knows and whose required fields are strings; drop the rest silently. */
 function actionsOf(raw: readonly unknown[]): readonly ProposalAction[] {
@@ -83,7 +94,9 @@ function actionsOf(raw: readonly unknown[]): readonly ProposalAction[] {
     const bag = entry as Record<string, unknown>
     const kind = bag.kind as ProposalAction['kind']
     if (!KINDS.includes(kind)) return false
-    return (REQUIRED_FIELDS[kind] ?? []).every(field => typeof bag[field] === 'string' && bag[field] !== '')
+    return (REQUIRED_FIELDS[kind] ?? []).every(field =>
+      typeof bag[field] === 'string'
+      && (bag[field] !== '' || EMPTY_OK_FIELDS.has(`${kind}:${field}`)))
   })
 }
 
@@ -102,7 +115,12 @@ function mailsOf(raw: unknown): ProposalMailRange | undefined {
   const isoOf = (value: unknown): string | undefined => {
     if (typeof value !== 'string') return undefined
     const trimmed = value.trim()
-    return trimmed !== '' && !Number.isNaN(Date.parse(trimmed)) ? trimmed : undefined
+    if (trimmed === '' || Number.isNaN(Date.parse(trimmed))) return undefined
+    // Normalize to a canonical Z-stamp: the watermark writer stores verbatim
+    // (and lexically min-compares firstReadAt), and the mail reader parses
+    // --since with a strict ISO parser — a loose shape like 'Oct 5, 2026'
+    // parses here but would hard-fail the next fetch and poison the cursor.
+    return new Date(trimmed).toISOString()
   }
   const lastReadAt = isoOf(candidate.lastReadAt)
   if (lastReadAt === undefined) return undefined
@@ -113,8 +131,9 @@ function mailsOf(raw: unknown): ProposalMailRange | undefined {
 /**
  * Read a run's answer as a proposal: an object carrying a non-empty
  * `actions` array becomes the card's proposal — title from the capability's
- * name, actions kept as-is (the card renders whatever fields each kind
- * needs; an unreadable row would only ever render blanks). Anything else is
+ * name, actions filtered to known kinds whose required fields are present
+ * (the gate above; an unreadable row is dropped, never rendered as blanks).
+ * Anything else is
  * not a proposal and the caller reports the run as a plain notice instead.
  * @param result - what `capabilityRun` answered.
  * @returns the proposal, or null when the answer is not one.

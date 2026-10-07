@@ -149,13 +149,14 @@ describe('proposalOfAnswer（ADR-0047 调度答案解析）', () => {
     expect(proposalOfAnswer('', 't')).toBeNull()
   })
 
-  it('信封的 mails 范围随提议透传（验收修正 2）', () => {
+  it('信封的 mails 范围随提议透传（验收修正 2），时间戳规范化为 ISO', () => {
     const envelope = JSON.stringify({
       title: '忽略', actions: [ACTION],
       mails: { lastReadAt: '2026-10-01T06:23:54Z', firstReadAt: '2026-09-17T06:23:54Z' },
     })
     const proposal = proposalOfAnswer(envelope, 't')
-    expect(proposal?.mails).toEqual({ lastReadAt: '2026-10-01T06:23:54Z', firstReadAt: '2026-09-17T06:23:54Z' })
+    // 解析后统一落成规范 Z 戳——宽松形状（'Oct 5, 2026'）不许进水位
+    expect(proposal?.mails).toEqual({ lastReadAt: '2026-10-01T06:23:54.000Z', firstReadAt: '2026-09-17T06:23:54.000Z' })
   })
 
   it('mails 缺失或畸形时不携带范围，但不影响提议本身', () => {
@@ -189,9 +190,12 @@ describe('proposalOfPayload（ADR-0047 收件箱载荷回读）', () => {
   })
 
   it('回读透传 mails 范围，畸形范围剔除（验收修正 2）', () => {
-    const range = { lastReadAt: '2026-10-01T06:23:54Z', firstReadAt: '2026-09-17T06:23:54Z' }
+    const range = { lastReadAt: '2026-10-01T06:23:54.000Z', firstReadAt: '2026-09-17T06:23:54.000Z' }
     expect(proposalOfPayload({ title: 'x', actions: [ACTION], mails: range })?.mails).toEqual(range)
     expect(proposalOfPayload({ title: 'x', actions: [ACTION], mails: '乱写' })?.mails).toBeUndefined()
     expect(proposalOfPayload({ title: 'x', actions: [ACTION], mails: { firstReadAt: '2026-09-17' } })?.mails).toBeUndefined()
+    // 松散但可解析的形状：照常收下，规范化成 Z 戳（不再原文透传）
+    expect(proposalOfPayload({ title: 'x', actions: [ACTION], mails: { lastReadAt: '2026/10/01 06:23' } })?.mails)
+      .toEqual({ lastReadAt: new Date('2026/10/01 06:23').toISOString() })
   })
 })

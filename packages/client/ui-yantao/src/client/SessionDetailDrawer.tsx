@@ -297,10 +297,9 @@ export function SessionDetailDrawer(props: {
   }
 
   return (
-    // Keydown lands on the wrapper so Esc works whenever the dialog
-    // hierarchy holds focus — not only when a focusable control inside the
-    // panel does (clicking the bare backdrop drops focus to <body>, and a
-    // panel-only handler would strand the keyboard exit).
+    // Keydown lands on the wrapper holding backdrop + panel, per the hook
+    // doc's "attach to the wrapper that contains the card" guidance; every
+    // keystroke that matters originates inside the panel and bubbles here.
     <div onKeyDown={onPanelKeyDown}>
       <div style={backdropStyle} onClick={onClose} />
       <div style={panelStyle} role="dialog" aria-modal="true" aria-label={row.title} tabIndex={-1} ref={cardRef} data-task-detail-panel="true">

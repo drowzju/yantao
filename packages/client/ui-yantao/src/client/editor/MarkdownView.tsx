@@ -262,9 +262,13 @@ export function MarkdownView({
           if (oldest === undefined) break
           // Drop the entry but keep the URL alive: the cache is shared by
           // every open MarkdownView while epochs are per-instance, so
-          // another view may still be rendering this URL and will never
-          // observe the eviction. Entries are bounded, so the retained
-          // URLs are capped too.
+          // another view may still be rendering this URL and can never
+          // observe the eviction. Revoking here would break those views.
+          // Cost: each evicted URL stays live for the whole session, so
+          // retained memory grows with total evictions (and any re-fetched
+          // dupes), not with the cache's entry cap — a companion registry
+          // that revokes once no live view references the URL would close
+          // that gap.
           imageUrlCache.delete(oldest)
         }
         setImageEpoch(epoch => epoch + 1)

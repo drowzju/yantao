@@ -872,9 +872,10 @@ export function Frame({
 
   // 批准: the writes land first — the same applyConfirmed every card shares —
   // and only then is the row settled approved. A failed apply leaves the row
-  // pending for another try; a failed settle after successful writes retires
-  // the row as discarded (the writes landed — a second apply would replay
-  // them verbatim), with the error notice telling the human what happened.
+  // pending for another try; a failed settle after successful writes patches
+  // the row out locally and re-pushes the discard in the background (the
+  // writes landed — a second apply would replay them verbatim), so the 30s
+  // scan never reads the row back as pending.
   const confirmInboxEntry = useCallback((entry: KbQueuedProposal, ticked: readonly number[]): void => {
     const proposal = proposalOfPayload(entry.proposal)
     if (proposal === null) return
@@ -892,14 +893,25 @@ export function Frame({
         },
         (failure: unknown) => {
           setInboxBusyId(null)
-          // The writes landed; only the local marking failed. The row must
-          // not invite a second apply — re-approving replays the writes
-          // verbatim (duplicate 流水 bullets, re-fired knives) — so it
-          // retires as discarded, matching what the disk now holds.
+          // The writes landed; only the settle failed, so the disk still
+          // holds the row as pending — the optimistic patch below buys the
+          // next seconds, but the 30s scan's loadInbox replaces the list
+          // wholesale from disk and would resurrect the row as re-approvable
+          // (a second apply replays the writes verbatim). Push the discard
+          // to the store in the background: the row is still pending there,
+          // so the settle succeeds and the retirement becomes durable.
           setInboxEntries(prev => prev.map(e => e.id === entry.id
             ? { ...e, status: 'discarded', decidedAt: new Date().toISOString() } as KbQueuedProposal
             : e))
-          setCapabilityNotice(`提议已写入，但标记失败（已就地丢弃，不会再次询问）：${remoteMessage(failure)}`, { severity: 'error' })
+          void proposalInboxResolve({ id: entry.id, status: 'discarded' }).then(
+            (settled) => {
+              setInboxEntries(settled.proposals)
+              setCapabilityNotice(`提议已写入，但批准标记失败；已补记为丢弃，不会再次询问：${remoteMessage(failure)}`, { severity: 'error' })
+            },
+            (markFailure: unknown) => {
+              setCapabilityNotice(`提议已写入，但状态标记失败（下次扫描可能再次询问，请勿重复批准）：${remoteMessage(markFailure)}`, { severity: 'error' })
+            },
+          )
         },
       )
     }, (failure: unknown) => {

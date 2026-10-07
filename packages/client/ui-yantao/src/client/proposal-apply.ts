@@ -372,7 +372,11 @@ export async function applyProposal(options: {
         try {
           existing = await target.read(action.path)
         } catch (error: unknown) {
-          knownFresh = (error as { code?: string }).code === 'yantao-kb/not-found'
+          // Shape-guard before reading `.code`: a rejection with null or a
+          // primitive must degrade to "occupied, unreadable", not blow up
+          // inside this catch and garble the row's report.
+          knownFresh = typeof error === 'object' && error !== null
+            && (error as { code?: unknown }).code === 'yantao-kb/not-found'
           existing = undefined
         }
         await target.write(action.path, action.content)

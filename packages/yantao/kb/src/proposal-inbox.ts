@@ -17,8 +17,9 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { KbError } from './types.ts'
 
 /** One queued proposal awaiting (or past) the human's decision. */
@@ -70,25 +71,6 @@ const NOTE_MAX = 500
 /** Where the store sits on disk. */
 function inboxTarget(kbRoot: string): string {
   return join(kbRoot, '.dsh', 'yantao', 'proposal-inbox.json')
-}
-
-/**
- * Atomic replace via temp file + rename. Windows can transiently refuse the
- * replace (EPERM) while a scanner or indexer still holds the destination —
- * a few short retries keep the atomic replace honest without fragility.
- */
-async function atomicWrite(target: string, payload: string): Promise<void> {
-  const staging = `${target}.tmp`
-  await writeFile(staging, payload, 'utf8')
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      await rename(staging, target)
-      return
-    } catch (error) {
-      if (attempt >= 3 || (error as NodeJS.ErrnoException).code !== 'EPERM') throw error
-      await new Promise(resolveAck => setTimeout(resolveAck, 25 * (attempt + 1)))
-    }
-  }
 }
 
 /** A fresh entry id: `prp_<base36 ms>_<random>` — same recipe as the schedule ids. */
@@ -219,13 +201,13 @@ export async function readProposalInbox(kbRoot: string): Promise<QueuedProposal[
  */
 export async function writeProposalInbox(kbRoot: string, entries: readonly QueuedProposal[]): Promise<void> {
   const validated = normalizeInboxEntries(entries)
-  const target = inboxTarget(kbRoot)
-  await mkdir(dirname(target), { recursive: true })
   const payload = JSON.stringify({ version: 1, proposals: validated } satisfies ProposalInboxFile, null, 2) + '\n'
-  // Temp-file + rename: a crash mid-write must never leave a truncated JSON
-  // store behind — that would wedge list/enqueue/resolve (the human's
-  // pending decisions unreadable) until a hand repair.
-  await atomicWrite(target, payload)
+  // Atomic replace via the house utility (random-suffix sibling, exclusive
+  // create, bounded Windows rename retries, temp cleanup on failure): a
+  // crash mid-write must never leave a truncated JSON store behind — that
+  // would wedge list/enqueue/resolve (the human's pending decisions
+  // unreadable) until a hand repair. Parent dirs come with it.
+  await writeFileAtomic(inboxTarget(kbRoot), payload, { mode: 0o600 })
 }
 
 /** What a producer hands in at enqueue — the store assigns id/createdAt/status. */
@@ -243,9 +225,13 @@ export interface InboxEnqueueInput {
 }
 
 // Every mutator's read→modify→write runs on this chain: two overlapping
-// writers (a scheduler enqueue racing a human resolve, or two scheduled
-// sessions finishing together) would otherwise last-writer-win and silently
-// drop a proposal or a decision. Cheap — every write funnels through here.
+// writers in this process (a scheduler enqueue racing a human resolve, or
+// two scheduled sessions finishing together) would otherwise last-writer-win
+// and silently drop a proposal or a decision. This is a single-process
+// guarantee by design: every shipped writer reaches the store through the
+// controller's RPCs, which funnel into this one process — a hypothetical
+// second process importing the kb lib directly would still race, and would
+// need the house `withFileLock` on top. Cheap — every write funnels here.
 let inboxWriteChain: Promise<unknown> = Promise.resolve()
 function withInboxLock<T>(work: () => Promise<T>): Promise<T> {
   const run = inboxWriteChain.then(work, work)

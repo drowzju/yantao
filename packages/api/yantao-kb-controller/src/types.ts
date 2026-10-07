@@ -927,7 +927,8 @@ export interface KbMemoryProposalGroup {
   readonly entries: readonly KbMemoryProposal[]
 }
 
-/** Result of `yantaoKb.memoryProposalList` (ADR-0044): every scope that has a queue. */
+/** Result of `yantaoKb.memoryProposalList` (ADR-0044): every scope whose queue still holds at least one
+ * pending proposal — a scope whose queue was fully decided is omitted. */
 export interface KbMemoryProposalListResult {
   /** The global scope first, then the capability scopes name-sorted. */
   readonly groups: readonly KbMemoryProposalGroup[]

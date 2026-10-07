@@ -144,6 +144,31 @@ describe('enqueueProposal', () => {
       await expect(enqueueProposal(kbRoot, { source: 'schedule:sch_a', sourceName: '晨检', title: `第 ${at} 条`, proposal: payload() }, now)).resolves.toBeDefined()
     }
   })
+
+  it('超总量帽：裁最老已决策行，未决行原样保留，新条目压尾', async () => {
+    const now = new Date('2026-10-05T08:00:00.000Z')
+    const decidedAt = '2026-10-05T07:00:00.000Z'
+    // 种子恰好总量帽：未决两条夹着 198 条已丢弃；再入队 1 条触发裁剪。
+    // 这是会静默删持久数据的路径——回归时最先烂掉的应该是这里。
+    const seeded: QueuedProposal[] = [
+      entry({ id: 'prp_pending_first' }),
+      ...Array.from({ length: INBOX_PENDING_SOFT_CAP * 4 - 2 }, (_, at) =>
+        entry({ id: `prp_dec_${String(at).padStart(3, '0')}`, status: 'discarded' as const, decidedAt })),
+      entry({ id: 'prp_pending_last' }),
+    ]
+    await writeProposalInbox(kbRoot, seeded)
+    const stored = await enqueueProposal(kbRoot, { source: 'schedule:sch_a', sourceName: '晨检', title: '压哨', proposal: payload() }, now)
+    expect(stored).toHaveLength(INBOX_PENDING_SOFT_CAP * 4)
+    // 未决行一条不少、位置不动——裁剪永不碰它们（第三条 pending 是刚入队的压哨自身）
+    expect(stored.filter(row => row.status === 'pending').map(row => row.id))
+      .toEqual(['prp_pending_first', 'prp_pending_last', expect.stringMatching(/^prp_/)])
+    // 最老的已决策行先走：dec_000 没了，dec_001 还在
+    expect(stored.some(row => row.id === 'prp_dec_000')).toBe(false)
+    expect(stored.some(row => row.id === 'prp_dec_001')).toBe(true)
+    // 新条目仍在队尾（控制器靠 proposals.at(-1) 映射刚入队的 id）
+    expect(stored.at(-1)?.title).toBe('压哨')
+    await expect(readProposalInbox(kbRoot)).resolves.toEqual(stored)
+  })
 })
 
 describe('resolveProposalInboxEntry', () => {

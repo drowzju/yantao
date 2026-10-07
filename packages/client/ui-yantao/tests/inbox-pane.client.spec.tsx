@@ -9,7 +9,7 @@ afterEach(() => {
   cleanup()
 })
 
-const ACTIONS = { actions: [{ kind: 'add-todo', title: '发周报', reason: '每周五前' }] }
+const ACTIONS = { actions: [{ kind: 'add-todo', title: '发周报', body: '汇总本周进展', reason: '每周五前' }] }
 
 function entry(overrides: Partial<KbQueuedProposal> = {}): KbQueuedProposal {
   return {

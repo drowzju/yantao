@@ -242,8 +242,11 @@ export function CenterPane({
             <span
               data-inbox-badge="true"
               style={{
-                // White 12px text needs the stronger accent to clear WCAG AA
-                // on both schemes (plain --yt-accent measures ~4:1 light).
+                // Light: plain --yt-accent gives 12px white text only ~4:1;
+                // the stronger accent clears AA there (~5.6:1). Dark aliases
+                // strong to plain accent (#7ba3e0), where white still lands
+                // near 2.6:1 — below AA — so dark needs its own treatment
+                // (a darker dark-scheme chip token, or non-white badge text).
                 background: 'var(--yt-accent-strong)',
                 borderRadius: 8,
                 color: '#fff',
