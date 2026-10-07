@@ -1055,17 +1055,21 @@ export async function resolveInboxProposal(ctx: Context, args: KbProposalInboxRe
  * (ADR-0040 决定 5): the tab row's click lands the same text a menu pick
  * would, through the conversation service's public input face. The draft is
  * appended to, not replaced.
- * @param ctx - client root context (`sessions` and `conversation` injected).
+ * @param ctx - client root context (`sessions` injected).
+ * @param conversation - the conversation service (0.2.1: arrives through a
+ *   dynamic-inject ref; `undefined` until ui-conversation activates).
  * @param alias - the shortcut's alias.
  * @throws when no session is open or the input face is unreachable.
  */
-export function fillComposerWithShortcut(ctx: Context, alias: string): void {
+export function fillComposerWithShortcut(ctx: Context, conversation: { input?: SessionInputResolver } | undefined,
+  alias: string): void {
   const sessions: ISessions = ctx.sessions
-  const sessionId = sessions.list.getSnapshot().current
+  // 0.2.1 的会话导航归视图所有者：「当前会话」即 mainView 计数大于零的那一行。
+  const sessionId = Object.values(sessions.list.getSnapshot().byId)
+    .find(row => (row.retainedBy.mainView ?? 0) > 0)?.id
   if (sessionId === undefined) throw new Error('没有打开的会话，无法填入。')
   const actx = sessions.scope(sessionId)
   if (actx === undefined) throw new Error('会话作用域不存在，无法填入。')
-  const conversation = (ctx as { conversation?: { input?: SessionInputResolver } }).conversation
   if (conversation?.input === undefined) throw new Error('会话输入面不可用，无法填入。')
   const input = conversation.input.for(actx)
   const draft = input.state.getSnapshot().draft

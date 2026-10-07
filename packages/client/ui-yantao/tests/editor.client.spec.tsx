@@ -248,7 +248,6 @@ describe('ReadOnlyFile', () => {
           to: '乙 <yi@example.com>',
           date: '2026-10-02T09:00:00.000Z',
           html: '<p>正文在此</p>',
-          text: undefined,
           attachments: [{ name: '数据.xlsx', contentType: 'application/vnd.ms-excel', size: 1024 }],
         })}
         t={t}
@@ -260,7 +259,7 @@ describe('ReadOnlyFile', () => {
     expect(screen.getByText('附件')).toBeTruthy()
     expect(screen.getByText('数据.xlsx')).toBeTruthy()
     expect(screen.getByText('application/vnd.ms-excel · 1024 字节')).toBeTruthy()
-    expect(screen.getByTitle('resources/周报.eml 正文').src).toBe('blob:eml-id')
+    expect((screen.getByTitle('resources/周报.eml 正文') as HTMLIFrameElement).src).toBe('blob:eml-id')
   })
 
   it('falls back to the text body when the eml has no HTML part', async () => {

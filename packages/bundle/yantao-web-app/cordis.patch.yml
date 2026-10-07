@@ -219,6 +219,14 @@
     - id: ui-workspace
       name: '@deepseek-ai/dsh-client-ui-workspace'
 
+    # 0.2.1 升级补齐的一行：上游把 shortcuts 焊进了 ui-workspace 的 inject
+    # 清单，不补则整条 UI 链 pending。ui-chat / ui-reference 同样新依赖
+    # sidebarRight，但其上游提供者 ui-sidebar-right 依赖插件 ui-layout
+    # （ADR-0011 特意移除的框架），不能回流——改由 ui-yantao 自带一个最小
+    # 适配器（openResource → 中栏文件 tab），此处无需任何行。
+    - id: shortcuts
+      name: '@deepseek-ai/dsh-client-shortcuts'
+
     # Input triggers: the '/' | '@' pipeline, the command surface over it, and
     # the reference sources.
     - id: ui-input-trigger

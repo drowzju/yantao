@@ -46,7 +46,7 @@ function harness(options: {
   const workspaces: IWorkspaces = {
     list: {
       getSnapshot: () => ({
-        items: state.items, archivedSessionIds: [], state: 'idle', phase: state.phase, error: null,
+        items: state.items, archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: state.phase, error: null,
       }),
       subscribe: (listener: () => void) => {
         notify = listener
@@ -58,8 +58,12 @@ function harness(options: {
     create,
     rename: () => Promise.reject(new Error('unused')),
     delete: () => Promise.resolve(),
+    initializeDefault: () => Promise.resolve(undefined),
     insertBefore: () => Promise.resolve(),
     archiveSession: () => Promise.resolve(),
+    unarchiveSession: () => Promise.resolve(),
+    pinSession: () => Promise.resolve(),
+    unpinSession: () => Promise.resolve(),
     insertSessionBefore: () => Promise.reject(new Error('unused')),
   }
   return {

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { YantaoKbService } from '@deepseek-ai/dsh-yantao-kb'
 import YantaoKbController from '../src/index.ts'
 
@@ -39,7 +40,7 @@ afterEach(async () => {
 })
 
 /** 最小的合法提议载荷（对 UI 侧不透明）。 */
-function payload(): Record<string, unknown> {
+function payload(): JsonValue {
   return {
     title: '晨检发现',
     actions: [{ kind: 'append-log', entityPath: '项目/dsh 学习.md', entityName: 'dsh 学习', text: '有进展', reason: '晨检' }],

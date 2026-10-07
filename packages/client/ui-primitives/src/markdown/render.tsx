@@ -420,7 +420,7 @@ function renderCode(node: Md.Code, key: Key, context: MarkdownRenderContext): Re
     // 4); while streaming the plain CodeBlock arm below keeps the fence
     // honest, and the swap happens on the settled pass.
     const Diagram = context.diagrams[lang]
-    return <Diagram key={key} code={node.value} />
+    if (Diagram !== undefined) return <Diagram key={key} code={node.value} />
   }
   return (
     <CodeBlock

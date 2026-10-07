@@ -11,8 +11,10 @@
 
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+// Type-only: the Loader's `loader/volatile-update` event the KB pointer follows.
+import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-settings'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -32,27 +34,24 @@ export const name = 'yantao-kb'
 
 /**
  * Services required by the KB tool family and the prompt-section layer.
- * `settings` carries the KB pointer (ADR-0024 决定 3): `kbRoot` is an ordinary
- * settings field, so the workbench's `setRoot` writes `~/.dsh/settings.yaml`
- * instead of a private file.
+ * `settings` carries the KB pointer (ADR-0024 决定 3): `kbRoot` is this
+ * plugin's own volatile config field, so the settings UI edits it through the
+ * active profile's patch and Loader commits the change live.
  */
 export const inject = ['tools', 'systemPrompt', 'settings']
+
+/** The schema default every deployment starts from. */
+const DEFAULT_KB_ROOT = join(homedir(), 'yantao-kb')
 
 /** Plugin config; `kbRoot` is the only knob. */
 export interface Config {
   /** Knowledge-base root directory (created by kb_init). Defaults to `~/yantao-kb`. */
-  kbRoot?: string
+  kbRoot: Volatile<string>
 }
 
-export const Config: z<Config> = z.object({
-  kbRoot: z.string().default(join(homedir(), 'yantao-kb')),
+export const Config = z.object({
+  kbRoot: z.string().default(DEFAULT_KB_ROOT).volatile(),
 })
-
-/** The settings-plane schema for the KB pointer (ADR-0024 决定 3). */
-const KbRootSettings: z<{ kbRoot: string }> = z.object({ kbRoot: z.string() })
-
-/** The shape after schemastery applied the defaults. */
-type ResolvedConfig = Required<Config>
 
 /**
  * The live KB root, published while the yantao-kb plugin is mounted so
@@ -116,6 +115,24 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/**
+ * Durable source for the `@`-mention injection: the composer inserts a
+ * KB-relative path, and the pre-step hook hands the model the cited files'
+ * content as one `recall`-form context message ahead of the turn.
+ */
+export interface YantaoKbMentionSource {
+  readonly kind: 'yantao-kb'
+  /** Cited KB files are background material for the turn. */
+  readonly form: 'recall'
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /** KB `@`-mention material injected by the yantao-kb plugin. */
+    'yantao-kb': YantaoKbMentionSource
+  }
+}
+
 const ENTITY_TYPE_PARAM = {
   type: 'string',
   enum: [...ENTITY_TYPES],
@@ -131,33 +148,27 @@ const CREATABLE_ENTITY_TYPE_PARAM = {
 
 /** Register the kb_ tools and publish the resolved KB root; disposal unregisters both. */
 export function apply(ctx: Context, config: Config): void {
-  const resolved = config as ResolvedConfig
-
-  // The KB pointer lives in the settings plane (ADR-0024 决定 3): an ordinary
-  // namespace whose base is this plugin's config, so resolution keeps the
-  // shape "explicit config > persisted value > default" with settings.yaml as
-  // the persisted layer.
-  const scope = ctx.settings.register('yantao-kb', KbRootSettings, { base: { kbRoot: resolved.kbRoot } })
-  const userSection = ctx.settings.describe()
-    .find(descriptor => descriptor.ns === 'yantao-kb')?.user as { kbRoot?: unknown } | undefined
-  const userRoot = typeof userSection?.kbRoot === 'string' && userSection.kbRoot !== '' ? userSection.kbRoot : undefined
-
-  // One-time import of the retired `~/.dsh/yantao-kb.json` (ADR-0024 决定 2):
-  // capability states move into the KB, the legacy pointer seeds the settings
-  // plane exactly when the human has not recorded one there yet.
+  // The KB pointer lives in the settings plane (ADR-0024 决定 3) as this
+  // plugin's own volatile config field: the settings UI edits it through the
+  // active profile's patch, Loader commits the change live, and this plugin
+  // follows through `loader/volatile-update`. One-time import of the retired
+  // `~/.dsh/yantao-kb.json` (ADR-0024 决定 2): capability states move into the
+  // KB, and the legacy pointer seeds the patch exactly when the human has not
+  // recorded one there yet.
   const importedRoot = importLegacyRootState()
 
   const persistRoot = (next: string): void => {
-    void scope.update({ kbRoot: next }).catch((error: unknown) => {
+    void ctx.settings.update('yantao-kb', { kbRoot: next }).catch((error: unknown) => {
       ctx.logger.warn(`yantao-kb: 无法持久化知识库根目录：${(error as Error).message}`)
     })
   }
+  const initialRoot = config.kbRoot.get()
   const liveRoot = new LiveKbRoot(
-    userRoot ?? importedRoot ?? resolved.kbRoot,
-    userRoot !== undefined || importedRoot !== undefined,
+    importedRoot ?? initialRoot,
+    importedRoot !== undefined || initialRoot !== DEFAULT_KB_ROOT,
     persistRoot,
   )
-  if (importedRoot !== undefined && userRoot === undefined) liveRoot.setRoot(importedRoot)
+  if (importedRoot !== undefined && initialRoot === DEFAULT_KB_ROOT) persistRoot(importedRoot)
 
   ctx.effect(
     () => ctx.provide('yantaoKb', liveRoot satisfies YantaoKbService),
@@ -165,13 +176,11 @@ export function apply(ctx: Context, config: Config): void {
   )
 
   // An externally committed pointer (the settings UI, another workbench tab,
-  // a hand edit of settings.yaml) retargets the live root.
-  ctx.effect(
-    () => scope.watch((next) => {
-      liveRoot.retarget(next.kbRoot)
-    }),
-    'yantao-kb: follow settings kbRoot',
-  )
+  // a hand edit of the profile patch) retargets the live root.
+  ctx.on('loader/volatile-update', () => {
+    const next = config.kbRoot.get()
+    if (next !== liveRoot.root) liveRoot.retarget(next)
+  })
 
   // The prompt-section layer (ADR-0022): yantao's domain disciplines as
   // named sections over dsh's registry, sourced from prompt/sections/*.md.
@@ -206,7 +215,7 @@ export function apply(ctx: Context, config: Config): void {
     return {
       ...decision,
       messages: [...messages, createUserMessage({
-        source: { kind: 'plugin', plugin: 'dsh-yantao-kb', form: 'recall' },
+        source: { kind: 'yantao-kb', form: 'recall' },
         content: [{ type: 'text', text: renderKbMentions(cited) }],
       })],
     }

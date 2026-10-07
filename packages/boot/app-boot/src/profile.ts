@@ -188,11 +188,9 @@ export const PROFILE_TEMPLATES: Record<string, ProfileTemplate> = {
   },
   yantao: {
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless', '@deepseek-ai/dsh-yantao'],
-    patchReload: 'startup',
   },
   'yantao-web': {
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-yantao', '@deepseek-ai/dsh-yantao-web-app'],
-    patchReload: 'live',
   },
   sdk: {
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-sdk-app'],

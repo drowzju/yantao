@@ -83,58 +83,6 @@ function guardOf(phase: InputState['phase']): 'plain' | 'claimed' | 'frozen' {
   }
 }
 
-/**
- * The live mention text one Backspace over a path-like chip unpacks to: the
- * ref's parent directory (`resources/报告/周报.md` → `@resources/报告/`), so
- * deletion walks the path level by level instead of removing the whole chip.
- * The trailing slash keeps the token open so the trigger menu reopens on the
- * directory; a path with spaces serializes in the shared grammar's quoted
- * form. `undefined` when the ref has no directory parent (a bare name or id)
- * — such a chip deletes whole, the placeholder semantics.
- * @param ref - the chip's owner-scoped reference.
- * @returns the replacement mention text, or undefined for whole-delete.
- */
-export function chipBackspaceMention(ref: string): string | undefined {
-  const trimmed = ref.endsWith('/') ? ref.slice(0, -1) : ref
-  const cut = trimmed.lastIndexOf('/')
-  if (cut <= 0) return undefined
-  const parent = trimmed.slice(0, cut + 1)
-  return parent.includes(' ') ? `@"${parent}"` : `@${parent}`
-}
-
-/**
- * Backspace over a chip edge (must run inside the editor): with a collapsed
- * caret immediately after a chip whose ref has a directory parent, replace
- * the chip with the live parent mention ({@link chipBackspaceMention}) — the
- * update listener re-projects and re-tracks, so the menu reopens on the
- * directory without an explicit re-track. Any other caret geometry answers
- * false and the keystroke falls through to the native deletion.
- * @returns whether the trim applied (caller preventDefaults).
- */
-export function $trimChipAtCaret(): boolean {
-  const selection = $getSelection()
-  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false
-  const anchor = selection.anchor
-  let chip: ReferenceChipNode | null = null
-  if (anchor.type === 'text') {
-    if (anchor.offset !== 0) return false
-    const previous = anchor.getNode().getPreviousSibling()
-    if ($isReferenceChipNode(previous)) chip = previous
-  } else {
-    const kid = anchor.getNode().getChildAtIndex(anchor.offset - 1)
-    if ($isReferenceChipNode(kid)) chip = kid
-  }
-  if (chip === null) return false
-  const text = chipBackspaceMention(chip.getReference())
-  if (text === undefined) return false
-  const segment = $composerLayout().byKey.get(chip.getKey())
-  if (segment === undefined || segment.kind !== 'chip') return false
-  return $replaceDetectSpanWithText(
-    { start: segment.detectStart, end: segment.detectStart + segment.detectLength },
-    text,
-  )
-}
-
 /** Whether two projections differ in content (selection and caret excluded). */
 function projectionContentChanged(prev: EditorProjection, next: EditorProjection): boolean {
   if (prev.clipboardText !== next.clipboardText || prev.detectText !== next.detectText) return true

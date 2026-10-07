@@ -133,6 +133,38 @@ import type {
 
 export type * from './types.ts'
 
+/**
+ * Durable sources for the controller's pre-step injections: the capability
+ * catalog that opens every turn (`catalog`) and the script-type capability
+ * notice (`notice`, ADR-0043 决定 3/5). Transcript consumers fall through
+ * unknown producer kinds, so neither needs a dedicated presentation.
+ */
+
+/** The per-turn capability catalog injection. */
+export interface CapabilityCatalogSource {
+  readonly kind: 'yantao-kb-controller'
+  /** The catalog is background material the model may act on. */
+  readonly form: 'catalog'
+  /** Advertised capabilities, in catalog order. */
+  readonly entries: readonly { name: string; description: string }[]
+}
+
+/** The script-type capability notice injection. */
+export interface CapabilityNoticeSource {
+  readonly kind: 'yantao-kb-controller'
+  /** One-line account of how the capability is reached. */
+  readonly form: 'notice'
+  /** The one-line account, also committed to the durable log. */
+  readonly summary: string
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /** Capability catalog and script-type notices injected by the yantao-kb-controller. */
+    'yantao-kb-controller': CapabilityCatalogSource | CapabilityNoticeSource
+  }
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     yantaoKbController: YantaoKbController
@@ -402,26 +434,31 @@ export class YantaoKbController extends TypertRemoteService {
       if (decision.kind === 'reject') return decision
       const messages = decision.messages
       // The pending prompt is the turn's last user message, not literally the
-      // last message: on a session's first turn the system-prompt sandbox
-      // snapshot (a plugin message) lands *after* the user's gesture and used
-      // to swallow both the catalog and the `/xxx` injection. Skip trailing
-      // plugin messages; any other kind (assistant, tool) after the user
-      // spoke means the gesture is no longer the pending prompt.
+      // last message: on a session's first turn the runtime-context snapshot
+      // lands *after* the user's gesture and used to swallow both the catalog
+      // and the `/xxx` injection. Skip trailing runtime-context snapshots; any
+      // other kind (assistant, tool) after the user spoke means the gesture is
+      // no longer the pending prompt.
       let last: UserMessage | undefined
       for (let i = messages.length - 1; i >= 0; i -= 1) {
         const message = messages[i]
         if (message === undefined) return decision
         if (message.source.kind === 'user') { last = message; break }
-        if (message.source.kind !== 'plugin') return decision
+        // The `runtime-context` kind lives in the agent-loop's own
+        // MessageSourceMap augmentation, which this package's program does not
+        // include (transcript consumers fall through unknown producer kinds);
+        // widen through `string` for the comparison.
+        if ((message.source.kind as string) !== 'runtime-context') return decision
       }
       if (last === undefined) return decision
       const injections: UserMessage[] = []
       const entries = await this.agentCapabilityCatalog()
       if (entries.length > 0) {
+        const source: CapabilityCatalogSource = {
+          kind: 'yantao-kb-controller', form: 'catalog', entries,
+        }
         injections.push(createUserMessage({
-          source: {
-            kind: 'plugin', plugin: 'yantao-kb-controller', form: 'catalog', entries,
-          },
+          source,
           content: [{ type: 'text', text: renderCapabilityCatalog(entries) }],
         }))
       }
@@ -2219,8 +2256,9 @@ export class YantaoKbController extends TypertRemoteService {
         // The script-type notice (ADR-0043 决定 3/5): positive wording — how
         // the capability *is* reached — plus the host's environment note.
         const summary = `能力「${name}」是脚本型`
+        const source: CapabilityNoticeSource = { kind: 'yantao-kb-controller', form: 'notice', summary }
         return createUserMessage({
-          source: { kind: 'plugin', plugin: 'yantao-kb-controller', form: 'notice', summary },
+          source,
           content: [{
             type: 'text',
             text: `${summary}：经 kb_run_capability 调用（产出缺省落 resources/），或按下方说明在会话中执行其脚本。\n\n${CAPABILITY_ENVIRONMENT_NOTE}`,

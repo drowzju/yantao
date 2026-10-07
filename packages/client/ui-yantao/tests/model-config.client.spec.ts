@@ -125,7 +125,7 @@ describe('profileOps', () => {
     }))
     expect(ops).toHaveLength(1)
     const op = ops[0]
-    if (op.op !== 'set') throw new Error('expected a set op')
+    if (op === undefined || op.op !== 'set') throw new Error('expected a set op')
     expect(op.path).toEqual(['providers', 'model-gateway', 'models'])
     expect(op.value).toContainEqual({ id: 'GLM5.1', name: 'GLM 5.1 内网', contextWindow: 131072 })
   })

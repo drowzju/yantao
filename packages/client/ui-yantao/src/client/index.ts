@@ -15,14 +15,16 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 // Type-only: pulls the `ctx.uiWorkspace` Context merge (ui-workspace owns the
-// declaration) — the first-run directory picker is its `pickDirectory`.
-import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+// declaration) — the first-run directory picker and ADR-0013's session
+// alignment open sessions through it, via the dynamic-inject ref below.
+import type { UiWorkspace } from '@deepseek-ai/dsh-client-ui-workspace/client'
 // Type-only: pulls the `conversation.hero.brand.mark` slot-name merge
 // (ui-conversation owns the declaration) — the hero mark is the one piece of
 // the borrowed middle column we replace. Also the `ctx.conversation` service
 // merge: ADR-0040's composer fill reaches the current session's input face
 // through it.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SessionInputResolver } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls the `ctx.workspaces` service merge (the workspace
 // controller owns the declaration) — ADR-0013 points it at the KB root.
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -55,6 +57,7 @@ import { sessionRemoteOf } from './remote.ts'
 import { Frame } from './frame/Frame.tsx'
 import { ThemePresenter } from './frame/theme-presenter.ts'
 import { WorkbenchLayout, createPanelSeat } from './frame/layout.ts'
+import { WorkbenchSidebarRight, createSidebarRightFileSeat } from './sidebar-right.ts'
 import { YantaoMark } from './brand/YantaoMark.tsx'
 import { alignWorkspace } from './kb-workspace.ts'
 import { kbReferenceSource } from './kb-reference.ts'
@@ -113,15 +116,22 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 // Cordis forbids reading an undeclared service, and a Remote namespace counts
 // as one of its own: both the `remote` face and this namespace must be listed
 // or the accessor throws "cannot get property remote.yantaoKb without inject".
-// `uiWorkspace` is the host's directory picker the first-run flow calls.
+// Cordis forbids reading an undeclared service, and a Remote namespace counts
+// as one of its own: both the `remote` face and this namespace must be listed
+// or the accessor throws "cannot get property remote.yantaoKb without inject".
 // `remote.session` is ADR-0019's: the mail analysis creates and drives a real
 // dsh session from the browser. `sessions` is ADR-0025 决定 4's: the current
 // session is read (and, when none is open, created and selected) through it.
 // `remote.settings` / `remote.credentials` are the 配置 dialog's data plane:
 // the model gateway's profile and the credential store the raw key lands in.
+//
+// 0.2.1 起刻意不在静态清单里等 `uiWorkspace` 和 `conversation`：ui-workspace
+// 声明了 `layout`（本插件提供），ui-conversation 等 `uiWorkspace`（ui-workspace
+// 提供），若本插件再静态等这两者，四个插件互等成环、全体 pending。两处消费
+// 改走动态 `ctx.inject`（见 apply 里的两个引用座），服务就绪即入引用。
 export const inject = [
   'slots', 'theme', 'locale', 'remote', 'remote.yantaoKb', 'remote.session', 'remote.settings', 'remote.credentials',
-  'sessions', 'uiWorkspace', 'workspaces', 'inputTriggers', 'conversation',
+  'sessions', 'workspaces', 'inputTriggers',
 ]
 
 /**
@@ -144,6 +154,30 @@ export function apply(ctx: Context): void {
   // Panel actions: the frame fills this seat on mount, `ctx.layout` reads it.
   const panels = createPanelSeat()
   const layout = new WorkbenchLayout(panels)
+  // The 0.2.1 `sidebarRight` stand-in: ui-chat / ui-reference inject the
+  // service, the upstream provider (ui-sidebar-right) drags in ui-layout
+  // (ADR-0011 exclusion), so the workbench answers `openResource` itself —
+  // file addresses become centre-pane tabs. The frame fills the seat on
+  // mount; the KB root resolves through the same loader the frame reads.
+  const sidebarFiles = createSidebarRightFileSeat()
+  const sidebarRight = new WorkbenchSidebarRight(sidebarFiles, async () => (await loadRoot(ctx)).root)
+
+  // The 0.2.1 cycle-break (see the inject list's comment): `uiWorkspace` and
+  // `conversation` arrive through dynamic injects into these refs instead of
+  // the static list, so ui-workspace (waiting on our `layout`) can activate
+  // without us first waiting on it. Call sites tolerate absence — the two
+  // faces are interaction affordances, not boot prerequisites.
+  const uiWorkspaceRef: { current?: UiWorkspace } = {}
+  const whenUiWorkspace = (run: (svc: UiWorkspace) => void): void => {
+    const svc = uiWorkspaceRef.current
+    if (svc !== undefined) run(svc)
+    else ctx.inject(['uiWorkspace'], (scope) => { run(scope.uiWorkspace) })
+  }
+  ctx.inject(['uiWorkspace'], (scope) => { uiWorkspaceRef.current = scope.uiWorkspace })
+  const conversationRef: { current: { input?: SessionInputResolver } | undefined } = { current: undefined }
+  ctx.inject(['conversation'], (scope) => {
+    conversationRef.current = scope.conversation as { input?: SessionInputResolver } | undefined
+  })
 
   // ADR-0013: dsh's own workspace follows the KB root, so the middle column's
   // working directory is the directory every kb_* tool reads. Re-run after the
@@ -153,13 +187,14 @@ export function apply(ctx: Context): void {
     void alignWorkspace({
       root: () => loadRoot(ctx),
       workspaces: ctx.workspaces,
-      startSession: (workspaceId) => { ctx.uiWorkspace.startSession(workspaceId) },
+      startSession: (workspaceId) => { whenUiWorkspace(svc => svc.startSession(workspaceId)) },
     }).catch((reason: unknown) => {
       console.warn('kb workspace alignment failed:', reason)
     })
   }
   align()
   ctx.effect(() => ctx.reflect.provide('layout', layout), 'ui-yantao: layout service')
+  ctx.effect(() => ctx.reflect.provide('sidebarRight', sidebarRight), 'ui-yantao: sidebarRight stand-in')
 
   // Theme presentation: pure DOM writes from resolved snapshots — the initial
   // state through the getter once, then event-driven only.
@@ -197,6 +232,8 @@ export function apply(ctx: Context): void {
     inject: () => ({
       t,
       panels,
+      // The sidebarRight stand-in's seat: the frame fills `openFile` on mount.
+      sidebarFiles,
       intake: () => loadIntake(ctx),
       workspace: () => loadWorkspace(ctx),
       read: (path: string) => readFile(ctx, path),
@@ -225,7 +262,9 @@ export function apply(ctx: Context): void {
         }),
       root: () => loadRoot(ctx),
       setRoot: (path: string) => setKbRoot(ctx, path),
-      pickDirectory: () => ctx.uiWorkspace.pickDirectory(),
+      pickDirectory: () => new Promise<string | null>((resolve, reject) => {
+        whenUiWorkspace((svc) => { svc.pickDirectory().then(resolve, reject) })
+      }),
       links: (path: string) => loadLinks(ctx, path),
       revision: () => loadRevision(ctx),
       openExternal: (target: string) => openExternal(ctx, target),
@@ -298,13 +337,15 @@ export function apply(ctx: Context): void {
       // ADR-0025 决定 4: an instruction capability's prompt goes to the
       // conversation the human is watching, on a KB-rooted session.
       promptSession: async (text: string) => {
-        await promptCurrentSession(ctx, text, await kbCwd())
+        await promptCurrentSession(ctx, text, await kbCwd(), (sessionId) => {
+          whenUiWorkspace(svc => svc.openSession(sessionId))
+        })
       },
       // ADR-0040: the 惯用提示词 surface — the 能力 tab's first-screen list
       // reads/writes the store, and clicking a row fills the composer.
       promptShortcutList: () => loadPromptShortcuts(ctx),
       promptShortcutSave: (args: KbPromptShortcutSaveArgs) => savePromptShortcuts(ctx, args),
-      fillShortcut: (alias: string) =>{  fillComposerWithShortcut(ctx, alias) },
+      fillShortcut: (alias: string) => { fillComposerWithShortcut(ctx, conversationRef.current, alias) },
       // ADR-0045: the 调度 surface — the tab's definition list read/write,
       // and the scheduler's runner firing one snapshot prompt as a
       // KB-rooted background session (the mail analysis's cwd discipline).

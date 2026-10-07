@@ -82,7 +82,7 @@ describe('Markdown file links', () => {
   it.each([
     '//example.com/file', '%2F%2Fexample.com/file', '%5C%5Cserver%5Cfile',
     'javascript:alert', 'data:text/plain,hi', 'file:///etc/passwd', 'vscode:open',
-    '%6Aavascript:alert', '#L2', 'file.ts?raw=1', 'file%ZZ.ts', 'file%00.ts',
+    '%6Aavascript:alert', 'file.ts?raw=1', 'file%ZZ.ts', 'file%00.ts',
     'file.ts#heading', 'file.ts#L0', 'file.ts#L3-L2',
     'file.ts#L9007199254740992', 'file.ts#L1-L9007199254740992',
   ])('keeps unsupported destination %s inert', (target) => {
@@ -94,6 +94,21 @@ describe('Markdown file links', () => {
     )
     expect(view.getByText('source')).toBeTruthy()
     expect(view.container.querySelector('button, a')).toBeNull()
+    expect(openFile).not.toHaveBeenCalled()
+  })
+
+  // 本地分叉（ADR-0048 决定 5）：纯片段目的地是页内锚点而非文件链接——
+  // 放行渲染为普通 <a>（无外开、无文件按钮），不上游的「整体剔除」语义。
+  it('renders a fragment-only destination as an in-page anchor, not a file link', () => {
+    const openFile = vi.fn()
+    const view = render(
+      <MarkdownDelegateProvider openFile={openFile}>
+        <MarkdownText text={'[source](#L2)'} />
+      </MarkdownDelegateProvider>,
+    )
+    expect(view.getByText('source')).toBeTruthy()
+    expect(view.container.querySelector('button')).toBeNull()
+    expect((view.container.querySelector('a') as HTMLAnchorElement).getAttribute('href')).toBe('#L2')
     expect(openFile).not.toHaveBeenCalled()
   })
 

@@ -50,27 +50,21 @@ interface ProposalArgs {
 }
 
 /**
- * Parse the call's arguments. Mid-stream truncation and window-cut call
- * heads (a settled block's `call` is null) both degrade to null — the card
- * then shows what it can and offers no verdict.
+ * Read the call's arguments through the lazy ToolArgs view. An incomplete
+ * object (mid-stream or a window-cut settled block whose paired call left
+ * the loaded window) degrades to null — the card then shows what it can and
+ * offers no verdict.
  */
-function parseArgs(argsRaw: string): ProposalArgs | null {
-  if (argsRaw === '') return null
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(argsRaw)
-  } catch {
-    return null
-  }
-  if (typeof parsed !== 'object' || parsed === null) return null
-  const scope = (parsed as Record<string, unknown>).scope
-  const text = (parsed as Record<string, unknown>).text
-  const source = (parsed as Record<string, unknown>).source
-  if (typeof scope !== 'string' || typeof text !== 'string') return null
+function readArgs(view: MemoryProposalCardProps['block']['args']): ProposalArgs | null {
+  if (view.invalid || !view.closed() || !view.complete('scope') || !view.complete('text')) return null
+  const scope = view.text('scope')
+  const text = view.text('text')
+  if (scope === undefined || text === undefined) return null
+  const source = view.text('source')
   return {
     scope,
     text,
-    ...(typeof source === 'string' && source !== '' ? { source } : {}),
+    ...(source !== undefined && source !== '' ? { source } : {}),
   }
 }
 
@@ -149,8 +143,7 @@ const footerStyle = { display: 'flex', gap: 8, alignItems: 'center', marginTop: 
 export function MemoryProposalCard(props: MemoryProposalCardProps): ReactElement {
   const { block, t } = props
   const settled = 'kind' in block
-  const argsRaw = (settled ? block.call?.argsRaw : block.argsRaw) ?? ''
-  const args = parseArgs(argsRaw)
+  const args = readArgs(block.args)
   const output = resultText(block)
   const state: CardState = !settled
     ? 'running'

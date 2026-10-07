@@ -9,6 +9,7 @@ import { IntakeRail, WorkspaceRail, groupResourceFiles, type IntakeRailProps } f
 import { Frame } from '../src/client/frame/Frame.tsx'
 import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveColumns } from '../src/client/frame/columns.ts'
 import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
+import { createSidebarRightFileSeat } from '../src/client/sidebar-right.ts'
 import type {
   CapabilityDeclarationLoader, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityArchiver, EntityCreator,
   ExternalOpener, FileReader,
@@ -18,7 +19,10 @@ import type {
   ScheduleLister, ScheduleMarker,
   ScheduleSaver, SessionPrompter,
   ShortcutFiller, TodoLoader, TodoWriter,
+  MemoryProposalLister, MemoryProposalApprover, MemoryProposalDiscarder,
 } from '../src/client/remote.ts'
+import type { CapabilityDistiller } from '../src/client/capability-distill.ts'
+import type { ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from '../src/client/model-config.ts'
 import type { ScheduleRunner } from '../src/client/scheduler.ts'
 import type { MailAnalyser } from '../src/client/mail-analysis.ts'
 import type { RefineRunner } from '../src/client/refine.ts'
@@ -118,7 +122,7 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
       targetPath: '.dsh/yantao/memory/global.md',
       entry: { id: 'm1', text: 'x' },
     }),
-    memoryProposalDiscard: () => Promise.resolve({ path: '.dsh/yantao/memory/proposals/global.md' }),
+    memoryProposalDiscard: () => Promise.resolve(),
     capabilityRuns: [],
     onDistillCapability: () => {},
     distillingRunId: null,
@@ -368,7 +372,8 @@ describe('IntakeRail', () => {
   })
 
   it('skips the delete item when the host supplies no delete face', async () => {
-    render(<IntakeRail {...railProps({ deleteResource: undefined })} />)
+    const { deleteResource: _omitted, ...props } = railProps()
+    render(<IntakeRail {...props} />)
     fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
     expect(await screen.findByText('拷贝链接')).toBeTruthy()
     expect(screen.queryByText('删除')).toBeNull()
@@ -1229,6 +1234,28 @@ interface FrameFaces {
   readonly validate: ValidateRunner
   readonly sessionDetail: SessionDetailLoader
   readonly deleteResource: ResourceDeleter
+  readonly memoryProposalList: MemoryProposalLister
+  readonly memoryProposalApprove: MemoryProposalApprover
+  readonly memoryProposalDiscard: MemoryProposalDiscarder
+  readonly capabilityDistill: CapabilityDistiller
+  readonly loadModelsConfig: () => Promise<ModelsConfigView>
+  readonly saveModelsConfig: (draft: ModelsConfigDraft) => Promise<ModelsConfigSaveResult>
+}
+
+/** The empty config view the model-config dialog stub opens on. */
+const EMPTY_MODELS_VIEW: ModelsConfigView = {
+  displayName: '',
+  baseURL: '',
+  baseDisplayName: '',
+  baseBaseURL: '',
+  apiKeyEnv: undefined,
+  keyConfigured: false,
+  keyWritable: true,
+  models: [],
+  defaultModel: '',
+  profileRevision: 0,
+  defaultRevision: 0,
+  rawModels: [],
 }
 
 /** Build the frame's spies; `read` answers every path with the same content. */
@@ -1270,6 +1297,16 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [] } }),
     refine: () => Promise.resolve({ sessionId: '', title: '', relevant: true, reason: '' }),
     deleteResource: () => Promise.resolve({ path: '' }),
+    memoryProposalList: () => Promise.resolve({ groups: [] }),
+    memoryProposalApprove: () => Promise.resolve({
+      path: '.dsh/yantao/memory/proposals/global.md',
+      targetPath: '.dsh/yantao/memory/global.md',
+      entry: { id: 'm1', text: 'x' },
+    }),
+    memoryProposalDiscard: () => Promise.resolve(),
+    capabilityDistill: () => Promise.resolve({ sessionId: '', pending: 0 }),
+    loadModelsConfig: () => Promise.resolve(EMPTY_MODELS_VIEW),
+    saveModelsConfig: () => Promise.resolve({ kind: 'saved' }),
     validate: () => Promise.resolve({
       sessionId: '', title: '', reason: '',
       preScan: { entities: 0, orphans: [], broken: [] },
@@ -1287,6 +1324,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       t={t}
       renderSlot={key => <div data-seat={key}>{key === 'conversation' ? 'middle' : null}</div>}
       panels={createPanelSeat()}
+      sidebarFiles={createSidebarRightFileSeat()}
       intake={loader(intake)}
       workspace={loader(workspace)}
       read={kb.read}
@@ -1332,6 +1370,12 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       proposalInboxResolve={kb.proposalInboxResolve}
       relationGraph={kb.relationGraph}
       sessionDetail={kb.sessionDetail}
+      memoryProposalList={kb.memoryProposalList}
+      memoryProposalApprove={kb.memoryProposalApprove}
+      memoryProposalDiscard={kb.memoryProposalDiscard}
+      capabilityDistill={kb.capabilityDistill}
+      loadModelsConfig={kb.loadModelsConfig}
+      saveModelsConfig={kb.saveModelsConfig}
       writeTodos={kb.writeTodos}
       onKbRootChanged={onKbRootChanged}
     />
@@ -1526,9 +1570,12 @@ describe('Frame', () => {
         t={t}
         renderSlot={key => <div data-seat={key}>middle</div>}
         panels={createPanelSeat()}
+        sidebarFiles={createSidebarRightFileSeat()}
         intake={load}
         workspace={loader(workspace)}
         read={kb.read}
+        readView={kb.readView}
+        readImage={kb.readImage}
         write={kb.write}
         archiveEntity={kb.archiveEntity}
         restoreEntity={kb.restoreEntity}
@@ -1560,6 +1607,7 @@ describe('Frame', () => {
         capabilityCreate={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
         capabilityAdopt={() => Promise.resolve({ path: '.dsh/skills/新能力' })}
         capabilityRegister={() => Promise.resolve({ path: '.dsh/skills/yantao.json' })}
+        capabilityDeclaration={kb.capabilityDeclaration}
         capabilityRun={() => Promise.resolve({ name: '', runAt: '', artifacts: [] })}
         promptSession={kb.promptSession}
         promptShortcutList={kb.promptShortcutList}
@@ -1567,11 +1615,18 @@ describe('Frame', () => {
         fillShortcut={kb.fillShortcut}
         scheduleList={kb.scheduleList}
         scheduleSave={kb.scheduleSave}
+        scheduleMark={kb.scheduleMark}
         runSchedule={kb.runSchedule}
         proposalInboxList={kb.proposalInboxList}
         proposalInboxResolve={kb.proposalInboxResolve}
         relationGraph={kb.relationGraph}
         sessionDetail={() => Promise.resolve({ items: [], usage: null })}
+        memoryProposalList={kb.memoryProposalList}
+        memoryProposalApprove={kb.memoryProposalApprove}
+        memoryProposalDiscard={kb.memoryProposalDiscard}
+        capabilityDistill={kb.capabilityDistill}
+        loadModelsConfig={kb.loadModelsConfig}
+        saveModelsConfig={kb.saveModelsConfig}
         onKbRootChanged={onKbRootChanged}
       />,
     )
