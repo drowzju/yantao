@@ -41,9 +41,16 @@ yantao 是一个**个人知识工作台**:以纯 Markdown 存放 PARA+P 知识�
 ### 升级上游
 
 1. 读上游发布说明;默认有破坏性变更。
-2. 把 `origin/master` 合并/rebase 到 `main`,只解决上面合并面里的文件。
+2. 把 `origin/master` 合并/rebase 到 `main`,只解决上面合并面里的文件。**审阅时对我们注册进上游面的每样东西
+   (槽、服务、preset、命令)在上游新代码里找到对应形态逐一核对**——历次装配级故障都是「上游换了注册形态,
+   我们一侧静默缺席」,单测拦不住(见 ADR-0002 落地注记)。
 3. 重跑生成器(`pnpm run gen-tsconfig-paths`、文档/目录生成器)与门禁套件。
-4. 重跑 [development.md](development.md) 里的冒烟测试——headless 作答 + 工作台 `intakeTree()`。
+4. 分层冒烟,每层过了才进下一层(0.2.1 的三个装配坑全部只在这套冒烟的后两层暴露):
+   - **host 面**:`pnpm dsh --profile yantao "…"` 正常作答(provider、kb_ 工具在);
+   - **桌面启动**:窗口出现,devtools 控制台无 "did not activate" / "is not a function" / "not-found";
+   - **渲染**:逐个点开中栏 tab,内容面板非空——「对话」要有会话面(hero 或对话流),不是只剩标签;
+   - **交互**:中栏出现工作区芯片(KB root 名),composer 能输入文字。
+5. 记账:ADR-0002 落地注记追加一条(症状、病根、修法),合并面表格与 `upstream/master` 逐文件 diff 对账。
 
 ## 2. 架构
 

@@ -112,6 +112,18 @@ powershell -File scripts\sync-in.ps1 -Bundle <bundle 路径>
 17. **profile 配置互不相通。** kbRoot、模型配置都存在各 profile 的 patch(`~/.dsh/profiles/<名>/cordis.patch.yml`)里;
     headless `yantao` 与桌面 `yantao-web` 是两份。桌面栈行为异常(比如明明配置过却走首启流程)先查
     `yantao-web` 的 patch 是不是空的(2026-10-07 实机踩过)。
+18. **升级后的装配级症状速查(0.2.1 实战,单测全绿照样栽)。** 共性:上游改了注册/声明形态,我们一侧**静默缺席**——
+    修法是拿上游同功能的注册代码对着抄,而不是猜。已知的三个症状 → 病根:
+    - 中栏 tab 只剩标签、内容全空白 → 内容槽改名(上游 ui-conversation 占位形态变了,详见 ADR-0002「内容槽改名」);
+    - 会话建不起来、停在「选择工作区」hero、控制台报 `beginNavigation is not a function` → `ctx.layout` 替身缺
+      0.2.1 新面(`beginNavigation`/`panelInfo`/`selectPanel`,ui-workspace 建会话必经);
+    - 同样停在 hero、控制台报 `agent-preset/not-found` → preset 注册表声明了 `default` 却没插 preset 本体
+      (`@deepseek-ai/dsh-agent-preset` 声明行)。后者已有 YAML 闸门测试拦截
+      (`packages/bundle/yantao-web-app/tests/preset-roster.spec.ts`)。
+19. **electron 二进制下载被墙。** postinstall 连 GitHub 拉 SHASUMS 直接超时;zip 往往已在
+    `%LOCALAPPDATA%\electron\Cache`。设 `$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'` 后重装即命中
+    缓存。另注意:合并/切分支后 pnpm verify-deps 判定 node_modules 失同步会 relink electron 包,`dist/` 随之蒸发
+    (启动报找不到 electron),同样用上面的镜像重装即可,不必手工解 zip。
 
 ## 调度与提议(ADR-0045 / ADR-0047)
 
