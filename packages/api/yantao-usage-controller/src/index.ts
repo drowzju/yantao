@@ -75,3 +75,5 @@ export class YantaoUsageController extends TypertRemoteService {
     }
   }
 }
+
+export default YantaoUsageController
