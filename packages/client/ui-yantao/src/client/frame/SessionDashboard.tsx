@@ -305,16 +305,22 @@ const FEED_BADGE_KEYS: Record<Exclude<FeedFilter, 'all'>, Parameters<WorkbenchT>
 /** The feed line's first line — the card shows one line per event. */
 const firstLineOf = (text: string): string => text.split('\n')[0] ?? ''
 
+/** One feed item's one-line reading, shaped per kind. */
+function feedTextOf(item: FeedItem): string {
+  switch (item.kind) {
+    case 'injection': return firstLineOf(item.text)
+    case 'model': return `${item.provider}/${item.model}`
+    default: {
+      const head = `✂ ${firstLineOf(item.summary)}`
+      return item.shadowedTokenCount !== null ? `${head}（−${formatTokens(item.shadowedTokenCount)}）` : head
+    }
+  }
+}
+
 /** One feed line: kind badge + the event's one-line reading. */
 function FeedRow({ item, t }: { item: FeedItem; t: WorkbenchT }): ReactElement {
   const badge = FEED_BADGE_KEYS[item.kind]
-  const text = item.kind === 'injection'
-    ? firstLineOf(item.text)
-    : item.kind === 'compaction'
-      ? (item.shadowedTokenCount !== null
-        ? `✂ ${firstLineOf(item.summary)}（−${formatTokens(item.shadowedTokenCount)}）`
-        : `✂ ${firstLineOf(item.summary)}`)
-      : `${item.provider}/${item.model}`
+  const text = feedTextOf(item)
   return (
     <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', minWidth: 0 }}>
       <span

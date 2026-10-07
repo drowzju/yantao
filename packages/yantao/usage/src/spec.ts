@@ -14,6 +14,9 @@ import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { DayUsageRecord, SessionUsageCursor } from './types.ts'
 
+/** The `YYYY-MM-DD` day-key shape; lexical comparison doubles as chronological order. */
+export const DAY_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
 const bucketsSchema = z.object({
   uncachedInputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
@@ -22,14 +25,14 @@ const bucketsSchema = z.object({
 })
 
 const dayUsageRecordSchema = bucketsSchema.extend({
-  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  day: z.string().regex(DAY_KEY_PATTERN),
   sessionIds: z.array(z.string()),
 })
 
 const usageLastSlotSchema = z.object({
   turn: z.number().int().nonnegative(),
   step: z.number().int().nonnegative(),
-  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  day: z.string().regex(DAY_KEY_PATTERN),
   buckets: bucketsSchema,
 })
 

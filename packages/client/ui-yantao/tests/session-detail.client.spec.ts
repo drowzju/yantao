@@ -58,8 +58,8 @@ describe('detailFromEvents', () => {
       event('tool/call', 2, { callId: 'c', name: 'n', arguments: 'y'.repeat(5000) }),
     ])
     expect(items[0]).toMatchObject({ kind: 'user' })
-    expect((items[0] as { text: string }).text.endsWith('（过长，已截断）')).toBe(true)
-    expect((items[1] as { args: string }).args.endsWith('（过长，已截断）')).toBe(true)
+    expect((items[0] as { text: string }).text.endsWith('\n…')).toBe(true)
+    expect((items[1] as { args: string }).args.endsWith('\n…')).toBe(true)
   })
 })
 

@@ -22,7 +22,7 @@
  */
 import type { SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionRemote } from './remote.ts'
-import { collectEvents } from './session-detail.ts'
+import { collectEvents, clip, textOfContent } from './session-detail.ts'
 
 /** One model step's usage: the raw material of the 趋势 card's bars. */
 export interface TrendStep {
@@ -116,7 +116,7 @@ export interface Occupancy {
  * pressure reading second. `null` when the projections carry no usable pair.
  */
 export function resolveOccupancy(
-  pressure: { projectedTokens?: number; pressureTokens?: number; contextWindow?: number } | undefined,
+  pressure: { projectedTokens?: number; pressureTokens?: number; contextWindow?: number } | null | undefined,
 ): Occupancy | null {
   const used = pressure?.projectedTokens ?? pressure?.pressureTokens
   const capacity = pressure?.contextWindow
@@ -145,25 +145,6 @@ export function formatTokens(value: number): string {
 
 /** How much of one injected message or compaction summary the feed keeps. */
 const FEED_CLIP = 2_000
-
-/** The marker a clip appends, so a shortened read is never mistaken for a whole one. */
-const CLIP_MARK = '\n（过长，已截断）'
-
-/** Clip one string to `max` code units, marking the cut. */
-function clip(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max)}${CLIP_MARK}`
-}
-
-/** The text blocks of one message-shaped `content` array, joined; defensive — wire JSON. */
-function textOfContent(content: unknown): string {
-  if (!Array.isArray(content)) return ''
-  return content.map((part) => {
-    if (typeof part !== 'object' || part === null) return ''
-    if ((part as { type?: unknown }).type !== 'text') return ''
-    const text = (part as { text?: unknown }).text
-    return typeof text === 'string' ? text : ''
-  }).join('')
-}
 
 /** Parse one `tool/call` arguments string into an object; defensive — model output. */
 function argsObjectOf(data: unknown): Record<string, unknown> {

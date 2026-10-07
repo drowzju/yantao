@@ -19,7 +19,7 @@ import {
 } from '@deepseek-ai/dsh-session-persistence'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { emptyCursor, foldSessionEvents } from './fold.ts'
-import { usageDomainSpec } from './spec.ts'
+import { usageDomainSpec, DAY_KEY_PATTERN } from './spec.ts'
 import type { DayUsageRecord, SessionUsageCursor, UsageBuckets, UsageDayDelta } from './types.ts'
 
 /** Raised for a `sessionUsage` read naming a session the store does not hold. */
@@ -226,11 +226,9 @@ function addBuckets(left: UsageBuckets, right: UsageBuckets): UsageBuckets {
   }
 }
 
-const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
-
 /** Day bounds compare lexically, so a malformed bound silently filters to an empty answer — reject it instead. */
 function validateDayBound(key: 'sinceDay' | 'untilDay', value: string | undefined): void {
-  if (value !== undefined && !DAY_PATTERN.test(value)) {
+  if (value !== undefined && !DAY_KEY_PATTERN.test(value)) {
     throw new Error(`yantaoUsage.dailyUsage: ${key} must be YYYY-MM-DD, got "${value}"`)
   }
 }

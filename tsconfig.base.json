@@ -342,7 +342,7 @@
       // packages/yantao/kb's directory does not match its npm name suffix,
       // so this alias stays hand-written like dsh-util-time above.
       "@deepseek-ai/dsh-yantao-kb": ["./packages/yantao/kb/src"],
-      // Same for packages/yantao/usage (ADR-0049).
+      // Same for packages/yantao/usage (ADR-0050).
       "@deepseek-ai/dsh-yantao-usage": ["./packages/yantao/usage/src"],
       // BEGIN generated package aliases — pnpm run gen-tsconfig-paths
       "@deepseek-ai/dsh-acp": ["./packages/acp/acp/src"],

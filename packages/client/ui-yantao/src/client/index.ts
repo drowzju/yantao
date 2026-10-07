@@ -167,10 +167,11 @@ export const inject = [
  *
  * The 'root' registration is a bare `register`, not `slots.inject`: the key is
  * the runtime's own built-in slot, seeded when the registry is constructed, so
- * it is always declared by the time a plugin applies. The two seats this frame
- * declares are the ones upstream's conversation and command surfaces depend on:
- * `conversation` renders the host's agent surface, and `shell.overlay` carries
- * ui-commands' popupSelect.
+ * it is always declared by the time a plugin applies. Of the four seats this
+ * frame declares, the ones upstream surfaces depend on are `main` (keyed;
+ * renders the host's agent surface, the Frame selects it with entryKey
+ * 'conversation') and `shell.overlay` (ui-commands' popupSelect); the other
+ * two are the insights tab's pane and footer button (ADR-0050).
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {

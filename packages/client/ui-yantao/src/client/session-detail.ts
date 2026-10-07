@@ -94,16 +94,21 @@ const ARGS_CLIP = 4_000
 /** How much of one tool result the drawer keeps. */
 const RESULT_CLIP = 8_000
 
-/** The marker a clip appends, so a shortened read is never mistaken for a whole one. */
-const CLIP_MARK = '\n（过长，已截断）'
+/**
+ * The marker a clip appends, so a shortened read is never mistaken for a whole
+ * one. Deliberately an ellipsis rather than a localized sentence: the marker is
+ * symbolic, and threading a locale flag through every drawer/feed item shape
+ * for one glyph would outweigh the benefit.
+ */
+const CLIP_MARK = '\n…'
 
 /** Clip one string to `max` code units, marking the cut. */
-function clip(text: string, max: number): string {
+export function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}${CLIP_MARK}`
 }
 
 /** The text blocks of one message-shaped `content` array, joined; defensive — wire JSON. */
-function textOfContent(content: unknown): string {
+export function textOfContent(content: unknown): string {
   if (!Array.isArray(content)) return ''
   return content.map((part) => {
     if (typeof part !== 'object' || part === null) return ''
