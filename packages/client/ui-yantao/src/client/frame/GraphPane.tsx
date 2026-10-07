@@ -6,7 +6,7 @@
  * gesture. Zoom/pan is deliberately out (二期): a personal KB fits one view.
  */
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react'
-import type { KbRelationEdge, KbRelationGraphResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbRelationGraphResult, KbWireRelationEdge } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { createLayout, stepLayout, type ForceLayout } from '../graph/graphLayout.ts'
 import { tabTitle } from '../tabs.ts'
 import type { WorkbenchT } from '../locales.ts'
@@ -31,7 +31,7 @@ const FILL: Record<'project' | 'person' | 'area', string> = {
 }
 
 /** Edge stroke per relation kind. */
-const EDGE_STROKE: Record<KbRelationEdge['kind'], string> = {
+const EDGE_STROKE: Record<KbWireRelationEdge['kind'], string> = {
   'person-project': 'var(--yt-accent)',
   'area-project': 'var(--yt-success)',
   'person-person': 'var(--yt-border-strong)',
@@ -46,7 +46,7 @@ function kindOf(path: string): 'project' | 'person' | 'area' | null {
 }
 
 /** The relation kind an edge carries, judged from its endpoints' kinds. */
-function edgeKindOf(from: string, to: string): KbRelationEdge['kind'] {
+function edgeKindOf(from: string, to: string): KbWireRelationEdge['kind'] {
   const a = kindOf(from)
   const b = kindOf(to)
   const project = a === 'project' || b === 'project'
@@ -55,7 +55,7 @@ function edgeKindOf(from: string, to: string): KbRelationEdge['kind'] {
 }
 
 /** How many edges touch each node, for the isolated-node dimming. */
-function degreesOf(edges: readonly KbRelationEdge[]): Map<string, number> {
+function degreesOf(edges: readonly KbWireRelationEdge[]): Map<string, number> {
   const degree = new Map<string, number>()
   for (const edge of edges) {
     degree.set(edge.from, (degree.get(edge.from) ?? 0) + 1)
@@ -253,7 +253,7 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
           pointerEvents: 'none',
         }}
       >
-        {(Object.keys(EDGE_STROKE) as KbRelationEdge['kind'][]).map(kind => (
+        {(Object.keys(EDGE_STROKE) as KbWireRelationEdge['kind'][]).map(kind => (
           <span key={kind} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <svg width={22} height={8}>
               <line
@@ -272,7 +272,7 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
 }
 
 /** The legend label per relation kind. */
-const GRAPH_LEGEND_KEYS: Record<KbRelationEdge['kind'], Parameters<WorkbenchT>[0]> = {
+const GRAPH_LEGEND_KEYS: Record<KbWireRelationEdge['kind'], Parameters<WorkbenchT>[0]> = {
   'person-project': 'graph.legend.personProject',
   'area-project': 'graph.legend.areaProject',
   'person-person': 'graph.legend.personPerson',

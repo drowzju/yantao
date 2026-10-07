@@ -33,8 +33,10 @@ export function createPanelSeat(): PanelToggles {
 }
 
 /** The workbench's constant panel state: only the Conversation exists. */
+const CONVERSATION_ONLY_PANEL: PanelInfo = { activePanelId: null }
+
 const CONVERSATION_ONLY_PANEL_INFO: HostObservable<PanelInfo> = {
-  getSnapshot: () => ({ activePanelId: null }),
+  getSnapshot: () => CONVERSATION_ONLY_PANEL,
   subscribe: () => () => {},
 }
 
@@ -84,5 +86,10 @@ export class WorkbenchLayout implements ILayout {
   /** Toggle the intake rail (upstream's `sidebar`). */
   toggleSidebar(): void {
     this.#seat.toggleIntake()
+  }
+
+  /** Tear down on plugin unload: abort any pending navigation. */
+  dispose(): void {
+    this.#navigation.abort()
   }
 }

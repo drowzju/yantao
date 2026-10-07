@@ -75,7 +75,9 @@ export class WorkbenchSidebarRight {
       this.#seat.openFile(raw)
       return
     }
-    const root = await this.#kbRoot()
+    // The host root carries native separators (`C:\…` on Windows); parsed
+    // addresses are always `/`-separated, so compare in one spelling.
+    const root = (await this.#kbRoot()).replace(/\\/g, '/')
     const relative = stripRoot(raw, root)
     if (relative === undefined) {
       console.warn('sidebarRight: path outside the KB root is not openable here', raw)

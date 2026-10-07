@@ -255,7 +255,10 @@ function standardKits(files: readonly ScannedFile[]): ReadonlyMap<string, readon
   const kits = new Map<string, readonly string[]>()
   for (const scope of SCOPES) {
     const extra = SCOPE_KIT[scope]
-    kits.set(scope, [...global, ...extra === undefined ? [] : standardKitMembers(files, extra)])
+    // Dedupe: `GlobalStandardProps` is interface-merged across every declaring
+    // file, so `standardKitMembers` re-emits its members once per file — the
+    // set collapses them back to one.
+    kits.set(scope, [...new Set([...global, ...extra === undefined ? [] : standardKitMembers(files, extra)])])
   }
   return kits
 }

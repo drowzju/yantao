@@ -26,7 +26,7 @@ import type {
   SessionRenameRequest, SessionRenameValue,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {
-  UsageDailyArgs, UsageDailyResult, UsageSessionArgs, UsageSessionResult,
+  UsageWireDailyArgs, UsageWireDailyResult, UsageSessionArgs, UsageSessionResult,
 } from '@deepseek-ai/dsh-api-yantao-usage-controller/types'
 import type {
   KbMailArchiveArgs, KbMailArchiveResult, KbCapabilityAdoptArgs, KbCapabilityAdoptResult, KbCapabilityCreateArgs, KbCapabilityCreateResult,
@@ -1054,6 +1054,18 @@ export async function resolveInboxProposal(ctx: Context, args: KbProposalInboxRe
 }
 
 /**
+ * The session the human is looking at, read off the session list: 0.2.1 的
+ * 会话导航归视图所有者（uiWorkspace 持有唯一的 mainView 引用），「当前会话」
+ * 即列表里 mainView 计数大于零的那一行。
+ * @param sessions - the session controller's client face.
+ * @returns the current session's id, or undefined when none is open.
+ */
+export function mainViewSessionOf(sessions: ISessions) {
+  return Object.values(sessions.list.getSnapshot().byId)
+    .find(row => (row.retainedBy.mainView ?? 0) > 0)?.id
+}
+
+/**
  * Fill the current conversation's composer with `/alias ` without sending
  * (ADR-0040 决定 5): the tab row's click lands the same text a menu pick
  * would, through the conversation service's public input face. The draft is
@@ -1067,9 +1079,7 @@ export async function resolveInboxProposal(ctx: Context, args: KbProposalInboxRe
 export function fillComposerWithShortcut(ctx: Context, conversation: { input?: SessionInputResolver } | undefined,
   alias: string): void {
   const sessions: ISessions = ctx.sessions
-  // 0.2.1 的会话导航归视图所有者：「当前会话」即 mainView 计数大于零的那一行。
-  const sessionId = Object.values(sessions.list.getSnapshot().byId)
-    .find(row => (row.retainedBy.mainView ?? 0) > 0)?.id
+  const sessionId = mainViewSessionOf(sessions)
   if (sessionId === undefined) throw new Error('没有打开的会话，无法填入。')
   const actx = sessions.scope(sessionId)
   if (actx === undefined) throw new Error('会话作用域不存在，无法填入。')
@@ -1098,7 +1108,7 @@ export function isDuplicateMemory(error: unknown): boolean {
  * totals. Read-only: the ledger is telemetry the host computes.
  */
 export interface UsageRemote {
-  dailyUsage(args: UsageDailyArgs): Promise<RemoteResult<UsageDailyResult>>
+  dailyUsage(args: UsageWireDailyArgs): Promise<RemoteResult<UsageWireDailyResult>>
   sessionUsage(args: UsageSessionArgs): Promise<RemoteResult<UsageSessionResult>>
 }
 

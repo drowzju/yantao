@@ -13,7 +13,7 @@ import type { ReactElement } from 'react'
 import type { UseProjection } from '@deepseek-ai/dsh-api-session-controller/client'
 // Type-only: the `contextPressure` projection key merge.
 import type {} from '@deepseek-ai/dsh-token-meter/client'
-import { DANGER_PERCENT, WARNING_PERCENT } from '../insights.ts'
+import { occupancyStroke, resolveOccupancy } from '../insights.ts'
 import type { WorkbenchT } from '../locales.ts'
 
 export interface InsightsFooterButtonProps {
@@ -21,8 +21,8 @@ export interface InsightsFooterButtonProps {
   /** Current session identity, absent while no session is selected. */
   readonly sessionId: string | undefined
   /**
-   * Open the centre pane's insights tab (the Frame's owner prop). Optional:
-   * the slot's composed prop type doesn't carry owner props, and the button
+   * Open the centre pane's insights tab (the Frame's owner prop, declared in
+   * the slot map's `FooterInsightsOwnerProps`). Optional anyway: the button
    * degrades to a pressure-stroke indicator when absent.
    */
   readonly onOpen?: (() => void) | undefined
@@ -61,14 +61,8 @@ function BarsIcon(): ReactElement {
 export function InsightsFooterButton({ useProjection, onOpen, t }: InsightsFooterButtonProps): ReactElement {
   const pressure = useProjection('contextPressure')
   // Same resolution order the status bar uses (ADR-0039).
-  const used = pressure?.projectedTokens ?? pressure?.pressureTokens
-  const capacity = pressure?.contextWindow
-  const percent = used !== undefined && capacity !== undefined && capacity > 0
-    ? Math.min(100, Math.round(used / capacity * 100))
-    : null
-  const stroke = percent === null
-    ? 'var(--yt-border-subtle)'
-    : percent > DANGER_PERCENT ? 'var(--yt-error)' : percent > WARNING_PERCENT ? 'var(--yt-warning-text)' : 'var(--yt-border-subtle)'
+  const occupancy = resolveOccupancy(pressure)
+  const stroke = occupancyStroke(occupancy?.percent ?? null)
 
   return (
     <button

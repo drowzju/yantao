@@ -12,7 +12,7 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { UsageSessionUnknownError } from '@deepseek-ai/dsh-yantao-usage'
 import type {
-  UsageDailyArgs, UsageDailyResult, UsageSessionArgs, UsageSessionResult,
+  UsageWireDailyArgs, UsageWireDailyResult, UsageSessionArgs, UsageSessionResult,
 } from './types.ts'
 
 export type * from './types.ts'
@@ -46,7 +46,7 @@ export class YantaoUsageController extends TypertRemoteService {
    * @returns the day rows oldest first plus their sum.
    */
   @Remote('dailyUsage')
-  dailyUsage(args: UsageDailyArgs): Promise<UsageDailyResult> {
+  dailyUsage(args: UsageWireDailyArgs): Promise<UsageWireDailyResult> {
     return this.ctx.yantaoUsage.dailyUsage(args)
   }
 

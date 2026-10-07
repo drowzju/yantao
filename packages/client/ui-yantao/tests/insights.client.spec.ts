@@ -63,11 +63,12 @@ describe('feedFromEvents', () => {
 
   it('keeps a compaction without a shadowed figure and drops an anonymous model selection', () => {
     const feed = feedFromEvents([
-      event('compaction/summary', 1, {}),
+      // The compaction types carry the summary as a content-block array…
+      event('compaction/summary', 1, { summary: [{ type: 'text', text: '压缩了历史' }] }),
       event('model/selection', 2, {}),
     ])
     expect(feed).toEqual([
-      { kind: 'compaction', seq: 1, turn: 0, shadowedTokenCount: null, summary: '' },
+      { kind: 'compaction', seq: 1, turn: 0, shadowedTokenCount: null, summary: '压缩了历史' },
     ])
   })
 })
@@ -80,15 +81,15 @@ describe('fileActivityFromEvents', () => {
       event('tool/call', 3, { callId: 'c', name: 'kb_write_resource', arguments: '{"path":"resources/x.md","content":"一\\n二\\n三"}' }),
       event('tool/call', 4, { callId: 'd', name: 'kb_edit_section', arguments: '{"entity":"p","section":"动态","text":"one\\ntwo"}' }),
       event('tool/call', 5, { callId: 'e', name: 'grep', arguments: '{"pattern":"x"}' }),
-      event('tool/call', 6, { callId: 'f', name: 'str_replace_editor', arguments: '{"command":"str_replace","old_string":"a","new_string":"a\\nb"}' }),
+      event('tool/call', 6, { callId: 'f', name: 'str_replace_editor', arguments: '{"command":"str_replace","old_str":"a","new_str":"a\\nb"}' }),
       event('tool/call', 7, { callId: 'g', name: 'kb_propose_memory', arguments: '{}' }),
       // Results never contribute — only the call arguments do.
       event('tool/result', 8, { callId: 'a', message: { content: [{ type: 'text', text: 'huge result' }] } }),
     ])
     expect(files).toEqual({
       read: 1, write: 1, edit: 2, search: 2,
-      linesAdded: 3 + 2 + 2, // write content + section text + editor new_string
-      linesRemoved: 1, // editor old_string
+      linesAdded: 3 + 2 + 2, // write content + section text + editor new_str
+      linesRemoved: 1, // editor old_str
     })
   })
 

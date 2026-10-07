@@ -95,6 +95,8 @@ export class YantaoUsageService extends Service {
    * @returns the day records in range, oldest first, with their bucket-wise sum.
    */
   async dailyUsage(args: UsageDailyArgs = {}): Promise<UsageDailyResult> {
+    validateDayBound('sinceDay', args.sinceDay)
+    validateDayBound('untilDay', args.untilDay)
     await this.refresh()
     const days = [...this.requireDays().entries()]
       .filter(([day]) => (args.sinceDay === undefined || day >= args.sinceDay)
@@ -115,7 +117,13 @@ export class YantaoUsageService extends Service {
   async sessionUsage(sessionId: SessionId): Promise<UsageBuckets> {
     const snapshot = await this.ctx.sessionPersistence.stat(sessionId)
     if (snapshot === undefined) throw new UsageSessionUnknownError(sessionId)
-    await this.scanSession(sessionId, snapshot.eventCount)
+    // Join the same single-flight tail as refresh(): a per-session read must
+    // never fold concurrently with (nor stale-after) a background scan, or
+    // the same event slice merges twice into the day rows.
+    const run = this.scanTail.catch(() => undefined)
+      .then(() => this.scanSession(sessionId, snapshot.eventCount))
+    this.scanTail = run.catch(() => undefined)
+    await run
     return this.requireSessions().get(sessionId)?.totals ?? { ...ZERO }
   }
 
@@ -159,7 +167,15 @@ export class YantaoUsageService extends Service {
       if (events.length === 0) return
       const folded = foldSessionEvents(cursor, events)
       cursor = folded.cursor
-      for (const delta of folded.deltas) await this.applyDelta(sessionId, delta)
+      // Coalesce the batch's movements to one put per touched day (a batch
+      // usually spans one or two): fewer durable writes and a smaller window
+      // between ledger movement and cursor save.
+      const byDay = new Map<string, UsageBuckets>()
+      for (const { day, delta } of folded.deltas) {
+        const acc = byDay.get(day)
+        byDay.set(day, acc === undefined ? delta : addBuckets(acc, delta))
+      }
+      for (const [day, delta] of byDay) await this.applyDelta(sessionId, { day, delta })
       await sessions.put(sessionId, cursor)
     } finally {
       await handle.close()
@@ -198,6 +214,24 @@ function addRecordInto(total: UsageBuckets, record: DayUsageRecord): UsageBucket
     outputTokens: total.outputTokens + record.outputTokens,
     cacheReadTokens: total.cacheReadTokens + record.cacheReadTokens,
     cacheWriteTokens: total.cacheWriteTokens + record.cacheWriteTokens,
+  }
+}
+
+function addBuckets(left: UsageBuckets, right: UsageBuckets): UsageBuckets {
+  return {
+    uncachedInputTokens: left.uncachedInputTokens + right.uncachedInputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    cacheReadTokens: left.cacheReadTokens + right.cacheReadTokens,
+    cacheWriteTokens: left.cacheWriteTokens + right.cacheWriteTokens,
+  }
+}
+
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
+/** Day bounds compare lexically, so a malformed bound silently filters to an empty answer — reject it instead. */
+function validateDayBound(key: 'sinceDay' | 'untilDay', value: string | undefined): void {
+  if (value !== undefined && !DAY_PATTERN.test(value)) {
+    throw new Error(`yantaoUsage.dailyUsage: ${key} must be YYYY-MM-DD, got "${value}"`)
   }
 }
 

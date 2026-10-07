@@ -18,7 +18,7 @@ import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/t
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
-import { sessionRemoteOf } from './remote.ts'
+import { mainViewSessionOf, sessionRemoteOf } from './remote.ts'
 
 /**
  * Send one prompt to the current session, creating and selecting one when the
@@ -38,8 +38,7 @@ export async function promptCurrentSession(ctx: Context, text: string, cwd: stri
   const sessions: ISessions = ctx.sessions
   // 0.2.1 的会话导航归视图所有者（uiWorkspace 持有唯一的 mainView 引用）：
   // 「当前会话」即列表里 mainView 计数大于零的那一行。
-  const list = sessions.list.getSnapshot()
-  let sessionId = Object.values(list.byId).find(row => (row.retainedBy.mainView ?? 0) > 0)?.id
+  let sessionId = mainViewSessionOf(sessions)
   if (sessionId === undefined) {
     sessionId = await sessions.create(cwd === undefined ? {} : { cwd })
     // `create` 只登记目录，不开进主视图；经 uiWorkspace 开进去，人才看着回合落地。

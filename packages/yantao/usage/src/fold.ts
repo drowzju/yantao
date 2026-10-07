@@ -141,7 +141,9 @@ export function foldSessionEvents(cursor: SessionUsageCursor, events: readonly S
     if (previous !== undefined && !zeroDelta(previous.buckets)) {
       deltas.push({ day: previous.day, delta: negBuckets(previous.buckets) })
     }
-    deltas.push({ day: dayOf(event.time), delta: buckets })
+    if (!zeroDelta(buckets)) {
+      deltas.push({ day: dayOf(event.time), delta: buckets })
+    }
     next = {
       nextSeq: event.seq + 1,
       last: { turn, step, day: dayOf(event.time), buckets },

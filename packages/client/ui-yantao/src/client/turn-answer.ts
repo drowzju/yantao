@@ -99,7 +99,7 @@ function turnFailureText(kind: string | undefined, data: unknown): string {
  * One step's token accounting, as the `assistant/message` event carries it —
  * the same wire shape the adapter reported, read defensively by the caller.
  */
-export interface TurnUsage {
+export interface TurnStepUsage {
   readonly inputTokens: number
   readonly outputTokens: number
   readonly totalTokens?: number
@@ -120,7 +120,7 @@ export async function askTurn(options: {
   readonly sessionId: string
   readonly prompt: string
   readonly signal?: AbortSignal
-  readonly onUsage?: (usage: TurnUsage) => void
+  readonly onUsage?: (usage: TurnStepUsage) => void
 }): Promise<string> {
   // The wire id is a plain string; the Remote face brands it (reading-flow's precedent).
   const sessionId = options.sessionId as SessionId
@@ -149,7 +149,7 @@ export async function askTurn(options: {
         if (typeof usage === 'object' && usage !== null
           && typeof (usage as { inputTokens?: unknown }).inputTokens === 'number'
           && typeof (usage as { outputTokens?: unknown }).outputTokens === 'number') {
-          options.onUsage(usage as TurnUsage)
+          options.onUsage(usage as TurnStepUsage)
         }
       }
     }
@@ -193,7 +193,7 @@ export async function jsonRound<T>(options: {
   readonly reask: string
   readonly parse: (text: string) => T
   readonly signal?: AbortSignal
-  readonly onUsage?: (usage: TurnUsage) => void
+  readonly onUsage?: (usage: TurnStepUsage) => void
 }): Promise<T> {
   const first = await askTurn(options)
   try {

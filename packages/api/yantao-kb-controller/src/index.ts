@@ -2655,7 +2655,7 @@ export class YantaoKbController extends TypertRemoteService {
 
   /**
    * Adopt one unregistered skill (ADR-0025 决定 1): copy its directory into
-   * `<kbRoot>/​.dsh/skills/<name>/` and declare it in the central routing
+   * `<kbRoot>/.dsh/skills/<name>/` and declare it in the central routing
    * file (`invocation: ['human']`, no `entry` — an instruction capability;
    * ADR-0025 落地注记二). The copy, never a move: the source directory is
    * shared with every other dsh usage, and moving would steal it. Any

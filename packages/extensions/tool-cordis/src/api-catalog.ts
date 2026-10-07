@@ -4047,7 +4047,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'capabilityAdopt\') async capabilityAdopt(args: KbCapabilityAdoptArgs): Promise<KbCapabilityAdoptResult>',
-        description: 'Adopt one unregistered skill (ADR-0025 决定 1): copy its directory into `<kbRoot>/​.dsh/skills/<name>/` and declare it in the central routing file (`invocation: [\'human\']`, no `entry` — an instruction capability; ADR-0025 落地注记二). The copy, never a move: the source directory is shared with every other dsh usage, and moving would steal it. Any `yantao.json` sidecar the source carried is removed from the copy — outside declarations never take effect silently; the confirm box showed them before this call existed.\n\nGuards: the name must be a single safe path segment, the target must not exist (a collision with a builtin or an adopted capability is refused, never overwritten), and the skill must be a directory bundle that its frontmatter has not marked `user-invocable: false`.',
+        description: 'Adopt one unregistered skill (ADR-0025 决定 1): copy its directory into `<kbRoot>/.dsh/skills/<name>/` and declare it in the central routing file (`invocation: [\'human\']`, no `entry` — an instruction capability; ADR-0025 落地注记二). The copy, never a move: the source directory is shared with every other dsh usage, and moving would steal it. Any `yantao.json` sidecar the source carried is removed from the copy — outside declarations never take effect silently; the confirm box showed them before this call existed.\n\nGuards: the name must be a single safe path segment, the target must not exist (a collision with a builtin or an adopted capability is refused, never overwritten), and the skill must be a directory bundle that its frontmatter has not marked `user-invocable: false`.',
         parameters: [{ name: 'args', description: 'the unregistered skill\'s name.' }],
         returns: 'the adopted directory\'s KB-relative path.',
       },
@@ -4061,8 +4061,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'yantaoUsage',
-    summary: 'The usage ledger service (ADR-0049): folds persisted session event logs into a per-local-day token ledger in the `yantao_usage` KV domain, and answers the day-range and per-session reads the 洞察 tab\'s 总览 renders.',
-    description: 'The usage ledger service (ADR-0049): folds persisted session event logs into a per-local-day token ledger in the `yantao_usage` KV domain, and answers the day-range and per-session reads the 洞察 tab\'s 总览 renders. Scans are lazy and single-flight — every read first brings the ledger up to date.',
+    summary: 'The usage ledger service (ADR-0050): folds persisted session event logs into a per-local-day token ledger in the `yantao_usage` KV domain, and answers the day-range and per-session reads the 洞察 tab\'s 总览 renders.',
+    description: 'The usage ledger service (ADR-0050): folds persisted session event logs into a per-local-day token ledger in the `yantao_usage` KV domain, and answers the day-range and per-session reads the 洞察 tab\'s 总览 renders. Scans are lazy and single-flight — every read first brings the ledger up to date.',
     methods: [
       {
         signature: 'refresh(): Promise<void>',
@@ -4091,7 +4091,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'UI-direct usage reads over the `yantaoUsage` Remote namespace.',
     methods: [
       {
-        signature: '@Remote(\'dailyUsage\') dailyUsage(args: UsageDailyArgs): Promise<UsageDailyResult>',
+        signature: '@Remote(\'dailyUsage\') dailyUsage(args: UsageWireDailyArgs): Promise<UsageWireDailyResult>',
         description: 'The day ledger over an inclusive local-day range, brought up to date first (the scan is lazy and single-flight inside the service).',
         parameters: [{ name: 'args', description: 'optional `sinceDay`/`untilDay` bounds.' }],
         returns: 'the day rows oldest first plus their sum.',
@@ -5398,6 +5398,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DailyScheduleRecord {\n    readonly id: ScheduleId;\n    readonly kind: \'daily\';\n    readonly title: string;\n    readonly prompt: string;\n    readonly time: string;\n    readonly timeZone: string;\n    readonly scheduledAt: string;\n}',
   },
   {
+    name: 'DayUsageRecord',
+    declaration: 'export interface DayUsageRecord extends UsageBuckets {\n    readonly day: string;\n    readonly sessionIds: readonly string[];\n}',
+  },
+  {
     name: 'DeepSeekLlmApiExtensionMap',
     declaration: 'export interface DeepSeekLlmApiExtensionMap {\n}',
   },
@@ -6055,11 +6059,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbGraphResult',
-    declaration: 'export interface KbGraphResult {\n    readonly nodes: readonly string[];\n    readonly edges: readonly KbGraphEdge[];\n}',
+    declaration: 'export interface KbGraphResult {\n    readonly nodes: readonly string[];\n    readonly edges: readonly KbWireGraphEdge[];\n}',
   },
   {
     name: 'KbLinksResult',
-    declaration: 'export interface KbLinksResult {\n    readonly path: string;\n    readonly outgoing: readonly KbLinkTarget[];\n    readonly incoming: readonly KbLinkSource[];\n}',
+    declaration: 'export interface KbLinksResult {\n    readonly path: string;\n    readonly outgoing: readonly KbWireLinkTarget[];\n    readonly incoming: readonly KbWireLinkSource[];\n}',
   },
   {
     name: 'KbMailMarkReadArgs',
@@ -6183,7 +6187,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbRelationGraphResult',
-    declaration: 'export interface KbRelationGraphResult {\n    readonly nodes: readonly string[];\n    readonly edges: readonly KbRelationEdge[];\n}',
+    declaration: 'export interface KbRelationGraphResult {\n    readonly nodes: readonly string[];\n    readonly edges: readonly KbWireRelationEdge[];\n}',
   },
   {
     name: 'KbResourceBinary',
@@ -6268,6 +6272,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KbUnregisteredSkill',
     declaration: 'export interface KbUnregisteredSkill {\n    readonly name: string;\n    readonly description: string;\n    readonly source: string;\n    readonly directory?: string;\n    readonly userInvocable: boolean;\n    readonly flat: boolean;\n    readonly inKb?: boolean;\n    readonly reason?: string;\n    readonly plugin?: boolean;\n    readonly pluginSkills?: readonly string[];\n    readonly sidecar?: JsonValue;\n}',
+  },
+  {
+    name: 'KbWireGraphEdge',
+    declaration: 'export interface KbWireGraphEdge {\n    readonly from: string;\n    readonly target: string;\n    readonly to: string | null;\n}',
+  },
+  {
+    name: 'KbWireLinkSource',
+    declaration: 'export interface KbWireLinkSource {\n    readonly from: string;\n    readonly target: string;\n}',
+  },
+  {
+    name: 'KbWireLinkTarget',
+    declaration: 'export interface KbWireLinkTarget {\n    readonly target: string;\n    readonly path: string | null;\n}',
+  },
+  {
+    name: 'KbWireRelationEdge',
+    declaration: 'export interface KbWireRelationEdge {\n    readonly from: string;\n    readonly to: string;\n    readonly kind: \'person-project\' | \'area-project\' | \'person-person\';\n}',
   },
   {
     name: 'KbWriteResult',
@@ -8598,6 +8618,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TurnStartResult {\n    turnId: string;\n}',
   },
   {
+    name: 'TurnUsage',
+    declaration: 'export interface TurnUsage {\n    input_tokens: number;\n    output_tokens: number;\n    cache_read_input_tokens: number;\n    cache_creation_input_tokens: number;\n    model: string;\n}',
+  },
+  {
     name: 'TypertCodec',
     declaration: 'export type TypertCodec = {\n    readonly mode: \'strict\';\n    readonly typeSymbol: string;\n    readonly create: () => TypertSchema;\n    readonly decode?: (value: unknown) => unknown;\n    readonly encode?: (value: unknown, writeBytes: (bytes: Uint8Array, path: readonly (string | number)[]) => null) => unknown;\n} | {\n    readonly mode: \'src-json\';\n};',
   },
@@ -8734,12 +8758,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface UsageBuckets {\n    readonly uncachedInputTokens: number;\n    readonly outputTokens: number;\n    readonly cacheReadTokens: number;\n    readonly cacheWriteTokens: number;\n}',
   },
   {
+    name: 'UsageDailyArgs',
+    declaration: 'export interface UsageDailyArgs {\n    readonly sinceDay?: string;\n    readonly untilDay?: string;\n}',
+  },
+  {
+    name: 'UsageDailyResult',
+    declaration: 'export interface UsageDailyResult {\n    readonly days: readonly DayUsageRecord[];\n    readonly totals: UsageBuckets;\n}',
+  },
+  {
     name: 'UsageSessionArgs',
     declaration: 'export interface UsageSessionArgs {\n    readonly sessionId: string;\n}',
   },
   {
     name: 'UsageSessionResult',
     declaration: 'export interface UsageSessionResult {\n    readonly sessionId: string;\n    readonly totals: UsageBuckets;\n}',
+  },
+  {
+    name: 'UsageWireDailyArgs',
+    declaration: 'export interface UsageWireDailyArgs {\n    readonly sinceDay?: string;\n    readonly untilDay?: string;\n}',
+  },
+  {
+    name: 'UsageWireDailyResult',
+    declaration: 'export interface UsageWireDailyResult {\n    readonly days: readonly DayUsageRecord[];\n    readonly totals: UsageBuckets;\n}',
   },
   {
     name: 'UserMessage',

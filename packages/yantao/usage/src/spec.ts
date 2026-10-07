@@ -48,6 +48,12 @@ const sessionUsageCursorSchema = z.object({
 export const usageDomainSpec = defineDomain({
   name: 'yantao_usage',
   version: 1,
+  // per-record: day rows and per-session cursors are large, sparse, and
+  // individually disposable — the `single` default would re-serialize the
+  // whole domain on every delta put. A legacy `single` whole-unit file seeds
+  // the per-record tree on first open (storage-json's legacy bootstrap), so
+  // existing local ledgers migrate implicitly.
+  layout: 'per-record',
   tables: {
     days: domainTable<string, DayUsageRecord>(dayUsageRecordSchema),
     sessions: domainTable<string, SessionUsageCursor>(sessionUsageCursorSchema),

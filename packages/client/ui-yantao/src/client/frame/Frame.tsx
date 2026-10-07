@@ -66,7 +66,7 @@ import type { SidebarRightFileSeat } from '../sidebar-right.ts'
 import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
 import type { WorkbenchT } from '../locales.ts'
 
-/** Full props: the render share for the five seats this frame declares, plus the panel-action seat. */
+/** Full props: the render share for the four seats this frame declares, plus the panel-action seat. */
 export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.insights' | 'footer.insights'> & {
   /** The workbench dictionary's bound translator. */
   readonly t: WorkbenchT
@@ -509,9 +509,15 @@ export function Frame({
 
   // Publish this frame's toggle into the seat `ctx.layout` reads, and the
   // file opener into the seat `ctx.sidebarRight` (the 0.2.1 stand-in) reads.
+  // Unmount restores the no-ops, so a torn-down frame never fires into a
+  // dead component.
   useEffect(() => {
     panels.toggleIntake = () => { setIntakeOpen(open => !open) }
     sidebarFiles.openFile = (path) => { setTabs(state => openTab(state, path, readOnlyPath(path) ? 'read' : 'edit')) }
+    return () => {
+      panels.toggleIntake = () => {}
+      sidebarFiles.openFile = () => {}
+    }
   }, [panels, sidebarFiles])
 
   const cols = solveColumns(
@@ -1909,8 +1915,10 @@ export function Frame({
         insightsPane={renderSlot('center.insights', {
           // ADR-0050: the overview's session-card jump — opening the session
           // is the card's own gesture; switching to the conversation tab is
-          // the frame's, passed through as owner props.
+          // the frame's, passed through as owner props. `active` gates the
+          // pane's reads on the tab actually being visible (lazy load).
           onSwitchToConversation: () => { setTabs(state => activateTab(state, CONVERSATION_TAB)) },
+          active: tabs.active === INSIGHTS_TAB,
         })}
         inboxPending={inboxEntries.filter(entry => entry.status === 'pending').length}
         taskDetail={detailRow === null ? null : (
@@ -2024,9 +2032,8 @@ export function Frame({
         />
       </div>
       {/* The reserved grid row: 配置 lives at the window's bottom-left, a
-          flow child so it survives intake collapse. The context status bar
-          (ADR-0039) rides beside it through the session-scoped child slot;
-          ADR-0050 puts the 洞察 button between 调度 and that strip — its
+          flow child so it survives intake collapse. The 调度 and 洞察
+          entries ride beside it (ADR-0045 决定 8 / ADR-0050) — the latter's
           stroke carries the current session's pressure alarm. */}
       <div style={footerStripStyle}>
         <button style={footerButtonStyle} data-config-button="true" onClick={() => { setConfigOpen(true) }}>

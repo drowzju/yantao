@@ -141,8 +141,13 @@ export interface KbDeleteResourceResult {
   readonly path: string
 }
 
-/** One `[[…]]` link a file writes out, and where it lands (ADR-0015). */
-export interface KbLinkTarget {
+/**
+ * One `[[…]]` link a file writes out, and where it lands (ADR-0015). The
+ * `KbWire` prefix keeps the name unique across the workspace — the kb
+ * package's own parser declares the same shape as `KbLinkTarget`, and the
+ * catalog generator drops any name declared twice.
+ */
+export interface KbWireLinkTarget {
   /** The target as written between the brackets. */
   readonly target: string
   /** The resolved KB-relative path; null when it names zero or several files. */
@@ -150,7 +155,7 @@ export interface KbLinkTarget {
 }
 
 /** One file that links into another (ADR-0015). */
-export interface KbLinkSource {
+export interface KbWireLinkSource {
   /** KB-relative path of the linking file. */
   readonly from: string
   /** The target that file wrote. */
@@ -162,13 +167,13 @@ export interface KbLinksResult {
   /** The file the graph was computed for. */
   readonly path: string
   /** What it links out to, in document order. */
-  readonly outgoing: readonly KbLinkTarget[]
+  readonly outgoing: readonly KbWireLinkTarget[]
   /** What links into it. */
-  readonly incoming: readonly KbLinkSource[]
+  readonly incoming: readonly KbWireLinkSource[]
 }
 
 /** One directed edge of the whole-KB `[[…]]` link graph (ADR-0035). */
-export interface KbGraphEdge {
+export interface KbWireGraphEdge {
   /** KB-relative path of the linking file. */
   readonly from: string
   /** The target as written inside the brackets. */
@@ -182,11 +187,11 @@ export interface KbGraphResult {
   /** Every entity file, as KB-relative paths, in type-then-directory order. */
   readonly nodes: readonly string[]
   /** Every `[[…]]` occurrence outside fenced blocks; self-links are dropped. */
-  readonly edges: readonly KbGraphEdge[]
+  readonly edges: readonly KbWireGraphEdge[]
 }
 
 /** One typed relation edge of the whole-KB relation graph (ADR-0049). */
-export interface KbRelationEdge {
+export interface KbWireRelationEdge {
   /** One endpoint, normalized: the person (or area) half of a cross-kind pair. */
   readonly from: string
   /** The other endpoint: the project half of a cross-kind pair. */
@@ -200,7 +205,7 @@ export interface KbRelationGraphResult {
   /** Every active entity, as KB-relative paths, in type-then-directory order. */
   readonly nodes: readonly string[]
   /** Every relation edge, deduplicated. */
-  readonly edges: readonly KbRelationEdge[]
+  readonly edges: readonly KbWireRelationEdge[]
 }
 
 /** Result of `yantaoKb.root`. */

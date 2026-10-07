@@ -158,17 +158,20 @@ export function apply(ctx: Context, config: Config): void {
   const importedRoot = importLegacyRootState()
 
   const persistRoot = (next: string): void => {
-    void ctx.settings.update('yantao-kb', { kbRoot: next }).catch((error: unknown) => {
+    void ctx.settings.update(name, { kbRoot: next }).catch((error: unknown) => {
       ctx.logger.warn(`yantao-kb: 无法持久化知识库根目录：${(error as Error).message}`)
     })
   }
   const initialRoot = config.kbRoot.get()
+  // 显式配置压过一次性 legacy 导入：操作者已在 profile patch / 设置面钉了根，
+  // 就不能再被 `~/.dsh/yantao-kb.json` 的旧指针顶掉（导入只在人类还没记录过时播种）。
+  const explicit = initialRoot !== DEFAULT_KB_ROOT
   const liveRoot = new LiveKbRoot(
-    importedRoot ?? initialRoot,
-    importedRoot !== undefined || initialRoot !== DEFAULT_KB_ROOT,
+    explicit ? initialRoot : importedRoot ?? initialRoot,
+    importedRoot !== undefined || explicit,
     persistRoot,
   )
-  if (importedRoot !== undefined && initialRoot === DEFAULT_KB_ROOT) persistRoot(importedRoot)
+  if (importedRoot !== undefined && !explicit) persistRoot(importedRoot)
 
   ctx.effect(
     () => ctx.provide('yantaoKb', liveRoot satisfies YantaoKbService),
@@ -200,13 +203,18 @@ export function apply(ctx: Context, config: Config): void {
   // `@` mentions: the composer inserts a KB-relative path, and nothing else in
   // this profile tells the model what one is. Read the cited files and hand
   // the model their content as one context message ahead of the turn.
-  ctx.on('agent/pre-step', async (_event, next): Promise<PreStepDecision> => {
+  ctx.on('agent/pre-step', async (event, next): Promise<PreStepDecision> => {
+    // Gate on the claimed batch, not the downstream decision: the built-in
+    // innermost `next` appends the runtime-context snapshot after the user's
+    // gesture, and inner listeners (yantao-kb-controller's per-turn catalog /
+    // notice) append theirs too — a decision-last check would see their
+    // sources and silently drop the recall.
+    const claimedLast = event.messages[event.messages.length - 1]
+    if (claimedLast === undefined || claimedLast.source.kind !== 'user') return next()
     const decision = await next()
     if (decision.kind === 'reject') return decision
     const messages = decision.messages
-    const last = messages[messages.length - 1]
-    if (last === undefined || last.source.kind !== 'user') return decision
-    const text = last.content
+    const text = claimedLast.content
       .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
       .map(block => block.text)
       .join('\n')

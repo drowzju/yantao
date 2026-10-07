@@ -45,7 +45,7 @@ import type {
   KbPromptShortcutSaveArgs, KbProposalInboxEnqueueArgs, KbProposalInboxResolveArgs,
   KbScheduleMarkArgs, KbScheduleSaveArgs, KbWriteTodosArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { UsageDailyArgs } from '@deepseek-ai/dsh-api-yantao-usage-controller/types'
+import type { UsageWireDailyArgs } from '@deepseek-ai/dsh-api-yantao-usage-controller/types'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
 import { runCapabilityDistill, type CapabilityRunRecord } from './capability-distill.ts'
@@ -89,6 +89,26 @@ import { SessionOverview } from './frame/SessionOverview.tsx'
 
 export const name = 'ui-yantao'
 
+/** Owner props the Frame hands the insights pane shell (`center.insights`). */
+export interface CenterInsightsOwnerProps {
+  /** Swings the centre pane back to the conversation tab. */
+  onSwitchToConversation: () => void
+  /** Whether the insights tab is the visible centre tab (the lazy-load gate). */
+  active?: boolean | undefined
+}
+
+/** Owner props the pane shell hands the cross-session overview (`insights.overview`). */
+export interface InsightsOverviewOwnerProps {
+  /** Swings the centre pane back to the conversation tab. */
+  onSwitchToConversation: () => void
+}
+
+/** Owner props the Frame hands the footer strip's 洞察 button (`footer.insights`). */
+export interface FooterInsightsOwnerProps {
+  /** Opens the centre pane's insights tab. */
+  onOpen: () => void
+}
+
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     // The keyed `main` slot is NOT re-declared here: ui-layout's global
@@ -97,17 +117,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     // 会话面走 keyed `main` 槽——见下方 root 注册的 children 注释。
     /**
      * ADR-0050: the insights tab's root pane — the sixth permanent centre
-     * tab's shell. Root-scoped so the cross-session overview (ADR-0050's
-     * next batch) renders regardless of session selection; the current-
-     * session dashboard nests inside as `insights.session`.
+     * tab's shell. Root-scoped so it renders regardless of session
+     * selection; the cross-session overview nests inside as
+     * `insights.overview`, the current-session dashboard as `insights.session`.
      */
-    'center.insights': { kind: 'single'; scope: 'root' }
+    'center.insights': { kind: 'single'; scope: 'root'; owner: CenterInsightsOwnerProps }
     /**
      * ADR-0050: the cross-session overview at the top of the insights pane —
      * root-scoped like its parent shell: KPI trio, trend bars, heatmap and
      * session cards aggregate the whole ledger, no session selection needed.
      */
-    'insights.overview': { kind: 'single'; scope: 'root' }
+    'insights.overview': { kind: 'single'; scope: 'root'; owner: InsightsOverviewOwnerProps }
     /**
      * ADR-0050: the current-session dashboard inside the insights pane —
      * `session-maybe` so the slot machinery threads the current session's
@@ -120,12 +140,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * stroke can read the current session's context pressure (ADR-0039's
      * red line lives on here).
      */
-    'footer.insights': { kind: 'single'; scope: 'session-maybe' }
+    'footer.insights': { kind: 'single'; scope: 'session-maybe'; owner: FooterInsightsOwnerProps }
   }
 }
-// Cordis forbids reading an undeclared service, and a Remote namespace counts
-// as one of its own: both the `remote` face and this namespace must be listed
-// or the accessor throws "cannot get property remote.yantaoKb without inject".
 // Cordis forbids reading an undeclared service, and a Remote namespace counts
 // as one of its own: both the `remote` face and this namespace must be listed
 // or the accessor throws "cannot get property remote.yantaoKb without inject".
@@ -187,7 +204,7 @@ export function apply(ctx: Context): void {
   ctx.inject(['uiWorkspace'], (scope) => { uiWorkspaceRef.current = scope.uiWorkspace })
   const conversationRef: { current: { input?: SessionInputResolver } | undefined } = { current: undefined }
   ctx.inject(['conversation'], (scope) => {
-    conversationRef.current = scope.conversation as { input?: SessionInputResolver } | undefined
+    conversationRef.current = scope.conversation satisfies { input?: SessionInputResolver } | undefined
   })
 
   // ADR-0013: dsh's own workspace follows the KB root, so the middle column's
@@ -204,7 +221,10 @@ export function apply(ctx: Context): void {
     })
   }
   align()
-  ctx.effect(() => ctx.reflect.provide('layout', layout), 'ui-yantao: layout service')
+  ctx.effect(() => {
+    ctx.reflect.provide('layout', layout)
+    return () => { layout.dispose() }
+  }, 'ui-yantao: layout service')
   ctx.effect(() => ctx.reflect.provide('sidebarRight', sidebarRight), 'ui-yantao: sidebarRight stand-in')
 
   // Theme presentation: pure DOM writes from resolved snapshots — the initial
@@ -238,10 +258,9 @@ export function apply(ctx: Context): void {
       // entryKey 'conversation' 选中),不再是 single 的 `conversation` 槽。
       'main': { kind: 'keyed', scope: 'root' },
       'shell.overlay': { kind: 'list', scope: 'root' },
-      // ADR-0050: the insights tab — a root-scoped pane shell (the cross-
-      // session overview joins it in the next batch) plus the footer strip's
-      // 洞察 button, session-scoped so its stroke reads the current
-      // session's context pressure.
+      // ADR-0050: the insights tab — a root-scoped pane shell plus the
+      // footer strip's 洞察 button, session-scoped so its stroke reads the
+      // current session's context pressure.
       'center.insights': { kind: 'single', scope: 'root' },
       'footer.insights': { kind: 'single', scope: 'session-maybe' },
     },
@@ -438,20 +457,21 @@ export function apply(ctx: Context): void {
   // trio, bars, heatmap and cards alike — personal scale is a few hundred
   // rows) and the session-opening gesture; the session list itself arrives
   // through the standard `useSessions` prop the slot machinery threads.
+  const usageOrFail = () => {
+    const usage = usageRemoteOf(ctx)
+    if (usage === undefined) throw new Error('没有挂载 yantaoUsage Remote 命名空间')
+    return usage
+  }
   ctx.effect(() => ctx.slots.inject('insights.overview', () =>
     ctx.slots.register({
       name: 'insights.overview',
       locale: WORKBENCH_NS,
       inject: () => ({
-        dailyUsage: async (args: UsageDailyArgs) => {
-          const usage = usageRemoteOf(ctx)
-          if (usage === undefined) throw new Error('没有挂载 yantaoUsage Remote 命名空间')
-          return unwrapRemote(await usage.dailyUsage(args))
+        dailyUsage: async (args: UsageWireDailyArgs) => {
+          return unwrapRemote(await usageOrFail().dailyUsage(args))
         },
         fetchTotals: async (sessionId: string) => {
-          const usage = usageRemoteOf(ctx)
-          if (usage === undefined) throw new Error('没有挂载 yantaoUsage Remote 命名空间')
-          return unwrapRemote(await usage.sessionUsage({ sessionId })).totals
+          return unwrapRemote(await usageOrFail().sessionUsage({ sessionId })).totals
         },
         openSession: (sessionId: string) => {
           // The generated face brands the id; the overview carries it as a

@@ -24,7 +24,7 @@ import type { UseProjection } from '@deepseek-ai/dsh-api-session-controller/clie
 // Type-only: the `contextPressure` / `contextBreakdown` projection key merges.
 import type {} from '@deepseek-ai/dsh-token-meter/client'
 import type { KbPromptInjectionResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import { formatTokens } from '../insights.ts'
+import { formatTokens, resolveOccupancy } from '../insights.ts'
 import type { FeedItem, InsightsLoader, SessionInsights, TrendStep } from '../insights.ts'
 import type { WorkbenchT } from '../locales.ts'
 
@@ -302,15 +302,18 @@ const FEED_BADGE_KEYS: Record<Exclude<FeedFilter, 'all'>, Parameters<WorkbenchT>
   model: 'insights.feed.model',
 }
 
+/** The feed line's first line — the card shows one line per event. */
+const firstLineOf = (text: string): string => text.split('\n')[0] ?? ''
+
 /** One feed line: kind badge + the event's one-line reading. */
 function FeedRow({ item, t }: { item: FeedItem; t: WorkbenchT }): ReactElement {
   const badge = FEED_BADGE_KEYS[item.kind]
   const text = item.kind === 'injection'
-    ? item.text.split('\n')[0] ?? ''
+    ? firstLineOf(item.text)
     : item.kind === 'compaction'
       ? (item.shadowedTokenCount !== null
-        ? `✂ ${item.summary.split('\n')[0] ?? ''}（−${formatTokens(item.shadowedTokenCount)}）`
-        : `✂ ${item.summary.split('\n')[0] ?? ''}`)
+        ? `✂ ${firstLineOf(item.summary)}（−${formatTokens(item.shadowedTokenCount)}）`
+        : `✂ ${firstLineOf(item.summary)}`)
       : `${item.provider}/${item.model}`
   return (
     <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', minWidth: 0 }}>
@@ -468,10 +471,7 @@ export function SessionDashboard({
   }, [sessionId, promptInjection])
 
   // Same resolution order the status bar uses (ADR-0039).
-  const used = pressure?.projectedTokens ?? pressure?.pressureTokens
-  const capacity = pressure?.contextWindow
-  const hasData = used !== undefined && capacity !== undefined && capacity > 0
-  const percent = hasData ? Math.min(100, Math.round(used / capacity * 100)) : 0
+  const occupancy = resolveOccupancy(pressure)
   const injectionTotal = injection === null
     ? null
     : injection.staticTokens + injection.behaviorMemoryTokens
@@ -488,14 +488,14 @@ export function SessionDashboard({
   }
   return (
     <div style={rootStyle}>
-      {hasData && (
+      {occupancy !== null && (
         <CompositionCard
           breakdown={breakdown}
           injectionTotal={injectionTotal}
           lastStep={lastStep}
-          capacity={capacity}
-          used={used}
-          percent={percent}
+          capacity={occupancy.capacity}
+          used={occupancy.used}
+          percent={occupancy.percent}
           t={t}
         />
       )}

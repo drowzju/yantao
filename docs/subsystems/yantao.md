@@ -615,7 +615,7 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 
 /**
  * Adopt one unregistered skill (ADR-0025 决定 1): copy its directory into
- * `<kbRoot>/​.dsh/skills/<name>/` and declare it in the central routing
+ * `<kbRoot>/.dsh/skills/<name>/` and declare it in the central routing
  * file (`invocation: ['human']`, no `entry` — an instruction capability;
  * ADR-0025 落地注记二). The copy, never a move: the source directory is
  * shared with every other dsh usage, and moving would steal it. Any
@@ -673,7 +673,7 @@ Source: [`packages/api/yantao-kb-controller/src/index.ts`](../../packages/api/ya
 
 ### `ctx.yantaoUsage` — `YantaoUsageService`
 
-The usage ledger service (ADR-0049): folds persisted session event logs into a per-local-day token ledger in the `yantao_usage` KV domain, and answers the day-range and per-session reads the 洞察 tab's 总览 renders. Scans are lazy and single-flight — every read first brings the ledger up to date.
+The usage ledger service (ADR-0050): folds persisted session event logs into a per-local-day token ledger in the `yantao_usage` KV domain, and answers the day-range and per-session reads the 洞察 tab's 总览 renders. Scans are lazy and single-flight — every read first brings the ledger up to date.
 
 ```ts cordis-catalog
 /**
@@ -720,7 +720,7 @@ UI-direct usage reads over the `yantaoUsage` Remote namespace.
  * @param args - optional `sinceDay`/`untilDay` bounds.
  * @returns the day rows oldest first plus their sum.
  */
-@Remote('dailyUsage') dailyUsage(args: UsageDailyArgs): Promise<UsageDailyResult>
+@Remote('dailyUsage') dailyUsage(args: UsageWireDailyArgs): Promise<UsageWireDailyResult>
 
 /**
  * One session's lifetime token totals, that session's cursor brought up to

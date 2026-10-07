@@ -13,11 +13,11 @@
  * to the newly current session.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 import type { UseSessions } from '@deepseek-ai/dsh-client-ui-session/client'
 import type {
-  DayUsageRecord, UsageBuckets, UsageDailyArgs, UsageDailyResult,
+  DayUsageRecord, UsageBuckets, UsageWireDailyArgs, UsageWireDailyResult,
 } from '@deepseek-ai/dsh-api-yantao-usage-controller/types'
 import { formatTokens } from '../insights.ts'
 import {
@@ -31,7 +31,7 @@ export interface SessionOverviewProps {
   /** The session controller's list snapshot, reactive (global standard prop). */
   useSessions: UseSessions
   /** The whole day ledger, brought up to date first (the `yantaoUsage` read). */
-  readonly dailyUsage: (args: UsageDailyArgs) => Promise<UsageDailyResult>
+  readonly dailyUsage: (args: UsageWireDailyArgs) => Promise<UsageWireDailyResult>
   /** One session's lifetime totals — the cold card's fallback read. */
   readonly fetchTotals: (sessionId: string) => Promise<UsageBuckets>
   /** Open one session in the workspace (it becomes the current session). */
@@ -110,9 +110,7 @@ function BucketLine({ buckets, t }: { buckets: UsageBuckets; t: WorkbenchT }): R
 }
 
 /** Bar-label cadence: every bar in a week, every fifth in a month, none over the whole ledger. */
-function labelStrideOf(range: OverviewRange): number {
-  return range === '7d' ? 1 : range === '30d' ? 5 : Number.POSITIVE_INFINITY
-}
+const LABEL_STRIDE: Record<OverviewRange, number> = { '7d': 1, '30d': 5, all: Number.POSITIVE_INFINITY }
 
 /** The 每日用量 card: one bar per day in the range, grand-total height. */
 function DailyBarsCard({ bars, range, t }: {
@@ -120,7 +118,7 @@ function DailyBarsCard({ bars, range, t }: {
   range: OverviewRange
   t: WorkbenchT
 }): ReactElement {
-  const stride = labelStrideOf(range)
+  const stride = LABEL_STRIDE[range]
   const peak = Math.max(1, ...bars.map(day => grandTotalOf(day)))
   return (
     <section style={cardStyle} data-insights-card="daily-bars">
@@ -243,6 +241,9 @@ function SessionCard({ row, fetchTotals, onOpen, onInsights, t }: {
       data-insights-card="session"
       onClick={() => { onOpen(row.id) }}
       onKeyDown={(event) => {
+        // Only the card itself reacts — Enter on the nested 查看洞察 button
+        // bubbles here and would open the session twice.
+        if (event.target !== event.currentTarget) return
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
           onOpen(row.id)
@@ -294,20 +295,34 @@ export function SessionOverview({
   useSessions, dailyUsage, fetchTotals, openSession, onSwitchToConversation, t,
 }: SessionOverviewProps): ReactElement {
   const list = useSessions(state => state)
-  const [result, setResult] = useState<UsageDailyResult | null>(null)
+  const [result, setResult] = useState<UsageWireDailyResult | null>(null)
   const [phase, setPhase] = useState<'idle' | 'loading' | 'ok' | 'failed'>('idle')
   const [range, setRange] = useState<OverviewRange>('7d')
   const [query, setQuery] = useState('')
   const [activeDay, setActiveDay] = useState<string | undefined>(undefined)
-  const today = useMemo(() => todayKey(), [])
+  // 「今天」随每次读取重新锚定：跨午夜开着工作台时，刷新即把今天的行
+  // 归位，而不是永远停在挂载那天的日期上。
+  const [today, setToday] = useState(() => todayKey())
 
   // One ledger fetch feeds the KPI trio, the bars and the heat grid; the
   // 刷新 gesture repeats it (a running session's today row keeps moving).
+  // A ticket discards late answers, so a slow earlier fetch never overwrites
+  // a newer one's result.
+  const loadTicket = useRef(0)
   const load = useCallback(() => {
+    const ticket = ++loadTicket.current
+    setToday(todayKey())
     setPhase('loading')
     void dailyUsage({}).then(
-      (answer) => { setResult(answer); setPhase('ok') },
-      () => { setPhase('failed') },
+      (answer) => {
+        if (ticket !== loadTicket.current) return
+        setResult(answer)
+        setPhase('ok')
+      },
+      () => {
+        if (ticket !== loadTicket.current) return
+        setPhase('failed')
+      },
     )
   }, [dailyUsage])
   useEffect(load, [load])

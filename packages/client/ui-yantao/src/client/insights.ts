@@ -103,6 +103,34 @@ export type InsightsLoader = (
 export const WARNING_PERCENT = 80
 export const DANGER_PERCENT = 95
 
+/** The context-pressure projections' readings, resolved. */
+export interface Occupancy {
+  readonly used: number
+  readonly capacity: number
+  readonly percent: number
+}
+
+/**
+ * Resolve the context occupancy off the `contextPressure` projection, in the
+ * status bar's resolution order (ADR-0039): projected tokens first, the raw
+ * pressure reading second. `null` when the projections carry no usable pair.
+ */
+export function resolveOccupancy(
+  pressure: { projectedTokens?: number; pressureTokens?: number; contextWindow?: number } | undefined,
+): Occupancy | null {
+  const used = pressure?.projectedTokens ?? pressure?.pressureTokens
+  const capacity = pressure?.contextWindow
+  if (used === undefined || capacity === undefined || capacity <= 0) return null
+  return { used, capacity, percent: Math.min(100, Math.round(used / capacity * 100)) }
+}
+
+/** The occupancy stroke colour: amber past 80%, red past 95%, subtle otherwise. */
+export function occupancyStroke(percent: number | null): string {
+  if (percent === null || percent <= WARNING_PERCENT) return 'var(--yt-border-subtle)'
+  if (percent <= DANGER_PERCENT) return 'var(--yt-warning-text)'
+  return 'var(--yt-error)'
+}
+
 /**
  * Format a token count compactly for the dashboards, the footer button and
  * the status bar.
@@ -225,7 +253,9 @@ export function feedFromEvents(events: readonly SessionWireEvent[]): readonly Fe
     }
     if (event.type === 'compaction/summary') {
       const data = event.data as Record<string, unknown>
-      const summary = typeof data.summary === 'string' ? data.summary : ''
+      // The compaction types carry the summary as a content-block array
+      // (`summary: ContentBlock[]`); a plain string still wins defensively.
+      const summary = typeof data.summary === 'string' ? data.summary : textOfContent(data.summary)
       items.push({
         kind: 'compaction',
         seq: event.seq,
@@ -290,7 +320,12 @@ function lineDeltaOf(name: string, args: Record<string, unknown>): { added: numb
     const value = args[key]
     return typeof value === 'string' ? value : ''
   }
-  if (name === 'str_replace_editor' || name === 'edit') {
+  if (name === 'str_replace_editor') {
+    // The str-replace editor's own argument names differ from the generic
+    // `edit` tool's — read each by its actual spelling.
+    return { added: linesOf(stringField('new_str')), removed: linesOf(stringField('old_str')) }
+  }
+  if (name === 'edit') {
     return { added: linesOf(stringField('new_string')), removed: linesOf(stringField('old_string')) }
   }
   if (name === 'kb_edit_section' || name === 'kb_append_log') {

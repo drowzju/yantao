@@ -13,11 +13,25 @@ import type { ReactElement } from 'react'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 
 export type InsightPaneProps = PropsRenderSlots<'insights.overview' | 'insights.session'> & {
-  /** Swing the centre pane to the conversation tab (the Frame's owner prop). */
-  readonly onSwitchToConversation?: (() => void) | undefined
+  /**
+   * Swing the centre pane to the conversation tab (the Frame's owner prop,
+   * required here so it can be forwarded to the `insights.overview` slot's
+   * required `InsightsOverviewOwnerProps`).
+   */
+  readonly onSwitchToConversation: () => void
+  /**
+   * Whether the insights tab is the centre pane's active one (the Frame's
+   * owner prop). While inactive the pane renders a quiet placeholder, so the
+   * two regions' log reads and ledger fetches only start once the human
+   * actually opens the tab; defaults to true for embedders without the prop.
+   */
+  readonly active?: boolean | undefined
 }
 
-export function InsightPane({ renderSlot, onSwitchToConversation }: InsightPaneProps): ReactElement {
+export function InsightPane({ renderSlot, onSwitchToConversation, active = true }: InsightPaneProps): ReactElement {
+  if (!active) {
+    return <div style={{ flex: 1, minWidth: 0, minHeight: 0 }} data-insights-pane="idle" />
+  }
   return (
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
       {renderSlot('insights.overview', { onSwitchToConversation })}
