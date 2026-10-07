@@ -93,8 +93,10 @@ powershell -File scripts\sync-in.ps1 -Bundle <bundle 路径>
     方法后要在 `packages/api/remotes/` 包目录内跑 `npx tsdown --env.DSH_BUILD_FACE client`(外加插件自己的 `bundle`),
     否则页面报 `kb.<方法> is not a function` —— 服务端其实已经是新的了。
 12. **vitest 必须从大写 `D:/code/yantao` 启动。** 从小写 `d:\` 启动时所有用例报 "Vitest failed to find the runner":
-    vitest 4 的 worker 按启动路径大小写解析模块 URL,同一份 runner 被 Node 当成两个模块。Git Bash 工具默认 cwd 是
-    小写盘符,经它发起的运行必挂——先 `cd "D:/code/yantao"` 再跑。2026-09-29 曾误诊为 Node 26 兼容性问题。
+    vitest 4 的 worker 按启动路径大小写解析模块 URL,同一份 runner 被 Node 当成两个模块。2026-09-29 曾误诊为
+    Node 26 兼容性问题。⚠️ 2026-10-07 补充:Git Bash 里 `cd "D:/code/yantao"` **救不了**——同盘不同大小写的 cd 是
+    no-op,进程 CWD 仍是继承的小写(`cmd //c cd` 可验证)。可靠做法是用 PowerShell 跑 vitest(`Set-Location
+    D:\code\yantao` 真正重设大小写)。
 13. **vitest 不做类型检查。** 收尾顺序 = vitest 全绿 → `tsc -b <改动包>` 干净 → 需要产物时再 bundle。
     2026-09-29 票 04 中一处参数误用 428 例全绿照样通过,是窄 tsc 抓出来的。
 14. **客户端两步构建序。** 平台客户端模块(ui-primitives 等)的副本被前端 shell(apps/yantao dist)打包进静态模块表;
