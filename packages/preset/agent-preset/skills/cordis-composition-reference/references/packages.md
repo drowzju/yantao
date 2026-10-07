@@ -23,6 +23,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-api-terminal-controller` | yes | Session-owned interactive terminals with shell discovery, screen recovery and typed Remote control |
 | `@deepseek-ai/dsh-api-workspace-controller` | yes | Workspace Remote commands and reconnect-safe state transport |
 | `@deepseek-ai/dsh-api-workspace-files` | yes | Workspace file service and Client resource provider: bounded reads, directory listing, and live metadata over the workspaceFiles Remote namespace |
+| `@deepseek-ai/dsh-api-yantao-kb-controller` | no | Typert Remote controller for the yantao workbench UI: kbRoot-confined tree/read/write over the yantao KB |
 
 ## attachment
 
@@ -52,6 +53,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-headless` | yes | The dsh one-shot bundle: a direct core Agent/Session runner over dsh-base with no Host, HTTP, or browser layer |
 | `@deepseek-ai/dsh-sdk-app` | yes | The dsh SDK profile bundle: stdio JSON-RPC serving and process lifecycle over dsh-base |
 | `@deepseek-ai/dsh-web-app` | yes | The dsh browser-surface bundle: the web patch layer over dsh-base plus the runtime glue plugin (frontend dist serving, web-surface prompt, bash runtime variables, URL line) |
+| `@deepseek-ai/dsh-yantao-web-app` | yes | The yantao workbench browser-surface bundle: the yantao-web patch layer over dsh-yantao plus the runtime glue plugin (frontend dist serving, web-surface prompt, URL line) — serving the bespoke yantao frontend dist with a workbench roster |
 
 ## client
 
@@ -115,6 +117,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-user-questions` | no | Web ask_user_question composer takeover and plan-review presentation UI |
 | `@deepseek-ai/dsh-client-ui-workflow-run` | no | Durable workflow-run Conversation Node and nested member disclosure for dsh web |
 | `@deepseek-ai/dsh-client-ui-workspace` | no | Workspace picker plugin: one WorkspacePicker registered into the sidebar and empty-state workspace slots |
+| `@deepseek-ai/dsh-client-ui-yantao` | no | yantao workbench client plugin: the bespoke three-pane workbench UI over ctx.remote (no slot/shared-shell UI) |
 
 ## compaction
 
@@ -508,3 +511,9 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-workspace` | no | Workspace entity registry (ctx.workspaceRegistry): durable workspace records with validated session attachment over the domain data form for the DeepSeek Harness |
+
+## yantao
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-yantao-kb` | yes | yantao PARA+P knowledge-base domain plugin: the trust-boundary kb_ tool family over a file-backed personal KB |

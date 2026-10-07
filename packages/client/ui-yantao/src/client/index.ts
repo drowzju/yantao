@@ -86,6 +86,27 @@ export const name = 'ui-yantao'
 // machinery thread the current session's projection seat through.
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
+    /**
+     * The workbench's agent surface: the middle column below the header,
+     * rendering the host's ui-conversation for the current session. Occupied
+     * by this plugin's own frame composition — registering here replaces the
+     * conversation column outright, and the seats the conversation declares
+     * (composer, trajectory, dock) disappear with it. Absence leaves the
+     * middle column empty: the frame keeps its chrome but shows no agent UI.
+     *
+     * ADR-0039 note: yantao's frame mounts the conversation directly under
+     * root (upstream nests it under `main`'s keyed panels), because the
+     * workbench frontend owns the whole column arrangement.
+     */
+    'conversation': { kind: 'single'; scope: 'session-maybe' }
+    /**
+     * ADR-0039: the footer's context status bar — the session-scoped strip
+     * under the composer. Entries are additive list items rendered in
+     * registration order; each receives the current session's projection seat
+     * (or none while no session is open, when the strip itself stays hidden).
+     * Registering here adds a status widget beside the shipped ones instead
+     * of replacing them.
+     */
     'footer.status': { kind: 'list'; scope: 'session-maybe' }
   }
 }

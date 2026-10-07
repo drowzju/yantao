@@ -69,7 +69,6 @@ export type {} from '@deepseek-ai/dsh-api-terminal-controller/remote'
 export type * from '@deepseek-ai/dsh-api-terminal-controller/types'
 export type {} from '@deepseek-ai/dsh-api-yantao-kb-controller/remote'
 export type * from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-export type { SessionJob as JobView } from '@deepseek-ai/dsh-api-session-controller/types'
 // The forwarded-event allowlist's selection seat: without it in the consumer's
 // compilation face `TypertRemoteEvent` is `never` and every `$on` call fails.
 export type { ApiRemoteForwardedEvent } from '../types.ts'
