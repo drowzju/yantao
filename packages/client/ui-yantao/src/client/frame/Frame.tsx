@@ -1906,7 +1906,12 @@ export function Frame({
         ) : (
           <GraphPane data={graphData} onOpen={(path) => { openFile(path, 'edit') }} t={t} />
         )}
-        insightsPane={renderSlot('center.insights', {})}
+        insightsPane={renderSlot('center.insights', {
+          // ADR-0050: the overview's session-card jump — opening the session
+          // is the card's own gesture; switching to the conversation tab is
+          // the frame's, passed through as owner props.
+          onSwitchToConversation: () => { setTabs(state => activateTab(state, CONVERSATION_TAB)) },
+        })}
         inboxPending={inboxEntries.filter(entry => entry.status === 'pending').length}
         taskDetail={detailRow === null ? null : (
           <SessionDetailDrawer

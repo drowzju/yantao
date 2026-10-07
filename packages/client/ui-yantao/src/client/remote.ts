@@ -26,6 +26,9 @@ import type {
   SessionRenameRequest, SessionRenameValue,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {
+  UsageDailyArgs, UsageDailyResult, UsageSessionArgs, UsageSessionResult,
+} from '@deepseek-ai/dsh-api-yantao-usage-controller/types'
+import type {
   KbMailArchiveArgs, KbMailArchiveResult, KbCapabilityAdoptArgs, KbCapabilityAdoptResult, KbCapabilityCreateArgs, KbCapabilityCreateResult,
   KbCapabilityListResult,
   KbCapabilityDeclarationArgs, KbCapabilityDeclarationResult,
@@ -1090,6 +1093,16 @@ export function isDuplicateMemory(error: unknown): boolean {
 }
 
 /**
+ * The `yantaoUsage` namespace's callable surface (ADR-0050): the 洞察 tab's
+ * cross-session usage channel — the day ledger and one session's lifetime
+ * totals. Read-only: the ledger is telemetry the host computes.
+ */
+export interface UsageRemote {
+  dailyUsage(args: UsageDailyArgs): Promise<RemoteResult<UsageDailyResult>>
+  sessionUsage(args: UsageSessionArgs): Promise<RemoteResult<UsageSessionResult>>
+}
+
+/**
  * Reach the session namespace without assuming it is mounted — the same
  * defensive access `kbRemoteOf` uses.
  * @param ctx - client root context.
@@ -1097,6 +1110,16 @@ export function isDuplicateMemory(error: unknown): boolean {
  */
 export function sessionRemoteOf(ctx: Context): SessionRemote | undefined {
   return (ctx as unknown as { remote?: { session?: SessionRemote } }).remote?.session
+}
+
+/**
+ * Reach the usage namespace without assuming it is mounted — the same
+ * defensive access `kbRemoteOf` uses.
+ * @param ctx - client root context.
+ * @returns the namespace, or undefined when it is not there.
+ */
+export function usageRemoteOf(ctx: Context): UsageRemote | undefined {
+  return (ctx as unknown as { remote?: { yantaoUsage?: UsageRemote } }).remote?.yantaoUsage
 }
 
 /**

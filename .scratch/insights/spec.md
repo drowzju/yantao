@@ -37,5 +37,5 @@
 | 01 | [projectionValues 真实快照验证](issues/01-projection-values-snapshot.md) ✅ | — |
 | 02 | [packages/yantao/usage 聚合器](issues/02-usage-aggregator.md) ✅（ADR 改编号 0050） | 01 |
 | 03 | [tab 骨架 + 当前会话仪表盘](issues/03-insights-tab-dashboard.md) ✅ | 02 |
-| 04 | [跨会话总览](issues/04-cross-session-overview.md) | 02, 03 |
+| 04 | [跨会话总览](issues/04-cross-session-overview.md) ✅ | 02, 03 |
 | 05 | [删旧状态条 + 收尾门禁](issues/05-closeout.md) | 03, 04 |

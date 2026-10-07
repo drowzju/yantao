@@ -32,6 +32,7 @@ import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 // client face owns the declaration) — ADR-0025 决定 4 prompts the current
 // session through it.
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionTarget } from '@deepseek-ai/dsh-api-session-controller/client'
 // Type-only: pulls the `ctx.inputTriggers` service merge (ui-input-trigger
 // owns the declaration) — the `@` menu's KB source registers through it.
 import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
@@ -44,6 +45,7 @@ import type {
   KbPromptShortcutSaveArgs, KbProposalInboxEnqueueArgs, KbProposalInboxResolveArgs,
   KbScheduleMarkArgs, KbScheduleSaveArgs, KbWriteTodosArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { UsageDailyArgs } from '@deepseek-ai/dsh-api-yantao-usage-controller/types'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
 import { runCapabilityDistill, type CapabilityRunRecord } from './capability-distill.ts'
@@ -53,7 +55,7 @@ import { runValidate, type ValidateScope } from './validate.ts'
 import { loadModelsConfig, saveModelsConfig, type ModelsConfigDraft } from './model-config.ts'
 import { promptCurrentSession } from './session-prompt.ts'
 import { loadSessionDetail } from './session-detail.ts'
-import { sessionRemoteOf } from './remote.ts'
+import { sessionRemoteOf, usageRemoteOf, unwrapRemote } from './remote.ts'
 import { Frame } from './frame/Frame.tsx'
 import { ThemePresenter } from './frame/theme-presenter.ts'
 import { WorkbenchLayout, createPanelSeat } from './frame/layout.ts'
@@ -84,6 +86,7 @@ import { loadSessionInsights } from './insights.ts'
 import { InsightPane } from './frame/InsightPane.tsx'
 import { InsightsFooterButton } from './frame/InsightsFooterButton.tsx'
 import { SessionDashboard } from './frame/SessionDashboard.tsx'
+import { SessionOverview } from './frame/SessionOverview.tsx'
 
 export const name = 'ui-yantao'
 
@@ -113,6 +116,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * session dashboard nests inside as `insights.session`.
      */
     'center.insights': { kind: 'single'; scope: 'root' }
+    /**
+     * ADR-0050: the cross-session overview at the top of the insights pane —
+     * root-scoped like its parent shell: KPI trio, trend bars, heatmap and
+     * session cards aggregate the whole ledger, no session selection needed.
+     */
+    'insights.overview': { kind: 'single'; scope: 'root' }
     /**
      * ADR-0050: the current-session dashboard inside the insights pane —
      * `session-maybe` so the slot machinery threads the current session's
@@ -146,6 +155,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 // 改走动态 `ctx.inject`（见 apply 里的两个引用座），服务就绪即入引用。
 export const inject = [
   'slots', 'theme', 'locale', 'remote', 'remote.yantaoKb', 'remote.session', 'remote.settings', 'remote.credentials',
+  'remote.yantaoUsage',
   'sessions', 'workspaces', 'inputTriggers',
 ]
 
@@ -450,9 +460,38 @@ export function apply(ctx: Context): void {
     name: 'center.insights',
     locale: WORKBENCH_NS,
     children: {
+      'insights.overview': { kind: 'single', scope: 'root' },
       'insights.session': { kind: 'single', scope: 'session-maybe' },
     },
   }, InsightPane), 'ui-yantao: insights pane')
+
+  // ADR-0050: the cross-session overview atop the insights pane. The inject
+  // face carries the usage ledger readers (one full-ledger fetch feeds KPI
+  // trio, bars, heatmap and cards alike — personal scale is a few hundred
+  // rows) and the session-opening gesture; the session list itself arrives
+  // through the standard `useSessions` prop the slot machinery threads.
+  ctx.effect(() => ctx.slots.inject('insights.overview', () =>
+    ctx.slots.register({
+      name: 'insights.overview',
+      locale: WORKBENCH_NS,
+      inject: () => ({
+        dailyUsage: async (args: UsageDailyArgs) => {
+          const usage = usageRemoteOf(ctx)
+          if (usage === undefined) throw new Error('没有挂载 yantaoUsage Remote 命名空间')
+          return unwrapRemote(await usage.dailyUsage(args))
+        },
+        fetchTotals: async (sessionId: string) => {
+          const usage = usageRemoteOf(ctx)
+          if (usage === undefined) throw new Error('没有挂载 yantaoUsage Remote 命名空间')
+          return unwrapRemote(await usage.sessionUsage({ sessionId })).totals
+        },
+        openSession: (sessionId: string) => {
+          // The generated face brands the id; the overview carries it as a
+          // plain string everywhere (same cast as cancelSessionTurn).
+          whenUiWorkspace(svc => svc.openSession(sessionId as SessionTarget))
+        },
+      }),
+    }, SessionOverview)), 'ui-yantao: insights cross-session overview')
 
   // ADR-0050: the current-session dashboard. The inject face carries the
   // yantao-share pricer (the composition card prices on open, latest answer
