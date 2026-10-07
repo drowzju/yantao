@@ -81,7 +81,6 @@ import {
 } from './remote.ts'
 import type { CapabilityRegisterReach } from './remote.ts'
 import type { MailMessage } from './remote.ts'
-import { ContextStatusBar } from './ContextStatusBar.tsx'
 import { loadSessionInsights } from './insights.ts'
 import { InsightPane } from './frame/InsightPane.tsx'
 import { InsightsFooterButton } from './frame/InsightsFooterButton.tsx'
@@ -90,25 +89,12 @@ import { SessionOverview } from './frame/SessionOverview.tsx'
 
 export const name = 'ui-yantao'
 
-// ADR-0039: the footer's context status bar seat. Declared here because the
-// slot is yantao's own — the frame (root registration) declares it as a child
-// and this plugin fills it; the `session-maybe` scope makes the slot
-// machinery thread the current session's projection seat through.
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     // The keyed `main` slot is NOT re-declared here: ui-layout's global
     // SlotMap augmentation already carries it (identical shape), and a second
     // declaration makes gen-client-catalog refuse the duplicate. 0.2.1 起
     // 会话面走 keyed `main` 槽——见下方 root 注册的 children 注释。
-    /**
-     * ADR-0039: the footer's context status bar — the session-scoped strip
-     * under the composer. Entries are additive list items rendered in
-     * registration order; each receives the current session's projection seat
-     * (or none while no session is open, when the strip itself stays hidden).
-     * Registering here adds a status widget beside the shipped ones instead
-     * of replacing them.
-     */
-    'footer.status': { kind: 'list'; scope: 'session-maybe' }
     /**
      * ADR-0050: the insights tab's root pane — the sixth permanent centre
      * tab's shell. Root-scoped so the cross-session overview (ADR-0050's
@@ -252,9 +238,6 @@ export function apply(ctx: Context): void {
       // entryKey 'conversation' 选中),不再是 single 的 `conversation` 槽。
       'main': { kind: 'keyed', scope: 'root' },
       'shell.overlay': { kind: 'list', scope: 'root' },
-      // ADR-0039: the footer's context status bar — session-scoped so the
-      // slot machinery hands it the current session's projection seat.
-      'footer.status': { kind: 'list', scope: 'session-maybe' },
       // ADR-0050: the insights tab — a root-scoped pane shell (the cross-
       // session overview joins it in the next batch) plus the footer strip's
       // 洞察 button, session-scoped so its stroke reads the current
@@ -436,21 +419,6 @@ export function apply(ctx: Context): void {
   // slot only exists while ui-conversation is mounted.
   ctx.effect(() => ctx.slots.inject('conversation.hero.brand.mark', () =>
     ctx.slots.register({ name: 'conversation.hero.brand.mark' }, YantaoMark)), 'ui-yantao: hero brand mark')
-
-  // ADR-0039: the footer's context status bar. The frame declared the
-  // `footer.status` child slot with the `session-maybe` scope, so the slot
-  // machinery threads the current session's useProjection/sessionId through;
-  // the inject face carries only the yantao-share pricer, which reads the
-  // KB remote on demand (panel open), not on every render.
-  ctx.effect(() => ctx.slots.inject('footer.status', () =>
-    ctx.slots.register({
-      name: 'footer.status',
-      id: 'yantao-context',
-      locale: WORKBENCH_NS,
-      inject: () => ({
-        promptInjection: () => loadPromptInjection(ctx),
-      }),
-    }, ContextStatusBar)), 'ui-yantao: footer context status bar')
 
   // ADR-0050: the insights tab's pane — the root shell; the current-session
   // dashboard rides the nested `insights.session` child (session-maybe), so

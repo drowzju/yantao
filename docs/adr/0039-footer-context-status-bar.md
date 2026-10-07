@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded
 ---
 
 # footer 上下文状态栏：工作台自己的 context 占用读数
+
+（已被 ADR-0050 取代：footer 状态条及其 `footer.status` 槽删除，上下文占用读数并入洞察 tab 的组成卡与 footer 洞察按钮告警色；旁路会话详情抽屉的用量读数保留。保留本文以记录当初的动机与取舍。)
 
 上游对话界面在 composer 右下角有一个 14px 的 ContextMeter 圆环（`ui-conversation` 的 `contextPressure` 投影驱动），它有三个与 yantao 工作台不合的形状：
 

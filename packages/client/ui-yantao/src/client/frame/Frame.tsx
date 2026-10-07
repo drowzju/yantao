@@ -67,7 +67,7 @@ import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
 import type { WorkbenchT } from '../locales.ts'
 
 /** Full props: the render share for the five seats this frame declares, plus the panel-action seat. */
-export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'footer.status' | 'center.insights' | 'footer.insights'> & {
+export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.insights' | 'footer.insights'> & {
   /** The workbench dictionary's bound translator. */
   readonly t: WorkbenchT
   /** Mutable seat the frame fills with its own toggles on mount. */
@@ -2046,7 +2046,6 @@ export function Frame({
             the tab activation rides the owner props (the frame owns the tab
             state, the entry owns the pressure reading). */}
         {renderSlot('footer.insights', { onOpen: () => { setTabs(state => activateTab(state, INSIGHTS_TAB)) } })}
-        {renderSlot('footer.status', {})}
       </div>
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>
       {needsRoot && (

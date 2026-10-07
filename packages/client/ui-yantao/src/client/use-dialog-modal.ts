@@ -5,7 +5,7 @@
  * take Esc as a first-class exit, guard Esc while a verdict is in flight, and
  * give the focus back to whoever held it before the dialog opened. This hook
  * is that pattern, extracted so ConfigDialog / QuestionDialog /
- * SessionDetailDrawer / ContextStatusBar stop reinventing fractions of it.
+ * SessionDetailDrawer stop reinventing fractions of it.
  *
  * The visual backdrop stays with each site; this hook owns only behaviour.
  */

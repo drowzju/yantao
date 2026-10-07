@@ -4,7 +4,7 @@
  * (`insights.overview`, root scope: it exists regardless of session
  * selection) above the current-session dashboard (`insights.session`,
  * `session-maybe` scope, so the slot machinery threads the current
- * session's projection seat through, exactly the footer.status precedent).
+ * session's projection seat through).
  * The overview's 「查看洞察」 opens a session without leaving the tab, and
  * the dashboard region re-threads to the newly current session.
  */
