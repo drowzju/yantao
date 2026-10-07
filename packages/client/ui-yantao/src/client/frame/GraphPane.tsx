@@ -1,13 +1,17 @@
 /**
- * The 图谱 tab's pane (ADR-0049): the whole KB's typed relation graph —
- * person–project, area–project, person–person — as a force-directed SVG.
- * The simulation lives in `graph/graphLayout.ts`; this component only feeds
- * it frames, renders the result, and hands clicks to the frame's file-opening
- * gesture. Zoom/pan is deliberately out (二期): a personal KB fits one view.
+ * The 图谱 tab's pane (ADR-0049, interactions per ADR-0051): the whole KB's
+ * typed relation graph — person–project, area–project, person–person — as a
+ * force-directed SVG. The simulation lives in `graph/graphLayout.ts`; view
+ * filtering lives in `graph/subgraph.ts`. This component feeds the sim
+ * frames, renders the result, and owns the viewport state machine: wheel
+ * zoom (0.5×–4×, cursor-anchored), background-drag pan, node drag,
+ * single-click focus (delayed for double-click disambiguation) and
+ * double-click open.
  */
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react'
 import type { KbRelationGraphResult, KbWireRelationEdge } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { createLayout, stepLayout, type ForceLayout } from '../graph/graphLayout.ts'
+import { defaultEnabledKinds, visibleSubgraph } from '../graph/subgraph.ts'
 import { tabTitle } from '../tabs.ts'
 import type { WorkbenchT } from '../locales.ts'
 
@@ -15,13 +19,26 @@ import type { WorkbenchT } from '../locales.ts'
 const VIEW_W = 1000
 const VIEW_H = 700
 
-/** A pointer gesture shorter than this is a click, not a drag. */
+/** A pointer gesture shorter than this is a click, not a drag (screen px). */
 const CLICK_SLOP_PX = 5
 
 /** The rAF relaxation loop's starting heat, decay, and floor. */
 const INITIAL_ALPHA = 0.9
 const ALPHA_DECAY = 0.985
 const ALPHA_FLOOR = 0.008
+
+/** The viewport's zoom bounds and the focus preset (ADR-0051). */
+const MIN_ZOOM = 0.5
+const MAX_ZOOM = 4
+const FOCUS_ZOOM = 2
+/** The focused node's enlargement factor. */
+const FOCUS_NODE_SCALE = 1.4
+/** How long a single click waits for a possible second one. */
+const CLICK_DELAY_MS = 250
+/** The focus viewport animation's duration. */
+const FOCUS_ANIM_MS = 300
+/** Non-neighbour dimming while focused. */
+const DIM_OPACITY = 0.15
 
 /** Node fill/stroke per entity kind, from the yt-tokens palette. */
 const FILL: Record<'project' | 'person' | 'area', string> = {
@@ -35,6 +52,40 @@ const EDGE_STROKE: Record<KbWireRelationEdge['kind'], string> = {
   'person-project': 'var(--yt-accent)',
   'area-project': 'var(--yt-success)',
   'person-person': 'var(--yt-border-strong)',
+}
+
+/** The viewport transform: scale about the origin, then translate. */
+interface View {
+  k: number
+  x: number
+  y: number
+}
+
+/** The identity viewport — the layout's own coordinate space. */
+const IDENTITY_VIEW: View = { k: 1, x: 0, y: 0 }
+
+/** Clamp a zoom factor into the viewport's bounds. */
+function clampZoom(k: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k))
+}
+
+/** Cubic ease-in-out, for the focus animation. */
+function easeInOut(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+}
+
+/**
+ * Map client (screen) coordinates into the SVG's viewBox space, honouring the
+ * element's on-screen placement. Null when the environment cannot answer
+ * (jsdom has no `getScreenCTM`).
+ */
+function clientToView(svg: SVGSVGElement, clientX: number, clientY: number): { x: number; y: number } | null {
+  // jsdom ships no getScreenCTM — the typeof guard keeps tests out of trouble.
+  if (typeof svg.getScreenCTM !== 'function') return null
+  const ctm = svg.getScreenCTM()
+  if (ctm === null) return null
+  const point = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse())
+  return { x: point.x, y: point.y }
 }
 
 /** The entity kind a node path carries — the directory under `entities/`. */
@@ -81,9 +132,15 @@ function NodeShape({ kind, isolated }: { kind: 'project' | 'person' | 'area'; is
 export interface GraphPaneProps {
   /** The whole KB's typed relation graph. */
   readonly data: KbRelationGraphResult
-  /** Open one entity (the frame's file-tab gesture). */
+  /** Open one entity on double-click (the frame's file-tab gesture, ADR-0051). */
   readonly onOpen: (path: string) => void
   readonly t: WorkbenchT
+}
+
+/** The two optional views around the permanent person–person base. */
+interface ExtraViews {
+  areaProject: boolean
+  personProject: boolean
 }
 
 /**
@@ -96,9 +153,76 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
   const layoutRef = useRef<ForceLayout | null>(null)
   const alphaRef = useRef(0)
   const dragRef = useRef<{ index: number; lastX: number; lastY: number; moved: number } | null>(null)
+  const panRef = useRef<{ lastX: number; lastY: number; moved: number } | null>(null)
   const [, bump] = useState(0)
   /** The live relaxation loop's frame handle, so a reheat can restart it. */
   const rafRef = useRef(0)
+  /** The viewport transform — mirrored in a ref so gesture closures read fresh. */
+  const [view, setViewState] = useState<View>(IDENTITY_VIEW)
+  const viewRef = useRef<View>(IDENTITY_VIEW)
+  /** The focus animation's frame handle. */
+  const viewAnimRef = useRef(0)
+  /** The pending single-click timer, cancelled when a double-click lands. */
+  const clickTimerRef = useRef<number | null>(null)
+  /** The focused node, mirrored for the gesture closures. */
+  const [focusId, setFocusId] = useState<string | null>(null)
+  const focusRef = useRef<string | null>(null)
+  /** The viewport as it was before the current focus began. */
+  const savedViewRef = useRef<View | null>(null)
+  /** The two optional views; the person–person base is always on. */
+  const [extra, setExtra] = useState<ExtraViews>({ areaProject: false, personProject: false })
+
+  const applyView = useCallback((next: View): void => {
+    viewRef.current = next
+    setViewState(next)
+  }, [])
+
+  const cancelViewAnim = useCallback((): void => {
+    cancelAnimationFrame(viewAnimRef.current)
+  }, [])
+
+  /** Tween the viewport to `target` over {@link FOCUS_ANIM_MS}. */
+  const animateView = useCallback((target: View): void => {
+    cancelViewAnim()
+    const from = viewRef.current
+    const start = performance.now()
+    const step = (): void => {
+      const p = Math.min(1, (performance.now() - start) / FOCUS_ANIM_MS)
+      const e = easeInOut(p)
+      applyView({
+        k: from.k + (target.k - from.k) * e,
+        x: from.x + (target.x - from.x) * e,
+        y: from.y + (target.y - from.y) * e,
+      })
+      if (p < 1) viewAnimRef.current = requestAnimationFrame(step)
+    }
+    viewAnimRef.current = requestAnimationFrame(step)
+  }, [applyView, cancelViewAnim])
+
+  const exitFocus = useCallback((): void => {
+    if (focusRef.current === null) return
+    focusRef.current = null
+    setFocusId(null)
+    const saved = savedViewRef.current
+    savedViewRef.current = null
+    if (saved !== null) animateView(saved)
+  }, [animateView])
+
+  /** Enter or switch focus: centre the node at the focus zoom. */
+  const enterFocus = useCallback((id: string): void => {
+    const node = layoutRef.current?.nodes.find(candidate => candidate.id === id)
+    if (node === undefined) return
+    if (focusRef.current === null) savedViewRef.current = viewRef.current
+    focusRef.current = id
+    setFocusId(id)
+    const k = Math.max(viewRef.current.k, FOCUS_ZOOM)
+    animateView({ k, x: VIEW_W / 2 - k * node.x, y: VIEW_H / 2 - k * node.y })
+  }, [animateView])
+
+  const toggleFocus = useCallback((id: string): void => {
+    if (focusRef.current === id) exitFocus()
+    else enterFocus(id)
+  }, [enterFocus, exitFocus])
 
   // The loop dies once alpha sinks under the floor; a drag's reheat must be
   // able to bring it back, so starting it is a named move, not an effect
@@ -116,15 +240,76 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
     rafRef.current = requestAnimationFrame(loop)
   }, [])
 
-  // A new payload rebuilds the layout and reheats the simulation.
+  // The visible subgraph under the view switches; the layout rebuilds on it.
+  const enabled = useMemo(() => {
+    const kinds = defaultEnabledKinds()
+    if (extra.areaProject) kinds.add('area-project')
+    if (extra.personProject) kinds.add('person-project')
+    return kinds
+  }, [extra])
+  const filtered = useMemo(() => visibleSubgraph(data, enabled), [data, enabled])
+
+  // A new payload or view combination rebuilds the layout and reheats.
   useEffect(() => {
-    layoutRef.current = createLayout(data.nodes, data.edges, VIEW_W, VIEW_H)
+    layoutRef.current = createLayout(filtered.nodes, filtered.edges, VIEW_W, VIEW_H)
     alphaRef.current = INITIAL_ALPHA
     startLoop()
     return () => { cancelAnimationFrame(rafRef.current) }
-  }, [data, startLoop])
+  }, [filtered, startLoop])
 
-  const degree = degreesOf(data.edges)
+  // Wheel zoom, cursor-anchored. A native non-passive listener, because the
+  // synthetic onWheel cannot preventDefault reliably.
+  useEffect(() => {
+    const svg = svgRef.current
+    if (svg === null) return
+    const onWheel = (event: WheelEvent): void => {
+      event.preventDefault()
+      const viewPt = clientToView(svg, event.clientX, event.clientY)
+      if (viewPt === null) return
+      const current = viewRef.current
+      const gx = (viewPt.x - current.x) / current.k
+      const gy = (viewPt.y - current.y) / current.k
+      const k = clampZoom(current.k * Math.exp(-event.deltaY * 0.0015))
+      cancelViewAnim()
+      applyView({ k, x: viewPt.x - k * gx, y: viewPt.y - k * gy })
+    }
+    svg.addEventListener('wheel', onWheel, { passive: false })
+    return () => { svg.removeEventListener('wheel', onWheel) }
+  }, [applyView, cancelViewAnim])
+
+  // Pending gestures die with the pane.
+  useEffect(() => () => {
+    if (clickTimerRef.current !== null) clearTimeout(clickTimerRef.current)
+    cancelAnimationFrame(viewAnimRef.current)
+  }, [])
+
+  const degree = degreesOf(filtered.edges)
+
+  /** The focused node plus its neighbours, or null when unfocused. */
+  const neighbours = useMemo(() => {
+    if (focusId === null) return null
+    const set = new Set<string>([focusId])
+    for (const edge of filtered.edges) {
+      if (edge.from === focusId) set.add(edge.to)
+      if (edge.to === focusId) set.add(edge.from)
+    }
+    return set
+  }, [focusId, filtered.edges])
+
+  /**
+   * Delta in viewBox units between two client positions, via the screen CTM;
+   * falls back to the rect ratio when the environment cannot answer.
+   */
+  const viewDelta = (event: { clientX: number; clientY: number }, lastX: number, lastY: number): { dx: number; dy: number } => {
+    const svg = svgRef.current
+    const from = svg === null ? null : clientToView(svg, lastX, lastY)
+    const to = svg === null ? null : clientToView(svg, event.clientX, event.clientY)
+    if (from !== null && to !== null) return { dx: to.x - from.x, dy: to.y - from.y }
+    const rect = svg?.getBoundingClientRect()
+    const scaleX = rect === undefined || rect.width === 0 ? 1 : VIEW_W / rect.width
+    const scaleY = rect === undefined || rect.height === 0 ? 1 : VIEW_H / rect.height
+    return { dx: (event.clientX - lastX) * scaleX, dy: (event.clientY - lastY) * scaleY }
+  }
 
   const onNodeDown = (event: ReactPointerEvent<SVGGElement>, index: number): void => {
     const layout = layoutRef.current
@@ -138,26 +323,22 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
   const onNodeMove = (event: ReactPointerEvent<SVGGElement>): void => {
     const drag = dragRef.current
     const layout = layoutRef.current
-    const svg = svgRef.current
-    if (drag === null || layout === null || svg === null) return
-    const rect = svg.getBoundingClientRect()
-    const scaleX = rect.width === 0 ? 1 : VIEW_W / rect.width
-    const scaleY = rect.height === 0 ? 1 : VIEW_H / rect.height
+    if (drag === null || layout === null) return
     const node = layout.nodes[drag.index]
     if (node === undefined) return
-    const dx = (event.clientX - drag.lastX) * scaleX
-    const dy = (event.clientY - drag.lastY) * scaleY
+    const { dx, dy } = viewDelta(event, drag.lastX, drag.lastY)
+    drag.moved += Math.hypot(event.clientX - drag.lastX, event.clientY - drag.lastY)
     drag.lastX = event.clientX
     drag.lastY = event.clientY
-    drag.moved += Math.abs(dx) + Math.abs(dy)
-    node.x = Math.max(0, Math.min(VIEW_W, node.x + dx))
-    node.y = Math.max(0, Math.min(VIEW_H, node.y + dy))
+    const current = viewRef.current
+    node.x = Math.max(0, Math.min(VIEW_W, node.x + dx / current.k))
+    node.y = Math.max(0, Math.min(VIEW_H, node.y + dy / current.k))
     // The loop may be asleep (alpha under its floor) — without a bump the
     // dragged node would not follow the pointer on screen.
     bump(value => value + 1)
   }
 
-  const onNodeUp = (): void => {
+  const onNodeUp = (event: ReactPointerEvent<SVGGElement>): void => {
     const drag = dragRef.current
     const layout = layoutRef.current
     dragRef.current = null
@@ -166,7 +347,14 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
     if (node === undefined) return
     node.fixed = false
     if (drag.moved < CLICK_SLOP_PX) {
-      onOpen(node.id)
+      // Delayed single click: a double-click landing inside the window
+      // cancels it and opens instead (ADR-0051).
+      if (clickTimerRef.current !== null) clearTimeout(clickTimerRef.current)
+      const id = node.id
+      clickTimerRef.current = window.setTimeout(() => {
+        clickTimerRef.current = null
+        toggleFocus(id)
+      }, CLICK_DELAY_MS)
     } else {
       // A dragged node disturbed its neighbours — reheat to let them settle.
       // The loop died when alpha sank under the floor, so the reheat must
@@ -174,10 +362,53 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
       alphaRef.current = Math.max(alphaRef.current, 0.35)
       startLoop()
     }
+    event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+
+  const onNodeDoubleClick = (event: ReactMouseEvent<SVGGElement>, path: string): void => {
+    event.stopPropagation()
+    if (clickTimerRef.current !== null) {
+      clearTimeout(clickTimerRef.current)
+      clickTimerRef.current = null
+    }
+    onOpen(path)
+  }
+
+  // Background pan: a press that starts on the empty canvas (not on a node)
+  // drags the viewport; a short one doubles as a click on empty space, which
+  // leaves focus.
+  const onBackgroundDown = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    if (event.target !== svgRef.current) return
+    panRef.current = { lastX: event.clientX, lastY: event.clientY, moved: 0 }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const onBackgroundMove = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    const pan = panRef.current
+    if (pan === null) return
+    const { dx, dy } = viewDelta(event, pan.lastX, pan.lastY)
+    pan.moved += Math.hypot(event.clientX - pan.lastX, event.clientY - pan.lastY)
+    pan.lastX = event.clientX
+    pan.lastY = event.clientY
+    cancelViewAnim()
+    const current = viewRef.current
+    applyView({ ...current, x: current.x + dx, y: current.y + dy })
+  }
+
+  const onBackgroundUp = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    const pan = panRef.current
+    panRef.current = null
+    if (pan === null) return
+    if (pan.moved < CLICK_SLOP_PX) exitFocus()
+    event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+
+  const toggleSwitch = (key: keyof ExtraViews): void => {
+    setExtra(previous => ({ ...previous, [key]: !previous[key] }))
   }
 
   const layout = layoutRef.current
-  if (data.nodes.length === 0) {
+  if (data.nodes.length === 0 || filtered.nodes.length === 0) {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--yt-text-muted)' }}>
         {t('graph.empty')}
@@ -190,51 +421,62 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
         ref={svgRef}
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
         preserveAspectRatio="xMidYMid meet"
-        style={{ width: '100%', height: '100%', display: 'block', fontFamily: 'var(--yt-font-ui)' }}
+        style={{ width: '100%', height: '100%', display: 'block', fontFamily: 'var(--yt-font-ui)', touchAction: 'none' }}
+        onPointerDown={onBackgroundDown}
+        onPointerMove={onBackgroundMove}
+        onPointerUp={onBackgroundUp}
+        onPointerCancel={onBackgroundUp}
       >
-        {layout !== null && layout.edges.map((edge, i) => {
-          const a = layout.nodes[edge.source]
-          const b = layout.nodes[edge.target]
-          if (a === undefined || b === undefined) return null
-          const kind = edgeKindOf(a.id, b.id)
-          return (
-            <line
-              key={`${kind}:${a.id}:${b.id}:${i}`}
-              x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-              stroke={EDGE_STROKE[kind]}
-              strokeWidth={1.5}
-              strokeOpacity={0.75}
-              {...(kind === 'person-person' ? { strokeDasharray: '5 4' } : {})}
-            />
-          )
-        })}
-        {layout !== null && layout.nodes.map((node, index) => {
-          const kind = kindOf(node.id)
-          const isolated = (degree.get(node.id) ?? 0) === 0
-          return (
-            <g
-              key={node.id}
-              transform={`translate(${node.x},${node.y})`}
-              style={{ cursor: 'pointer' }}
-              onPointerDown={(event) => { onNodeDown(event, index) }}
-              onPointerMove={onNodeMove}
-              onPointerUp={onNodeUp}
-              onPointerCancel={onNodeUp}
-            >
-              <title>{node.id}</title>
-              {kind !== null && <NodeShape kind={kind} isolated={isolated} />}
-              <text
-                y={kind === 'person' ? 23 : 26}
-                textAnchor="middle"
-                fontSize={12}
-                fill={isolated ? 'var(--yt-text-muted)' : 'var(--yt-text-primary)'}
-                style={{ pointerEvents: 'none', userSelect: 'none' }}
+        <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
+          {layout !== null && layout.edges.map((edge, i) => {
+            const a = layout.nodes[edge.source]
+            const b = layout.nodes[edge.target]
+            if (a === undefined || b === undefined) return null
+            const kind = edgeKindOf(a.id, b.id)
+            const highlighted = focusId !== null && neighbours !== null
+              && (a.id === focusId || b.id === focusId) && neighbours.has(a.id) && neighbours.has(b.id)
+            return (
+              <line
+                key={`${kind}:${a.id}:${b.id}:${i}`}
+                x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                stroke={EDGE_STROKE[kind]}
+                strokeWidth={highlighted ? 3 : 1.5}
+                strokeOpacity={neighbours === null ? 0.75 : (highlighted ? 1 : DIM_OPACITY)}
+                {...(kind === 'person-person' ? { strokeDasharray: '5 4' } : {})}
+              />
+            )
+          })}
+          {layout !== null && layout.nodes.map((node, index) => {
+            const kind = kindOf(node.id)
+            const isolated = (degree.get(node.id) ?? 0) === 0
+            const focused = node.id === focusId
+            const dimmed = neighbours !== null && !neighbours.has(node.id)
+            return (
+              <g
+                key={node.id}
+                transform={`translate(${node.x},${node.y})${focused ? ` scale(${FOCUS_NODE_SCALE})` : ''}`}
+                style={{ cursor: 'pointer', opacity: dimmed ? DIM_OPACITY : 1 }}
+                onPointerDown={(event) => { onNodeDown(event, index) }}
+                onPointerMove={onNodeMove}
+                onPointerUp={onNodeUp}
+                onPointerCancel={onNodeUp}
+                onDoubleClick={(event) => { onNodeDoubleClick(event, node.id) }}
               >
-                {tabTitle(node.id)}
-              </text>
-            </g>
-          )
-        })}
+                <title>{node.id}</title>
+                {kind !== null && <NodeShape kind={kind} isolated={isolated} />}
+                <text
+                  y={kind === 'person' ? 23 : 26}
+                  textAnchor="middle"
+                  fontSize={12}
+                  fill={isolated ? 'var(--yt-text-muted)' : 'var(--yt-text-primary)'}
+                  style={{ pointerEvents: 'none', userSelect: 'none' }}
+                >
+                  {tabTitle(node.id)}
+                </text>
+              </g>
+            )
+          })}
+        </g>
       </svg>
       <div
         style={{
@@ -250,22 +492,44 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
           border: '1px solid var(--yt-border-subtle)',
           fontSize: 'var(--yt-type-label)',
           color: 'var(--yt-text-secondary)',
-          pointerEvents: 'none',
         }}
       >
-        {(Object.keys(EDGE_STROKE) as KbWireRelationEdge['kind'][]).map(kind => (
-          <span key={kind} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <svg width={22} height={8}>
-              <line
-                x1={0} y1={4} x2={22} y2={4}
-                stroke={EDGE_STROKE[kind]}
-                strokeWidth={1.5}
-                {...(kind === 'person-person' ? { strokeDasharray: '5 4' } : {})}
-              />
-            </svg>
-            {t(GRAPH_LEGEND_KEYS[kind])}
-          </span>
-        ))}
+        {(Object.keys(EDGE_STROKE) as KbWireRelationEdge['kind'][]).map((kind) => {
+          // The person–person base has no switch (ADR-0051); the other two
+          // rows are their own toggles.
+          const switchKey: keyof ExtraViews | null = kind === 'area-project' ? 'areaProject' : kind === 'person-project' ? 'personProject' : null
+          const on = switchKey === null || extra[switchKey]
+          return (
+            <span
+              key={kind}
+              onClick={switchKey === null ? undefined : () => { toggleSwitch(switchKey) }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                cursor: switchKey === null ? 'default' : 'pointer',
+                userSelect: 'none',
+              }}
+            >
+              {switchKey !== null && (
+                <span
+                  style={{
+                    width: 11, height: 11, borderRadius: 3, flexShrink: 0,
+                    border: '1px solid var(--yt-border-strong)',
+                    background: on ? EDGE_STROKE[kind] : 'transparent',
+                  }}
+                />
+              )}
+              <svg width={22} height={8}>
+                <line
+                  x1={0} y1={4} x2={22} y2={4}
+                  stroke={EDGE_STROKE[kind]}
+                  strokeWidth={1.5}
+                  {...(kind === 'person-person' ? { strokeDasharray: '5 4' } : {})}
+                />
+              </svg>
+              {t(GRAPH_LEGEND_KEYS[kind])}
+            </span>
+          )
+        })}
       </div>
     </div>
   )
