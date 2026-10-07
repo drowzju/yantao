@@ -80,6 +80,10 @@ import {
 import type { CapabilityRegisterReach } from './remote.ts'
 import type { MailMessage } from './remote.ts'
 import { ContextStatusBar } from './ContextStatusBar.tsx'
+import { loadSessionInsights } from './insights.ts'
+import { InsightPane } from './frame/InsightPane.tsx'
+import { InsightsFooterButton } from './frame/InsightsFooterButton.tsx'
+import { SessionDashboard } from './frame/SessionDashboard.tsx'
 
 export const name = 'ui-yantao'
 
@@ -89,14 +93,10 @@ export const name = 'ui-yantao'
 // machinery thread the current session's projection seat through.
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
-    /**
-     * The workbench's agent surface: the middle column below the header.
-     * 0.2.1 起与上游对齐:ui-conversation 以 `name: 'main', key: 'conversation'`
-     * 注册(0.1.3 时占的是名为 `conversation` 的 single 槽),Frame 渲染本槽并以
-     * `entryKey: 'conversation'` 选中会话面。Absence leaves the middle column
-     * empty: the frame keeps its chrome but shows no agent UI.
-     */
-    'main': { kind: 'keyed'; scope: 'root' }
+    // The keyed `main` slot is NOT re-declared here: ui-layout's global
+    // SlotMap augmentation already carries it (identical shape), and a second
+    // declaration makes gen-client-catalog refuse the duplicate. 0.2.1 起
+    // 会话面走 keyed `main` 槽——见下方 root 注册的 children 注释。
     /**
      * ADR-0039: the footer's context status bar — the session-scoped strip
      * under the composer. Entries are additive list items rendered in
@@ -106,6 +106,26 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * of replacing them.
      */
     'footer.status': { kind: 'list'; scope: 'session-maybe' }
+    /**
+     * ADR-0050: the insights tab's root pane — the sixth permanent centre
+     * tab's shell. Root-scoped so the cross-session overview (ADR-0050's
+     * next batch) renders regardless of session selection; the current-
+     * session dashboard nests inside as `insights.session`.
+     */
+    'center.insights': { kind: 'single'; scope: 'root' }
+    /**
+     * ADR-0050: the current-session dashboard inside the insights pane —
+     * `session-maybe` so the slot machinery threads the current session's
+     * projection seat and identity through; blank (still mounted) while no
+     * session is open.
+     */
+    'insights.session': { kind: 'single'; scope: 'session-maybe' }
+    /**
+     * ADR-0050: the footer strip's 洞察 button — `session-maybe` so its
+     * stroke can read the current session's context pressure (ADR-0039's
+     * red line lives on here).
+     */
+    'footer.insights': { kind: 'single'; scope: 'session-maybe' }
   }
 }
 // Cordis forbids reading an undeclared service, and a Remote namespace counts
@@ -225,6 +245,12 @@ export function apply(ctx: Context): void {
       // ADR-0039: the footer's context status bar — session-scoped so the
       // slot machinery hands it the current session's projection seat.
       'footer.status': { kind: 'list', scope: 'session-maybe' },
+      // ADR-0050: the insights tab — a root-scoped pane shell (the cross-
+      // session overview joins it in the next batch) plus the footer strip's
+      // 洞察 button, session-scoped so its stroke reads the current
+      // session's context pressure.
+      'center.insights': { kind: 'single', scope: 'root' },
+      'footer.insights': { kind: 'single', scope: 'session-maybe' },
     },
     inject: () => ({
       t,
@@ -415,6 +441,45 @@ export function apply(ctx: Context): void {
         promptInjection: () => loadPromptInjection(ctx),
       }),
     }, ContextStatusBar)), 'ui-yantao: footer context status bar')
+
+  // ADR-0050: the insights tab's pane — the root shell; the current-session
+  // dashboard rides the nested `insights.session` child (session-maybe), so
+  // the slot machinery threads the current session's projection seat and
+  // identity through while the shell itself survives session switches.
+  ctx.effect(() => ctx.slots.register({
+    name: 'center.insights',
+    locale: WORKBENCH_NS,
+    children: {
+      'insights.session': { kind: 'single', scope: 'session-maybe' },
+    },
+  }, InsightPane), 'ui-yantao: insights pane')
+
+  // ADR-0050: the current-session dashboard. The inject face carries the
+  // yantao-share pricer (the composition card prices on open, latest answer
+  // wins) and the full-log reader — the same session Remote face the 任务
+  // tab's drawer reads through.
+  ctx.effect(() => ctx.slots.inject('insights.session', () =>
+    ctx.slots.register({
+      name: 'insights.session',
+      locale: WORKBENCH_NS,
+      inject: () => ({
+        promptInjection: () => loadPromptInjection(ctx),
+        insightsLoader: (sessionId: string, signal?: AbortSignal) => {
+          const session = sessionRemoteOf(ctx)
+          if (session === undefined) return Promise.reject(new Error('没有挂载 session Remote 命名空间'))
+          return loadSessionInsights(session, sessionId, signal)
+        },
+      }),
+    }, SessionDashboard)), 'ui-yantao: insights session dashboard')
+
+  // ADR-0050: the footer strip's 洞察 button — the pressure alarm rides the
+  // session-maybe scope; the tab activation is the frame's, passed through
+  // the render site's owner props.
+  ctx.effect(() => ctx.slots.inject('footer.insights', () =>
+    ctx.slots.register({
+      name: 'footer.insights',
+      locale: WORKBENCH_NS,
+    }, InsightsFooterButton)), 'ui-yantao: footer insights button')
 
   // ADR-0044 决定 5: the agent's kb_propose_memory call renders as the light
   // approval card — 原文 + 目标作用域 + 批准/丢弃, the shortest feedback loop

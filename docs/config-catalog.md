@@ -4344,13 +4344,14 @@ export interface Config {
 ## `@deepseek-ai/dsh-yantao-kb`
 
 - `inject`: `tools` · `systemPrompt` · `settings`
-- `source`: [`packages/yantao/kb/src/index.ts:42`](../packages/yantao/kb/src/index.ts)
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/yantao/kb/src/index.ts:47`](../packages/yantao/kb/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config; `kbRoot` is the only knob. */
 export interface Config {
   /** Knowledge-base root directory (created by kb_init). Defaults to `~/yantao-kb`. */
-  kbRoot?: string
+  kbRoot: Volatile<string>
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-yantao-kb -->
@@ -4528,6 +4529,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 | --- | --- | --- |
 | `@deepseek-ai/dsh-agent-loop-testkit` | — | [`packages/test-support/agent-loop-testkit/src/index.ts`](../packages/test-support/agent-loop-testkit/src/index.ts) |
 | `@deepseek-ai/dsh-anonymous-user-id` | — | [`packages/identity/anonymous-user-id/src/index.ts`](../packages/identity/anonymous-user-id/src/index.ts) |
+| `@deepseek-ai/dsh-api-yantao-usage-controller` | — | [`packages/api/yantao-usage-controller/src/index.ts`](../packages/api/yantao-usage-controller/src/index.ts) |
 | `@deepseek-ai/dsh-app-boot` | — | [`packages/boot/app-boot/src/index.ts`](../packages/boot/app-boot/src/index.ts) |
 | `@deepseek-ai/dsh-atomic-write` | — | [`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts) |
 | `@deepseek-ai/dsh-base` | — | [`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts) |
@@ -4585,4 +4587,5 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 | `@deepseek-ai/dsh-util-workspace-path` | — | [`packages/util/workspace-path/src/index.ts`](../packages/util/workspace-path/src/index.ts) |
 | `@deepseek-ai/dsh-win32-process` | — | [`packages/subprocess/win32-process/src/index.ts`](../packages/subprocess/win32-process/src/index.ts) |
 | `@deepseek-ai/dsh-yantao` | — | [`packages/bundle/yantao/src/index.ts`](../packages/bundle/yantao/src/index.ts) |
+| `@deepseek-ai/dsh-yantao-usage` | — | [`packages/yantao/usage/src/index.ts`](../packages/yantao/usage/src/index.ts) |
 <!-- END GENERATED config-catalog:library -->

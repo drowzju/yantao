@@ -91,6 +91,8 @@
     "@deepseek-ai/dsh-client-ui-yantao": "workspace:*",
     "@deepseek-ai/dsh-yantao": "workspace:*",
     "@deepseek-ai/dsh-yantao-kb": "workspace:*",
+    "@deepseek-ai/dsh-yantao-usage": "workspace:*",
+    "@deepseek-ai/dsh-api-yantao-usage-controller": "workspace:*",
     "@deepseek-ai/dsh-yantao-web-app": "workspace:*",
     "@deepseek-ai/dsh-web-app": "workspace:*",
     "@deepseek-ai/dsh-webhook": "workspace:*",

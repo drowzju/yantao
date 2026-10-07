@@ -668,4 +668,69 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 ```
 
 Source: [`packages/api/yantao-kb-controller/src/index.ts`](../../packages/api/yantao-kb-controller/src/index.ts)
+
+<a id="ctxyantaousage--yantaousageservice"></a>
+
+### `ctx.yantaoUsage` — `YantaoUsageService`
+
+The usage ledger service (ADR-0049): folds persisted session event logs into a per-local-day token ledger in the `yantao_usage` KV domain, and answers the day-range and per-session reads the 洞察 tab's 总览 renders. Scans are lazy and single-flight — every read first brings the ledger up to date.
+
+```ts cordis-catalog
+/**
+ * Bring the whole ledger up to date: enumerate every stored session and
+ * fold whatever each cursor has not consumed yet. Single-flight — a call
+ * while a scan runs resolves when THAT scan (plus the caller's own pass)
+ * completes.
+ * @returns resolution once the ledger reflects every materialized event.
+ */
+refresh(): Promise<void>
+
+/**
+ * The day ledger over an inclusive local-day range, brought up to date
+ * first. Days with no recorded usage are absent from the answer.
+ * @param args - optional `sinceDay`/`untilDay` bounds (`YYYY-MM-DD`, inclusive).
+ * @returns the day records in range, oldest first, with their bucket-wise sum.
+ */
+async dailyUsage(args: UsageDailyArgs = {}): Promise<UsageDailyResult>
+
+/**
+ * One session's lifetime totals, bringing that session's cursor up to date
+ * first.
+ * @param sessionId - the stored session to read.
+ * @returns the session's lifetime token totals, all four buckets.
+ * @throws {UsageSessionUnknownError} when the store holds no such session.
+ */
+async sessionUsage(sessionId: SessionId): Promise<UsageBuckets>
+```
+
+Types: [SessionId](core.md)
+
+Source: [`packages/yantao/usage/src/service.ts`](../../packages/yantao/usage/src/service.ts)
+
+<a id="ctxyantaousagecontroller--yantaousagecontroller"></a>
+
+### `ctx.yantaoUsageController` — `YantaoUsageController`
+
+UI-direct usage reads over the `yantaoUsage` Remote namespace.
+
+```ts cordis-catalog
+/**
+ * The day ledger over an inclusive local-day range, brought up to date
+ * first (the scan is lazy and single-flight inside the service).
+ * @param args - optional `sinceDay`/`untilDay` bounds.
+ * @returns the day rows oldest first plus their sum.
+ */
+@Remote('dailyUsage') dailyUsage(args: UsageDailyArgs): Promise<UsageDailyResult>
+
+/**
+ * One session's lifetime token totals, that session's cursor brought up to
+ * date first.
+ * @param args - the session to read.
+ * @returns the session's lifetime token totals, all four buckets.
+ * @throws {RemoteError} code `yantao-usage/not-found` for an unknown session.
+ */
+@Remote('sessionUsage') async sessionUsage(args: UsageSessionArgs): Promise<UsageSessionResult>
+```
+
+Source: [`packages/api/yantao-usage-controller/src/index.ts`](../../packages/api/yantao-usage-controller/src/index.ts)
 <!-- END GENERATED cordis-surface -->

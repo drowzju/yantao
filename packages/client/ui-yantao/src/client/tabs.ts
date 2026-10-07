@@ -34,6 +34,9 @@ export const INBOX_TAB = 'inbox'
 /** Tab key of the permanent 图谱 tab (ADR-0049) — never closeable, never persisted. */
 export const GRAPH_TAB = 'graph'
 
+/** Tab key of the permanent 洞察 tab (ADR-0050) — never closeable, never persisted. */
+export const INSIGHTS_TAB = 'insights'
+
 /** The centre pane's tab state. */
 export interface TabState {
   /** Open file tabs in open order. */

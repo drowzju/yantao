@@ -84,6 +84,11 @@
     - id: yantao-kb-controller
       name: '@deepseek-ai/dsh-api-yantao-kb-controller'
 
+    # 会话用量 RPC（ADR-0050）：洞察 tab 跨会话总览的数据通道——日台账与
+    # 单会话累计两个只读方法。
+    - id: yantao-usage-controller
+      name: '@deepseek-ai/dsh-api-yantao-usage-controller'
+
     # Ordinary provider for the parsed Web flags (same `webStartup` service key
     # the stock surface uses; this composition never mounts the stock web-app).
     - id: web-startup

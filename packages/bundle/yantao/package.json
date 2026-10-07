@@ -34,7 +34,8 @@
     }
   },
   "dependencies": {
-    "@deepseek-ai/dsh-yantao-kb": "workspace:^"
+    "@deepseek-ai/dsh-yantao-kb": "workspace:^",
+    "@deepseek-ai/dsh-yantao-usage": "workspace:^"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^"

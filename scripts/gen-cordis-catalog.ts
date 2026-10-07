@@ -144,6 +144,8 @@ export const SERVICE_PAGE: Record<string, string> = {
   directoryPickerController: 'workspace.md',
   yantaoKb: 'yantao.md',
   yantaoKbController: 'yantao.md',
+  yantaoUsage: 'yantao.md',
+  yantaoUsageController: 'yantao.md',
 }
 
 /**
@@ -940,6 +942,11 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   KbProposalInboxEnqueueResult: 'wire proposalInboxEnqueue result is owned by packages/api/yantao-kb-controller/README.md',
   KbProposalInboxResolveArgs: 'wire proposalInboxResolve request is owned by packages/api/yantao-kb-controller/README.md',
   KbProposalInboxResolveResult: 'wire proposalInboxResolve result is owned by packages/api/yantao-kb-controller/README.md',
+  UsageDailyArgs: 'wire dailyUsage request is owned by packages/api/yantao-usage-controller/README.md',
+  UsageDailyResult: 'wire dailyUsage result is owned by packages/api/yantao-usage-controller/README.md',
+  UsageSessionArgs: 'wire sessionUsage request is owned by packages/api/yantao-usage-controller/README.md',
+  UsageSessionResult: 'wire sessionUsage result is owned by packages/api/yantao-usage-controller/README.md',
+  UsageBuckets: 'wire token-bucket vocabulary is owned by packages/api/yantao-usage-controller/README.md',
   BashEnvContributor: 'service-local extension type is owned by packages/shell/tool-bash/src/index.ts',
   BashEnvVariableInfo: 'service-local metadata type is owned by packages/shell/tool-bash/src/index.ts',
   CompactionAgentContext: 'compaction service input is owned by packages/compaction/compaction/src/index.ts',

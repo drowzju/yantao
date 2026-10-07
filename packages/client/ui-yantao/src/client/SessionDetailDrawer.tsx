@@ -10,7 +10,7 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/SessionDetailDrawer
  */
 import { useEffect, useState, type CSSProperties, type ReactElement } from 'react'
-import { formatTokens } from './ContextStatusBar.tsx'
+import { formatTokens } from './insights.ts'
 import type { DetailItem, SessionDetailLoader, SessionUsage } from './session-detail.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
 import type { TaskRow } from './task-view.ts'

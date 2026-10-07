@@ -254,21 +254,23 @@ export function usageFromEvents(events: readonly SessionWireEvent[]): SessionUsa
 const PAGE_MESSAGES = 200
 
 /**
- * Read one session's transcript through the session Remote's existing faces
- * (ADR-0033): the `follow` opening snapshot gives the current window and the
- * log cursor; the `page` RPC walks backwards while older history remains.
- * The follow stream is abandoned right after its snapshot — a running task's
- * drawer shows what has been flushed so far, and reopening refreshes it.
+ * Collect one session's full durable event log through the session Remote's
+ * existing faces (ADR-0033): the `follow` opening snapshot gives the current
+ * window and the log cursor; the `page` RPC walks backwards while older
+ * history remains. The follow stream is abandoned right after its snapshot —
+ * a running task's drawer shows what has been flushed so far, and reopening
+ * refreshes it. Shared by every full-log reader (the drawer, ADR-0050's
+ * insights shaping).
  * @param session - the session namespace.
  * @param sessionId - the session to read.
- * @param signal - the drawer's cancel line (closed drawer stops the read).
- * @returns the shaped transcript with the run's token accounting, oldest first.
+ * @param signal - the reader's cancel line.
+ * @returns the session's durable events, oldest first.
  */
-export async function loadSessionDetail(
+export async function collectEvents(
   session: SessionRemote,
   sessionId: string,
   signal?: AbortSignal,
-): Promise<SessionDetail> {
+): Promise<readonly SessionWireEvent[]> {
   // The wire id is a plain string; the Remote face brands it (turn-answer's precedent).
   const address: SessionAddress = { kind: 'session', sessionId: sessionId as SessionId }
   // The follow is only opened for its snapshot: abort as soon as it lands.
@@ -302,5 +304,22 @@ export async function loadSessionDetail(
     events = [...page.records.map(record => record.event), ...events]
     hasMore = page.hasMore
   }
+  return events
+}
+
+/**
+ * Read one session's transcript through the session Remote's existing faces
+ * (ADR-0033) and shape it for the drawer.
+ * @param session - the session namespace.
+ * @param sessionId - the session to read.
+ * @param signal - the drawer's cancel line (closed drawer stops the read).
+ * @returns the shaped transcript with the run's token accounting, oldest first.
+ */
+export async function loadSessionDetail(
+  session: SessionRemote,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<SessionDetail> {
+  const events = await collectEvents(session, sessionId, signal)
   return { items: detailFromEvents(events), usage: usageFromEvents(events) }
 }

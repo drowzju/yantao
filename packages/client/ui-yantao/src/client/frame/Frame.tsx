@@ -52,7 +52,8 @@ import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
 import { Onboarding } from '../Onboarding.tsx'
 import {
-  CONVERSATION_TAB, SCHEDULES_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath,
+  CONVERSATION_TAB, SCHEDULES_TAB, INSIGHTS_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs,
+  readOnlyPath,
   restoreTabs,
   type TabMode, type TabState,
 } from '../tabs.ts'
@@ -65,8 +66,8 @@ import type { SidebarRightFileSeat } from '../sidebar-right.ts'
 import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
 import type { WorkbenchT } from '../locales.ts'
 
-/** Full props: the render share for the three seats this frame declares, plus the panel-action seat. */
-export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'footer.status'> & {
+/** Full props: the render share for the five seats this frame declares, plus the panel-action seat. */
+export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'footer.status' | 'center.insights' | 'footer.insights'> & {
   /** The workbench dictionary's bound translator. */
   readonly t: WorkbenchT
   /** Mutable seat the frame fills with its own toggles on mount. */
@@ -1905,6 +1906,7 @@ export function Frame({
         ) : (
           <GraphPane data={graphData} onOpen={(path) => { openFile(path, 'edit') }} t={t} />
         )}
+        insightsPane={renderSlot('center.insights', {})}
         inboxPending={inboxEntries.filter(entry => entry.status === 'pending').length}
         taskDetail={detailRow === null ? null : (
           <SessionDetailDrawer
@@ -2018,7 +2020,9 @@ export function Frame({
       </div>
       {/* The reserved grid row: 配置 lives at the window's bottom-left, a
           flow child so it survives intake collapse. The context status bar
-          (ADR-0039) rides beside it through the session-scoped child slot. */}
+          (ADR-0039) rides beside it through the session-scoped child slot;
+          ADR-0050 puts the 洞察 button between 调度 and that strip — its
+          stroke carries the current session's pressure alarm. */}
       <div style={footerStripStyle}>
         <button style={footerButtonStyle} data-config-button="true" onClick={() => { setConfigOpen(true) }}>
           {t('config.open')}
@@ -2032,6 +2036,11 @@ export function Frame({
         >
           {t('schedule.open')}
         </button>
+        {/* ADR-0050: the 洞察 entry — a session-maybe slot entry so the slot
+            machinery threads the current session's projection seat through;
+            the tab activation rides the owner props (the frame owns the tab
+            state, the entry owns the pressure reading). */}
+        {renderSlot('footer.insights', { onOpen: () => { setTabs(state => activateTab(state, INSIGHTS_TAB)) } })}
         {renderSlot('footer.status', {})}
       </div>
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>

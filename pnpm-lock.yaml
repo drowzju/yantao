@@ -221,6 +221,9 @@ importers:
       '@deepseek-ai/dsh-agent-tool-presentation':
         specifier: workspace:*
         version: link:../../packages/core/agent-tool-presentation
+      '@deepseek-ai/dsh-api-yantao-usage-controller':
+        specifier: workspace:*
+        version: link:../../packages/api/yantao-usage-controller
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:*
         version: link:../../packages/boot/app-boot
@@ -443,6 +446,9 @@ importers:
       '@deepseek-ai/dsh-yantao-kb':
         specifier: workspace:*
         version: link:../../packages/yantao/kb
+      '@deepseek-ai/dsh-yantao-usage':
+        specifier: workspace:*
+        version: link:../../packages/yantao/usage
       '@deepseek-ai/dsh-yantao-web-app':
         specifier: workspace:*
         version: link:../../packages/bundle/yantao-web-app
@@ -1302,6 +1308,9 @@ importers:
       '@deepseek-ai/dsh-api-yantao-kb-controller':
         specifier: workspace:*
         version: link:../yantao-kb-controller
+      '@deepseek-ai/dsh-api-yantao-usage-controller':
+        specifier: workspace:*
+        version: link:../yantao-usage-controller
       '@deepseek-ai/dsh-client-connection':
         specifier: workspace:*
         version: link:../../client/connection
@@ -1755,6 +1764,22 @@ importers:
       '@deepseek-ai/dsh-yantao-kb':
         specifier: workspace:^
         version: link:../../yantao/kb
+
+  packages/api/yantao-usage-controller:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-typert-protocol':
+        specifier: workspace:^
+        version: link:../../typert/protocol
+      '@deepseek-ai/dsh-yantao-usage':
+        specifier: workspace:^
+        version: link:../../yantao/usage
 
   packages/attachment/attachment:
     devDependencies:
@@ -2939,6 +2964,9 @@ importers:
       '@deepseek-ai/dsh-yantao-kb':
         specifier: workspace:^
         version: link:../../yantao/kb
+      '@deepseek-ai/dsh-yantao-usage':
+        specifier: workspace:^
+        version: link:../../yantao/usage
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -2967,6 +2995,9 @@ importers:
       '@deepseek-ai/dsh-api-yantao-kb-controller':
         specifier: workspace:^
         version: link:../../api/yantao-kb-controller
+      '@deepseek-ai/dsh-api-yantao-usage-controller':
+        specifier: workspace:^
+        version: link:../../api/yantao-usage-controller
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
         version: link:../../boot/app-boot
@@ -14693,6 +14724,28 @@ importers:
       '@types/mailparser':
         specifier: ^3.9.0
         version: 3.9.0
+
+  packages/yantao/usage:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-session-persistence':
+        specifier: workspace:^
+        version: link:../../session/session-persistence
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
 
   python/sdk-runtime:
     dependencies:

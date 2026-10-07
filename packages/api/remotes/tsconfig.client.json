@@ -91,6 +91,9 @@
       "path": "../yantao-kb-controller"
     },
     {
+      "path": "../yantao-usage-controller"
+    },
+    {
       "path": "../../typert/protocol"
     },
     {

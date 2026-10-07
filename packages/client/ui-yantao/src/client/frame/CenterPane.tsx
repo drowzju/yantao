@@ -1,7 +1,7 @@
 /**
- * The centre pane: five permanent tabs — 对话, 任务 (ADR-0031), 调度
- * (ADR-0045), 提议 (ADR-0047) and 图谱 (ADR-0049) — plus one closeable tab
- * per open KB file.
+ * The centre pane: six permanent tabs — 对话, 任务 (ADR-0031), 调度
+ * (ADR-0045), 提议 (ADR-0047), 图谱 (ADR-0049) and 洞察 (ADR-0050) — plus
+ * one closeable tab per open KB file.
  * The conversation is never unmounted — an
  * inactive tab's column is only
  * hidden — because it is the host's surface (scroll position and the composer
@@ -12,7 +12,7 @@
  */
 import type { ReactElement, ReactNode } from 'react'
 import {
-  CONVERSATION_TAB, GRAPH_TAB, INBOX_TAB, SCHEDULES_TAB, TASKS_TAB,
+  CONVERSATION_TAB, GRAPH_TAB, INBOX_TAB, INSIGHTS_TAB, SCHEDULES_TAB, TASKS_TAB,
   type FileTab, type TabState,
 } from '../tabs.ts'
 import { runningCount, type TaskRow } from '../task-view.ts'
@@ -59,6 +59,8 @@ export interface CenterPaneProps {
   readonly inboxPending: number
   /** The 图谱 tab's pane (ADR-0049) — rendered once, then only hidden. */
   readonly graphPane: ReactNode
+  /** The 洞察 tab's pane (ADR-0050) — rendered once, then only hidden. */
+  readonly insightsPane: ReactNode
   readonly t: WorkbenchT
 }
 
@@ -188,6 +190,7 @@ export function CenterPane({
   inboxPane,
   inboxPending,
   graphPane,
+  insightsPane,
   t,
 }: CenterPaneProps): ReactElement {
   // The conversation is rendered unconditionally and only hidden: remounting
@@ -197,6 +200,7 @@ export function CenterPane({
   const schedulesActive = tabs.active === SCHEDULES_TAB
   const inboxActive = tabs.active === INBOX_TAB
   const graphActive = tabs.active === GRAPH_TAB
+  const insightsActive = tabs.active === INSIGHTS_TAB
   // Only an editable file has two views; a read-only original is one <pre>.
   const activeFile = tabs.files.find(tab => tab.path === tabs.active)
   const toggleable = activeFile?.mode === 'edit'
@@ -262,6 +266,11 @@ export function CenterPane({
         <div style={graphActive ? activeTabStyle : tabStyle}>
           <button type="button" style={labelButtonStyle} onClick={() => { onActivate(GRAPH_TAB) }}>
             {t('center.graph')}
+          </button>
+        </div>
+        <div style={insightsActive ? activeTabStyle : tabStyle}>
+          <button type="button" style={labelButtonStyle} onClick={() => { onActivate(INSIGHTS_TAB) }}>
+            {t('center.insights')}
           </button>
         </div>
         {tabs.files.map((tab) => {
@@ -333,6 +342,9 @@ export function CenterPane({
         </div>
         <div style={{ ...pageStyle, display: graphActive ? 'flex' : 'none' }} data-tab={GRAPH_TAB}>
           {graphPane}
+        </div>
+        <div style={{ ...pageStyle, display: insightsActive ? 'flex' : 'none' }} data-tab={INSIGHTS_TAB}>
+          {insightsPane}
         </div>
         {tabs.files.map(tab => (
           <div

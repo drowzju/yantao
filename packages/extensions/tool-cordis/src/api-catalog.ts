@@ -4059,6 +4059,52 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
     ],
   },
+  {
+    key: 'yantaoUsage',
+    summary: 'The usage ledger service (ADR-0049): folds persisted session event logs into a per-local-day token ledger in the `yantao_usage` KV domain, and answers the day-range and per-session reads the 洞察 tab\'s 总览 renders.',
+    description: 'The usage ledger service (ADR-0049): folds persisted session event logs into a per-local-day token ledger in the `yantao_usage` KV domain, and answers the day-range and per-session reads the 洞察 tab\'s 总览 renders. Scans are lazy and single-flight — every read first brings the ledger up to date.',
+    methods: [
+      {
+        signature: 'refresh(): Promise<void>',
+        description: 'Bring the whole ledger up to date: enumerate every stored session and fold whatever each cursor has not consumed yet. Single-flight — a call while a scan runs resolves when THAT scan (plus the caller\'s own pass) completes.',
+        parameters: [],
+        returns: 'resolution once the ledger reflects every materialized event.',
+      },
+      {
+        signature: 'async dailyUsage(args: UsageDailyArgs = {}): Promise<UsageDailyResult>',
+        description: 'The day ledger over an inclusive local-day range, brought up to date first. Days with no recorded usage are absent from the answer.',
+        parameters: [{ name: 'args', description: 'optional `sinceDay`/`untilDay` bounds (`YYYY-MM-DD`, inclusive).' }],
+        returns: 'the day records in range, oldest first, with their bucket-wise sum.',
+      },
+      {
+        signature: 'async sessionUsage(sessionId: SessionId): Promise<UsageBuckets>',
+        description: 'One session\'s lifetime totals, bringing that session\'s cursor up to date first.',
+        parameters: [{ name: 'sessionId', description: 'the stored session to read.' }],
+        returns: 'the session\'s lifetime token totals, all four buckets.',
+        throws: ['{UsageSessionUnknownError} when the store holds no such session.'],
+      },
+    ],
+  },
+  {
+    key: 'yantaoUsageController',
+    summary: 'UI-direct usage reads over the `yantaoUsage` Remote namespace.',
+    description: 'UI-direct usage reads over the `yantaoUsage` Remote namespace.',
+    methods: [
+      {
+        signature: '@Remote(\'dailyUsage\') dailyUsage(args: UsageDailyArgs): Promise<UsageDailyResult>',
+        description: 'The day ledger over an inclusive local-day range, brought up to date first (the scan is lazy and single-flight inside the service).',
+        parameters: [{ name: 'args', description: 'optional `sinceDay`/`untilDay` bounds.' }],
+        returns: 'the day rows oldest first plus their sum.',
+      },
+      {
+        signature: '@Remote(\'sessionUsage\') async sessionUsage(args: UsageSessionArgs): Promise<UsageSessionResult>',
+        description: 'One session\'s lifetime token totals, that session\'s cursor brought up to date first.',
+        parameters: [{ name: 'args', description: 'the session to read.' }],
+        returns: 'the session\'s lifetime token totals, all four buckets.',
+        throws: ['{RemoteError} code `yantao-usage/not-found` for an unknown session.'],
+      },
+    ],
+  },
 ]
 
 /** Every harness event, sorted by name. */
@@ -8682,6 +8728,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'UpdateTeamTaskRequest',
     declaration: 'export interface UpdateTeamTaskRequest {\n    readonly taskId: TeamTaskId;\n    readonly expectedRevision: number;\n    readonly action: TeamTaskAction;\n    readonly subject?: string;\n    readonly description?: string;\n    readonly blockedBy?: readonly TeamTaskId[];\n    readonly writeScopes?: readonly string[];\n    readonly owner?: string;\n}',
+  },
+  {
+    name: 'UsageBuckets',
+    declaration: 'export interface UsageBuckets {\n    readonly uncachedInputTokens: number;\n    readonly outputTokens: number;\n    readonly cacheReadTokens: number;\n    readonly cacheWriteTokens: number;\n}',
+  },
+  {
+    name: 'UsageSessionArgs',
+    declaration: 'export interface UsageSessionArgs {\n    readonly sessionId: string;\n}',
+  },
+  {
+    name: 'UsageSessionResult',
+    declaration: 'export interface UsageSessionResult {\n    readonly sessionId: string;\n    readonly totals: UsageBuckets;\n}',
   },
   {
     name: 'UserMessage',

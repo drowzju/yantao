@@ -19,6 +19,7 @@ import type { UseProjection } from '@deepseek-ai/dsh-api-session-controller/clie
 // Type-only: the `contextPressure` / `contextBreakdown` projection key merges.
 import type {} from '@deepseek-ai/dsh-token-meter/client'
 import type { KbPromptInjectionResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import { formatTokens } from './insights.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
 import type { WorkbenchT } from './locales.ts'
 import css from './ContextStatusBar.module.css'
@@ -36,17 +37,6 @@ export interface ContextStatusBarProps {
 /** Occupancy thresholds: amber past 80%, red past 95%. */
 const WARNING_PERCENT = 80
 const DANGER_PERCENT = 95
-
-/**
- * Format a token count compactly for the status bar and its panel.
- * @param value - token count.
- * @returns `842`, `12.3k`, or `1.2M` style figures.
- */
-export function formatTokens(value: number): string {
-  if (value < 1_000) return String(value)
-  if (value < 1_000_000) return `${Math.round(value / 100) / 10}k`
-  return `${Math.round(value / 100_000) / 10}M`
-}
 
 export function ContextStatusBar({ useProjection, sessionId, promptInjection, t }: ContextStatusBarProps) {
   const pressure = useProjection('contextPressure')

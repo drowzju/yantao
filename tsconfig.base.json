@@ -114,6 +114,8 @@
       "@deepseek-ai/dsh-api-workspace-controller/types": ["./packages/api/workspace-controller/src/types.ts"],
       "@deepseek-ai/dsh-api-yantao-kb-controller": ["./packages/api/yantao-kb-controller/src/index.ts"],
       "@deepseek-ai/dsh-api-yantao-kb-controller/types": ["./packages/api/yantao-kb-controller/src/types.ts"],
+      "@deepseek-ai/dsh-api-yantao-usage-controller": ["./packages/api/yantao-usage-controller/src/index.ts"],
+      "@deepseek-ai/dsh-api-yantao-usage-controller/types": ["./packages/api/yantao-usage-controller/src/types.ts"],
       "@deepseek-ai/dsh-typert-protocol": ["./packages/typert/protocol/src/index.ts"],
       "@deepseek-ai/dsh-typert-protocol/types": ["./packages/typert/protocol/src/types.ts"],
       "@deepseek-ai/dsh-typert-loader": ["./packages/typert/loader/src/index.ts"],
@@ -340,6 +342,8 @@
       // packages/yantao/kb's directory does not match its npm name suffix,
       // so this alias stays hand-written like dsh-util-time above.
       "@deepseek-ai/dsh-yantao-kb": ["./packages/yantao/kb/src"],
+      // Same for packages/yantao/usage (ADR-0049).
+      "@deepseek-ai/dsh-yantao-usage": ["./packages/yantao/usage/src"],
       // BEGIN generated package aliases — pnpm run gen-tsconfig-paths
       "@deepseek-ai/dsh-acp": ["./packages/acp/acp/src"],
       "@deepseek-ai/dsh-acp-app": ["./packages/bundle/acp-app/src"],

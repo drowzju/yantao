@@ -77,6 +77,12 @@
     - id: yantao-kb
       name: '@deepseek-ai/dsh-yantao-kb'
 
+# 会话用量台账（ADR-0050）：host 侧日用量聚合器，扫会话事件日志按天分桶，
+# KV 域 yantao_usage 持久化（不落 kbRoot）。洞察 tab 的数据面。
+- insert:
+    - id: yantao-usage
+      name: '@deepseek-ai/dsh-yantao-usage'
+
 # Trust boundary (ADR-0004): no generic write capability. The shell tools and
 # the string-replace editor give the model arbitrary write paths (shell
 # commands, direct file edits), so all three are disabled on every platform —
