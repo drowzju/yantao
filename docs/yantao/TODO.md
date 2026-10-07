@@ -197,6 +197,8 @@ _无。(曾在此的三项 —— 客户端 face 重建、`tsgolint`、`toThrowE
 | *(已移入 done)* —— 注意:单包 `tsc -b` 会**重新生成**这些残留 | 用仓库自带的 `pnpm run clean` 再清,或先 `git clean -n -- packages` 预览、再 `git clean -f -- packages` |
 | 把中间一列也收归我们(ADR-0011 里的 L3) | 会话面在上游约 23k 行(ui-conversation + ui-chat + ui-tool);中间还是对话流水时没有产品理由重写。若中列变成 KB 文档视图再议。2026-09-15 验证:把 `ui-conversation` + `ui-chat` 移出 roster 后照常启动——等中列归我们时这一步本身没有成本。 |
 | 精简 profile(减少 base 行)以缩短约 35 秒启动 | 已于 2026-09-15 测量(见 done 表):解析占大头,挂的插件越少 = 启动时解析的模块越少——方向正确,但等 UI 完全归我们再做 |
+| 脚注锚点跨实例隔离(OCR 2026-10-06 MEDIUM-3) | 多个 MarkdownText 实例引用同名脚注时锚点会撞车(滚到第一个实例)。修法要给 MarkdownRenderContext 穿实例前缀,侵入渲染管线;中文语料脚注本就罕见,先记录 |
+| 撤销窗内文件冲突检测(OCR 2026-10-06 MEDIUM-13) | 90 秒撤销窗内人手改过的文件,撤销会用确认时的快照无声覆盖(todos 分支已防,文件分支未防)。修法:每步 restore 前重读比对,不一致即报冲突。值得做但不急 |
 
 ## 这份清单的规矩
 

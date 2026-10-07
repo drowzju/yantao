@@ -53,7 +53,12 @@ export function useDialogModal(options: DialogModalOptions): DialogModalHandle {
     if (!active) return
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     cardRef.current?.focus()
-    return () => { previous?.focus() }
+    return () => {
+      // Chained overlays (a dialog opening atop another) can detach the
+      // captured owner before teardown — focusing a disconnected node
+      // no-ops and the keyboard user loses their place for nothing.
+      if (previous !== null && previous.isConnected) previous.focus()
+    }
   }, [active])
 
   const onPanelKeyDown = (event: ReactKeyboardEvent): void => {

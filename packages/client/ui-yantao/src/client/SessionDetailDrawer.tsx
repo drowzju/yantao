@@ -297,9 +297,13 @@ export function SessionDetailDrawer(props: {
   }
 
   return (
-    <>
+    // Keydown lands on the wrapper so Esc works whenever the dialog
+    // hierarchy holds focus — not only when a focusable control inside the
+    // panel does (clicking the bare backdrop drops focus to <body>, and a
+    // panel-only handler would strand the keyboard exit).
+    <div onKeyDown={onPanelKeyDown}>
       <div style={backdropStyle} onClick={onClose} />
-      <div style={panelStyle} role="dialog" aria-modal="true" aria-label={row.title} tabIndex={-1} ref={cardRef} onKeyDown={onPanelKeyDown} data-task-detail-panel="true">
+      <div style={panelStyle} role="dialog" aria-modal="true" aria-label={row.title} tabIndex={-1} ref={cardRef} data-task-detail-panel="true">
         <div style={headerStyle}>
           <span style={titleStyle}>{`${row.title} · 会话详情`}</span>
           <button type="button" style={closeButtonStyle} onClick={onClose} aria-label="关闭">✕</button>
@@ -334,6 +338,6 @@ export function SessionDetailDrawer(props: {
           {rendered}
         </div>
       </div>
-    </>
+    </div>
   )
 }

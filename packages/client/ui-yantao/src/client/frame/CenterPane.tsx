@@ -242,7 +242,9 @@ export function CenterPane({
             <span
               data-inbox-badge="true"
               style={{
-                background: 'var(--yt-accent)',
+                // White 12px text needs the stronger accent to clear WCAG AA
+                // on both schemes (plain --yt-accent measures ~4:1 light).
+                background: 'var(--yt-accent-strong)',
                 borderRadius: 8,
                 color: '#fff',
                 fontSize: 'var(--yt-type-label)',

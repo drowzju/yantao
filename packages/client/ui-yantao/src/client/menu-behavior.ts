@@ -7,7 +7,7 @@
  * modals.
  * @module @deepseek-ai/dsh-client-ui-yantao/menu-behavior
  */
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 /** The menu's minimum distance from the viewport edge after clamping. */
 const MENU_MARGIN = 8
@@ -37,6 +37,13 @@ export function useFloatingMenu(
 ): { readonly left: number; readonly top: number } {
   const [position, setPosition] = useState({ left: anchor.x, top: anchor.y })
 
+  // The close callback rides in a ref: every tenant passes a fresh inline
+  // lambda, and the effect below must not tear down/re-register (and snap
+  // the focus back to the first item) whenever a parent re-renders with a
+  // new closure — the same discipline use-dialog-modal documents.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
   // Clamp after paint-but-before-display (layout effect, so the first frame
   // never flashes at an off-screen position).
   useLayoutEffect(() => {
@@ -55,7 +62,7 @@ export function useFloatingMenu(
 
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape' || event.key === 'Tab') {
-        onClose()
+        onCloseRef.current()
         return
       }
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return
@@ -71,7 +78,7 @@ export function useFloatingMenu(
       enabled[next]?.focus()
     }
     const onPointerDown = (event: MouseEvent): void => {
-      if (ref.current !== null && !ref.current.contains(event.target as Node)) onClose()
+      if (ref.current !== null && !ref.current.contains(event.target as Node)) onCloseRef.current()
     }
     document.addEventListener('keydown', onKeyDown)
     document.addEventListener('mousedown', onPointerDown)
@@ -81,7 +88,7 @@ export function useFloatingMenu(
       document.removeEventListener('keydown', onKeyDown)
       document.removeEventListener('mousedown', onPointerDown)
     }
-  }, [ref, onClose])
+  }, [ref])
 
   return position
 }

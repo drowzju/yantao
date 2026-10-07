@@ -5,7 +5,7 @@
  * it frames, renders the result, and hands clicks to the frame's file-opening
  * gesture. Zoom/pan is deliberately out (二期): a personal KB fits one view.
  */
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react'
 import type { KbRelationEdge, KbRelationGraphResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { createLayout, stepLayout, type ForceLayout } from '../graph/graphLayout.ts'
 import { tabTitle } from '../tabs.ts'
@@ -97,30 +97,39 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
   const alphaRef = useRef(0)
   const dragRef = useRef<{ index: number; lastX: number; lastY: number; moved: number } | null>(null)
   const [, bump] = useState(0)
+  /** The live relaxation loop's frame handle, so a reheat can restart it. */
+  const rafRef = useRef(0)
 
-  // A new payload rebuilds the layout and reheats the simulation.
-  useEffect(() => {
-    layoutRef.current = createLayout(data.nodes, data.edges, VIEW_W, VIEW_H)
-    alphaRef.current = INITIAL_ALPHA
-    let raf = 0
+  // The loop dies once alpha sinks under the floor; a drag's reheat must be
+  // able to bring it back, so starting it is a named move, not an effect
+  // birthright. Restarting a live loop is harmless (cancel + relaunch).
+  const startLoop = useCallback((): void => {
+    cancelAnimationFrame(rafRef.current)
     const loop = (): void => {
       const layout = layoutRef.current
       if (layout === null) return
       stepLayout(layout, alphaRef.current)
       alphaRef.current *= ALPHA_DECAY
       bump(value => value + 1)
-      if (alphaRef.current >= ALPHA_FLOOR) raf = requestAnimationFrame(loop)
+      if (alphaRef.current >= ALPHA_FLOOR) rafRef.current = requestAnimationFrame(loop)
     }
-    raf = requestAnimationFrame(loop)
-    return () => { cancelAnimationFrame(raf) }
-  }, [data])
+    rafRef.current = requestAnimationFrame(loop)
+  }, [])
+
+  // A new payload rebuilds the layout and reheats the simulation.
+  useEffect(() => {
+    layoutRef.current = createLayout(data.nodes, data.edges, VIEW_W, VIEW_H)
+    alphaRef.current = INITIAL_ALPHA
+    startLoop()
+    return () => { cancelAnimationFrame(rafRef.current) }
+  }, [data, startLoop])
 
   const degree = degreesOf(data.edges)
 
   const onNodeDown = (event: ReactPointerEvent<SVGGElement>, index: number): void => {
     const layout = layoutRef.current
     const node = layout?.nodes[index]
-    if (layout === undefined || node === undefined) return
+    if (layout === null || node === undefined) return
     node.fixed = true
     dragRef.current = { index, lastX: event.clientX, lastY: event.clientY, moved: 0 }
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -143,6 +152,9 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
     drag.moved += Math.abs(dx) + Math.abs(dy)
     node.x = Math.max(0, Math.min(VIEW_W, node.x + dx))
     node.y = Math.max(0, Math.min(VIEW_H, node.y + dy))
+    // The loop may be asleep (alpha under its floor) — without a bump the
+    // dragged node would not follow the pointer on screen.
+    bump(value => value + 1)
   }
 
   const onNodeUp = (): void => {
@@ -157,7 +169,10 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
       onOpen(node.id)
     } else {
       // A dragged node disturbed its neighbours — reheat to let them settle.
+      // The loop died when alpha sank under the floor, so the reheat must
+      // also restart it; a live loop survives the restart harmlessly.
       alphaRef.current = Math.max(alphaRef.current, 0.35)
+      startLoop()
     }
   }
 
@@ -204,6 +219,7 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
               onPointerDown={(event) => { onNodeDown(event, index) }}
               onPointerMove={onNodeMove}
               onPointerUp={onNodeUp}
+              onPointerCancel={onNodeUp}
             >
               <title>{node.id}</title>
               {kind !== null && <NodeShape kind={kind} isolated={isolated} />}

@@ -3064,7 +3064,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'deleteResource\') async deleteResource(path: string): Promise<KbDeleteResourceResult>',
-        description: 'Delete one resource file — the workbench\'s 「删除」 gesture on a resource row. Resources are dumb raw material (ADR-0020): unlike entities (ADR-0041 决定 8 — never deleted, only archived) a resource can go away for good. The trust boundary is untouched: this lives on the UI\'s Remote namespace, which the agent\'s tool layer never sees — the agent keeps its creation- only / read-only resource tools (ADR-0028). Confined twice over: the KB confinement, then a `resources/` prefix — entity notes, the todo singleton and anything else in the KB are refused. The UI confirms before invoking (the menu\'s armed second click); the server does not second-guess a confirmed human gesture.',
+        description: 'Delete one resource file — the workbench\'s 「删除」 gesture on a resource row. Resources are dumb raw material (ADR-0020): unlike entities (ADR-0041 决定 8 — never deleted, only archived) a resource can go away for good. The trust boundary is untouched: this lives on the UI\'s Remote namespace, which the agent\'s tool layer never sees — the agent keeps its creation-only / read-only resource tools (ADR-0028). Confined twice over: the KB confinement, then a `resources/` prefix — entity notes, the todo singleton and anything else in the KB are refused. The UI confirms before invoking (the menu\'s armed second click); the server does not second-guess a confirmed human gesture.',
         parameters: [{ name: 'path', description: 'KB-relative path with forward slashes, under `resources/`.' }],
         returns: 'the deleted path.',
       },
@@ -3118,7 +3118,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'memoryProposalList\') async memoryProposalList(): Promise<KbMemoryProposalListResult>',
-        description: 'The proposal queue\'s listing (ADR-0044): every scope that has a queue file under `.dsh/yantao/memory/proposals/` — `global.md` first, then the capability scopes name-sorted — each with its exact text and parsed pending proposals, source annotations included for the human\'s judgment. The queue is never injected into any prompt; this listing and the conversation approval cards are its only readers.',
+        description: 'The proposal queue\'s listing (ADR-0044): every scope whose queue file under `.dsh/yantao/memory/proposals/` still holds at least one pending proposal — `global.md` first, then the capability scopes name-sorted — each with its exact text and parsed pending proposals, source annotations included for the human\'s judgment. A scope whose queue was fully approved or discarded is not listed, so the answer is exactly the in-flight proposals. The queue is never injected into any prompt; this listing and the conversation approval cards are its only readers.',
         parameters: [],
         returns: 'the scopes, global first.',
       },

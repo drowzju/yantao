@@ -58,32 +58,56 @@ const KINDS: readonly ProposalAction['kind'][] = [
   'add-todo', 'edit-section', 'append-section', 'add-memory', 'delete-mails', 'archive-mails',
 ]
 
-/** Keep the entries whose `kind` the applier knows; drop the rest silently. */
+/** The payload fields each kind needs as non-empty strings; an action missing any is not one —
+ * a near-miss envelope must not reach the card as a writable row (an `append-log` without
+ * `text` would interpolate the literal "undefined" into the entity's 流水 as a success). */
+const REQUIRED_FIELDS: Partial<Record<ProposalAction['kind'], readonly string[]>> = {
+  'create-entity': ['entityType', 'name'],
+  'create-project': ['name'],
+  'append-log': ['text'],
+  'write-state': ['text'],
+  'save-resource': ['path', 'content'],
+  'create-link': ['link'],
+  'add-todo': ['title'],
+  'edit-section': ['section', 'after'],
+  'append-section': ['section', 'text'],
+  'add-memory': ['scope', 'text'],
+  'delete-mails': ['entryId'],
+  'archive-mails': ['entryId'],
+}
+
+/** Keep the entries whose `kind` the applier knows and whose required fields are strings; drop the rest silently. */
 function actionsOf(raw: readonly unknown[]): readonly ProposalAction[] {
   return raw.filter((entry): entry is ProposalAction => {
     if (typeof entry !== 'object' || entry === null) return false
-    return KINDS.includes((entry as Record<string, unknown>).kind as ProposalAction['kind'])
+    const bag = entry as Record<string, unknown>
+    const kind = bag.kind as ProposalAction['kind']
+    if (!KINDS.includes(kind)) return false
+    return (REQUIRED_FIELDS[kind] ?? []).every(field => typeof bag[field] === 'string' && bag[field] !== '')
   })
 }
 
 /**
  * The envelope's optional `mails` range (ADR-0047 验收修正 2), as the parsers
- * accept it: an object whose `lastReadAt` is a non-empty string (the model
- * copies the stamps off fetched mails; strict ISO parsing stays the
- * watermark writer's business). Anything else — absent, mistyped, empty —
- * is simply no range, and the inbox verdict moves no cursor.
+ * accept it: an object whose `lastReadAt` is a parseable date stamp. The
+ * stamps must be checked here — the watermark writer stores them verbatim
+ * (no ISO check host-side), and a hallucinated cursor («上周五», a locale
+ * date) would permanently skip mails in the fetch's `--since` filtering.
+ * Anything else — absent, mistyped, unparseable — is simply no range, and
+ * the inbox verdict moves no cursor.
  */
 function mailsOf(raw: unknown): ProposalMailRange | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined
   const candidate = raw as Record<string, unknown>
-  if (typeof candidate.lastReadAt !== 'string' || candidate.lastReadAt.trim() === '') return undefined
-  const range: ProposalMailRange = {
-    lastReadAt: candidate.lastReadAt.trim(),
-    ...(typeof candidate.firstReadAt === 'string' && candidate.firstReadAt.trim() !== ''
-      ? { firstReadAt: candidate.firstReadAt.trim() }
-      : {}),
+  const isoOf = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined
+    const trimmed = value.trim()
+    return trimmed !== '' && !Number.isNaN(Date.parse(trimmed)) ? trimmed : undefined
   }
-  return range
+  const lastReadAt = isoOf(candidate.lastReadAt)
+  if (lastReadAt === undefined) return undefined
+  const firstReadAt = isoOf(candidate.firstReadAt)
+  return { lastReadAt, ...(firstReadAt !== undefined ? { firstReadAt } : {}) }
 }
 
 /**

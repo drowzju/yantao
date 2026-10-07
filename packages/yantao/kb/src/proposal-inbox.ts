@@ -17,7 +17,7 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { KbError } from './types.ts'
 
@@ -58,6 +58,9 @@ export const PROPOSAL_INBOX_DISPLAY_PATH = '.dsh/yantao/proposal-inbox.json'
 /** Past this many undecided rows the inbox is a smell — enqueue refuses. */
 export const INBOX_PENDING_SOFT_CAP = 50
 
+/** The total row budget (decisions included) the store normalizes against. */
+const INBOX_TOTAL_CAP = INBOX_PENDING_SOFT_CAP * 4
+
 /** Length caps for the framing fields; the payload is capped by the parser upstream. */
 const SOURCE_MAX = 128
 const SOURCE_NAME_MAX = 64
@@ -67,6 +70,25 @@ const NOTE_MAX = 500
 /** Where the store sits on disk. */
 function inboxTarget(kbRoot: string): string {
   return join(kbRoot, '.dsh', 'yantao', 'proposal-inbox.json')
+}
+
+/**
+ * Atomic replace via temp file + rename. Windows can transiently refuse the
+ * replace (EPERM) while a scanner or indexer still holds the destination —
+ * a few short retries keep the atomic replace honest without fragility.
+ */
+async function atomicWrite(target: string, payload: string): Promise<void> {
+  const staging = `${target}.tmp`
+  await writeFile(staging, payload, 'utf8')
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(staging, target)
+      return
+    } catch (error) {
+      if (attempt >= 3 || (error as NodeJS.ErrnoException).code !== 'EPERM') throw error
+      await new Promise(resolveAck => setTimeout(resolveAck, 25 * (attempt + 1)))
+    }
+  }
 }
 
 /** A fresh entry id: `prp_<base36 ms>_<random>` — same recipe as the schedule ids. */
@@ -84,8 +106,8 @@ export function newProposalInboxId(now: Date = new Date()): string {
  * @returns the same list, normalized (framing fields trimmed).
  */
 export function normalizeInboxEntries(entries: readonly unknown[]): QueuedProposal[] {
-  if (entries.length > INBOX_PENDING_SOFT_CAP * 4) {
-    throw new KbError('too-many-inbox-entries', `提议收件箱最多保留 ${INBOX_PENDING_SOFT_CAP * 4} 条（含已决策）`)
+  if (entries.length > INBOX_TOTAL_CAP) {
+    throw new KbError('too-many-inbox-entries', `提议收件箱最多保留 ${INBOX_TOTAL_CAP} 条（含已决策）`)
   }
   const seen = new Set<string>()
   return entries.map((item, at) => {
@@ -200,7 +222,10 @@ export async function writeProposalInbox(kbRoot: string, entries: readonly Queue
   const target = inboxTarget(kbRoot)
   await mkdir(dirname(target), { recursive: true })
   const payload = JSON.stringify({ version: 1, proposals: validated } satisfies ProposalInboxFile, null, 2) + '\n'
-  await writeFile(target, payload, 'utf8')
+  // Temp-file + rename: a crash mid-write must never leave a truncated JSON
+  // store behind — that would wedge list/enqueue/resolve (the human's
+  // pending decisions unreadable) until a hand repair.
+  await atomicWrite(target, payload)
 }
 
 /** What a producer hands in at enqueue — the store assigns id/createdAt/status. */
@@ -217,6 +242,17 @@ export interface InboxEnqueueInput {
   readonly proposal: unknown
 }
 
+// Every mutator's read→modify→write runs on this chain: two overlapping
+// writers (a scheduler enqueue racing a human resolve, or two scheduled
+// sessions finishing together) would otherwise last-writer-win and silently
+// drop a proposal or a decision. Cheap — every write funnels through here.
+let inboxWriteChain: Promise<unknown> = Promise.resolve()
+function withInboxLock<T>(work: () => Promise<T>): Promise<T> {
+  const run = inboxWriteChain.then(work, work)
+  inboxWriteChain = run.catch(() => undefined)
+  return run
+}
+
 /**
  * Append one proposal to the inbox. Refuses when the undecided backlog is
  * past the soft cap — a queue nobody drains is a smell, and the refusal is
@@ -226,24 +262,39 @@ export interface InboxEnqueueInput {
  * @param now - the enqueue moment; defaults to now.
  * @returns the full list as stored after the append.
  */
-export async function enqueueProposal(kbRoot: string, input: InboxEnqueueInput, now: Date = new Date()): Promise<QueuedProposal[]> {
-  const entries = await readProposalInbox(kbRoot)
-  if (entries.filter(entry => entry.status === 'pending').length >= INBOX_PENDING_SOFT_CAP) {
-    throw new KbError('inbox-full', `未决策的提议已达 ${INBOX_PENDING_SOFT_CAP} 条，先去提议页处理再跑下一次`)
-  }
-  const entry: QueuedProposal = {
-    id: newProposalInboxId(now),
-    createdAt: now.toISOString(),
-    source: input.source,
-    sourceName: input.sourceName,
-    title: input.title,
-    ...(input.note !== undefined ? { note: input.note } : {}),
-    proposal: input.proposal,
-    status: 'pending',
-  }
-  const next = [...entries, entry]
-  await writeProposalInbox(kbRoot, next)
-  return next
+export function enqueueProposal(kbRoot: string, input: InboxEnqueueInput, now: Date = new Date()): Promise<QueuedProposal[]> {
+  return withInboxLock(async () => {
+    const entries = await readProposalInbox(kbRoot)
+    if (entries.filter(entry => entry.status === 'pending').length >= INBOX_PENDING_SOFT_CAP) {
+      throw new KbError('inbox-full', `未决策的提议已达 ${INBOX_PENDING_SOFT_CAP} 条，先去提议页处理再跑下一次`)
+    }
+    const entry: QueuedProposal = {
+      id: newProposalInboxId(now),
+      createdAt: now.toISOString(),
+      source: input.source,
+      sourceName: input.sourceName,
+      title: input.title,
+      ...(input.note !== undefined ? { note: input.note } : {}),
+      proposal: input.proposal,
+      status: 'pending',
+    }
+    const next = [...entries, entry]
+    // Decided rows are kept for the record, but the total cap is a hard
+    // normalization failure that would wedge every consumer — trim the
+    // oldest decided rows (pending ones are never touched) so the store
+    // stays readable and self-healing.
+    let stored = next
+    if (stored.length > INBOX_TOTAL_CAP) {
+      const drop = new Set(
+        stored.filter(row => row.status !== 'pending')
+          .slice(0, stored.length - INBOX_TOTAL_CAP)
+          .map(row => row.id),
+      )
+      stored = stored.filter(row => !drop.has(row.id))
+    }
+    await writeProposalInbox(kbRoot, stored)
+    return stored
+  })
 }
 
 /**
@@ -256,23 +307,25 @@ export async function enqueueProposal(kbRoot: string, input: InboxEnqueueInput, 
  * @param decidedAt - the decision moment.
  * @returns the full list as stored after the resolve.
  */
-export async function resolveProposalInboxEntry(
+export function resolveProposalInboxEntry(
   kbRoot: string,
   id: string,
   status: 'approved' | 'discarded',
   decidedAt: Date = new Date(),
 ): Promise<QueuedProposal[]> {
-  const entries = await readProposalInbox(kbRoot)
-  const entry = entries.find(candidate => candidate.id === id)
-  if (entry === undefined) {
-    throw new KbError('inbox-entry-not-found', `提议 ${id} 不存在`)
-  }
-  if (entry.status !== 'pending') {
-    throw new KbError('inbox-entry-decided', `提议「${entry.title}」已经决策过了`)
-  }
-  const next = entries.map(candidate => candidate.id === id
-    ? { ...candidate, status, decidedAt: decidedAt.toISOString() }
-    : candidate)
-  await writeProposalInbox(kbRoot, next)
-  return next
+  return withInboxLock(async () => {
+    const entries = await readProposalInbox(kbRoot)
+    const entry = entries.find(candidate => candidate.id === id)
+    if (entry === undefined) {
+      throw new KbError('inbox-entry-not-found', `提议 ${id} 不存在`)
+    }
+    if (entry.status !== 'pending') {
+      throw new KbError('inbox-entry-decided', `提议「${entry.title}」已经决策过了`)
+    }
+    const next = entries.map(candidate => candidate.id === id
+      ? { ...candidate, status, decidedAt: decidedAt.toISOString() }
+      : candidate)
+    await writeProposalInbox(kbRoot, next)
+    return next
+  })
 }

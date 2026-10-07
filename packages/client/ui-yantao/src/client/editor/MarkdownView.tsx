@@ -260,7 +260,11 @@ export function MarkdownView({
         while (imageUrlCache.size > IMAGE_CACHE_LIMIT) {
           const oldest = imageUrlCache.keys().next().value
           if (oldest === undefined) break
-          URL.revokeObjectURL(imageUrlCache.get(oldest) ?? '')
+          // Drop the entry but keep the URL alive: the cache is shared by
+          // every open MarkdownView while epochs are per-instance, so
+          // another view may still be rendering this URL and will never
+          // observe the eviction. Entries are bounded, so the retained
+          // URLs are capped too.
           imageUrlCache.delete(oldest)
         }
         setImageEpoch(epoch => epoch + 1)

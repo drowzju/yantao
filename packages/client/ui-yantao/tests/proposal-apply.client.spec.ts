@@ -697,14 +697,26 @@ describe('applyProposal undo records', () => {
       title: 't',
       actions: [{ kind: 'save-resource', path: 'resources/note.md', content: '新内容', reason: 'r' }],
     }
-    // Fresh file: the read misses, so the undo is a delete.
+    // Fresh file: the read answers the RPC's not-found shape, so the undo is a delete.
+    const notFoundError = (): Error => Object.assign(new Error('找不到知识库文件：resources/note.md'), { code: 'yantao-kb/not-found' })
     const fresh = target({
-      read: vi.fn(async () => { throw new Error('没有这个文件') }),
+      read: vi.fn(async () => { throw notFoundError() }),
       deleteResource: vi.fn(async (path: string) => ({ path })),
     })
     const freshResult = await applyProposal({ proposal, ticked: [0], target: fresh })
     await runUndo(freshResult.undo!)
     expect(fresh.deleteResource).toHaveBeenCalledWith('resources/note.md')
+
+    // Occupied but unreadable (a binary occupant, a transient IO failure —
+    // anything without the not-found code): never classifiable as fresh, so
+    // the step goes to the irreversible bucket instead of a deleting undo.
+    const unreadable = target({
+      read: vi.fn(async () => { throw Object.assign(new Error('二进制文件不进文本读'), { code: 'yantao-kb/binary' }) }),
+      deleteResource: vi.fn(async (path: string) => ({ path })),
+    })
+    const unreadableResult = await applyProposal({ proposal, ticked: [0], target: unreadable })
+    // No deletable undo exists — the whole step is irreversible.
+    expect(unreadableResult.undo).toBeUndefined()
 
     // Existing file: the undo writes the prior bytes back.
     const existing = target({

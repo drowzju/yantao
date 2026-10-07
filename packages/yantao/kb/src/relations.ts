@@ -96,15 +96,20 @@ export async function relationGraphOf(kbRoot: string): Promise<KbRelationGraph> 
   // The structured carrier: each project's frontmatter `areas` list. Entries
   // resolve through the same locator pathway as wiki links; an entry that
   // names zero or several areas, or an archived one, is dropped quietly.
+  // The reads are mutually independent — one parallel wave, not one await
+  // per project (and per area entry) serialized.
   const root = resolve(kbRoot)
-  for (const path of graph.nodes) {
-    if (!path.startsWith('entities/projects/')) continue
-    let text: string
+  const projectPaths = graph.nodes.filter(path => path.startsWith('entities/projects/'))
+  const projectTexts = await Promise.all(projectPaths.map(async (path) => {
     try {
-      text = await readFile(join(root, path), 'utf8')
+      return { path, text: await readFile(join(root, path), 'utf8') }
     } catch {
-      continue
+      return null
     }
+  }))
+  for (const project of projectTexts) {
+    if (project === null) continue
+    const { path, text } = project
     let areas: unknown
     try {
       areas = parseFrontmatter(text, path).data.areas
@@ -113,9 +118,9 @@ export async function relationGraphOf(kbRoot: string): Promise<KbRelationGraph> 
       continue
     }
     if (!Array.isArray(areas)) continue
-    for (const entry of areas) {
-      if (typeof entry !== 'string' || entry.trim() === '') continue
-      const areaPath = await resolveWikiLink(kbRoot, `area:${entry.trim()}`)
+    const entries = areas.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
+    const resolved = await Promise.all(entries.map(entry => resolveWikiLink(kbRoot, `area:${entry.trim()}`)))
+    for (const areaPath of resolved) {
       if (areaPath === null || !active.has(areaPath)) continue
       add({ kind: 'area-project', from: areaPath, to: path })
     }

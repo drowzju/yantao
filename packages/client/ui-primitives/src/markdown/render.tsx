@@ -369,7 +369,11 @@ function renderCode(node: Md.Code, key: Key, context: MarkdownRenderContext): Re
     // its text extraction saw the code block's trailing newline.
     return <Fragment key={key}>{renderTexToReact(`${node.value}\n`, true)}</Fragment>
   }
-  if (!context.streaming && lang !== undefined && context.diagrams?.[lang] !== undefined) {
+  // Object.hasOwn keeps inherited members (fences tagged `constructor`,
+  // `toString`, … — the info token is untrusted) from resolving off
+  // Object.prototype and reaching React as bogus components.
+  if (!context.streaming && lang !== undefined && context.diagrams !== undefined
+    && Object.hasOwn(context.diagrams, lang)) {
     // Owner-mapped diagram languages render live once settled (ADR-0048 决定
     // 4); while streaming the plain CodeBlock arm below keeps the fence
     // honest, and the swap happens on the settled pass.
@@ -630,7 +634,10 @@ function renderFootnoteReference(
   context.footnoteCounts.set(id, reference)
   // In-page anchor restored (ADR-0048 决定 5): the superscript links to the
   // trailing footnote section; its own id is each back-reference's target.
-  const normId = normalizeUri(node.identifier.toLowerCase())
+  // The slug rides the same upper→lower chain the footnote section uses
+  // (footnoteOrder stores the upper-cased key), so producer and consumer
+  // agree even when lower→upper→lower is not the identity (ß, ς, ı, …).
+  const normId = normalizeUri(id.toLowerCase())
   return (
     <sup key={key} id={`user-content-fnref-${normId}-${reference}`}>
       <a href={`#user-content-fn-${normId}`}>{String(context.footnoteOrder.indexOf(id) + 1)}</a>

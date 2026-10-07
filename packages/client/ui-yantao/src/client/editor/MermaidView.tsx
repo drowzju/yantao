@@ -55,7 +55,15 @@ let mermaidPromise: Promise<Mermaid> | null = null
  * @returns The initialized library face.
  */
 function loadMermaid(dark: boolean): Promise<Mermaid> {
-  mermaidPromise ??= import('mermaid').then(module => module.default)
+  mermaidPromise ??= import('mermaid').then(
+    module => module.default,
+    (failure: unknown) => {
+      // Uncache on rejection: a cached failed import would poison every
+      // later fence until relaunch instead of retrying on the next render.
+      mermaidPromise = null
+      throw failure
+    },
+  )
   return mermaidPromise.then((mermaid) => {
     mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' })
     return mermaid

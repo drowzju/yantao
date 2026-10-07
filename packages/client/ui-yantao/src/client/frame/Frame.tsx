@@ -817,10 +817,22 @@ export function Frame({
     }).catch(() => { /* the next read re-derives from the host's watermark */ })
   }, [mailMarkRead])
 
+  const loadInboxTick = useRef(0)
   const loadInbox = useCallback((): void => {
+    // Stale-response guard (the schedule-scan and relation-graph effects'
+    // pattern): mount, the 30s scan and the post-run refresh overlap, and a
+    // slower older answer must not land last over a fresher one.
+    const at = ++loadInboxTick.current
     void proposalInboxList().then(
-      (result) => { setInboxEntries(result.proposals); setInboxLoaded(true) },
-      (failure: unknown) => { setCapabilityNotice(`提议读取失败：${remoteMessage(failure)}`, { severity: 'error' }) },
+      (result) => {
+        if (at !== loadInboxTick.current) return
+        setInboxEntries(result.proposals)
+        setInboxLoaded(true)
+      },
+      (failure: unknown) => {
+        if (at !== loadInboxTick.current) return
+        setCapabilityNotice(`提议读取失败：${remoteMessage(failure)}`, { severity: 'error' })
+      },
     )
   }, [proposalInboxList])
 
@@ -860,8 +872,9 @@ export function Frame({
 
   // 批准: the writes land first — the same applyConfirmed every card shares —
   // and only then is the row settled approved. A failed apply leaves the row
-  // pending for another try; a failed settle after successful writes also
-  // leaves it pending, and the notice says why re-approving would write twice.
+  // pending for another try; a failed settle after successful writes retires
+  // the row as discarded (the writes landed — a second apply would replay
+  // them verbatim), with the error notice telling the human what happened.
   const confirmInboxEntry = useCallback((entry: KbQueuedProposal, ticked: readonly number[]): void => {
     const proposal = proposalOfPayload(entry.proposal)
     if (proposal === null) return
@@ -879,7 +892,14 @@ export function Frame({
         },
         (failure: unknown) => {
           setInboxBusyId(null)
-          setCapabilityNotice(`提议已写入，但标记失败：${remoteMessage(failure)}`, { severity: 'error' })
+          // The writes landed; only the local marking failed. The row must
+          // not invite a second apply — re-approving replays the writes
+          // verbatim (duplicate 流水 bullets, re-fired knives) — so it
+          // retires as discarded, matching what the disk now holds.
+          setInboxEntries(prev => prev.map(e => e.id === entry.id
+            ? { ...e, status: 'discarded', decidedAt: new Date().toISOString() } as KbQueuedProposal
+            : e))
+          setCapabilityNotice(`提议已写入，但标记失败（已就地丢弃，不会再次询问）：${remoteMessage(failure)}`, { severity: 'error' })
         },
       )
     }, (failure: unknown) => {
@@ -2141,7 +2161,7 @@ export function Frame({
           role={capabilityNotice.severity === 'error' ? 'alert' : 'status'}
           aria-live={capabilityNotice.severity === 'error' ? 'assertive' : 'polite'}
           title={t('frame.closeNotice')}
-          onClick={() => { setCapabilityNotice(null) }}
+          onClick={() => { setCapabilityNoticeRaw(null) }}
         >
           {capabilityNotice.text}
           {/* The written report's undo chip: takes back what the applier

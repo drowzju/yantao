@@ -226,7 +226,12 @@ export async function runScheduledTask(options: {
         proposal: proposal as unknown as Parameters<typeof enqueueInboxProposal>[1]['proposal'],
       })
       return { sessionId, answer, proposalId: enqueued.id }
-    } catch { /* the plain notice is the report */ }
+    } catch (reason: unknown) {
+      // The plain completion notice stays the fallback, but the loss must
+      // stay diagnosable — the 50-pending soft cap rejecting silently would
+      // drop every later proposal with no trace anywhere.
+      console.warn(`proposal enqueue for schedule ${id} failed; keeping the plain notice:`, reason)
+    }
   }
   return { sessionId, answer }
 }

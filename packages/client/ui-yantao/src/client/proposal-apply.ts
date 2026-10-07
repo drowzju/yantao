@@ -361,13 +361,18 @@ export async function applyProposal(options: {
           continue
         }
         // A resource that already exists rolls back to its prior bytes; a
-        // fresh one is removed outright. A read that fails for any reason
-        // reads as "was not there" — the write below fails too if it was
-        // something worse.
+        // fresh one is removed outright. "Fresh" is only what the read RPC
+        // answers with its not-found code — anything else (a binary
+        // occupant's `yantao-kb/binary`, a transient IO failure) means the
+        // path is occupied but unreadable, never classifiable as fresh: the
+        // step goes to the irreversible bucket rather than to a deleting
+        // undo that could destroy a file the read simply could not see.
         let existing: string | undefined
+        let knownFresh = false
         try {
           existing = await target.read(action.path)
-        } catch {
+        } catch (error: unknown) {
+          knownFresh = (error as { code?: string }).code === 'yantao-kb/not-found'
           existing = undefined
         }
         await target.write(action.path, action.content)
@@ -376,7 +381,7 @@ export async function applyProposal(options: {
           const path = action.path
           const prior = existing
           undoSteps.push({ label: writtenLine(action), run: () => target.write(path, prior) })
-        } else if (target.deleteResource !== undefined) {
+        } else if (knownFresh && target.deleteResource !== undefined) {
           const remover = target.deleteResource
           undoSteps.push({ label: writtenLine(action), run: () => remover(action.path) })
         } else {

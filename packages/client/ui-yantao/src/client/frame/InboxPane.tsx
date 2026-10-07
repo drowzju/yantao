@@ -179,7 +179,13 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, t }: InboxPan
               <div key={entry.id} style={rowStyle} data-inbox-entry={entry.id} data-inbox-status={entry.status}>
                 <div
                   style={pending ? rowMainStyle : { ...rowMainStyle, cursor: 'default' }}
+                  role={pending ? 'button' : undefined}
+                  tabIndex={pending ? 0 : undefined}
                   onClick={() => { if (pending) setOpenId(entry.id) }}
+                  onKeyDown={(event) => {
+                    if (!pending) return
+                    if (event.key === 'Enter' || event.key === ' ') setOpenId(entry.id)
+                  }}
                 >
                   <span style={titleStyle}>{entry.title}</span>
                   {entry.note !== undefined && <span style={noteStyle}>{entry.note}</span>}
