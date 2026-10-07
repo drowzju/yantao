@@ -1322,7 +1322,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
   return (
     <Frame
       t={t}
-      renderSlot={key => <div data-seat={key}>{key === 'conversation' ? 'middle' : null}</div>}
+      renderSlot={(key, _props, options) => <div data-seat={key}>{key === 'main' && options?.entryKey === 'conversation' ? 'middle' : null}</div>}
       panels={createPanelSeat()}
       sidebarFiles={createSidebarRightFileSeat()}
       intake={loader(intake)}

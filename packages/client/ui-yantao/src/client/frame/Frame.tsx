@@ -66,7 +66,7 @@ import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
 import type { WorkbenchT } from '../locales.ts'
 
 /** Full props: the render share for the three seats this frame declares, plus the panel-action seat. */
-export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'footer.status'> & {
+export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'footer.status'> & {
   /** The workbench dictionary's bound translator. */
   readonly t: WorkbenchT
   /** Mutable seat the frame fills with its own toggles on mount. */
@@ -1921,7 +1921,7 @@ export function Frame({
         onClose={closeFile}
         viewMode={viewMode}
         onViewMode={setViewMode}
-        renderConversation={() => renderSlot('conversation', {})}
+        renderConversation={() => renderSlot('main', {}, { entryKey: 'conversation' })}
         renderFile={(tab) => {
           if (tab.mode === 'read') {
             return (

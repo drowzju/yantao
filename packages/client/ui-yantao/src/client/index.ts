@@ -90,18 +90,13 @@ export const name = 'ui-yantao'
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /**
-     * The workbench's agent surface: the middle column below the header,
-     * rendering the host's ui-conversation for the current session. Occupied
-     * by this plugin's own frame composition — registering here replaces the
-     * conversation column outright, and the seats the conversation declares
-     * (composer, trajectory, dock) disappear with it. Absence leaves the
-     * middle column empty: the frame keeps its chrome but shows no agent UI.
-     *
-     * ADR-0039 note: yantao's frame mounts the conversation directly under
-     * root (upstream nests it under `main`'s keyed panels), because the
-     * workbench frontend owns the whole column arrangement.
+     * The workbench's agent surface: the middle column below the header.
+     * 0.2.1 起与上游对齐:ui-conversation 以 `name: 'main', key: 'conversation'`
+     * 注册(0.1.3 时占的是名为 `conversation` 的 single 槽),Frame 渲染本槽并以
+     * `entryKey: 'conversation'` 选中会话面。Absence leaves the middle column
+     * empty: the frame keeps its chrome but shows no agent UI.
      */
-    'conversation': { kind: 'single'; scope: 'session-maybe' }
+    'main': { kind: 'keyed'; scope: 'root' }
     /**
      * ADR-0039: the footer's context status bar — the session-scoped strip
      * under the composer. Entries are additive list items rendered in
@@ -223,7 +218,9 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.slots.register({
     name: 'root',
     children: {
-      'conversation': { kind: 'single', scope: 'session-maybe' },
+      // 0.2.1 起与上游对齐:会话面走 keyed 的 `main` 槽(Frame 以
+      // entryKey 'conversation' 选中),不再是 single 的 `conversation` 槽。
+      'main': { kind: 'keyed', scope: 'root' },
       'shell.overlay': { kind: 'list', scope: 'root' },
       // ADR-0039: the footer's context status bar — session-scoped so the
       // slot machinery hands it the current session's projection seat.

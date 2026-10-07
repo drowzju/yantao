@@ -16,5 +16,6 @@ dsh 处于 developer preview,官方明示将有 breaking changes,上游约 4 周
 - **patchReload 移除**:profile 模板不再声明 `patchReload`,patch 变更走 HMR/live 通道。
 - **客户端装配链**:上游把 shortcuts 焊进 ui-workspace 的服务依赖(bundle 补一行);ui-chat/ui-reference 新依赖 `sidebarRight` 座位,其原提供者 ui-sidebar-right 依赖我们移除的 ui-layout,由 ui-yantao 自带最小适配器替代(openResource → 中栏文件 tab);ui-workspace/ui-conversation/ui-yantao 四方形成服务级循环依赖,ui-yantao 以动态 inject(引用座 + `whenUiWorkspace` 辅助)破环。教训:`dsh.client.inject`(package.json,包名预取清单)≠ 模块源码的服务级 `inject`,后者不能用 patch yml 覆盖。
 - **输入面重构**:编辑器内核从 facade.ts 迁至 `input/editor/runtime.ts`(chip 退格展开随之移植);提交链引入 PartialArguments 参数模型,MemoryProposalCard 等改经 ToolArgs 视图读参;上游新增 ContextMeter,因页脚状态条(ADR-0039)摘除。
+- **内容槽改名**:ui-conversation 的会话面从名为 `conversation` 的 single 槽改占 keyed 的 `main` 槽(`name:'main', key:'conversation'`),Frame 渲染随之切到 `renderSlot('main', {}, { entryKey: 'conversation' })`。漏改的症状极安静:中栏「对话」tab 只剩标签,内容区全空白(2026-10-07 实机踩过——冒烟只验了 tab 标签没验内容,教训已并入方法论条)。
 - **其它核对项**:孤儿条目清理语义变化、会话导航 UI 重做、ui-primitives markdown 的 diagrams 钩子与 fragment 锚点(ADR-0048 一期顺势落地)、xlsx 临时降级 0.18.5(cdn.sheetjs.com 不可达,见 pnpm-workspace.yaml 注释)。
 - **方法论沉淀**:单元全绿挡不住装配级故障——pending 的服务环与陈旧的前端 shell(seed.ts 静态模块表)都要实机 CDP 探针才能暴露;客户端两步构建序(per-package client 库先 `build:lib:client`、前端 shell 后 build)是硬前提。
