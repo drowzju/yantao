@@ -13,6 +13,14 @@ export default defineConfig({
     target: 'es2022',
     outDir: 'dist',
     sourcemap: true,
+    // Declare the HTML shell explicitly: the third-party-notices gate
+    // (scripts/browser-bundled-externals.ts) resolves each browser app's
+    // entries from rollupOptions.input and requires an .html page there.
+    rollupOptions: {
+      input: {
+        index: src('./index.html'),
+      },
+    },
   },
   resolve: {
     // One React copy: the shell and every plugin must share element identity.

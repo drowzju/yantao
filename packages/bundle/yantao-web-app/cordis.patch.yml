@@ -29,8 +29,6 @@
     - id: subagent-model-selection-settings
       name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
 
-    - id: code-runtime
-      name: '@deepseek-ai/dsh-code-runtime-worker-thread'
 
     - id: message-feedback
       name: '@deepseek-ai/dsh-message-feedback'
@@ -294,7 +292,7 @@
 - id: tool-subagent-fork
   disabled: true
 
-- id: workflow-worker-thread
+- id: workflow-ptc
   disabled: true
 
 - id: tool-workflow
@@ -320,7 +318,7 @@
 # The shipped presets stay selectable — switching presets is the human's
 # informed act.
 - insert:
-    - id: agent-presets
-      name: '@deepseek-ai/dsh-agent-presets'
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
       config:
         default: yantao
