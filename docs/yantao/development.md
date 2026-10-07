@@ -97,6 +97,19 @@ powershell -File scripts\sync-in.ps1 -Bundle <bundle 路径>
     小写盘符,经它发起的运行必挂——先 `cd "D:/code/yantao"` 再跑。2026-09-29 曾误诊为 Node 26 兼容性问题。
 13. **vitest 不做类型检查。** 收尾顺序 = vitest 全绿 → `tsc -b <改动包>` 干净 → 需要产物时再 bundle。
     2026-09-29 票 04 中一处参数误用 428 例全绿照样通过,是窄 tsc 抓出来的。
+14. **客户端两步构建序。** 平台客户端模块(ui-primitives 等)的副本被前端 shell(apps/yantao dist)打包进静态模块表;
+    改了它们要先 `pnpm run build:lib:client` 刷新 per-package client 产物,**再** `pnpm --filter
+    @deepseek-ai/dsh-yantao-frontend run build`,最后重启工作台。只重建前端的话 shell 里是旧副本,运行时报
+    `X is not a function`(实例:`observeComposition is not a function`,2026-10-07)。
+15. **`dsh.client.inject`(package.json)≠ 模块服务级 `inject`。** boot manifest 行里的 inject 只是加载/预取的**包名**
+    元信息;服务等待清单在各客户端模块源码的 `export const inject`,不能靠 patch yml 给上游模块改服务依赖。
+16. **客户端服务环用动态 inject 破。** 0.2.1 起 ui-workspace 等 `layout`(ui-yantao 提供),ui-yantao 又要用
+    `uiWorkspace`/`conversation`——静态互相 inject 四方全 pending。破法:被依赖方先 `ctx.inject(['uiWorkspace'], scope =>
+    ref.current = scope.uiWorkspace)` 捕获引用座,消费点经 `whenUiWorkspace(run)` 辅助即就绪即执行、未就绪则排队
+    (先例:ui-chat 的 `sidebarRightTabs`)。
+17. **profile 配置互不相通。** kbRoot、模型配置都存在各 profile 的 patch(`~/.dsh/profiles/<名>/cordis.patch.yml`)里;
+    headless `yantao` 与桌面 `yantao-web` 是两份。桌面栈行为异常(比如明明配置过却走首启流程)先查
+    `yantao-web` 的 patch 是不是空的(2026-10-07 实机踩过)。
 
 ## 调度与提议(ADR-0045 / ADR-0047)
 
@@ -121,8 +134,8 @@ powershell -File scripts\sync-in.ps1 -Bundle <bundle 路径>
 - **agent 行为诡异(「为什么这么回」)** → 看会话日志:`~/.dsh/sessions/--D-yantao-data--/session-*/session.v2.jsonl.zstd`,
   python `zstandard` 解压后逐行 JSON。pre-step 注入(能力目录、`skill-invocation` 指令)会作为 user/message 持久化,
   可据此判断注入是否发生。
-- **`/能力名` 手势首轮无效** → 已知病根(2026-10-02 已修):会话首轮系统提示词沙箱快照(plugin 消息)落在用户手势之后,
-  旧 pre-step 钩子要求最后一条是 user 消息而误判弃注入。修复:从尾部跳过连续 plugin 消息找真正的 user 消息
+- **`/能力名` 手势首轮无效** → 已知病根(2026-10-02 首修,0.2.1 适配备再修):会话首轮的 runtime-context 快照落在用户手势之后,
+  旧 pre-step 钩子要求最后一条是 user 消息而误判弃注入。修复:从尾部跳过连续 runtime-context 快照找真正的 user 消息
   (`packages/api/yantao-kb-controller/src/index.ts`)。修复前的规避:新会话先发一句闲话再用手势。
 - **headless CLI 不能复现工作台链路。** `pnpm dsh --profile yantao "…"` 不挂 yantao-kb-controller 的 pre-step,
   模型看不到能力目录,只适合上游 dsh 技能与冒烟。另外 Git Bash 会把 `/archify` 这类前导斜杠参数转成
