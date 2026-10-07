@@ -222,11 +222,11 @@ describe('agent-facing capability catalog (ADR-0023 决定 5)', () => {
     const messages = decision.kind === 'enter' ? decision.messages : []
     expect(messages).toHaveLength(2)
     const injected = messages[1] as unknown as {
-      source: { kind: string; plugin: string; form: string; entries: readonly { name: string; description: string }[] }
+      source: { kind: string; form: string; entries: readonly { name: string; description: string }[] }
       content: readonly { type: string; text: string }[]
     }
     expect(injected.source).toMatchObject({
-      kind: 'plugin', plugin: 'yantao-kb-controller', form: 'catalog',
+      kind: 'yantao-kb-controller', form: 'catalog',
       entries: [{ name: 'mail', description: '读 Outlook 邮件' }],
     })
     expect(injected.content[0]?.text).toMatch(/kb_run_capability/)
@@ -337,7 +337,7 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
       { kind: 'enter', messages: userMessages('/mail 读一下') },
       '/mail 读一下',
     )
-    expect(injectedSources(decision)).toEqual([{ kind: 'plugin', form: 'notice' }])
+    expect(injectedSources(decision)).toEqual([{ kind: 'yantao-kb-controller', form: 'notice' }])
   })
 
   it('answers a script-type hit with the positive wording and the environment note (ADR-0043 决定 3)', async () => {
@@ -399,7 +399,7 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
     expect(injectedSources(await preStep(
       { kind: 'enter', messages: userMessages('/mail 读一下') },
       '/mail 读一下',
-    ))).toEqual([{ kind: 'plugin', form: 'catalog' }])
+    ))).toEqual([{ kind: 'yantao-kb-controller', form: 'catalog' }])
     // No yantao.json and no legacy metadata: a plain skill, not a capability.
     skillGet.mockResolvedValue(definition({ metadata: {} }))
     await rm(join(skillDir, 'yantao.json'), { force: true })
@@ -425,7 +425,7 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
       '/mail 读一下',
     )
     expect(injectedSources(decision)).toEqual([
-      { kind: 'plugin', form: 'catalog' },
+      { kind: 'yantao-kb-controller', form: 'catalog' },
       { kind: 'skill-invocation', form: 'instructions' },
     ])
   })
@@ -464,7 +464,7 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
     )
     // Human-closed, so no gesture injection; the route is agent-open, so the
     // catalog still rides the step.
-    expect(injectedSources(decision)).toEqual([{ kind: 'plugin', form: 'catalog' }])
+    expect(injectedSources(decision)).toEqual([{ kind: 'yantao-kb-controller', form: 'catalog' }])
   })
 
   it('keeps the gesture silent when the central routing file is broken', async () => {
@@ -485,7 +485,7 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
     skillGet.mockResolvedValue(definition({ metadata: {}, content: '# 指令正文' }))
     const gesture = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '/mail 读一下' }] })
     const snapshot = createUserMessage({
-      source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt', form: 'snapshot' },
+      source: { kind: 'runtime-context', form: 'snapshot', sections: [{ name: 'sandbox', text: 'Current runtime context.' }] },
       content: [{ type: 'text', text: 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.' }],
     })
     const decision = await agentEvents(ctx, agent).waterfall(

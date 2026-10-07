@@ -1,0 +1,86 @@
+- generic [ref=e1]:
+  - generic [ref=e4]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - button "资源" [ref=e8] [cursor=pointer]
+        - button "待办" [ref=e9] [cursor=pointer]
+        - button "记忆" [ref=e10] [cursor=pointer]
+        - button "能力" [ref=e11] [cursor=pointer]
+      - generic [ref=e12]:
+        - button "▸ 钉钉知识库" [ref=e78] [cursor=pointer]
+        - button "▸ 能力维护" [ref=e79] [cursor=pointer]
+        - button "▸ 下属员工履历" [ref=e80] [cursor=pointer]
+        - button "▸ english" [ref=e81] [cursor=pointer]
+        - button "▸ mail-index" [ref=e82] [cursor=pointer]
+        - button "▸ mails" [ref=e83] [cursor=pointer]
+        - button "yantao-overview.html" [ref=e84] [cursor=pointer]
+        - button "公安视综、基线产品、组件总体进展周报（2026-09-18）.md" [ref=e85] [cursor=pointer]
+        - button "关于软研内部知识库外部暴露事件——研发侧信息泄露摸底情况及排查请求（往来记录）.md" [ref=e86] [cursor=pointer]
+        - button "图解大模型：生成式AI原理与实战 (Jay Alammar, Maarten Grootendorst, [沙特] 杰伊 阿拉马尔 etc.) (Z-Library).pdf" [ref=e87] [cursor=pointer]
+        - button "深入理解 AI Agent：设计原理与工程实践.pdf" [ref=e88] [cursor=pointer]
+        - button "软件平台BMT例会纪要（2026-09-21）.md" [ref=e89] [cursor=pointer]
+        - button "软研AI CoE成果发布·一期.md" [ref=e90] [cursor=pointer]
+        - button "软研大模型专项进展同步-20260913.md" [ref=e91] [cursor=pointer]
+        - button "邮件能力处理时序图.html" [ref=e92] [cursor=pointer]
+        - button "金华多模态大模型现场会会议纪要（0915-0919）.md" [ref=e93] [cursor=pointer]
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - button "对话" [ref=e16] [cursor=pointer]
+        - button "任务" [ref=e18] [cursor=pointer]
+        - button "调度" [ref=e20] [cursor=pointer]
+      - generic [ref=e30]:
+        - generic [ref=e31]: PARAP
+        - button "选择工作区" [ref=e41] [cursor=pointer]:
+          - generic [ref=e44]: yantao-data
+        - generic [ref=e49]:
+          - generic [ref=e51]:
+            - textbox "描述你想要构建的内容… / 调用指令 @ 文件或对话" [active] [ref=e97]
+            - generic [aria-hidden]: 描述你想要构建的内容… / 调用指令 @ 文件或对话
+          - generic [ref=e53]:
+            - generic [ref=e54]:
+              - button "指令" [ref=e98] [cursor=pointer]
+              - button "添加附件" [ref=e101] [cursor=pointer]
+              - button "访问模式，当前：工作区内修改" [ref=e106] [cursor=pointer]:
+                - generic [ref=e114]: 工作区内修改
+            - button "发送消息" [disabled] [ref=e118]
+    - generic [ref=e57]:
+      - generic [ref=e58]:
+        - button "领域" [ref=e59] [cursor=pointer]
+        - button "人物" [ref=e60] [cursor=pointer]
+        - button "项目" [ref=e61] [cursor=pointer]
+        - button "会议" [ref=e62] [cursor=pointer]
+      - button "+ 新建" [ref=e65]
+      - generic [ref=e66]:
+        - button "AI4SE" [ref=e121] [cursor=pointer]
+        - button "大模型agent" [ref=e122] [cursor=pointer]
+        - button "数据库" [ref=e123] [cursor=pointer]
+        - button "智能硬件" [ref=e124] [cursor=pointer]
+        - button "物联视频设备" [ref=e125] [cursor=pointer]
+        - button "网络安全" [ref=e126] [cursor=pointer]
+        - button "英语学习" [ref=e127] [cursor=pointer]
+    - generic [ref=e68]:
+      - button "配置" [ref=e69]
+      - button "调度" [ref=e70]
+      - button "尚无占用数据" [ref=e128] [cursor=pointer]:
+        - generic [ref=e75]: "--"
+  - generic [ref=e129]:
+    - generic [ref=e132]:
+      - generic [ref=e133]: layout property animation
+      - generic [ref=e134]: "transition: max-width, margin-right"
+    - generic [ref=e135]:
+      - button "◉" [ref=e136] [cursor=pointer]
+      - button "×" [ref=e137] [cursor=pointer]
+  - generic: cramped padding
+  - generic: cramped padding
+  - generic: cramped padding
+  - generic: cramped padding
+  - generic: cramped padding
+  - generic: cramped padding
+  - generic: low contrast text
+  - generic [ref=e138]:
+    - generic [ref=e141]:
+      - generic [ref=e142]: layout property animation
+      - generic [ref=e143]: "transition: max-width, margin-right"
+    - generic [ref=e144]:
+      - button "◉" [ref=e145] [cursor=pointer]
+      - button "×" [ref=e146] [cursor=pointer]

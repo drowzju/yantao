@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
+import { PartialArguments } from '@deepseek-ai/dsh-util-values'
 import { MemoryProposalCard } from '../src/client/MemoryProposalCard.tsx'
 import { t } from './helpers.client.ts'
 
@@ -14,7 +16,10 @@ const OUTPUT_TEXT = '已记入提案队列（作用域 mail，待批准 1 条）
 
 /** A running call block for kb_propose_memory. */
 function running(argsRaw: string = ARGS_RAW): ToolCallBlock {
-  return { callId: 'c1', name: 'kb_propose_memory', argsRaw, turn: 1, step: 1, time: 0, subCalls: [] }
+  return {
+    phase: 'preparing', callId: 'c1', name: 'kb_propose_memory',
+    args: PartialArguments.fromText(argsRaw), turn: 1, step: 1, time: 0, subCalls: [],
+  }
 }
 
 /** A settled result block; isError/error/content drive the lifecycle. */
@@ -34,7 +39,11 @@ function settled(options: {
   } = options
   return {
     kind: 'tool-result',
+    seq: 1,
+    time: 0,
     callId: 'c1',
+    name: 'kb_propose_memory',
+    args: withCallHead ? PartialArguments.fromText(argsRaw) : PartialArguments.EMPTY,
     call: withCallHead ? { name: 'kb_propose_memory', argsRaw } : null,
     callTime: 0,
     content: [{ type: 'text', text: contentText }],
@@ -51,16 +60,23 @@ function renderCard(block: ToolCallBlock, overrides?: {
 }): { approve: ReturnType<typeof vi.fn>; discard: ReturnType<typeof vi.fn> } {
   const approve = vi.fn(overrides?.approve ?? (async () => ({})))
   const discard = vi.fn(overrides?.discard ?? (async () => ({})))
+  // The props union correlates phase with block; the literal cannot express
+  // that correlation, so the fixture asserts it (same device the upstream
+  // ui-tool specs use).
   render(
     <MemoryProposalCard
-      callId="c1"
-      toolName="kb_propose_memory"
-      block={block}
-      openFile={() => {}}
-      loadImage={async () => ({ url: '', revoke: () => {} })}
-      t={t}
-      approve={approve}
-      discard={discard}
+      {...{
+        callId: 'c1',
+        toolName: 'kb_propose_memory',
+        block,
+        phase: 'kind' in block ? ('result' as const) : block.phase,
+        useDisclosure: () => ({ expanded: false, setExpanded: () => {}, toggle: () => {} }),
+        openFile: () => {},
+        loadImage: async () => '',
+        t,
+        approve,
+        discard,
+      } as ComponentProps<typeof MemoryProposalCard>}
     />,
   )
   return { approve, discard }

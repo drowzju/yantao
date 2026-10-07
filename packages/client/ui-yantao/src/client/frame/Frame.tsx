@@ -61,6 +61,7 @@ import { GraphPane } from './GraphPane.tsx'
 import { InboxPane } from './InboxPane.tsx'
 import './frame.module.css'
 import type { PanelToggles } from './layout.ts'
+import type { SidebarRightFileSeat } from '../sidebar-right.ts'
 import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
 import type { WorkbenchT } from '../locales.ts'
 
@@ -70,6 +71,8 @@ export type FrameProps = PropsRenderSlots<'conversation' | 'shell.overlay' | 'fo
   readonly t: WorkbenchT
   /** Mutable seat the frame fills with its own toggles on mount. */
   readonly panels: PanelToggles
+  /** Mutable seat the frame fills with its file-opener on mount (the sidebarRight stand-in). */
+  readonly sidebarFiles: SidebarRightFileSeat
   /** Load the intake sections. */
   readonly intake: TreeLoader
   /** Load the workspace sections. */
@@ -454,7 +457,7 @@ function DragHandle(props: {
  * @returns the frame element.
  */
 export function Frame({
-  t, renderSlot, panels, intake, workspace, read, readView, readImage, write, archiveEntity, restoreEntity, setRelation,
+  t, renderSlot, panels, sidebarFiles, intake, workspace, read, readView, readImage, write, archiveEntity, restoreEntity, setRelation,
   createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine, validate,
   registerResource, deleteResource, capabilityList, capabilityDeclaration, capabilityCreate, capabilityAdopt,
@@ -503,12 +506,14 @@ export function Frame({
     setWorkspaceOpen(!narrow)
   }, [narrow])
 
-  // Publish this frame's toggles into the seat `ctx.layout` reads.
+  // Publish this frame's toggles into the seat `ctx.layout` reads, and the
+  // file opener into the seat `ctx.sidebarRight` (the 0.2.1 stand-in) reads.
   useEffect(() => {
     panels.toggleIntake = () => { setIntakeOpen(open => !open) }
     panels.openWorkspace = () => { setWorkspaceOpen(true) }
     panels.closeWorkspace = () => { setWorkspaceOpen(false) }
-  }, [panels])
+    sidebarFiles.openFile = (path) => { setTabs(state => openTab(state, path, readOnlyPath(path) ? 'read' : 'edit')) }
+  }, [panels, sidebarFiles])
 
   const cols = solveColumns(
     viewport,

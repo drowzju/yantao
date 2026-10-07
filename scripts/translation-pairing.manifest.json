@@ -1,22 +1,24 @@
 {
-  "excluded": [
-    ".agents/notes/AGENTS.md",
-    ".agents/notes/implemented/AGENTS.md",
-    ".agents/notes/implemented/CLAUDE.md",
-    "docs/AGENTS.md",
-    "docs/cordis-api/inherited.md",
-    "docs/i18n/style-samples.md",
-    "docs/i18n/terminology.md",
-    "docs/i18n/translation-prompt.md",
-    "CONTEXT-MAP.md",
-    "README.md",
-    "docs/adr/",
-    "docs/yantao/",
-    "docs/subsystems/yantao.md",
-    "packages/yantao/",
-    "packages/api/yantao-kb-controller/",
-    "packages/client/ui-yantao/",
-    "packages/bundle/yantao/",
-    "packages/bundle/yantao-web-app/"
-  ]
+ "excluded": [
+  ".agents/notes/AGENTS.md",
+  ".agents/notes/implemented/AGENTS.md",
+  ".agents/notes/implemented/CLAUDE.md",
+  ".github/review-ownership/README.md",
+  "CONTEXT-MAP.md",
+  "README.md",
+  "docs/AGENTS.md",
+  "docs/adr/",
+  "docs/agents/",
+  "docs/cordis-api/inherited.md",
+  "docs/i18n/style-samples.md",
+  "docs/i18n/terminology.md",
+  "docs/i18n/translation-prompt.md",
+  "docs/subsystems/yantao.md",
+  "docs/yantao/",
+  "packages/api/yantao-kb-controller/",
+  "packages/bundle/yantao-web-app/",
+  "packages/bundle/yantao/",
+  "packages/client/ui-yantao/",
+  "packages/yantao/"
+ ]
 }

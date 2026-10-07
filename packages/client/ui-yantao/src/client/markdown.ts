@@ -377,7 +377,7 @@ export function frontmatterArchived(text: string): boolean {
  * it (`_assets/foo.png`), the way Obsidian resolves them. The renderer only
  * accepts http(s), so the reading view pre-fetches each referenced image
  * through the host RPC and hands the render an object URL via the
- * `imageSources` hook. These two helpers are the textual half: collecting the
+ * `pathImages` hook. These two helpers are the textual half: collecting the
  * references worth fetching, and turning a reference as written into the
  * KB-relative path to fetch.
  */

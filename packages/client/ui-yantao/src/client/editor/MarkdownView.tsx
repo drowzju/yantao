@@ -32,7 +32,7 @@
  *   files next to the document resolve like Obsidian's: the view collects the
  *   references, fetches each through `resolveImage` (base64 over the host RPC,
  *   ADR-0046's transport), and hands the renderer object URLs through the
- *   `imageSources` hook — the sanitizer stays byte-for-byte untouched, so a
+ *   `pathImages` hook — the sanitizer stays byte-for-byte untouched, so a
  *   `blob:` URL can never ride the markdown path itself.
  *
  * - **Diagrams (v5, ADR-0048 决定 4).** A ```mermaid fence renders live once
@@ -44,7 +44,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { MarkdownDiagrams, MarkdownImageSources, MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MarkdownDiagrams, MarkdownLabels, MarkdownPathImages } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { KbLinksResult, KbResourceBinary } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { MermaidBlock } from './MermaidView.tsx'
 import {
@@ -221,7 +221,7 @@ export function MarkdownView({
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [backlinksOpen, setBacklinksOpen] = useState(false)
   // Bumped whenever the image cache gains an entry (or a fetch definitively
-  // fails): the `imageSources` memo below depends on it so freshly landed
+  // fails): the `pathImages` memo below depends on it so freshly landed
   // URLs reach the renderer.
   const [imageEpoch, setImageEpoch] = useState(0)
   const bodyRef = useRef<HTMLDivElement | null>(null)
@@ -285,7 +285,7 @@ export function MarkdownView({
   // resolver the preloader used, so the two sides can never disagree about
   // what a reference names. Epoch in deps: a fresh cache entry must yield a
   // fresh object or MarkdownText's memo would keep the image-less render.
-  const imageSources = useMemo<MarkdownImageSources | undefined>(() => {
+  const pathImages = useMemo<MarkdownPathImages | undefined>(() => {
     if (path === undefined) return undefined
     const dir = fileDirOf(path)
     return {
@@ -464,7 +464,7 @@ export function MarkdownView({
         <MarkdownText
           text={body}
           labels={{ code: { copyLabel: t('md.copy'), copiedLabel: t('md.copied') }, footnotes: t('md.footnotes') } satisfies MarkdownLabels}
-          imageSources={imageSources}
+          pathImages={pathImages}
           diagrams={diagrams}
         />
       </div>

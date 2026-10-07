@@ -72,7 +72,7 @@ describe('InboxPane', () => {
     // Scoped: the row-level 丢弃 sits behind the modal with the same label.
     fireEvent.click(container.querySelector('[data-inbox-discard="true"]') as HTMLElement)
     expect(onDiscard).toHaveBeenCalledTimes(1)
-    expect(onDiscard.mock.calls[0][0].id).toBe('prp_1')
+    expect((onDiscard.mock.calls[0] as [KbQueuedProposal])[0].id).toBe('prp_1')
   })
 
   it('Esc on the card takes the same discard verdict', () => {
@@ -108,7 +108,7 @@ describe('InboxPane', () => {
     // The card's own 丢弃 (data-inbox-discard), not the row-level one behind it.
     fireEvent.click(container.querySelector('[data-inbox-discard="true"]') as HTMLElement)
     expect(onDiscard).toHaveBeenCalledTimes(1)
-    expect(onDiscard.mock.calls[0][0].id).toBe('prp_1')
+    expect((onDiscard.mock.calls[0] as [KbQueuedProposal])[0].id).toBe('prp_1')
   })
 
   it('offers the row-level 丢弃 without opening the card', () => {

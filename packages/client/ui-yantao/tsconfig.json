@@ -39,7 +39,7 @@
       "path": "../ui-layout"
     },
     {
-      "path": "../ui-conversation"
+      "path": "../ui-conversation/tsconfig.client.json"
     },
     {
       "path": "../ui-input-trigger"
@@ -48,10 +48,10 @@
       "path": "../ui-workspace"
     },
     {
-      "path": "../ui-settings"
+      "path": "../ui-settings/tsconfig.client.json"
     },
     {
-      "path": "../locale"
+      "path": "../locale/tsconfig.client.json"
     }
   ]
 }

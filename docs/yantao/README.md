@@ -2,14 +2,14 @@
 
 yantao 是一个**个人知识工作台**:以纯 Markdown 存放 PARA+P 知识库,并让 agent 写入知识库的唯一通道是一小组可审计的工具。
 
-它构建在 **DeepSeek Harness(`dsh`)** 之上——本仓库**就是** `deepseek-harness`(上游:github.com/deepseek-ai/deepseek-harness),我们在从上游 `master@d347e70390`(发布版 `0.1.3-alpha.1`,ADR-0002)切出的本地分支 `main` 上工作,并**刻意钉住**上游。我们把 dsh 当作**引擎与后端**;yantao 的一切都是增量添加的。日常开发(构建、运行、停止、测试、门禁、坑)见 [development.md](development.md)。
+它构建在 **DeepSeek Harness(`dsh`)** 之上——本仓库**就是** `deepseek-harness`(上游:github.com/deepseek-ai/deepseek-harness),我们把本地分支 `main` 对齐到上游 `master@5badb15009`(发布版 `0.2.1-alpha.1`,ADR-0002),并**刻意钉住**上游。我们把 dsh 当作**引擎与后端**;yantao 的一切都是增量添加的。日常开发(构建、运行、停止、测试、门禁、坑)见 [development.md](development.md)。
 
 ## 1. 本工程与 DeepSeek Harness 的关系(先读这段)
 
 | | |
 |---|---|
 | 本仓库是什么 | `deepseek-harness` 本身(上游:`github.com/deepseek-ai/deepseek-harness`),不是复制式分叉 |
-| 我们在哪工作 | 本地分支 `main`,自上游 `master` 的 `d347e70390` 切出(发布版 `0.1.3-alpha.1`) |
+| 我们在哪工作 | 本地分支 `main`,对齐上游 `master@5badb15009`(发布版 `0.2.1-alpha.1`,2026-10-07 升级) |
 | 上游跟踪 | `origin/master` 仍指向上游;我们**钉版本**、按节奏刻意升级(ADR-0002)——上游每周都有破坏性变更 |
 | 远端 | `origin` = 上游 dsh(只 fetch,永不 push)。`yantao` = **你自己的远端**,本地 `main` 推到这里。`master` 跟踪 `origin`,`main` 跟踪 `yantao`。 |
 | 我们的原则 | yantao 需要的一切都**增量添加**(新包、新 profile 模板),或在上游文件里做**有据可查的一行登记**。绝不重构上游内部。 |
@@ -24,13 +24,16 @@ yantao 是一个**个人知识工作台**:以纯 Markdown 存放 PARA+P 知识�
 | `packages/boot/app-boot/src/profile.ts` | 注册 profile 模板 `yantao` 与 `yantao-web` |
 | `apps/cli/package.json` | workspace 依赖,让 profile 树能解析我们的包 |
 | `packages/api/remotes/{package.json,src/client/index.ts,tsconfig.*.json}` | 在两个平面挂载 `yantaoKb` Remote 命名空间 |
-| `packages/client/ui-conversation/src/client/input/facade.ts` | 引用 chip 退格逐级展开为父目录提及(ADR-0028 决定 5):`KEY_BACKSPACE_COMMAND` CRITICAL 注册 |
+| `packages/client/ui-conversation/src/client/input/editor/runtime.ts` | 引用 chip 退格逐级展开为父目录提及(ADR-0028 决定 5):`KEY_BACKSPACE_COMMAND` CRITICAL 注册。0.2.1 起编辑器内核由 facade.ts 迁到此处,该行随之搬家 |
+| `packages/client/ui-conversation/src/client/skeleton/InputBar.tsx` | 摘除上游 ContextMeter:上下文占用已由页脚状态条展示(ADR-0039),不重复 |
+| `packages/client/ui-conversation/src/client/locales.ts` | hero 标语改为 PARAP(ADR-0013 品牌) |
+| `packages/client/ui-primitives/src/markdown/{render.tsx,MarkdownText.tsx,index.ts}` | 脚注/锚点 fragment 链接放行 + `diagrams` 渲染钩子(ADR-0048 决定 4/5,Obsidian 兼容一期) |
 | `packages/extensions/tool-cordis/src/api-catalog.ts` | 我们 Remote 的生成式目录条目 |
 | `tsconfig.base.json`、`tsconfig.client.json`、`tsconfig.host.json` | 我们包的生成别名与项目引用 |
 | `docs/capability-seams.md`、`docs/config-catalog.md` | 重新生成的文档 |
 | `scripts/gen-cordis-catalog.ts`、`scripts/gen-doc-graphs.ts`、`scripts/type-equiv.manifest.json`、`scripts/verify-subsystem-pages.ts`、`scripts/verify-package-readme-model-experience.ts` | 生成器与门禁旁车,必须知道我们的包存在 |
 | `packages/{api,bundle,client}/README{,.zh}.md` 及配对记录 | 包地图列出每个成员 |
-| `pnpm-workspace.yaml` | 一条 `allowBuilds` 条目:`electron: true`;没有它 pnpm 拒绝执行 Electron 的 postinstall,二进制根本不会下载(ADR-0016) |
+| `pnpm-workspace.yaml` | 一条 `allowBuilds` 条目:`electron: true`;没有它 pnpm 拒绝执行 Electron 的 postinstall,二进制根本不会下载(ADR-0016)。`overrides` 另有一条 `xlsx: 0.18.5`——cdn.sheetjs.com 在本机网络不可达的临时降级(带 CVE-2023-30533/CVE-2024-22363),恢复 0.20.3 时连同 `ui-sidebar-documentpreview` 的 `xlsx-cpexcel.d.ts` shim 一起删除 |
 | `pnpm-lock.yaml`、`.gitignore` | 依赖链接;`apps/yantao/dist/` 忽略规则 |
 
 其余完全属于我们:`packages/yantao/**`、`packages/client/ui-yantao/**`、`packages/bundle/yantao/**`、`packages/bundle/yantao-web-app/**`、`packages/api/yantao-kb-controller/**`、`packages/preset/agent-presets/presets/yantao/**`、`apps/yantao/**`、`docs/adr/**`、`docs/yantao/**`、`docs/subsystems/yantao*`、`CONTEXT-MAP.md`、`.env.example`、`.npmrc`。
@@ -58,11 +61,11 @@ apps/yantao (React + Vite)  ──served by──►                │
 profile `yantao` = the same stack without the web surface (one-shot headless runs)
 ```
 
-- **dsh 是后端。** 我们的 UI 通过 Typert RPC 与转发事件流消费它,而浏览器外壳归我们:工作台插件注册运行时内置的 `root` 槽位、自绘三栏外框(ADR-0011),`ui-layout` 已退出名单。中间一列是 tab 化的:常驻的「对话」tab 通过 `conversation` 座位承载宿主的会话面(ADR-0009),每个打开的 KB 文件各占一个可关闭 tab,自动保存并带冲突检查(ADR-0012)。
+- **dsh 是后端。** 我们的 UI 通过 Typert RPC 与转发事件流消费它,而浏览器外壳归我们:工作台插件注册运行时内置的 `root` 槽位、自绘三栏外框(ADR-0011),`ui-layout` 已退出名单——0.2.1 起上游 ui-chat/ui-reference 依赖 `sidebarRight` 座位(其原提供者 ui-sidebar-right 依赖 ui-layout),由 ui-yantao 自带的最小适配器承担:`openResource` 打开中栏文件 tab。中间一列是 tab 化的:常驻的「对话」tab 通过 `conversation` 座位承载宿主的会话面(ADR-0009),每个打开的 KB 文件各占一个可关闭 tab,自动保存并带冲突检查(ADR-0012)。
 - **信任边界在工具层。** agent 有十三个 `kb_*` 工具、没有通用写能力;写实体的「状态」区走 `kb_write_state`(ADR-0010 修订 ADR-0004:边界是工具集,不是区段),编辑任意 `## ` 区段(流水除外)走 `kb_edit_section`(ADR-0026);读写 `resources/` 分别走 `kb_write_resource`(只新建)与 `kb_read_resource`(只读,ADR-0028);运行能力只能通过 `kb_run_capability`(指令型)或 `kb_exec_capability_script`(脚本型执行桥,cwd 锁定技能目录、信封 env/stdin,ADR-0043),且仅当 sidecar 或中央路由对该能力放开了 `invocation`;写记忆只有 `kb_propose_memory` 一条路——提案进队列,人批准前永不注入(ADR-0044)。**UI 是人类通道**,可以编辑任何内容。
-- **注入管线(pre-step)。** 每个 `kb_*` 工具的定义与能力目录由 `yantao-kb-controller` 的 pre-step 钩子在每轮重算注入;`/名字 <参数>` 手势被合成为双消息(用户原文 + `skill-invocation` 注入)。注意一个曾经的坑(2026-10-02 已修):会话首轮系统提示词沙箱快照(plugin 消息)落在用户手势之后,旧的「最后一条必须是 user」守卫因此误判弃注入——修复方式是从尾部跳过连续的 plugin 消息找真正的用户消息;回归测试见 `packages/api/yantao-kb-controller/tests/capability-tool.spec.ts`。
+- **注入管线(pre-step)。** 每个 `kb_*` 工具的定义与能力目录由 `yantao-kb-controller` 的 pre-step 钩子在每轮重算注入;`/名字 <参数>` 手势被合成为双消息(用户原文 + `skill-invocation` 注入)。0.2.1 起消息源模型改为 producer kind:我们的注入以自有 source kind(`yantao-kb`、`yantao-kb-controller`)声明生产者,不再借用笼统的 `plugin`。注意一个曾经的坑(2026-10-02 首修,0.2.1 适配备再修):会话首轮的 runtime-context 快照落在用户手势之后,旧的「最后一条必须是 user」守卫因此误判弃注入——修复方式是从尾部跳过连续的 runtime-context 快照找真正的用户消息;回归测试见 `packages/api/yantao-kb-controller/tests/capability-tool.spec.ts`。
 - **知识存在文件里**,不是数据库:KB 根下的 `resources/`、`entities/{projects,areas,people,meetings}/`、`entities/todos.md` 单例,以及暂不使用的 `sessions/`(ADR-0005,目录结构调整见 ADR-0010)。每个实体文件里的「状态」/「流水」两区就是人与 agent 的边界。
-- **知识库根目录由人选。** 首次进入会要求选一个目录并持久化到 `~/.dsh/yantao-kb.json`(`yantaoKb.root()` / `setRoot()`);两条侧栏通过 `yantaoKb.createEntity()` 就地新建实体(ADR-0012)。
+- **知识库根目录由人选。** 首次进入会要求选一个目录;指针存放在 settings 面——`yantao-kb` 插件自己的 volatile 配置字段(ADR-0024 决定 3),settings UI 把它写进**活跃 profile** 的 patch(`~/.dsh/profiles/<名>/cordis.patch.yml`),改动经 `loader/volatile-update` 实时生效。警惕 profile 各自为政:2026-10-07 升级 0.2.1 时桌面栈使用 `yantao-web` profile,而历史配置躺在 `yantao` profile 的 patch 里,不会自动跟过来——症状是明明配置过却走首启流程,修法是把 `yantao-kb`/`llm-pi-ai` 两节手工迁入 `yantao-web` 的 patch。两条侧栏通过 `yantaoKb.createEntity()` 就地新建实体(ADR-0012)。
 
 ## 3. 领域用语(请用这些词)
 
@@ -77,7 +80,7 @@ profile `yantao` = the same stack without the web surface (one-shot headless run
 | ADR | 决策 |
 |---|---|
 | 0001 | 以 dsh 插件形态重建 yantao,放弃旧 Flutter 应用 |
-| 0002 | 钉住上游 0.1.3-alpha.1,刻意升级 |
+| 0002 | 钉住上游版本、刻意升级(现钉 0.2.1-alpha.1) |
 | 0003 | 工作台 UI 作为独立 app(机制后被 0008/0009 细化) |
 | 0004 | 信任边界 = 工具集;「状态」原为人类专属,现已改为 agent 可写(ADR-0010);流水区仍只追加 |
 | 0005 | 沿用纯 Markdown 知识库格式 |

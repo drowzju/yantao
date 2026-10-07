@@ -747,7 +747,7 @@ describe('applyProposal undo records', () => {
     })
     const proposal: Proposal = {
       title: 't',
-      actions: [{ kind: 'delete-mails', entryId: 'm-1', subject: '广告', reason: 'r' }],
+      actions: [{ kind: 'delete-mails', entryId: 'm-1', sender: '广告主', subject: '广告', reason: 'r' }],
     }
     const result = await applyProposal({ proposal, ticked: [0], target: t })
     expect(result.written).toEqual(['删除邮件 广告'])
@@ -769,7 +769,7 @@ describe('applyProposal undo records', () => {
     })
     const proposal: Proposal = {
       title: 't',
-      actions: [{ kind: 'add-todo', title: '新待办', reason: 'r' }],
+      actions: [{ kind: 'add-todo', title: '新待办', body: '', reason: 'r' }],
     }
     const result = await applyProposal({ proposal, ticked: [0], target: t })
     expect(board.items).toHaveLength(2)

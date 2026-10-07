@@ -29,8 +29,6 @@
     - id: subagent-model-selection-settings
       name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
 
-    - id: code-runtime
-      name: '@deepseek-ai/dsh-code-runtime-worker-thread'
 
     - id: message-feedback
       name: '@deepseek-ai/dsh-message-feedback'
@@ -221,6 +219,14 @@
     - id: ui-workspace
       name: '@deepseek-ai/dsh-client-ui-workspace'
 
+    # 0.2.1 升级补齐的一行：上游把 shortcuts 焊进了 ui-workspace 的 inject
+    # 清单，不补则整条 UI 链 pending。ui-chat / ui-reference 同样新依赖
+    # sidebarRight，但其上游提供者 ui-sidebar-right 依赖插件 ui-layout
+    # （ADR-0011 特意移除的框架），不能回流——改由 ui-yantao 自带一个最小
+    # 适配器（openResource → 中栏文件 tab），此处无需任何行。
+    - id: shortcuts
+      name: '@deepseek-ai/dsh-client-shortcuts'
+
     # Input triggers: the '/' | '@' pipeline, the command surface over it, and
     # the reference sources.
     - id: ui-input-trigger
@@ -294,7 +300,7 @@
 - id: tool-subagent-fork
   disabled: true
 
-- id: workflow-worker-thread
+- id: workflow-ptc
   disabled: true
 
 - id: tool-workflow
@@ -320,7 +326,7 @@
 # The shipped presets stay selectable — switching presets is the human's
 # informed act.
 - insert:
-    - id: agent-presets
-      name: '@deepseek-ai/dsh-agent-presets'
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
       config:
         default: yantao

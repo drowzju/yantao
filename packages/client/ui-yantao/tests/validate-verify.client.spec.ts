@@ -9,6 +9,7 @@ function verdict(overrides: Partial<ValidateVerdict> = {}): ValidateVerdict {
     findings: [],
     targets: [],
     questions: [],
+    memories: [],
     ...overrides,
   }
 }
