@@ -13,7 +13,11 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+// The /types subpath, never the bare entry: the entry's d.ts carries the
+// host-side `sessions: SessionStore` cordis augmentation, and this package's
+// emitted d.ts is pulled into every client program through the remotes
+// aggregator — the augmentation would shadow the client's `sessions: ISessions`.
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   SessionPersistenceNotFoundError,
 } from '@deepseek-ai/dsh-session-persistence'

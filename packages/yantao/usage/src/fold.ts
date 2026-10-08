@@ -11,7 +11,7 @@
 
 import { lastAssistantStreamChunk, type TokenUsage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { SessionUsageCursor, UsageBuckets, UsageDayDelta } from './types.ts'
 
 /** The cursor for a session the ledger has never read. */
