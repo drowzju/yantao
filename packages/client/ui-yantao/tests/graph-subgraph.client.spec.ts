@@ -9,11 +9,13 @@ function skeleton(): KbRelationGraphResult {
   return {
     nodes: [
       'entities/areas/健康.md',
+      'entities/meetings/周会 2026-10-08.md',
       'entities/people/张三.md',
       'entities/people/李四.md',
       'entities/people/王五.md',
       'entities/projects/yantao.md',
       'entities/projects/健身计划.md',
+      'entities/todos.md',
     ],
     edges: [
       edge('entities/people/张三.md', 'entities/projects/yantao.md', 'person-project'),
@@ -76,6 +78,21 @@ describe('visibleSubgraph', () => {
     enabled.add('person-project')
     enabled.add('area-project')
     const view = visibleSubgraph(skeleton(), enabled)
-    expect(view.nodes).toEqual(skeleton().nodes)
+    expect(view.nodes).toEqual([
+      'entities/areas/健康.md',
+      'entities/people/张三.md',
+      'entities/people/李四.md',
+      'entities/people/王五.md',
+      'entities/projects/yantao.md',
+      'entities/projects/健身计划.md',
+    ])
+  })
+
+  it('never shows meetings or the todo singleton, however isolated', () => {
+    const view = visibleSubgraph(skeleton(), defaultEnabledKinds())
+    // The payload ships every active entity; meetings and todos ride along
+    // edge-less, and the isolated exemption must not resurrect them.
+    expect(view.nodes).not.toContain('entities/meetings/周会 2026-10-08.md')
+    expect(view.nodes).not.toContain('entities/todos.md')
   })
 })

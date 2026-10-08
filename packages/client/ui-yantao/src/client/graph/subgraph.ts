@@ -5,11 +5,29 @@
  * independently. Visible nodes are the endpoints of the enabled edge kinds;
  * fully isolated nodes escape the filter (ADR-0049: silence is information
  * too, and an isolated node belongs to no edge kind, so a strict filter
- * would banish it forever). Pure data, no React and no DOM, so the
- * selection behaviour is unit-testable.
+ * would banish it forever) — but only the three drawable entity kinds count
+ * as nodes at all: the payload ships every active entity, and meetings and
+ * the todo singleton (whose edges the backend already drops) must not ghost
+ * back in through the isolated exemption. Pure data, no React and no DOM, so
+ * the selection behaviour is unit-testable.
  * @module @deepseek-ai/dsh-client-ui-yantao/graph/subgraph
  */
 import type { KbRelationGraphResult, KbWireRelationEdge } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+
+/** The entity kinds the graph draws. */
+export type GraphKind = 'project' | 'person' | 'area'
+
+/**
+ * The entity kind a node path carries — the directory under `entities/`.
+ * Meetings, the todo singleton and everything outside the entity directories
+ * answer null: they are not graph citizens (ADR-0049 draws three kinds only).
+ */
+export function kindOf(path: string): GraphKind | null {
+  if (path.startsWith('entities/projects/')) return 'project'
+  if (path.startsWith('entities/people/')) return 'person'
+  if (path.startsWith('entities/areas/')) return 'area'
+  return null
+}
 
 /** The relation kinds a view switch can govern — everything but the base. */
 export type SwitchableKind = Exclude<KbWireRelationEdge['kind'], 'person-person'>
@@ -37,7 +55,8 @@ function fullDegrees(edges: KbRelationGraphResult['edges']): Map<string, number>
 
 /**
  * Narrow the relation graph to the view's visible subgraph: the edges whose
- * kind is enabled, their endpoints, and every fully isolated node.
+ * kind is enabled, their endpoints, and every fully isolated node of the
+ * three drawable entity kinds (meetings and todos never show).
  * @param data - the whole KB's relation graph.
  * @param enabled - the enabled edge kinds (the base is always among them).
  * @returns the node paths and edges the pane should lay out and render.
@@ -47,7 +66,7 @@ export function visibleSubgraph(data: KbRelationGraphResult, enabled: EnabledKin
   const degree = fullDegrees(data.edges)
   const nodes = new Set<string>()
   for (const node of data.nodes) {
-    if ((degree.get(node) ?? 0) === 0) nodes.add(node)
+    if (kindOf(node) !== null && (degree.get(node) ?? 0) === 0) nodes.add(node)
   }
   for (const edge of edges) {
     nodes.add(edge.from)

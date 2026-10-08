@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react'
 import type { KbRelationGraphResult, KbWireRelationEdge } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { createLayout, stepLayout, type ForceLayout } from '../graph/graphLayout.ts'
-import { defaultEnabledKinds, visibleSubgraph } from '../graph/subgraph.ts'
+import { defaultEnabledKinds, kindOf, visibleSubgraph } from '../graph/subgraph.ts'
 import { tabTitle } from '../tabs.ts'
 import type { WorkbenchT } from '../locales.ts'
 
@@ -86,14 +86,6 @@ function clientToView(svg: SVGSVGElement, clientX: number, clientY: number): { x
   if (ctm === null) return null
   const point = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse())
   return { x: point.x, y: point.y }
-}
-
-/** The entity kind a node path carries — the directory under `entities/`. */
-function kindOf(path: string): 'project' | 'person' | 'area' | null {
-  if (path.startsWith('entities/projects/')) return 'project'
-  if (path.startsWith('entities/people/')) return 'person'
-  if (path.startsWith('entities/areas/')) return 'area'
-  return null
 }
 
 /** The relation kind an edge carries, judged from its endpoints' kinds. */
