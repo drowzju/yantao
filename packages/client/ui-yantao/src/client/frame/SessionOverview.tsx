@@ -16,14 +16,17 @@
  * ledger read can fold every stored session (tens of seconds at personal
  * scale), so it never starts on mount — the visitor opts in, may cancel
  * mid-fold, and a failure offers 重试 instead of a dead panel. Once loaded
- * it takes the lower part of the pane — by default about half, adjustable
- * by dragging its top edge (the divider; the dashboard above absorbs the
- * remainder and scrolls internally) — and scrolls internally itself, so
- * both regions always fit the pane. 收起 folds it back to a slim bar with
- * the data retained — 展开 restores instantly without refetching the ledger.
+ * it takes the lower part of the pane — by default about half — measured in
+ * PX against the pane (a percentage cap silently never applied: its
+ * containing block's height is indefinite), so the split is real and the
+ * pane itself never scrolls. The top edge is a draggable divider in EVERY
+ * face: dragging up from the slim bar expands (and from idle, starts the
+ * load); dragging down past the threshold collapses; a double-click
+ * restores the default. 收起 folds to the slim bar with the data retained —
+ * 展开 restores instantly without refetching the ledger.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react'
 import type { UseSessions } from '@deepseek-ai/dsh-client-ui-session/client'
 import type {
@@ -68,11 +71,17 @@ const sectionStyle = {
   fontSize: 'var(--yt-type-body)',
 } as const
 
-// The draggable divider: the section's top edge. Dragging past these bounds
-// is clamped — never thinner than the title row, never starving the
-// dashboard above of more than 85% of the pane.
-const DIVIDER_MIN_HEIGHT = 96
+// The draggable divider: the section's top edge, present in EVERY face
+// (slim bar included). All heights are measured in px against the pane —
+// a percentage would resolve against the slot wrapper's indefinite height
+// and silently not apply, which is what let the section escape below the
+// fold and made the pane itself scroll.
+const DIVIDER_DEFAULT_SHARE = 0.45
 const DIVIDER_MAX_SHARE = 0.85
+const DIVIDER_MIN_HEIGHT = 96
+// Dragging below this snaps the section to its slim bar; dragging back up
+// expands it again (and from the idle bar, starts the ledger load).
+const DIVIDER_COLLAPSE_BELOW = 140
 
 const cardStyle = {
   display: 'flex',
@@ -344,37 +353,18 @@ export function SessionOverview({
   // 「今天」随每次读取重新锚定：跨午夜开着工作台时，刷新即把今天的行
   // 归位，而不是永远停在挂载那天的日期上。
   const [today, setToday] = useState(() => todayKey())
-  // Divider height in px; undefined = the default ~half-pane cap. The
-  // dashboard above is `flex: 1` with its own scroll, so it absorbs whatever
-  // remainder the drag leaves.
+  // Divider height in px; undefined = "not measured yet" (the ~half-pane
+  // default). The dashboard above is `flex: 1` with its own scroll, so it
+  // absorbs whatever remainder the drag leaves.
   const [sectionHeight, setSectionHeight] = useState<number | undefined>(undefined)
   const [dividerHot, setDividerHot] = useState(false)
   const sectionRef = useRef<HTMLDivElement | null>(null)
 
-  // Window-level listeners, not element pointer capture: something higher in
-  // the tree steals capture on pointerdown, which silences every
-  // element-scoped move/up listener. Events always reach `window` regardless
-  // of who holds the capture, so the drag survives.
-  const dividerDragStart = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const section = sectionRef.current
-    if (section === null) return
-    event.preventDefault()
-    const startY = event.clientY
-    const startHeight = section.getBoundingClientRect().height
-    const onMove = (move: PointerEvent): void => {
-      const pane = section.parentElement
-      const max = pane === null ? 720 : pane.clientHeight * DIVIDER_MAX_SHARE
-      setSectionHeight(Math.min(max, Math.max(DIVIDER_MIN_HEIGHT, startHeight - (move.clientY - startY))))
-    }
-    const onUp = (): void => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
-  }, [])
+  // The split container: InsightPane's marked box. Measuring THAT (not
+  // parentElement, which may be a display:contents slot wrapper with no box
+  // of its own) is what makes the px heights meaningful.
+  const paneOf = useCallback((): HTMLElement | null =>
+    (sectionRef.current?.closest('[data-insights-pane="split"]') ?? null), [])
 
   // One ledger fetch feeds the KPI trio, the bars and the heat grid; the
   // 刷新 gesture repeats it (a running session's today row keeps moving).
@@ -404,6 +394,60 @@ export function SessionOverview({
     setPhase('idle')
   }, [])
 
+  // Window-level listeners, not element pointer capture: something higher in
+  // the tree steals capture on pointerdown, which silences every
+  // element-scoped move/up listener. Events always reach `window` regardless
+  // of who holds the capture, so the drag survives.
+  const dividerDragStart = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const section = sectionRef.current
+    if (section === null) return
+    event.preventDefault()
+    const startY = event.clientY
+    const startHeight = section.getBoundingClientRect().height
+    const onMove = (move: PointerEvent): void => {
+      const pane = paneOf()
+      const max = pane === null ? 720 : pane.clientHeight * DIVIDER_MAX_SHARE
+      const target = Math.min(max, startHeight - (move.clientY - startY))
+      if (target < DIVIDER_COLLAPSE_BELOW) {
+        setCollapsed(true)
+        return
+      }
+      setCollapsed(false)
+      setSectionHeight(Math.max(DIVIDER_MIN_HEIGHT, target))
+      if (phase === 'idle') load()
+    }
+    const onUp = (): void => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+  }, [phase, load, paneOf])
+
+  // The default expanded height: ~half the pane, in px, measured after the
+  // expanded DOM exists. useLayoutEffect so the one placeholder-height frame
+  // never paints.
+  useLayoutEffect(() => {
+    if (collapsed || phase === 'idle' || sectionHeight !== undefined) return
+    const pane = paneOf()
+    if (pane === null) return
+    setSectionHeight(pane.clientHeight * DIVIDER_DEFAULT_SHARE)
+  }, [collapsed, phase, sectionHeight, paneOf])
+
+  // A window shrink clamps the expanded height, so the split can never
+  // overflow the pane again.
+  useEffect(() => {
+    const onResize = (): void => {
+      const pane = paneOf()
+      if (pane === null) return
+      setSectionHeight(h => (h === undefined ? h : Math.min(h, pane.clientHeight * DIVIDER_MAX_SHARE)))
+    }
+    window.addEventListener('resize', onResize)
+    return () => { window.removeEventListener('resize', onResize) }
+  }, [paneOf])
+
   const days = result?.days ?? []
   const bars = useMemo(() => barsForRange(days, range, today), [days, range, today])
   const heat = useMemo(() => heatmapCellsOf(days, today), [days, today])
@@ -426,11 +470,39 @@ export function SessionOverview({
     onSwitchToConversation?.()
   }
 
+  // The divider handle, identical in every face: hover brightens it, a drag
+  // resizes (collapsing below the threshold, expanding — and loading — back
+  // up), a double-click restores the default ~half-pane height.
+  const dividerHandle = (
+    <div
+      onPointerDown={dividerDragStart}
+      onDoubleClick={() => {
+        setCollapsed(false)
+        setSectionHeight(undefined)
+      }}
+      onMouseEnter={() => { setDividerHot(true) }}
+      onMouseLeave={() => { setDividerHot(false) }}
+      title={t('insights.overview.divider')}
+      style={{
+        position: 'absolute',
+        top: -4,
+        left: 0,
+        right: 0,
+        height: 8,
+        cursor: 'ns-resize',
+        zIndex: 1,
+        touchAction: 'none',
+        background: dividerHot ? 'var(--yt-accent-border)' : 'transparent',
+      }}
+    />
+  )
+
   // Slim bar: the idle face invites the first load; the collapsed face
   // offers the retained result back. Same geometry, different verb.
   if (phase === 'idle' || collapsed) {
     return (
-      <div style={slimBarStyle} data-insights-section="overview">
+      <div ref={sectionRef} style={slimBarStyle} data-insights-section="overview">
+        {dividerHandle}
         <p style={{ ...cardTitleStyle, fontSize: 'var(--yt-type-body)', margin: 0 }}>
           {t('insights.overview.title')}
         </p>
@@ -450,28 +522,14 @@ export function SessionOverview({
       ref={sectionRef}
       style={{
         ...sectionStyle,
-        ...(sectionHeight === undefined ? { maxHeight: '45%' } : { height: sectionHeight }),
+        // Always an explicit px height (measured); the '45%' string is only
+        // the pre-measure placeholder for the one unpainted frame.
+        height: sectionHeight ?? '45%',
+        flexShrink: 0,
       }}
       data-insights-section="overview"
     >
-      <div
-        onPointerDown={dividerDragStart}
-        onDoubleClick={() => { setSectionHeight(undefined) }}
-        onMouseEnter={() => { setDividerHot(true) }}
-        onMouseLeave={() => { setDividerHot(false) }}
-        title={t('insights.overview.divider')}
-        style={{
-          position: 'absolute',
-          top: -4,
-          left: 0,
-          right: 0,
-          height: 8,
-          cursor: 'ns-resize',
-          zIndex: 1,
-          touchAction: 'none',
-          background: dividerHot ? 'var(--yt-accent-border)' : 'transparent',
-        }}
-      />
+      {dividerHandle}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
         <p style={{ ...cardTitleStyle, fontSize: 'var(--yt-type-body)' }}>{t('insights.overview.title')}</p>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>

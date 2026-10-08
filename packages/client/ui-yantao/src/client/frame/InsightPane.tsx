@@ -1,12 +1,17 @@
 /**
  * The 洞察 tab's pane (ADR-0050): a root-scoped Frame child that owns the
- * tab's chrome and stacks its two regions — the current-session dashboard
- * (`insights.session`, `session-maybe` scope, so the slot machinery threads
- * the current session's projection seat through) above the cross-session
- * overview (`insights.overview`, root scope: it exists regardless of session
- * selection). The overview sits LAST and stays collapsed until its own
- * button loads it: its first ledger read can fold every stored session, so
- * it must never delay the panels above.
+ * tab's chrome and splits itself between its two regions — the
+ * current-session dashboard (`insights.session`, `session-maybe` scope, so
+ * the slot machinery threads the current session's projection seat
+ * through) above the cross-session overview (`insights.overview`, root
+ * scope: it exists regardless of session selection). The split is REAL:
+ * the pane never scrolls (`overflow: hidden`) — the dashboard is `flex: 1`
+ * with its own scroll, the overview is an explicit-px-height flex item
+ * whose top edge is a draggable divider; dragging redistributes, and both
+ * regions always stay fully inside the pane.
+ * The overview sits LAST and stays collapsed until its own button loads
+ * it: its first ledger read can fold every stored session, so it must
+ * never delay the panels above.
  * The overview's 「查看洞察」 opens a session without leaving the tab, and
  * the dashboard region re-threads to the newly current session.
  */
@@ -35,7 +40,10 @@ export function InsightPane({ renderSlot, onSwitchToConversation, active = true 
     return <div style={{ flex: 1, minWidth: 0, minHeight: 0 }} data-insights-pane="idle" />
   }
   return (
-    <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
+    <div
+      style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+      data-insights-pane="split"
+    >
       {renderSlot('insights.session', {})}
       {renderSlot('insights.overview', { onSwitchToConversation })}
     </div>
