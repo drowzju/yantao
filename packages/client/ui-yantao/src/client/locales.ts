@@ -348,6 +348,7 @@ export const zh = {
   'insights.overview.retry': '重试',
   'insights.overview.expand': '展开',
   'insights.overview.collapse': '收起',
+  'insights.overview.divider': '拖动调整总览高度，双击复原',
 
   // 图谱 tab (ADR-0049)
   'graph.empty': '暂无实体',
@@ -738,6 +739,7 @@ export const en = {
   'insights.overview.retry': 'Retry',
   'insights.overview.expand': 'Expand',
   'insights.overview.collapse': 'Collapse',
+  'insights.overview.divider': 'Drag to resize the overview, double-click to reset',
 
   // 图谱 tab (ADR-0049)
   'graph.empty': 'No entities yet',

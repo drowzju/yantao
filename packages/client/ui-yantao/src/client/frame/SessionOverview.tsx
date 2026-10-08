@@ -16,13 +16,15 @@
  * ledger read can fold every stored session (tens of seconds at personal
  * scale), so it never starts on mount — the visitor opts in, may cancel
  * mid-fold, and a failure offers 重试 instead of a dead panel. Once loaded
- * it caps at roughly half the pane and scrolls internally, so the session
- * dashboard above keeps its air; 收起 folds it back to a slim bar with the
- * data retained — 展开 restores instantly without refetching the ledger.
+ * it takes the lower part of the pane — by default about half, adjustable
+ * by dragging its top edge (the divider; the dashboard above absorbs the
+ * remainder and scrolls internally) — and scrolls internally itself, so
+ * both regions always fit the pane. 收起 folds it back to a slim bar with
+ * the data retained — 展开 restores instantly without refetching the ledger.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactElement, ReactNode } from 'react'
+import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react'
 import type { UseSessions } from '@deepseek-ai/dsh-client-ui-session/client'
 import type {
   DayUsageRecord, UsageBuckets, UsageWireDailyArgs, UsageWireDailyResult,
@@ -61,9 +63,16 @@ const sectionStyle = {
   // The section sits at the BOTTOM of the insights pane (below the session
   // dashboard), so its separator crowns it rather than foots it.
   borderTop: '1px solid var(--yt-border-subtle)',
+  position: 'relative',
   fontFamily: FONT,
   fontSize: 'var(--yt-type-body)',
 } as const
+
+// The draggable divider: the section's top edge. Dragging past these bounds
+// is clamped — never thinner than the title row, never starving the
+// dashboard above of more than 85% of the pane.
+const DIVIDER_MIN_HEIGHT = 96
+const DIVIDER_MAX_SHARE = 0.85
 
 const cardStyle = {
   display: 'flex',
@@ -335,6 +344,33 @@ export function SessionOverview({
   // 「今天」随每次读取重新锚定：跨午夜开着工作台时，刷新即把今天的行
   // 归位，而不是永远停在挂载那天的日期上。
   const [today, setToday] = useState(() => todayKey())
+  // Divider height in px; undefined = the default ~half-pane cap. The
+  // dashboard above is `flex: 1` with its own scroll, so it absorbs whatever
+  // remainder the drag leaves.
+  const [sectionHeight, setSectionHeight] = useState<number | undefined>(undefined)
+  const [dividerHot, setDividerHot] = useState(false)
+  const sectionRef = useRef<HTMLDivElement | null>(null)
+  const dragState = useRef<{ startY: number; startHeight: number } | null>(null)
+
+  const dividerDragStart = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const section = sectionRef.current
+    if (section === null) return
+    event.preventDefault()
+    dragState.current = { startY: event.clientY, startHeight: section.getBoundingClientRect().height }
+    section.setPointerCapture(event.pointerId)
+  }, [])
+  const dividerDragMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragState.current
+    const section = sectionRef.current
+    if (drag === null || section === null) return
+    const pane = section.parentElement
+    const max = pane === null ? 720 : pane.clientHeight * DIVIDER_MAX_SHARE
+    setSectionHeight(Math.min(max, Math.max(DIVIDER_MIN_HEIGHT, drag.startHeight - (event.clientY - drag.startY))))
+  }, [])
+  const dividerDragEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    sectionRef.current?.releasePointerCapture(event.pointerId)
+    dragState.current = null
+  }, [])
 
   // One ledger fetch feeds the KPI trio, the bars and the heat grid; the
   // 刷新 gesture repeats it (a running session's today row keeps moving).
@@ -406,7 +442,35 @@ export function SessionOverview({
   }
 
   return (
-    <div style={{ ...sectionStyle, maxHeight: '45%' }} data-insights-section="overview">
+    <div
+      ref={sectionRef}
+      style={{
+        ...sectionStyle,
+        ...(sectionHeight === undefined ? { maxHeight: '45%' } : { height: sectionHeight }),
+      }}
+      data-insights-section="overview"
+    >
+      <div
+        onPointerDown={dividerDragStart}
+        onPointerMove={dividerDragMove}
+        onPointerUp={dividerDragEnd}
+        onPointerCancel={dividerDragEnd}
+        onDoubleClick={() => { setSectionHeight(undefined) }}
+        onMouseEnter={() => { setDividerHot(true) }}
+        onMouseLeave={() => { setDividerHot(false) }}
+        title={t('insights.overview.divider')}
+        style={{
+          position: 'absolute',
+          top: -4,
+          left: 0,
+          right: 0,
+          height: 8,
+          cursor: 'ns-resize',
+          zIndex: 1,
+          touchAction: 'none',
+          background: dividerHot ? 'var(--yt-accent-border)' : 'transparent',
+        }}
+      />
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
         <p style={{ ...cardTitleStyle, fontSize: 'var(--yt-type-body)' }}>{t('insights.overview.title')}</p>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
