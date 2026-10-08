@@ -15,7 +15,10 @@
  * The section mounts COLLAPSED: a single 「加载跨会话总览」 button. The first
  * ledger read can fold every stored session (tens of seconds at personal
  * scale), so it never starts on mount — the visitor opts in, may cancel
- * mid-fold, and a failure offers 重试 instead of a dead panel.
+ * mid-fold, and a failure offers 重试 instead of a dead panel. Once loaded
+ * it caps at roughly half the pane and scrolls internally, so the session
+ * dashboard above keeps its air; 收起 folds it back to a slim bar with the
+ * data retained — 展开 restores instantly without refetching the ledger.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -92,6 +95,26 @@ const pillButtonStyle = {
   borderWidth: 1,
   borderStyle: 'solid',
   color: 'inherit',
+} as const
+
+// The idle and collapsed faces are the same slim bar: title on the left,
+// one action on the right. Percentages resolve against the insights pane
+// (a definite-height flex item), so the cap is "about half the pane".
+const slimBarStyle = {
+  ...sectionStyle,
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 8,
+  padding: '8px 12px',
+} as const
+
+const slimActionButtonStyle = {
+  ...pillButtonStyle,
+  marginLeft: 'auto',
+  padding: '4px 12px',
+  minHeight: 26,
+  borderColor: 'var(--yt-border-subtle)',
+  background: 'var(--yt-surface-primary)',
 } as const
 
 /** The KPI trio's shared frame: label above, the figure below. */
@@ -304,6 +327,8 @@ export function SessionOverview({
   const list = useSessions(state => state)
   const [result, setResult] = useState<UsageWireDailyResult | null>(null)
   const [phase, setPhase] = useState<'idle' | 'loading' | 'ok' | 'failed'>('idle')
+  // 收起只藏不卸：result 留在内存里，展开瞬间恢复，不重读账本。
+  const [collapsed, setCollapsed] = useState(false)
   const [range, setRange] = useState<OverviewRange>('7d')
   const [query, setQuery] = useState('')
   const [activeDay, setActiveDay] = useState<string | undefined>(undefined)
@@ -361,31 +386,28 @@ export function SessionOverview({
     onSwitchToConversation?.()
   }
 
-  // Collapsed: the whole section is one quiet button. Nothing has been
-  // fetched yet, so there is nothing to show but the invitation.
-  if (phase === 'idle') {
+  // Slim bar: the idle face invites the first load; the collapsed face
+  // offers the retained result back. Same geometry, different verb.
+  if (phase === 'idle' || collapsed) {
     return (
-      <div style={{ ...sectionStyle, alignItems: 'flex-start' }} data-insights-section="overview">
+      <div style={slimBarStyle} data-insights-section="overview">
+        <p style={{ ...cardTitleStyle, fontSize: 'var(--yt-type-body)', margin: 0 }}>
+          {t('insights.overview.title')}
+        </p>
         <button
           type="button"
-          style={{
-            ...pillButtonStyle,
-            padding: '4px 12px',
-            minHeight: 26,
-            borderColor: 'var(--yt-border-subtle)',
-            background: 'var(--yt-surface-primary)',
-          }}
-          onClick={load}
+          style={slimActionButtonStyle}
+          onClick={phase === 'idle' ? load : () => { setCollapsed(false) }}
         >
-          {t('insights.overview.load')}
+          {phase === 'idle' ? t('insights.overview.load') : t('insights.overview.expand')}
         </button>
       </div>
     )
   }
 
   return (
-    <div style={sectionStyle} data-insights-section="overview">
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+    <div style={{ ...sectionStyle, maxHeight: '45%' }} data-insights-section="overview">
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
         <p style={{ ...cardTitleStyle, fontSize: 'var(--yt-type-body)' }}>{t('insights.overview.title')}</p>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
           {RANGE_OPTIONS.map(candidate => (
@@ -409,98 +431,107 @@ export function SessionOverview({
           >
             {t('insights.overview.refresh')}
           </button>
+          <button
+            type="button"
+            style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
+            onClick={() => { setCollapsed(true) }}
+          >
+            {t('insights.overview.collapse')}
+          </button>
         </span>
       </div>
-      {phase === 'failed' ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.loadFailed')}</p>
-          <button
-            type="button"
-            style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
-            onClick={load}
-          >
-            {t('insights.overview.retry')}
-          </button>
-        </div>
-      ) : phase !== 'ok' && result === null ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.loading')}</p>
-          <button
-            type="button"
-            style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
-            onClick={cancel}
-          >
-            {t('insights.overview.cancel')}
-          </button>
-        </div>
-      ) : (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-            <KpiCard label={t('insights.overview.kpi.sessions')}>
-              <p style={{ margin: 0, fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                {distinctSessionsOf(bars)}
-              </p>
-            </KpiCard>
-            <KpiCard label={t('insights.overview.kpi.tokens')}>
-              <p style={{ margin: 0, fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                {formatTokens(grandTotalOf(rangeTotals))}
-              </p>
-              <BucketLine buckets={rangeTotals} t={t} />
-            </KpiCard>
-            <KpiCard label={t('insights.overview.kpi.cacheHit')}>
-              <p style={{ margin: 0, fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                {`${cacheHitRateOf(rangeTotals)}%`}
-              </p>
-            </KpiCard>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        {phase === 'failed' ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.loadFailed')}</p>
+            <button
+              type="button"
+              style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
+              onClick={load}
+            >
+              {t('insights.overview.retry')}
+            </button>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-            <DailyBarsCard bars={bars} range={range} t={t} />
-            <HeatmapCard cells={heat} activeDay={activeDay} onPick={setActiveDay} t={t} />
+        ) : phase !== 'ok' && result === null ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.loading')}</p>
+            <button
+              type="button"
+              style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
+              onClick={cancel}
+            >
+              {t('insights.overview.cancel')}
+            </button>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <p style={cardTitleStyle}>{t('insights.overview.cards.title')}</p>
-              <input
-                type="search"
-                value={query}
-                placeholder={t('insights.overview.search.placeholder')}
-                onChange={(event) => { setQuery(event.target.value) }}
-                style={{
-                  marginLeft: 'auto',
-                  minWidth: 160,
-                  maxWidth: 280,
-                  flex: 1,
-                  fontFamily: FONT,
-                  fontSize: 'var(--yt-type-label)',
-                  padding: '2px 8px',
-                  borderRadius: 4,
-                  border: '1px solid var(--yt-border-subtle)',
-                  background: 'var(--yt-surface-primary)',
-                  color: 'inherit',
-                }}
-              />
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+              <KpiCard label={t('insights.overview.kpi.sessions')}>
+                <p style={{ margin: 0, fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                  {distinctSessionsOf(bars)}
+                </p>
+              </KpiCard>
+              <KpiCard label={t('insights.overview.kpi.tokens')}>
+                <p style={{ margin: 0, fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                  {formatTokens(grandTotalOf(rangeTotals))}
+                </p>
+                <BucketLine buckets={rangeTotals} t={t} />
+              </KpiCard>
+              <KpiCard label={t('insights.overview.kpi.cacheHit')}>
+                <p style={{ margin: 0, fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                  {`${cacheHitRateOf(rangeTotals)}%`}
+                </p>
+              </KpiCard>
             </div>
-            {filtered.length === 0 ? (
-              <p style={{ ...mutedStyle, margin: 0 }}>
-                {rows.length === 0 ? t('insights.overview.empty') : t('insights.overview.noMatch')}
-              </p>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8 }}>
-                {filtered.map(row => (
-                  <SessionCard
-                    key={row.id}
-                    row={row}
-                    fetchTotals={fetchTotals}
-                    onOpen={openEverywhere}
-                    onInsights={openSession}
-                    t={t}
-                  />
-                ))}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+              <DailyBarsCard bars={bars} range={range} t={t} />
+              <HeatmapCard cells={heat} activeDay={activeDay} onPick={setActiveDay} t={t} />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <p style={cardTitleStyle}>{t('insights.overview.cards.title')}</p>
+                <input
+                  type="search"
+                  value={query}
+                  placeholder={t('insights.overview.search.placeholder')}
+                  onChange={(event) => { setQuery(event.target.value) }}
+                  style={{
+                    marginLeft: 'auto',
+                    minWidth: 160,
+                    maxWidth: 280,
+                    flex: 1,
+                    fontFamily: FONT,
+                    fontSize: 'var(--yt-type-label)',
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    border: '1px solid var(--yt-border-subtle)',
+                    background: 'var(--yt-surface-primary)',
+                    color: 'inherit',
+                  }}
+                />
               </div>
-            )}
-          </div>
-        </>
-      )}
+              {filtered.length === 0 ? (
+                <p style={{ ...mutedStyle, margin: 0 }}>
+                  {rows.length === 0 ? t('insights.overview.empty') : t('insights.overview.noMatch')}
+                </p>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8 }}>
+                  {filtered.map(row => (
+                    <SessionCard
+                      key={row.id}
+                      row={row}
+                      fetchTotals={fetchTotals}
+                      onOpen={openEverywhere}
+                      onInsights={openSession}
+                      t={t}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

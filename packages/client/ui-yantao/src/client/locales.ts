@@ -346,6 +346,8 @@ export const zh = {
   'insights.overview.load': '加载跨会话总览',
   'insights.overview.cancel': '取消',
   'insights.overview.retry': '重试',
+  'insights.overview.expand': '展开',
+  'insights.overview.collapse': '收起',
 
   // 图谱 tab (ADR-0049)
   'graph.empty': '暂无实体',
@@ -734,6 +736,8 @@ export const en = {
   'insights.overview.load': 'Load cross-session overview',
   'insights.overview.cancel': 'Cancel',
   'insights.overview.retry': 'Retry',
+  'insights.overview.expand': 'Expand',
+  'insights.overview.collapse': 'Collapse',
 
   // 图谱 tab (ADR-0049)
   'graph.empty': 'No entities yet',
