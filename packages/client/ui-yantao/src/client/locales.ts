@@ -343,6 +343,9 @@ export const zh = {
   'insights.overview.noMatch': '没有匹配的会话',
   'insights.overview.loadFailed': '用量账本读取失败',
   'insights.overview.loading': '读取用量账本…',
+  'insights.overview.load': '加载跨会话总览',
+  'insights.overview.cancel': '取消',
+  'insights.overview.retry': '重试',
 
   // 图谱 tab (ADR-0049)
   'graph.empty': '暂无实体',
@@ -728,6 +731,9 @@ export const en = {
   'insights.overview.noMatch': 'No matching sessions',
   'insights.overview.loadFailed': 'Failed to read the usage ledger',
   'insights.overview.loading': 'Reading the usage ledger…',
+  'insights.overview.load': 'Load cross-session overview',
+  'insights.overview.cancel': 'Cancel',
+  'insights.overview.retry': 'Retry',
 
   // 图谱 tab (ADR-0049)
   'graph.empty': 'No entities yet',

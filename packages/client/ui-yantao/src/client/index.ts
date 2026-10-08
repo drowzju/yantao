@@ -453,7 +453,10 @@ export function apply(ctx: Context): void {
     },
   }, InsightPane), 'ui-yantao: insights pane')
 
-  // ADR-0050: the cross-session overview atop the insights pane. The inject
+  // ADR-0050: the cross-session overview at the FOOT of the insights pane
+  // (below the session dashboard). It mounts collapsed — a button, not an
+  // auto-fetch — because its first ledger read can fold every stored
+  // session; the inject
   // face carries the usage ledger readers (one full-ledger fetch feeds KPI
   // trio, bars, heatmap and cards alike — personal scale is a few hundred
   // rows) and the session-opening gesture; the session list itself arrives

@@ -11,6 +11,11 @@
  * session and swings to the conversation tab, the secondary 「查看洞察」
  * opens it and stays here — the current-session dashboard below re-threads
  * to the newly current session.
+ *
+ * The section mounts COLLAPSED: a single 「加载跨会话总览」 button. The first
+ * ledger read can fold every stored session (tens of seconds at personal
+ * scale), so it never starts on mount — the visitor opts in, may cancel
+ * mid-fold, and a failure offers 重试 instead of a dead panel.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -50,7 +55,9 @@ const sectionStyle = {
   gap: 12,
   minWidth: 0,
   padding: 12,
-  borderBottom: '1px solid var(--yt-border-subtle)',
+  // The section sits at the BOTTOM of the insights pane (below the session
+  // dashboard), so its separator crowns it rather than foots it.
+  borderTop: '1px solid var(--yt-border-subtle)',
   fontFamily: FONT,
   fontSize: 'var(--yt-type-body)',
 } as const
@@ -307,7 +314,9 @@ export function SessionOverview({
   // One ledger fetch feeds the KPI trio, the bars and the heat grid; the
   // 刷新 gesture repeats it (a running session's today row keeps moving).
   // A ticket discards late answers, so a slow earlier fetch never overwrites
-  // a newer one's result.
+  // a newer one's result. Cancelling just bumps the ticket and folds back to
+  // the collapsed row — the host-side single-flight scan keeps running and
+  // warms the ledger, so the next tap answers almost instantly.
   const loadTicket = useRef(0)
   const load = useCallback(() => {
     const ticket = ++loadTicket.current
@@ -325,7 +334,10 @@ export function SessionOverview({
       },
     )
   }, [dailyUsage])
-  useEffect(load, [load])
+  const cancel = useCallback(() => {
+    loadTicket.current += 1
+    setPhase('idle')
+  }, [])
 
   const days = result?.days ?? []
   const bars = useMemo(() => barsForRange(days, range, today), [days, range, today])
@@ -347,6 +359,28 @@ export function SessionOverview({
   const openEverywhere = (sessionId: string): void => {
     openSession(sessionId)
     onSwitchToConversation?.()
+  }
+
+  // Collapsed: the whole section is one quiet button. Nothing has been
+  // fetched yet, so there is nothing to show but the invitation.
+  if (phase === 'idle') {
+    return (
+      <div style={{ ...sectionStyle, alignItems: 'flex-start' }} data-insights-section="overview">
+        <button
+          type="button"
+          style={{
+            ...pillButtonStyle,
+            padding: '4px 12px',
+            minHeight: 26,
+            borderColor: 'var(--yt-border-subtle)',
+            background: 'var(--yt-surface-primary)',
+          }}
+          onClick={load}
+        >
+          {t('insights.overview.load')}
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -378,9 +412,27 @@ export function SessionOverview({
         </span>
       </div>
       {phase === 'failed' ? (
-        <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.loadFailed')}</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.loadFailed')}</p>
+          <button
+            type="button"
+            style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
+            onClick={load}
+          >
+            {t('insights.overview.retry')}
+          </button>
+        </div>
       ) : phase !== 'ok' && result === null ? (
-        <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.loading')}</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.loading')}</p>
+          <button
+            type="button"
+            style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
+            onClick={cancel}
+          >
+            {t('insights.overview.cancel')}
+          </button>
+        </div>
       ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
