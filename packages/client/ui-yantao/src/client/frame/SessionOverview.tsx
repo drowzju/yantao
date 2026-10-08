@@ -350,30 +350,30 @@ export function SessionOverview({
   const [sectionHeight, setSectionHeight] = useState<number | undefined>(undefined)
   const [dividerHot, setDividerHot] = useState(false)
   const sectionRef = useRef<HTMLDivElement | null>(null)
-  const dragState = useRef<{ startY: number; startHeight: number } | null>(null)
 
+  // Window-level listeners, not element pointer capture: something higher in
+  // the tree steals capture on pointerdown, which silences every
+  // element-scoped move/up listener. Events always reach `window` regardless
+  // of who holds the capture, so the drag survives.
   const dividerDragStart = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const section = sectionRef.current
     if (section === null) return
     event.preventDefault()
-    dragState.current = { startY: event.clientY, startHeight: section.getBoundingClientRect().height }
-    // Capture on the HANDLE (currentTarget), not the section: capture
-    // retargets every following pointer event to the capturing element, and
-    // the move/up listeners live here — capturing the section would silence
-    // them and the drag would never move.
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }, [])
-  const dividerDragMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = dragState.current
-    const section = sectionRef.current
-    if (drag === null || section === null) return
-    const pane = section.parentElement
-    const max = pane === null ? 720 : pane.clientHeight * DIVIDER_MAX_SHARE
-    setSectionHeight(Math.min(max, Math.max(DIVIDER_MIN_HEIGHT, drag.startHeight - (event.clientY - drag.startY))))
-  }, [])
-  const dividerDragEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    event.currentTarget.releasePointerCapture(event.pointerId)
-    dragState.current = null
+    const startY = event.clientY
+    const startHeight = section.getBoundingClientRect().height
+    const onMove = (move: PointerEvent): void => {
+      const pane = section.parentElement
+      const max = pane === null ? 720 : pane.clientHeight * DIVIDER_MAX_SHARE
+      setSectionHeight(Math.min(max, Math.max(DIVIDER_MIN_HEIGHT, startHeight - (move.clientY - startY))))
+    }
+    const onUp = (): void => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }, [])
 
   // One ledger fetch feeds the KPI trio, the bars and the heat grid; the
@@ -456,9 +456,6 @@ export function SessionOverview({
     >
       <div
         onPointerDown={dividerDragStart}
-        onPointerMove={dividerDragMove}
-        onPointerUp={dividerDragEnd}
-        onPointerCancel={dividerDragEnd}
         onDoubleClick={() => { setSectionHeight(undefined) }}
         onMouseEnter={() => { setDividerHot(true) }}
         onMouseLeave={() => { setDividerHot(false) }}
