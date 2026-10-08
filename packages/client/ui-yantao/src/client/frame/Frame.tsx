@@ -22,7 +22,7 @@ import type {
   ScheduleLister, ScheduleMarker,
   ScheduleSaver, ProposalInboxLister, ProposalInboxResolver, ShortcutFiller,
   RootLoader, RootSetter,
-  Archiver,
+  Archiver, AttachmentDownloader,
   SessionPrompter, TodoLoader, TodoWriter,
 } from '../remote.ts'
 import type { AnalysisStage, MailAnalyser } from '../mail-analysis.ts'
@@ -45,7 +45,6 @@ import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage, type ResourceViewReader } from '../remote.ts'
 import { notifySchedule, scheduleScan, type ScheduleRunner } from '../scheduler.ts'
 import { SchedulePane } from '../SchedulePane.tsx'
-import { frontmatterArchived } from '../markdown.ts'
 import type { KbCapabilitySummary, KbDeleteResourceResult, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbQueuedProposal, KbRelationGraphResult, KbSchedule, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
@@ -125,6 +124,12 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
    * archive-mails rows then skip honestly.
    */
   readonly mailArchive?: Archiver
+  /**
+   * Download nominated mails' attachments to `resources/mail-attachments/`
+   * (2026-10-08); optional for the same reason as `mailDelete` and
+   * `mailArchive` — embedders without the face simply don't offer the button.
+   */
+  readonly mailDownloadAttachments?: AttachmentDownloader
   /** Run one mail analysis in a dsh session (ADR-0019). */
   readonly analyseMail: MailAnalyser
   /** Run one refine analysis in a dsh session — both ADR-0029 gestures. */
@@ -248,6 +253,33 @@ const footerButtonStyle = { padding: '2px 10px', minHeight: 'var(--yt-control-mi
 /** The stack holding one file's two views; both stay mounted, one is shown. */
 const bothPanesStyle = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } as const
 
+/** The 阅读 / 源码 switch rides the file pane's own header (2026-10-08): the
+    old strip-end home vanished once enough file tabs crowded the single-line
+    tab strip — riding the active tab keeps it always reachable. */
+const fileModeBarStyle = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  alignItems: 'center',
+  gap: 2,
+  padding: '2px 6px',
+  borderBottom: '1px solid var(--yt-border-subtle)',
+  background: 'var(--yt-surface-primary)',
+} as const
+
+const modeButtonStyle = {
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'transparent',
+  borderRadius: 4,
+  background: 'transparent',
+  cursor: 'pointer',
+  fontFamily: 'var(--yt-font-ui)',
+  fontSize: 'var(--yt-type-label)',
+  padding: '1px 6px',
+} as const
+
+const activeModeStyle = { ...modeButtonStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } as const
+
 /**
  * Visibility of one of a file's two views — hidden, never unmounted, so its
  * draft and scroll position survive a switch.
@@ -366,17 +398,6 @@ function rosterOfTrees(
   })
 }
 
-/**
- * Whether one KB path is an archivable entity file (ADR-0041 决定 2): one of
- * the four kinds under `entities/` — the todo singleton carries no archive
- * semantics, and resources are not entities at all.
- * @param path - KB-relative path with forward slashes.
- * @returns true when the path names an entity the archive gesture accepts.
- */
-function archivableEntityPath(path: string): boolean {
-  return /^entities\/(?:projects|areas|people|meetings)\/[^/]+\.md$/u.test(path)
-}
-
 /** One queued gesture plus its 任务 row (ADR-0031). */
 interface RefineQueued {
   readonly gesture: RefineGesture
@@ -465,7 +486,7 @@ export function Frame({
   capabilityRegister, capabilityRun,
   capabilityDistill,
   promptSession, memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
-  sessionDetail, onKbRootChanged, mailDelete, mailArchive,
+  sessionDetail, onKbRootChanged, mailDelete, mailArchive, mailDownloadAttachments,
   promptShortcutList, promptShortcutSave, fillShortcut,
   scheduleList, scheduleSave, scheduleMark, runSchedule,
   proposalInboxList, proposalInboxResolve, relationGraph,
@@ -648,11 +669,14 @@ export function Frame({
   // running-on-top ordering happens at render time in sortTaskRows.
   const [taskRows, setTaskRows] = useState<readonly TaskRow[]>([])
   const taskSeq = useRef(0)
-  const taskBegin = useCallback((kind: TaskKind, title: string, stage: string): string => {
+  const taskBegin = useCallback((kind: TaskKind, title: string, stage: string, target?: string): string => {
     taskSeq.current += 1
     const id = `task-${taskSeq.current}`
     setTaskRows(rows => [
-      { id, kind, title, stage, detail: null, status: 'running', startedAt: Date.now(), endedAt: null, sessionId: null },
+      {
+        id, kind, title, stage, detail: null, status: 'running', startedAt: Date.now(), endedAt: null,
+        sessionId: null, ...(target !== undefined ? { target } : {}),
+      },
       ...rows,
     ])
     return id
@@ -911,7 +935,7 @@ export function Frame({
           // to the store in the background: the row is still pending there,
           // so the settle succeeds and the retirement becomes durable.
           setInboxEntries(prev => prev.map(e => e.id === entry.id
-            ? { ...e, status: 'discarded', decidedAt: new Date().toISOString() } as KbQueuedProposal
+            ? { ...e, status: 'discarded', decidedAt: new Date().toISOString() }
             : e))
           void proposalInboxResolve({ id: entry.id, status: 'discarded' }).then(
             (settled) => {
@@ -1084,7 +1108,7 @@ export function Frame({
     setCapabilityRunning(true)
     setCapabilityNotice(`能力「${capability.name}」执行中…`, { severity: 'progress' })
     // The run is a task row too (ADR-0031); its 取消 drives the same aborter.
-    const taskId = taskBegin('capability', `能力「${capability.name}」`, '执行中')
+    const taskId = taskBegin('capability', `能力「${capability.name}」`, '执行中', capability.name)
     void capabilityRun({ name: capability.name, input: { path } }, aborter.signal).then((result) => {
       capabilityAbort.current = null
       setCapabilityRunning(false)
@@ -1146,7 +1170,7 @@ export function Frame({
     if (distillingRunId !== null) return
     setDistillingRunId(record.id)
     setCapabilityNotice(`提炼「${record.name}」经验中…`, { severity: 'progress' })
-    const taskId = taskBegin('capability', `提炼「${record.name}」经验`, '提炼中')
+    const taskId = taskBegin('capability', `提炼「${record.name}」经验`, '提炼中', record.name)
     // The distill is a task row too, and its 取消 must bite (ADR-0031): a
     // dedicated aborter rides the RPC — cancelling tears down the local wait
     // and `session/cancel` ends the headless turn (no orphaned token burn).
@@ -1443,7 +1467,7 @@ export function Frame({
     const stageOf = (stage: AnalysisStage): string =>
       stage === 'session' ? '创建会话' : stage === 'prompt' ? '准备分析' : '分批判定'
     if (mailState.phase === 'analysing') {
-      const id = mailTaskId.current ?? taskBegin('mail', `邮件分析（${mailState.mails.length} 封）`, '创建会话')
+      const id = mailTaskId.current ?? taskBegin('mail', `邮件分析（${mailState.mails.length} 封）`, '创建会话', 'mail')
       mailTaskId.current = id
       const progress = mailState.progress
       const detail = progress !== null && progress.done !== undefined && progress.total !== undefined
@@ -1487,7 +1511,7 @@ export function Frame({
   const mailFetchTaskId = useRef<string | null>(null)
   const mailFetchAbort = useRef<AbortController | null>(null)
   const bookedMailFetch = useCallback(async (args: KbMailFetchArgs): Promise<KbMailFetchResult> => {
-    const taskId = taskBegin('mail', '读取邮件', '读取中')
+    const taskId = taskBegin('mail', '读取邮件', '读取中', 'mail')
     mailFetchTaskId.current = taskId
     const aborter = new AbortController()
     mailFetchAbort.current = aborter
@@ -1514,15 +1538,17 @@ export function Frame({
   const closeTaskDetail = useCallback((): void => { setDetailRow(null) }, [])
 
   // ADR-0031: the 任务 row's two verbs. 查看 goes to where the outcome
-  // lives — refine speaks through the conversation's cards and notices, the
-  // other two through the intake rail's 能力 tab. A validate row's outcome
-  // is the card, already popped here, so its 查看 opens the ADR-0033 detail
-  // drawer instead: the run's session log carries the prescan lists and the
-  // model's full judgement (they ride inside the prompt), which is the
-  // "more" a curious human wants. While the run has not anchored a session
-  // yet there is nothing to open. 取消 reuses the exact cancel path each
-  // runner already owns.
-  const [connectorNonce, setConnectorNonce] = useState(0)
+  // lives — refine speaks through the conversation's cards and notices; mail
+  // and capability rows land in the intake rail's 能力 tab with the row's
+  // own capability preselected (2026-10-08: previously the panel's first
+  // screen greeted the human regardless of which capability had run). A
+  // validate row's outcome is the card, already popped here, so its 查看
+  // opens the ADR-0033 detail drawer instead: the run's session log carries
+  // the prescan lists and the model's full judgement (they ride inside the
+  // prompt), which is the "more" a curious human wants. While the run has
+  // not anchored a session yet there is nothing to open. 取消 reuses the
+  // exact cancel path each runner already owns.
+  const [connectorReveal, setConnectorReveal] = useState<{ nonce: number; capability: string | null }>({ nonce: 0, capability: null })
   const jumpTask = useCallback((row: TaskRow): void => {
     if (row.kind === 'validate' || row.kind === 'schedule') {
       if (row.sessionId !== null) setDetailRow(row)
@@ -1531,7 +1557,7 @@ export function Frame({
     if (row.kind === 'refine') setTabs(state => activateTab(state, CONVERSATION_TAB))
     else {
       setIntakeOpen(true)
-      setConnectorNonce(nonce => nonce + 1)
+      setConnectorReveal(({ nonce }) => ({ nonce: nonce + 1, capability: row.target ?? null }))
     }
   }, [])
   const cancelTask = useCallback((row: TaskRow): void => {
@@ -1557,24 +1583,13 @@ export function Frame({
     })
   }, [kbRoot, openExternal])
 
-  // ADR-0041 决定 7: the detail view's 归档/还原 button — the primary
-  // gesture, sharing the row menu's RPC pair. The host rewrites the file, so
-  // an open editor's baseline goes stale exactly as after a row-menu relation
-  // write (its conflict bar is the guard); the button's own label is patched
-  // from the RPC's answer, since the draft still carries the old envelope.
-  const [archivedOverrides, setArchivedOverrides] = useState<Readonly<Record<string, boolean>>>({})
-  const [archiveBusy, setArchiveBusy] = useState(false)
-  // One accounting wrapper for every archive gesture (ADR-0041 决定 7): the
-  // detail button and both rails' row menus share it, so the override and
-  // the tree reload happen exactly once no matter who flipped the flag —
-  // the detail button's label can never go stale after a row-menu flip.
-  // Failures propagate untouched: the rail's own onError reports them, the
-  // detail button catches for its notice line.
-  // archiveBusy only gates the detail button; the rails' row menus call
-  // flipArchive directly, so concurrency is merged per path+direction here
-  // instead: a second gesture of the same direction on the same entity while
-  // one flip is in flight (fast double-click, both rails showing it) joins
-  // the first flight rather than racing it with a conflicting write. An
+  // One accounting wrapper for every archive gesture (ADR-0041 决定 2): both
+  // rails' row menus share it, so the tree reload happens exactly once no
+  // matter who flipped the flag. Failures propagate untouched: the rail's
+  // own onError reports them. Concurrency is merged per path+direction here:
+  // a second gesture of the same direction on the same entity while one flip
+  // is in flight (fast double-click, both rails showing it) joins the first
+  // flight rather than racing it with a conflicting write. An
   // opposite-direction gesture is a genuine reversal, not a duplicate — it
   // goes through as its own call (the server settles the last write). Flips
   // of different entities stay independent.
@@ -1584,7 +1599,6 @@ export function Frame({
     const inFlight = archiveFlights.current.get(flightKey)
     if (inFlight !== undefined) return inFlight
     const flight = (archived ? archiveEntity(path) : restoreEntity(path)).then((result) => {
-      setArchivedOverrides(current => ({ ...current, [path]: result.archived }))
       setTreeKey(key => key + 1)
       return result
     }).finally(() => {
@@ -1595,14 +1609,6 @@ export function Frame({
   }, [archiveEntity, restoreEntity])
   const railArchive = useCallback((path: string): Promise<KbSetEntityArchivedResult> => flipArchive(path, true), [flipArchive])
   const railRestore = useCallback((path: string): Promise<KbSetEntityArchivedResult> => flipArchive(path, false), [flipArchive])
-  const toggleArchive = useCallback((path: string, archived: boolean): void => {
-    setArchiveBusy(true)
-    flipArchive(path, archived).catch((failure: unknown) => {
-      setCapabilityNotice(remoteMessage(failure), { severity: 'error' })
-    }).finally(() => {
-      setArchiveBusy(false)
-    })
-  }, [flipArchive])
 
   // ── the selection right-click (ADR-0025 决定 5) ───────────────────────────
   // The menu's capability list: the instruction capabilities that opted in
@@ -1658,9 +1664,13 @@ export function Frame({
     }
   }, [])
 
-  // 「发送到会话」: the selection *is* the prompt.
+  // 「发送到会话」: the selection *is* the prompt. The gesture may fire from
+  // any tab (the menu rides the reading view and the source editor), so the
+  // frame switches to the conversation first — a message landing in a tab
+  // the human cannot see is no feedback at all (2026-10-08).
   const sendSelection = useCallback((text: string): void => {
     setCapabilityNotice(null)
+    setTabs(state => activateTab(state, CONVERSATION_TAB))
     void promptSession(text).then(
       () => { setCapabilityNotice('已发送到当前会话。', { severity: 'info' }) },
       (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`, { severity: 'error' }) },
@@ -1708,9 +1718,14 @@ export function Frame({
   // with the selection riding inline (a `> ` quote block once it spans lines)
   // — and the controller's pre-step (ADR-0025 决定 3) injects the SKILL.md
   // body. No client-side fetch, no concatenation; the message is visible in
-  // the transcript as if the human had typed it.
+  // the transcript as if the human had typed it. The frame switches to the
+  // conversation tab before sending: the run's feedback (cards, notices,
+  // streaming text) lives there, and the human may have fired the menu from
+  // the reading view of any tab (2026-10-08 — the missing switch was the
+  // 「画图无反馈」 report).
   const runSelectionCapability = useCallback((name: string, selection: string): void => {
     setCapabilityNotice(null)
+    setTabs(state => activateTab(state, CONVERSATION_TAB))
     void promptSession(capabilityGestureMessage(name, { selection })).then(
       () => {},
       (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`, { severity: 'error' }) },
@@ -1784,15 +1799,6 @@ export function Frame({
       }
       return next
     })
-    // The archive-flag override dies with the tab: a reopen derives the flag
-    // from a freshly read envelope.
-    setArchivedOverrides((current) => {
-      const next: Record<string, boolean> = {}
-      for (const [key, value] of Object.entries(current)) {
-        if (key !== path) next[key] = value
-      }
-      return next
-    })
   }, [])
 
   // The resource row's right-click 「删除」 (ADR-0020): remove the file, then
@@ -1811,9 +1817,6 @@ export function Frame({
     setNeedsRoot(false)
     setTreeKey(key => key + 1)
     setStatuses({})
-    // The archive-flag overrides belong to the old root's files: a fresh
-    // root re-derives every flag from a freshly read envelope.
-    setArchivedOverrides({})
     onKbRootChanged()
   }, [onKbRootChanged])
 
@@ -1848,6 +1851,7 @@ export function Frame({
           mailMarkRead={mailMarkRead}
           {...(mailDelete !== undefined ? { mailDelete } : {})}
           {...(mailArchive !== undefined ? { mailArchive } : {})}
+          {...(mailDownloadAttachments !== undefined ? { mailDownloadAttachments } : {})}
           analyseMail={analyseMail}
           registerResource={registerResource}
           deleteResource={removeResource}
@@ -1857,7 +1861,7 @@ export function Frame({
           capabilityAdopt={capabilityAdopt}
           capabilityRegister={capabilityRegister}
           mailRun={mailRun}
-          revealConnector={connectorNonce}
+          revealConnector={connectorReveal}
           memoryList={memoryList}
           memoryAdd={memoryAdd}
           memoryDelete={memoryDelete}
@@ -1932,8 +1936,6 @@ export function Frame({
         )}
         onActivate={(key) => { setTabs(state => activateTab(state, key)) }}
         onClose={closeFile}
-        viewMode={viewMode}
-        onViewMode={setViewMode}
         renderConversation={() => renderSlot('main', {}, { entryKey: 'conversation' })}
         renderFile={(tab) => {
           if (tab.mode === 'read') {
@@ -1945,19 +1947,44 @@ export function Frame({
               />
             )
           }
-          // ADR-0041 决定 7: an entity's detail view carries the archive
-          // gesture — 还原 when the envelope (or the last flip's answer) says
-          // archived, 归档 otherwise. Non-entity files get no button.
-          const archived = archivedOverrides[tab.path] ?? frontmatterArchived(drafts[tab.path] ?? '')
+          // The 阅读 / 源码 switch lives in the file pane's own header — see
+          // fileModeBarStyle. The detail view no longer carries the archive
+          // gesture (ADR-0041 决定 7 的收窄，2026-10-08)：两侧栏的行菜单仍是
+          // 归档的家，浏览态不再混入写动作。
           return (
             <div style={bothPanesStyle}>
+              <div style={fileModeBarStyle}>
+                <button
+                  type="button"
+                  style={viewMode === 'read' ? activeModeStyle : modeButtonStyle}
+                  onClick={() => { setViewMode('read') }}
+                >
+                  {t('center.read')}
+                </button>
+                <button
+                  type="button"
+                  style={viewMode === 'source' ? activeModeStyle : modeButtonStyle}
+                  onClick={() => { setViewMode('source') }}
+                >
+                  {t('center.source')}
+                </button>
+                {/* 2026-10-08：与 阅读/源码 并排——都是「这份文件怎么看」的一组
+                    控制，原先散在 MarkdownView 的属性条里，两行两处不好找。 */}
+                <button
+                  type="button"
+                  style={{ ...modeButtonStyle, marginLeft: 'auto' }}
+                  title={t('md.openExternallyTitle')}
+                  onClick={() => { openInObsidian(tab.path) }}
+                >
+                  {t('md.openInObsidian')}
+                </button>
+              </div>
               <div style={paneStyleFor(viewMode === 'read')}>
                 <MarkdownView
                   content={drafts[tab.path] ?? ''}
                   path={tab.path}
                   resolveImage={readImage}
                   links={tab.path === linkGraph?.path ? linkGraph : undefined}
-                  onOpenExternal={() => { openInObsidian(tab.path) }}
                   onOpen={(path) => { openFile(path, 'edit') }}
                   onEdit={(next) => {
                     void editors.current.get(tab.path)?.patch(next).then((outcome) => {
@@ -1967,13 +1994,6 @@ export function Frame({
                     })
                   }}
                   onUnresolved={() => { setViewMode('source') }}
-                  {...(archivableEntityPath(tab.path) ? {
-                    archive: {
-                      archived,
-                      busy: archiveBusy,
-                      onToggle: () => { toggleArchive(tab.path, !archived) },
-                    },
-                  } : {})}
                   t={t}
                 />
               </div>
@@ -2021,6 +2041,7 @@ export function Frame({
           mailMarkRead={mailMarkRead}
           {...(mailDelete !== undefined ? { mailDelete } : {})}
           {...(mailArchive !== undefined ? { mailArchive } : {})}
+          {...(mailDownloadAttachments !== undefined ? { mailDownloadAttachments } : {})}
           analyseMail={analyseMail}
           registerResource={registerResource}
           capabilityList={capabilityList}

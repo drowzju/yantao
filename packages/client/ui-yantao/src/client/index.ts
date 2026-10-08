@@ -69,7 +69,7 @@ import { WORKBENCH_NS, en, zh } from './locales.ts'
 import { MemoryProposalCard } from './MemoryProposalCard.tsx'
 import {
   addMemory, adoptCapability, approveMemoryProposal, archiveEntity, archiveMails, createCapability, createEntity,
-  deleteMemory, deleteMails, deleteResource,
+  deleteMemory, deleteMails, deleteResource, downloadMailAttachments,
   discardMemoryProposal, fetchMail, fillComposerWithShortcut, listMemory, listMemoryProposals,
   loadCapabilities, loadCapabilityDeclaration, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
   loadRevision, loadRoot, loadTodos,
@@ -216,7 +216,7 @@ export function apply(ctx: Context): void {
     void alignWorkspace({
       root: () => loadRoot(ctx),
       workspaces: ctx.workspaces,
-      startSession: (workspaceId) => { whenUiWorkspace(svc => svc.startSession(workspaceId)) },
+      startSession: (workspaceId) => { whenUiWorkspace((svc) => { svc.startSession(workspaceId) }) },
     }).catch((reason: unknown) => {
       console.warn('kb workspace alignment failed:', reason)
     })
@@ -311,6 +311,8 @@ export function apply(ctx: Context): void {
       mailDelete: (ids: readonly string[]) => deleteMails(ctx, ids),
       // ADR-0037: the archive arm — same human channel as the delete knife.
       mailArchive: (mails: readonly { entryId: string; summary?: string }[]) => archiveMails(ctx, mails),
+      // 附件下载 — same human channel, the third knife of the mail capability.
+      mailDownloadAttachments: (mails: readonly { entryId: string; summary?: string }[]) => downloadMailAttachments(ctx, mails),
       analyseMail: async (
         mails: readonly MailMessage[],
         known: KnownEntities,
@@ -374,7 +376,7 @@ export function apply(ctx: Context): void {
       // conversation the human is watching, on a KB-rooted session.
       promptSession: async (text: string) => {
         await promptCurrentSession(ctx, text, await kbCwd(), (sessionId) => {
-          whenUiWorkspace(svc => svc.openSession(sessionId))
+          whenUiWorkspace((svc) => { svc.openSession(sessionId) })
         })
       },
       // ADR-0040: the 惯用提示词 surface — the 能力 tab's first-screen list
@@ -454,9 +456,9 @@ export function apply(ctx: Context): void {
   }, InsightPane), 'ui-yantao: insights pane')
 
   // ADR-0050: the cross-session overview at the FOOT of the insights pane
-  // (below the session dashboard). It mounts collapsed — a button, not an
-  // auto-fetch — because its first ledger read can fold every stored
-  // session; the inject
+  // (below the session dashboard). Its initial face carries a load button
+  // rather than an auto-fetch, because its first ledger read can fold every
+  // stored session; the inject
   // face carries the usage ledger readers (one full-ledger fetch feeds KPI
   // trio, bars, heatmap and cards alike — personal scale is a few hundred
   // rows) and the session-opening gesture; the session list itself arrives
@@ -480,7 +482,7 @@ export function apply(ctx: Context): void {
         openSession: (sessionId: string) => {
           // The generated face brands the id; the overview carries it as a
           // plain string everywhere (same cast as cancelSessionTurn).
-          whenUiWorkspace(svc => svc.openSession(sessionId as SessionTarget))
+          whenUiWorkspace((svc) => { svc.openSession(sessionId as SessionTarget) })
         },
       }),
     }, SessionOverview)), 'ui-yantao: insights cross-session overview')

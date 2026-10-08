@@ -47,6 +47,7 @@ const VERDICT: MailAnalysis = {
   deletions: [],
   resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
   archives: [],
+  attachments: [],
   memories: [],
 }
 

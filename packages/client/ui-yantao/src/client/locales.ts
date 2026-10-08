@@ -404,6 +404,7 @@ export const zh = {
   'group.memory': '记忆',
   'group.deleteMails': '删除邮件（移入已删除）',
   'group.archiveMails': '归档邮件（.eml 原件）',
+  'group.downloadAttachments': '下载附件（存入 mails 目录并记索引）',
 } satisfies Record<string, string>
 
 /** Workbench locale key union. */
@@ -795,4 +796,5 @@ export const en = {
   'group.memory': 'Memories',
   'group.deleteMails': 'Mail deletions (move to Deleted)',
   'group.archiveMails': 'Mail archives (.eml originals)',
+  'group.downloadAttachments': 'Attachment downloads (into the mails directory, indexed)',
 } satisfies Record<WorkbenchLocaleKey, string>

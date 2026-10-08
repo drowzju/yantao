@@ -81,8 +81,12 @@ const DIVIDER_DEFAULT_SHARE = 0.40
 const DIVIDER_MAX_SHARE = 0.85
 const DIVIDER_MIN_HEIGHT = 96
 // Dragging below this snaps the section to its slim bar; dragging back up
-// expands it again (and from the idle bar, starts the ledger load).
+// expands it again — drags only resize, never firing the ledger load; the
+// load stays on the explicit buttons.
 const DIVIDER_COLLAPSE_BELOW = 140
+// The drag cap when the split pane cannot be measured (marker missed):
+// a generous ceiling so the drag still works, clamped by nothing.
+const DIVIDER_FALLBACK_PANE_HEIGHT = 720
 
 const cardStyle = {
   display: 'flex',
@@ -117,8 +121,8 @@ const pillButtonStyle = {
 } as const
 
 // The idle and collapsed faces are the same slim bar: title on the left,
-// one action on the right. Percentages resolve against the insights pane
-// (a definite-height flex item), so the cap is "about half the pane".
+// one action on the right. Its height is intrinsic (padding + one button);
+// the px height mechanics live with the DIVIDER_* constants above.
 const slimBarStyle = {
   ...sectionStyle,
   flexDirection: 'row',
@@ -360,6 +364,8 @@ export function SessionOverview({
   const [sectionHeight, setSectionHeight] = useState<number | undefined>(undefined)
   const [dividerHot, setDividerHot] = useState(false)
   const sectionRef = useRef<HTMLDivElement | null>(null)
+  // The active drag's listener-detach closure, so unmount can detach mid-drag.
+  const detachDragRef = useRef<(() => void) | null>(null)
 
   // The split container: InsightPane's marked box. Measuring THAT (not
   // parentElement, which may be a display:contents slot wrapper with no box
@@ -370,8 +376,8 @@ export function SessionOverview({
   // One ledger fetch feeds the KPI trio, the bars and the heat grid; the
   // 刷新 gesture repeats it (a running session's today row keeps moving).
   // A ticket discards late answers, so a slow earlier fetch never overwrites
-  // a newer one's result. Cancelling just bumps the ticket and folds back to
-  // the collapsed row — the host-side single-flight scan keeps running and
+  // a newer one's result. Cancelling just bumps the ticket and resets the
+  // phase to idle in place — neither folding nor unloading; the host-side single-flight scan keeps running and
   // warms the ledger, so the next tap answers almost instantly. The
   // in-flight flag stops a gesture storm (double-taps, errant repeats) from
   // queueing dozens of RPCs behind the host's single flight.
@@ -385,14 +391,17 @@ export function SessionOverview({
     setPhase('loading')
     void dailyUsage({}).then(
       (answer) => {
-        loadInFlight.current = false
+        // A superseded answer must not release the in-flight flag: a newer
+        // load owns it now, and clearing here would let further taps spawn
+        // concurrent RPCs behind the host's single flight.
         if (ticket !== loadTicket.current) return
+        loadInFlight.current = false
         setResult(answer)
         setPhase('ok')
       },
       () => {
-        loadInFlight.current = false
         if (ticket !== loadTicket.current) return
+        loadInFlight.current = false
         setPhase('failed')
       },
     )
@@ -415,7 +424,9 @@ export function SessionOverview({
     const startHeight = section.getBoundingClientRect().height
     const onMove = (move: PointerEvent): void => {
       const pane = paneOf()
-      const max = pane === null ? 720 : pane.clientHeight * DIVIDER_MAX_SHARE
+      const max = pane === null
+        ? DIVIDER_FALLBACK_PANE_HEIGHT
+        : pane.clientHeight * DIVIDER_MAX_SHARE
       const target = Math.min(max, startHeight - (move.clientY - startY))
       if (target < DIVIDER_COLLAPSE_BELOW) {
         setCollapsed(true)
@@ -424,15 +435,24 @@ export function SessionOverview({
       setCollapsed(false)
       setSectionHeight(Math.max(DIVIDER_MIN_HEIGHT, target))
     }
-    const onUp = (): void => {
+    // Detach is hoisted so an unmount mid-drag can tear the listeners down:
+    // without it they linger on `window` until the next unrelated pointer
+    // release, each stray move poking the stale fiber's setters.
+    const detach = (): void => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
+      if (detachDragRef.current === detach) detachDragRef.current = null
     }
+    const onUp = (): void => { detach() }
+    detachDragRef.current = detach
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
   }, [paneOf])
+
+  // Unmounting mid-drag must not orphan the window-level drag listeners.
+  useEffect(() => () => { detachDragRef.current?.() }, [])
 
   // The default expanded height: ~40% of the pane, in px, measured after
   // the expanded DOM exists (the idle face is expanded too). useLayoutEffect

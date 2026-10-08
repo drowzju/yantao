@@ -137,7 +137,7 @@ const footerStyle = {
 
 /** The kinds in the order the card lists their groups. */
 const GROUP_ORDER: readonly ProposalAction['kind'][] = [
-  'create-entity', 'create-project', 'add-todo', 'append-log', 'write-state', 'edit-section', 'append-section', 'create-link', 'save-resource', 'add-memory', 'delete-mails', 'archive-mails',
+  'create-entity', 'create-project', 'add-todo', 'append-log', 'write-state', 'edit-section', 'append-section', 'create-link', 'save-resource', 'add-memory', 'delete-mails', 'archive-mails', 'download-attachments',
 ]
 
 /** A person action's relation, as the row's detail names it (self is never proposed). */
@@ -163,6 +163,7 @@ function labelOf(action: ProposalAction): string {
     case 'add-memory': return action.text
     case 'delete-mails': return action.subject
     case 'archive-mails': return action.subject
+    case 'download-attachments': return action.subject
   }
 }
 
@@ -188,6 +189,7 @@ function detailOf(action: ProposalAction, t: WorkbenchT): string {
   }
   if (action.kind === 'delete-mails') return `${action.sender}：${action.reason}`
   if (action.kind === 'archive-mails') return `${action.sender}：${action.summary || action.reason}`
+  if (action.kind === 'download-attachments') return `${action.sender}：${action.reason}`
   if (action.kind === 'create-project') {
     const areas = action.areas !== undefined && action.areas.length > 0 ? `关联领域：${action.areas.join('、')}。` : ''
     return `${areas}${action.reason}`

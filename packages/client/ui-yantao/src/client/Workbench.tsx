@@ -16,7 +16,7 @@ import type {
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceDeleter, ResourceRegistrar, ShortcutFiller,
-  TodoLoader, TodoWriter, Archiver,
+  TodoLoader, TodoWriter, Archiver, AttachmentDownloader,
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
 import { useFloatingMenu } from './menu-behavior.ts'
@@ -977,6 +977,12 @@ export interface RailProps {
    * without the face.
    */
   readonly mailArchive?: Archiver
+  /**
+   * Download nominated mails' attachments to `resources/mail-attachments/`
+   * (2026-10-08) — optional, same honest-skip contract as mailDelete for
+   * embedders without the face.
+   */
+  readonly mailDownloadAttachments?: AttachmentDownloader
   /** Run one mail analysis in a dsh session (ADR-0019). */
   readonly analyseMail: MailAnalyser
   /** Copy one dropped file into `resources/` — both rails' entity rows accept OS drops (ADR-0029 决定 2). */
@@ -1027,9 +1033,10 @@ export interface IntakeRailProps extends RailProps {
   readonly mailRun?: MailRunStore
   /**
    * Bumped by the frame when a 任务 row's 查看 asks for the connector tab:
-   * any change brings 能力 to the front.
+   * any change brings 能力 to the front, and the carried capability name
+   * (when there is one) is preselected inside the panel (2026-10-08).
    */
-  readonly revealConnector?: number
+  readonly revealConnector?: { readonly nonce: number; readonly capability: string | null }
   /** List the behavior-memory scopes (ADR-0032) — the 记忆 tab's read. */
   readonly memoryList: MemoryLister
   /** Remember one behavior rule (ADR-0032) — the 记忆 tab's and the mail panel's direct write. */
@@ -1133,6 +1140,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   } = props
   const mailDelete = props.mailDelete
   const mailArchive = props.mailArchive
+  const mailDownloadAttachments = props.mailDownloadAttachments
   const { sections, error, refresh } = useRail(load, refreshKey)
   const capabilities = useCapabilities(capabilityList, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector' | 'memory'>('resources')
@@ -1152,9 +1160,10 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   // per file under the directory, however nested, handed to the frame's queue.
   const [dirMenu, setDirMenu] = useState<{ dir: string; x: number; y: number } | null>(null)
   // ADR-0031: a 任务 row's 查看 lands here — the connector tab comes to the
-  // front (the frame has already re-expanded the rail).
+  // front (the frame has already re-expanded the rail), and the row's own
+  // capability is preselected inside the panel (2026-10-08).
   useEffect(() => {
-    if (props.revealConnector !== undefined && props.revealConnector > 0) setTab('connector')
+    if (props.revealConnector !== undefined && props.revealConnector.nonce > 0) setTab('connector')
   }, [props.revealConnector])
   // Reveal a selection this rail owns: the tab carrying the file comes to the
   // front, so the highlighted row is a visible one. A selection owned by the
@@ -1200,6 +1209,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     createEntity, read, write, todos: loadTodos, writeTodos, memoryAdd,
     ...(mailDelete !== undefined ? { deleteMails: mailDelete } : {}),
     ...(mailArchive !== undefined ? { archiveMails: mailArchive } : {}),
+    ...(mailDownloadAttachments !== undefined ? { downloadAttachments: mailDownloadAttachments } : {}),
   }
 
   // ADR-0020: dropping files onto the rail registers them — a pure copy into
@@ -1289,6 +1299,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           create={capabilityCreate}
           adopt={capabilityAdopt}
           register={capabilityRegister}
+          reveal={props.revealConnector}
           loadShortcuts={promptShortcutList}
           saveShortcuts={promptShortcutSave}
           fillShortcut={fillShortcut}

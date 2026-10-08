@@ -93,7 +93,7 @@ function edgeKindOf(from: string, to: string): KbWireRelationEdge['kind'] {
   const a = kindOf(from)
   const b = kindOf(to)
   const project = a === 'project' || b === 'project'
-  if (a === 'person' || b === 'person') return project === true ? 'person-project' : 'person-person'
+  if (a === 'person' || b === 'person') return project ? 'person-project' : 'person-person'
   return 'area-project'
 }
 

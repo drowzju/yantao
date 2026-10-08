@@ -20,17 +20,13 @@ import { TasksPane } from './TasksPane.tsx'
 import { STATUS_KEYS, type SaveStatus } from '../editor/FileEditor.tsx'
 import type { WorkbenchT } from '../locales.ts'
 
-/** How the centre pane shows an editable markdown file (ADR-0014). */
+/** How an editable markdown file shows: its reading view or its source. */
 export type ViewMode = 'read' | 'source'
 
 /** Centre pane props. */
 export interface CenterPaneProps {
   /** The open tabs. */
   readonly tabs: TabState
-  /** Whether an editable file shows its reading view or its source. */
-  readonly viewMode: ViewMode
-  /** Switch an editable file between its reading view and its source. */
-  readonly onViewMode: (mode: ViewMode) => void
   /** Save status per file path, reported by the mounted editors. */
   readonly statuses: Readonly<Record<string, SaveStatus>>
   /** Activate one tab key (a file path or the conversation). */
@@ -118,23 +114,6 @@ const labelButtonStyle = {
 
 const closeButtonStyle = { borderWidth: 0, background: 'transparent', cursor: 'pointer', color: 'var(--yt-text-muted)' } as const
 
-/** The 阅读 / 源码 switch: pushed to the end of the strip. */
-const modeSwitchStyle = { display: 'flex', alignItems: 'center', gap: 2, marginLeft: 'auto', padding: '0 4px' } as const
-
-const modeButtonStyle = {
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: 'transparent',
-  borderRadius: 4,
-  background: 'transparent',
-  cursor: 'pointer',
-  fontFamily: FONT,
-  fontSize: 'var(--yt-type-label)',
-  padding: '1px 6px',
-} as const
-
-const activeModeStyle = { ...modeButtonStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } as const
-
 const bodyStyle = { position: 'relative', flex: 1, minHeight: 0, display: 'flex' } as const
 
 const pageStyle = { flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' } as const
@@ -175,8 +154,6 @@ function StatusDot({ status, t }: { status: SaveStatus; t: WorkbenchT }): ReactE
 export function CenterPane({
   tabs,
   statuses,
-  viewMode,
-  onViewMode,
   onActivate,
   onClose,
   renderConversation,
@@ -202,8 +179,9 @@ export function CenterPane({
   const graphActive = tabs.active === GRAPH_TAB
   const insightsActive = tabs.active === INSIGHTS_TAB
   // Only an editable file has two views; a read-only original is one <pre>.
-  const activeFile = tabs.files.find(tab => tab.path === tabs.active)
-  const toggleable = activeFile?.mode === 'edit'
+  // The 阅读 / 源码 switch itself lives in the file pane's own header
+  // (Frame.renderFile): a strip-end control vanished once enough file tabs
+  // crowded the single-line strip, so it rides with the active tab instead.
   const running = runningCount(taskRows)
   return (
     <div style={paneStyle}>
@@ -298,24 +276,6 @@ export function CenterPane({
             </div>
           )
         })}
-        {toggleable && (
-          <div style={modeSwitchStyle} data-view-mode={viewMode}>
-            <button
-              type="button"
-              style={viewMode === 'read' ? activeModeStyle : modeButtonStyle}
-              onClick={() => { onViewMode('read') }}
-            >
-              {t('center.read')}
-            </button>
-            <button
-              type="button"
-              style={viewMode === 'source' ? activeModeStyle : modeButtonStyle}
-              onClick={() => { onViewMode('source') }}
-            >
-              {t('center.source')}
-            </button>
-          </div>
-        )}
       </div>
       <div style={bodyStyle}>
         <div style={{ ...pageStyle, display: conversationActive ? 'flex' : 'none' }} data-tab={CONVERSATION_TAB}>

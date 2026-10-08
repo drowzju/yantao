@@ -176,21 +176,6 @@ export interface MarkdownViewProps {
   readonly links?: KbLinksResult | undefined
   /** Open another KB file (a link target, or a file that links here). */
   readonly onOpen?: (path: string) => void
-  /** Hand this file to the desktop's own editor — "在 Obsidian 中打开" (ADR-0017). */
-  readonly onOpenExternal?: () => void
-  /**
-   * The archive gesture (ADR-0041 决定 7) — the detail view's button, present
-   * for entity files only: 归档 on an active entity, 还原 on an archived one.
-   * Absent for every other file.
-   */
-  readonly archive?: {
-    /** The flag now in effect; the button offers the opposite direction. */
-    readonly archived: boolean
-    /** True while the flip is in flight. */
-    readonly busy: boolean
-    /** Flip the flag through the host's RPC. */
-    readonly onToggle: () => void
-  } | undefined
   /**
    * This file's KB-relative path — the anchor local image references resolve
    * against (ADR-0048 一期). Absent in standalone use, and images stay
@@ -215,7 +200,7 @@ export interface MarkdownViewProps {
  * @returns the reading view.
  */
 export function MarkdownView({
-  t, content, onEdit, onUnresolved, links, onOpen, onOpenExternal, archive, path, resolveImage,
+  t, content, onEdit, onUnresolved, links, onOpen, path, resolveImage,
 }: MarkdownViewProps): ReactElement {
   const [open, setOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
@@ -358,8 +343,7 @@ export function MarkdownView({
 
   return (
     <div style={wrapStyle}>
-      {(split.hasFrontmatter || outline.length > 1 || (links?.incoming.length ?? 0) > 0
-        || onOpenExternal !== undefined || archive !== undefined) && (
+      {(split.hasFrontmatter || outline.length > 1 || (links?.incoming.length ?? 0) > 0) && (
         <div style={barStyle}>
           {split.hasFrontmatter && (
             <button
@@ -386,31 +370,10 @@ export function MarkdownView({
               {outlineOpen ? t('md.collapseOutline') : t('md.outline')}
             </button>
           )}
-          {onOpenExternal !== undefined && (
-            <button
-              type="button"
-              style={{ ...toggleStyle, marginLeft: (links?.incoming.length ?? 0) > 0 ? undefined : 'auto' }}
-              title={t('md.openExternallyTitle')}
-              onClick={() => { onOpenExternal() }}
-            >
-              {t('md.openInObsidian')}
-            </button>
-          )}
-          {archive !== undefined && (
-            <button
-              type="button"
-              style={toggleStyle}
-              disabled={archive.busy}
-              data-archive-toggle="true"
-              onClick={() => { archive.onToggle() }}
-            >
-              {archive.archived ? t('workbench.restore') : t('workbench.archive')}
-            </button>
-          )}
           {(links?.incoming.length ?? 0) > 0 && (
             <button
               type="button"
-              style={{ ...toggleStyle, marginLeft: onOpenExternal === undefined ? 'auto' : undefined }}
+              style={{ ...toggleStyle, marginLeft: 'auto' }}
               aria-expanded={backlinksOpen}
               onClick={() => { setBacklinksOpen(current => !current) }}
             >

@@ -44,6 +44,13 @@ export interface TaskRow {
    * session exists.
    */
   readonly sessionId: string | null
+  /**
+   * Where 「查看」 should land when the outcome lives in the intake rail's
+   * capability panel: the capability's name (`mail` included — it selects the
+   * embedded mail panel). Absent for rows whose outcome is the conversation
+   * (refine) or the ADR-0033 drawer (validate/schedule).
+   */
+  readonly target?: string
 }
 
 /**

@@ -435,6 +435,7 @@ describe('analysisToProposal', () => {
     deletions: [],
     resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
     archives: [],
+    attachments: [],
     memories: [],
   }
 
@@ -510,6 +511,23 @@ describe('analysisToProposal', () => {
     )
     expect(proposal.actions.filter(action => action.kind === 'archive-mails')).toEqual([
       { kind: 'archive-mails', entryId: 'entry', sender: '老板', subject: '周报截止', summary: '有价值', reason: '有价值' },
+    ])
+  })
+
+  it('maps attachment nominees into tickable download-attachments actions, dropping unattributable ones (2026-10-08)', () => {
+    const proposal = analysisToProposal(
+      {
+        ...ANALYSIS,
+        attachments: [
+          { mail: 1, why: '附件里有合同扫描件' },
+          { mail: 1, why: '模型提了两遍' },
+          { mail: 99, why: '不在批次里' },
+        ],
+      },
+      ENTITIES, 't', MAILS,
+    )
+    expect(proposal.actions.filter(action => action.kind === 'download-attachments')).toEqual([
+      { kind: 'download-attachments', entryId: 'entry', sender: '老板', subject: '周报截止', reason: '附件里有合同扫描件' },
     ])
   })
 

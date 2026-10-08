@@ -9,9 +9,10 @@
  * with its own scroll, the overview is an explicit-px-height flex item
  * whose top edge is a draggable divider; dragging redistributes, and both
  * regions always stay fully inside the pane.
- * The overview sits LAST and stays collapsed until its own button loads
- * it: its first ledger read can fold every stored session, so it must
- * never delay the panels above.
+ * The overview sits LAST and mounts expanded with its data unloaded — only
+ * an explicit button (never a mount, a drag or an expand gesture) fires the
+ * first ledger read, which can fold every stored session, so it must never
+ * delay the panels above.
  * The overview's 「查看洞察」 opens a session without leaving the tab, and
  * the dashboard region re-threads to the newly current session.
  */

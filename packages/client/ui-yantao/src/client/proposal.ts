@@ -203,6 +203,21 @@ export type ProposalAction =
     readonly summary: string
     readonly reason: string
   }
+  | {
+    /**
+     * Download one nominated mail's attachments into `resources/mails/`
+     * beside the archived originals, with an index row (2026-10-08). Like
+     * the delete and archive knives, the agent only nominates: the applier
+     * routes it through the optional `downloadAttachments` seam, driving the
+     * human-channel-only `verb: 'download-attachments'`. Absent seam ⇒ the
+     * row is honestly skipped.
+     */
+    readonly kind: 'download-attachments'
+    readonly entryId: string
+    readonly sender: string
+    readonly subject: string
+    readonly reason: string
+  }
 
 /** One mail the analysis flagged, shown on the card without a checkbox. */
 export interface ProposalHighlight {
@@ -344,6 +359,7 @@ export const GROUP_KEYS: Record<ProposalAction['kind'], WorkbenchLocaleKey> = {
   'add-memory': 'group.memory',
   'delete-mails': 'group.deleteMails',
   'archive-mails': 'group.archiveMails',
+  'download-attachments': 'group.downloadAttachments',
 }
 
 /** Today as a YYYY-MM-DD stamp, in the human's own timezone. */
@@ -610,6 +626,22 @@ export function analysisToProposal(
       subject: source.subject || '（无主题）',
       summary: archive.summary,
       reason: archive.summary,
+    })
+  }
+  // 附件下载提名（2026-10-08）：与归档同一模式——模型挑邮件，人的勾选才是
+  // 落盘的扳机。批次外的提名无从定位（没有 entryId），丢弃；同一封重复提名
+  // 只留第一条。
+  const attachedIds = new Set<string>()
+  for (const attachment of analysis.attachments) {
+    const source = mails[attachment.mail - 1]
+    if (source === undefined || attachedIds.has(source.entryId)) continue
+    attachedIds.add(source.entryId)
+    actions.push({
+      kind: 'download-attachments',
+      entryId: source.entryId,
+      sender: source.senderName,
+      subject: source.subject || '（无主题）',
+      reason: attachment.why,
     })
   }
   return {

@@ -44,6 +44,13 @@ export interface CapabilityPanelProps {
   readonly adopt: CapabilityAdopter
   /** Register one in-KB skill by writing its route entry into the central routing file (ADR-0025 决定 1). */
   readonly register: CapabilityRegistrar
+  /**
+   * A 任务 row's 「查看」 reveal (2026-10-08): the frame bumps the nonce and
+   * names the capability to open — `mail` included, which selects the
+   * embedded mail panel. The connector tab unmounts this panel, so a pending
+   * reveal always lands on a fresh mount.
+   */
+  readonly reveal?: { readonly nonce: number; readonly capability: string | null } | undefined
   /** The mail capability's detail: the connector panel, transport and all; handed the capability's persisted state. */
   readonly mail: (state: unknown) => ReactElement
   /** List the prompt shortcuts (ADR-0040). */
@@ -677,7 +684,7 @@ function RunRecordsSection({
  * @returns the panel element.
  */
 export function CapabilityPanel({
-  t, load, loadDeclaration, create, adopt, register, mail, loadShortcuts, saveShortcuts, fillShortcut,
+  t, load, loadDeclaration, create, adopt, register, reveal, mail, loadShortcuts, saveShortcuts, fillShortcut,
   runs, onDistill, distilling,
 }: CapabilityPanelProps): ReactElement {
   const [capabilities, setCapabilities] = useState<readonly KbCapabilitySummary[] | null>(null)
@@ -687,6 +694,12 @@ export function CapabilityPanel({
   const [registerReach, setRegisterReach] = useState<RegisterReach>(DEFAULT_REGISTER_REACH)
   const [selected, setSelected] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // The 「查看」 reveal: a nonce bump with a named capability selects it.
+  // Fires on the mount the reveal caused (the connector tab remounts this
+  // panel), and again only when the frame bumps the nonce anew.
+  useEffect(() => {
+    if (reveal !== undefined && reveal.nonce > 0 && reveal.capability !== null) setSelected(reveal.capability)
+  }, [reveal])
   // ADR-0040 决定 6: the first screen is the 惯用提示词 list; the capability
   // inventory folds beneath it. Session-only fold state.
   const [inventoryOpen, setInventoryOpen] = useState(false)

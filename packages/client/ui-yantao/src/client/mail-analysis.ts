@@ -145,6 +145,19 @@ export interface MailArchive {
 }
 
 /**
+ * A mail whose attachments the analysis nominates for download (2026-10-08):
+ * like the delete/archive knives, a nomination only — the attachments land in
+ * `resources/mails/` beside the archived originals, with an index row, after
+ * the human ticks the row on the proposal card.
+ */
+export interface MailAttachment {
+  /** The nominated mail's 1-based number within the batch. */
+  readonly mail: number
+  /** One line of why the attachments are worth keeping. */
+  readonly why: string
+}
+
+/**
  * One behavior correction the mails exposed (ADR-0032 批次③): a rule the
  * human would want followed next time. The model proposes only text and why —
  * the scope is pinned to `mail` by the UI, so a misjudged rule can never leak
@@ -181,6 +194,7 @@ export interface MailAnalysis {
   readonly deletions: readonly MailDeletion[]
   readonly resources: readonly MailResource[]
   readonly archives: readonly MailArchive[]
+  readonly attachments: readonly MailAttachment[]
   readonly memories: readonly MailMemory[]
 }
 
@@ -246,7 +260,7 @@ export interface KnownEntities {
 /** An empty verdict: what a parse returns when the model found nothing. */
 const EMPTY: MailAnalysis = {
   verdicts: [], people: [], todos: [], projects: [], newProjects: [], meetings: [], deletions: [], resources: [],
-  archives: [], memories: [],
+  archives: [], attachments: [], memories: [],
 }
 
 /** Today as a YYYY-MM-DD stamp, in the human's own timezone. */
@@ -353,6 +367,7 @@ export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities
     '  "deletions": [{ "mail": 1, "reason": "为什么建议删除（一句话）" }],',
     '  "resources": [{ "name": "值得留存的材料标题", "summary": "两三句话的摘要", "mail": 来自哪封邮件的编号或 null }],',
     '  "archives": [{ "mail": 1, "summary": "归档索引里的一句话摘要" }],',
+    '  "attachments": [{ "mail": 1, "why": "为什么值得留下这封的附件（一句话）" }],',
     '  "memories": [{ "text": "要记住的纠正或偏好（一句话）", "why": "为什么值得记" }]',
     '}',
     '```',
@@ -376,6 +391,7 @@ export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities
     '- 拿不准的不要输出：宁可少，不可错。',
     '- 邮件本身默认不是资源，只有确实值得长期留存的材料才进 `resources`，并注明来自哪封邮件。',
     '- `archives` 是原件归档提名（完整 .eml 存档）：只提名值得永久保真的邮件（合同、决议、重要承诺等），宁缺勿滥；`summary` 是给归档索引的一句话摘要，不是 `resources` 的替代。同一封邮件可同时进 `resources`（要点笔记）与 `archives`（原件），但不必都进。',
+    '- `attachments` 是附件下载提名：只提名附件里有长期留存价值的邮件（合同附件、报告、数据表、设计稿等），正文已说清的不必提名；`why` 一句话说附件里是什么。下载与否由人决定。',
     '- `people`/`todos`/`projects`/`newProjects`/`meetings` 各行的 `mail` 填这条内容出自哪封邮件的编号；确实说不清才填 null。',
     '- `verdicts[].why` 一句话不超过 20 字；`digest` 类的理由尤其要短（例如「例行邮催」「安全告警」），不要铺陈。',
     '- `meetings[].decision` 与 `meetings[].todo` 必须写决议/待办本身的具体内容，不许复述 `why`；邮件里没有就填 null，不要编。',
@@ -539,6 +555,11 @@ export function parseAnalysis(text: string): MailAnalysis {
     if (mail === undefined) return undefined
     return { mail, summary: field(row, 'summary') }
   })
+  const attachments = rows(value.attachments).map((row): MailAttachment | undefined => {
+    const mail = mailNumber((row as Record<string, unknown> | null)?.mail)
+    if (mail === undefined) return undefined
+    return { mail, why: field(row, 'why') }
+  })
   const memories = rows(value.memories).map((row): MailMemory | undefined => {
     const text = field(row, 'text')
     return text === '' ? undefined : { text, why: field(row, 'why') }
@@ -554,6 +575,7 @@ export function parseAnalysis(text: string): MailAnalysis {
     deletions: deletions.filter((row): row is MailDeletion => row !== undefined),
     resources: resources.filter((row): row is MailResource => row !== undefined),
     archives: archives.filter((row): row is MailArchive => row !== undefined),
+    attachments: attachments.filter((row): row is MailAttachment => row !== undefined),
     memories: memories.filter((row): row is MailMemory => row !== undefined),
   }
 }
@@ -569,7 +591,7 @@ export interface AnalysisRun {
 }
 
 /** The re-ask when the first answer is not readable JSON: JSON alone, nothing else. */
-const REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 verdicts/people/todos/projects/newProjects/meetings/deletions/resources/archives/memories 字段），不要输出任何其它文字。'
+const REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 verdicts/people/todos/projects/newProjects/meetings/deletions/resources/archives/attachments/memories 字段），不要输出任何其它文字。'
 
 /**
  * One chunk of the batch through the already-created session, waited out to
@@ -650,6 +672,7 @@ export async function runMailAnalysis(options: {
   const deletions: MailDeletion[] = []
   const resources: MailResource[] = []
   const archives: MailArchive[] = []
+  const attachments: MailAttachment[] = []
   const memories: MailMemory[] = []
   for (let start = 0; start < mails.length; start += CHUNK_SIZE) {
     const chunk = mails.slice(start, start + CHUNK_SIZE)
@@ -671,6 +694,7 @@ export async function runMailAnalysis(options: {
     deletions.push(...analysis.deletions)
     resources.push(...analysis.resources)
     archives.push(...analysis.archives)
+    attachments.push(...analysis.attachments)
     memories.push(...analysis.memories)
     onProgress?.({
       stage: 'answer',
@@ -682,6 +706,6 @@ export async function runMailAnalysis(options: {
   return {
     sessionId,
     title: sessionName,
-    analysis: { verdicts, people, todos, projects, newProjects, meetings, deletions, resources, archives, memories },
+    analysis: { verdicts, people, todos, projects, newProjects, meetings, deletions, resources, archives, attachments, memories },
   }
 }

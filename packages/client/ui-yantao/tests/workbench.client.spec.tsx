@@ -110,7 +110,7 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     workspace: loader(workspace),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
-    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [] } }),
+    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [], attachments: [] } }),
     registerResource: () => Promise.resolve('resources/新资源.pdf'),
     deleteResource: () => Promise.resolve({ path: '' }),
     memoryList: () => Promise.resolve({ groups: [] }),
@@ -1302,7 +1302,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     relationGraph: () => Promise.resolve({ nodes: [], edges: [] }),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
-    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [] } }),
+    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [], attachments: [] } }),
     refine: () => Promise.resolve({ sessionId: '', title: '', relevant: true, reason: '' }),
     deleteResource: () => Promise.resolve({ path: '' }),
     memoryProposalList: () => Promise.resolve({ groups: [] }),
@@ -1432,38 +1432,6 @@ describe('Frame', () => {
     expect(within(tab).getAllByText('我改了一半').length).toBeGreaterThan(0)
     fireEvent.click(screen.getByText('源码'))
     expect((tab.querySelector('textarea') as HTMLTextAreaElement).value).toBe('我改了一半')
-  })
-
-  it('archives an open entity from its detail view, flipping the button to 还原 (ADR-0041 决定 7)', async () => {
-    const archiveEntity = vi.fn((locator: string) => Promise.resolve({ path: locator, archived: true }))
-    const { container } = render(renderFrame({ archiveEntity }))
-    fireEvent.click(await screen.findByText('健康'))
-    const tab = container.querySelector('[data-tab="entities/areas/健康.md"]') as HTMLElement
-    // The button rides the reading view's own bar, next to 在 Obsidian 中打开.
-    const button = await within(tab).findByText('归档')
-    expect(button.getAttribute('data-archive-toggle')).toBe('true')
-    await act(async () => {
-      fireEvent.click(button)
-    })
-    expect(archiveEntity).toHaveBeenCalledWith('entities/areas/健康.md')
-    // The label flips from the RPC's answer — the draft's envelope is stale.
-    expect(await within(tab).findByText('还原')).toBeTruthy()
-  })
-
-  it('shows 还原 on an archived entity\'s detail view and restores it', async () => {
-    const restoreEntity = vi.fn((locator: string) => Promise.resolve({ path: locator, archived: false }))
-    const { container } = render(renderFrame({
-      restoreEntity,
-      read: () => Promise.resolve('---\ntype: area\ncreated: 2026-09-08\narchive: true\n---\n\n## 状态\n\n旧\n'),
-    }))
-    fireEvent.click(await screen.findByText('健康'))
-    const tab = container.querySelector('[data-tab="entities/areas/健康.md"]') as HTMLElement
-    const button = await within(tab).findByText('还原')
-    await act(async () => {
-      fireEvent.click(button)
-    })
-    expect(restoreEntity).toHaveBeenCalledWith('entities/areas/健康.md')
-    expect(await within(tab).findByText('归档')).toBeTruthy()
   })
 
   it('flips a checkbox in the reading view and saves the file', async () => {
@@ -1599,7 +1567,7 @@ describe('Frame', () => {
         writeTodos={kb.writeTodos}
         mailFetch={() => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] })}
         mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
-        analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [] } })}
+        analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [], attachments: [] } })}
         refine={() => Promise.resolve({ sessionId: '', title: '', relevant: true, reason: '' })}
         validate={() => Promise.resolve({
           sessionId: '', title: '', reason: '',
@@ -1894,6 +1862,7 @@ describe('Frame', () => {
           meetings: [],
           deletions: [],
           archives: [],
+          attachments: [],
         },
       }),
     }))

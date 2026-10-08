@@ -18,6 +18,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 import archive_mail
+import download_attachments
 import read_outlook
 from read_outlook import OutlookError, delete_messages, fetch_messages
 
@@ -181,6 +182,48 @@ def run_archive(caller_input, channel, kb_root):
     emit({"ok": True, "result": outcome})
 
 
+def run_download_attachments(caller_input, channel, kb_root):
+    """
+    下载附件动词（2026-10-08）：把邮件的附件存进知识库资源区
+    （本体在 `download_attachments.py`）。与删除刀、归档同一闸——只对人
+    通道开放：这是人在邮件面板上点一下的便利动作，agent 通道
+    （kb_run_capability）在此被拒；input 是调用方自报的，不作数。
+    """
+    if channel != "human":
+        emit({
+            "ok": False,
+            "kind": "not-invocable",
+            "message": "下载附件只对人通道开放：请在工作台的邮件面板上操作。",
+            "hint": "这是有意的设计：附件落盘是人点的便利动作，agent 没有自主下载权。",
+        })
+        return
+    raw_mails = caller_input.get("mails")
+    mails = []
+    if isinstance(raw_mails, list):
+        for entry in raw_mails:
+            if isinstance(entry, dict) and str(entry.get("entryId") or ""):
+                mails.append({"entryId": str(entry.get("entryId"))})
+    if not mails:
+        emit({
+            "ok": False,
+            "kind": "other",
+            "message": "下载附件动词需要非空的 mails（{entryId} 列表）。",
+            "hint": HINTS["other"],
+        })
+        return
+    try:
+        outcome = download_attachments.download_attachments(str(kb_root or ""), mails)
+    except OutlookError as error:
+        emit({
+            "ok": False,
+            "kind": error.kind,
+            "message": error.message,
+            "hint": HINTS.get(error.kind, HINTS["other"]),
+        })
+        return
+    emit({"ok": True, "result": outcome})
+
+
 def main():
     try:
         request = json.loads(sys.stdin.read() or "{}")
@@ -208,6 +251,9 @@ def main():
         return
     if verb == "archive":
         run_archive(caller_input, channel, request.get("kbRoot"))
+        return
+    if verb == "download-attachments":
+        run_download_attachments(caller_input, channel, request.get("kbRoot"))
         return
     run_fetch(caller_input, state)
 

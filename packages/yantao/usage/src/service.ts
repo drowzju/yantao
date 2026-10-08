@@ -19,6 +19,8 @@ import { Context, Service } from '@deepseek-ai/cordis'
 // aggregator — the augmentation would shadow the client's `sessions: ISessions`.
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
+  SessionFormatUnsupportedError,
+  SessionPersistenceCorruptionError,
   SessionPersistenceNotFoundError,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
@@ -67,6 +69,8 @@ export class YantaoUsageService extends Service {
   private days?: KvTable<string, DayUsageRecord>
   private sessions?: KvTable<string, SessionUsageCursor>
   private scanTail: Promise<void> = Promise.resolve()
+  /** Sessions whose unreadability has already been warned about (warn once, retry silently). */
+  private unreadableWarned = new Set<SessionId>()
 
   constructor(ctx: Context) {
     super(ctx, 'yantaoUsage')
@@ -151,10 +155,19 @@ export class YantaoUsageService extends Service {
         // refuses) must not take the whole ledger down: skip it, keep what
         // the rest folded. Its cursor is untouched, so a later scan retries
         // it — the gap closes itself if the artifact is ever repaired.
-        this.ctx.logger.warn(
-          'yantaoUsage: session %s unreadable, skipped this scan: %s',
-          snapshot.header.id, error instanceof Error ? error.message : String(error),
-        )
+        // Only log-unreadability is tolerated here: infrastructure faults
+        // (KV domain closed, a put failure that may already have moved day
+        // rows) must propagate, or refresh()/dailyUsage would resolve with
+        // silently stale — worse, double-counted — ledger rows.
+        if (!(error instanceof SessionFormatUnsupportedError
+          || error instanceof SessionPersistenceCorruptionError)) throw error
+        if (!this.unreadableWarned.has(snapshot.header.id)) {
+          this.unreadableWarned.add(snapshot.header.id)
+          this.ctx.logger.warn(
+            'yantaoUsage: session %s unreadable, skipped this scan: %s',
+            snapshot.header.id, error instanceof Error ? error.message : String(error),
+          )
+        }
       }
     }
   }

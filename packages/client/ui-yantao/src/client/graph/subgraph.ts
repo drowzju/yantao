@@ -69,8 +69,11 @@ export function visibleSubgraph(data: KbRelationGraphResult, enabled: EnabledKin
     if (kindOf(node) !== null && (degree.get(node) ?? 0) === 0) nodes.add(node)
   }
   for (const edge of edges) {
-    nodes.add(edge.from)
-    nodes.add(edge.to)
+    // Endpoints pass the same gate as the isolated exemption: the backend
+    // drops meeting/todo edges, but the invariant is enforced HERE, not
+    // delegated — a leaked edge must not ghost its endpoints back in.
+    if (kindOf(edge.from) !== null) nodes.add(edge.from)
+    if (kindOf(edge.to) !== null) nodes.add(edge.to)
   }
   // Preserve the payload's node order so the layout's circle start stays stable.
   return { nodes: data.nodes.filter(node => nodes.has(node)), edges }

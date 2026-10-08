@@ -503,6 +503,34 @@ export interface KbMailArchiveResult {
   readonly warnings: readonly string[]
 }
 
+/**
+ * Input of the mail capability's download-attachments verb: pull the
+ * attachments of nominated mails to `resources/mail-attachments/` through
+ * Outlook's `SaveAsFile`. Human-channel-only, like the delete and archive
+ * knives — the entry script refuses it unless the host injected
+ * `channel: 'human'`.
+ */
+export interface KbMailDownloadAttachmentsArgs {
+  /** The mail capability's verb selector. */
+  readonly verb: 'download-attachments'
+  /** The mails whose attachments to save, each located by EntryID, with an optional one-line summary for the index's 摘要 column. */
+  readonly mails: readonly { readonly entryId: string; readonly summary?: string }[]
+}
+
+/** Result of the mail capability's download-attachments verb: per-mail outcomes, serial semantics. */
+export interface KbMailDownloadAttachmentsResult {
+  /** The attachments that landed: the owning mail's ids, each with its `resources/`-relative path and the attachment's own filename. */
+  readonly saved: readonly { readonly id: string; readonly entryId: string; readonly path: string; readonly filename: string }[]
+  /** Per-mail skips with the reason (no attachments,同名已存在 — conservative idempotency). */
+  readonly skipped: readonly { readonly id: string; readonly reason: string }[]
+  /** The EntryIDs Outlook could not resolve (already gone, store rebuilt). */
+  readonly missing: readonly string[]
+  /** The mails whose download failed, each with the reason. */
+  readonly failed: readonly { readonly id: string; readonly message: string }[]
+  /** Batch-level hints for the human. */
+  readonly warnings: readonly string[]
+}
+
 /** Result of `yantaoKb.mailMarkRead` (ADR-0019). */
 export interface KbMailMarkReadResult {
   /** The watermark as it now stands. */
