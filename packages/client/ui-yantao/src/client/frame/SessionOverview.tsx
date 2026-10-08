@@ -357,7 +357,11 @@ export function SessionOverview({
     if (section === null) return
     event.preventDefault()
     dragState.current = { startY: event.clientY, startHeight: section.getBoundingClientRect().height }
-    section.setPointerCapture(event.pointerId)
+    // Capture on the HANDLE (currentTarget), not the section: capture
+    // retargets every following pointer event to the capturing element, and
+    // the move/up listeners live here — capturing the section would silence
+    // them and the drag would never move.
+    event.currentTarget.setPointerCapture(event.pointerId)
   }, [])
   const dividerDragMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragState.current
@@ -368,7 +372,7 @@ export function SessionOverview({
     setSectionHeight(Math.min(max, Math.max(DIVIDER_MIN_HEIGHT, drag.startHeight - (event.clientY - drag.startY))))
   }, [])
   const dividerDragEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    sectionRef.current?.releasePointerCapture(event.pointerId)
+    event.currentTarget.releasePointerCapture(event.pointerId)
     dragState.current = null
   }, [])
 
