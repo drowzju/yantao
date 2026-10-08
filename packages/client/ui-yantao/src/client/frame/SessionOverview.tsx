@@ -12,18 +12,19 @@
  * opens it and stays here — the current-session dashboard below re-threads
  * to the newly current session.
  *
- * The section mounts COLLAPSED: a single 「加载跨会话总览」 button. The first
- * ledger read can fold every stored session (tens of seconds at personal
- * scale), so it never starts on mount — the visitor opts in, may cancel
- * mid-fold, and a failure offers 重试 instead of a dead panel. Once loaded
- * it takes the lower part of the pane — by default about half — measured in
+ * The section mounts EXPANDED at 40% of the pane with a single
+ * 「加载跨会话总览」 button as its body. The first ledger read can fold
+ * every stored session (tens of seconds at personal scale), so it never
+ * starts on its own — not on mount, and NOT on a divider drag either; the
+ * load is always the explicit button. The visitor may cancel mid-fold, and
+ * a failure offers 重试 instead of a dead panel. Heights are measured in
  * PX against the pane (a percentage cap silently never applied: its
  * containing block's height is indefinite), so the split is real and the
  * pane itself never scrolls. The top edge is a draggable divider in EVERY
- * face: dragging up from the slim bar expands (and from idle, starts the
- * load); dragging down past the threshold collapses; a double-click
- * restores the default. 收起 folds to the slim bar with the data retained —
- * 展开 restores instantly without refetching the ledger.
+ * face: dragging down past the threshold collapses to the slim bar, up
+ * expands again; a double-click restores the default. 收起 folds to the
+ * slim bar with the data retained — 展开 restores instantly without
+ * refetching the ledger.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -76,7 +77,7 @@ const sectionStyle = {
 // a percentage would resolve against the slot wrapper's indefinite height
 // and silently not apply, which is what let the section escape below the
 // fold and made the pane itself scroll.
-const DIVIDER_DEFAULT_SHARE = 0.45
+const DIVIDER_DEFAULT_SHARE = 0.40
 const DIVIDER_MAX_SHARE = 0.85
 const DIVIDER_MIN_HEIGHT = 96
 // Dragging below this snaps the section to its slim bar; dragging back up
@@ -371,19 +372,26 @@ export function SessionOverview({
   // A ticket discards late answers, so a slow earlier fetch never overwrites
   // a newer one's result. Cancelling just bumps the ticket and folds back to
   // the collapsed row — the host-side single-flight scan keeps running and
-  // warms the ledger, so the next tap answers almost instantly.
+  // warms the ledger, so the next tap answers almost instantly. The
+  // in-flight flag stops a gesture storm (double-taps, errant repeats) from
+  // queueing dozens of RPCs behind the host's single flight.
   const loadTicket = useRef(0)
+  const loadInFlight = useRef(false)
   const load = useCallback(() => {
+    if (loadInFlight.current) return
+    loadInFlight.current = true
     const ticket = ++loadTicket.current
     setToday(todayKey())
     setPhase('loading')
     void dailyUsage({}).then(
       (answer) => {
+        loadInFlight.current = false
         if (ticket !== loadTicket.current) return
         setResult(answer)
         setPhase('ok')
       },
       () => {
+        loadInFlight.current = false
         if (ticket !== loadTicket.current) return
         setPhase('failed')
       },
@@ -391,6 +399,7 @@ export function SessionOverview({
   }, [dailyUsage])
   const cancel = useCallback(() => {
     loadTicket.current += 1
+    loadInFlight.current = false
     setPhase('idle')
   }, [])
 
@@ -414,7 +423,6 @@ export function SessionOverview({
       }
       setCollapsed(false)
       setSectionHeight(Math.max(DIVIDER_MIN_HEIGHT, target))
-      if (phase === 'idle') load()
     }
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove)
@@ -424,17 +432,17 @@ export function SessionOverview({
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
-  }, [phase, load, paneOf])
+  }, [paneOf])
 
-  // The default expanded height: ~half the pane, in px, measured after the
-  // expanded DOM exists. useLayoutEffect so the one placeholder-height frame
-  // never paints.
+  // The default expanded height: ~40% of the pane, in px, measured after
+  // the expanded DOM exists (the idle face is expanded too). useLayoutEffect
+  // so the one placeholder-height frame never paints.
   useLayoutEffect(() => {
-    if (collapsed || phase === 'idle' || sectionHeight !== undefined) return
+    if (collapsed || sectionHeight !== undefined) return
     const pane = paneOf()
     if (pane === null) return
     setSectionHeight(pane.clientHeight * DIVIDER_DEFAULT_SHARE)
-  }, [collapsed, phase, sectionHeight, paneOf])
+  }, [collapsed, sectionHeight, paneOf])
 
   // A window shrink clamps the expanded height, so the split can never
   // overflow the pane again.
@@ -471,8 +479,9 @@ export function SessionOverview({
   }
 
   // The divider handle, identical in every face: hover brightens it, a drag
-  // resizes (collapsing below the threshold, expanding — and loading — back
-  // up), a double-click restores the default ~half-pane height.
+  // resizes (collapsing below the threshold, expanding back up — never
+  // loading by itself; the load is always an explicit button), a
+  // double-click restores the default height.
   const dividerHandle = (
     <div
       onPointerDown={dividerDragStart}
@@ -497,9 +506,10 @@ export function SessionOverview({
     />
   )
 
-  // Slim bar: the idle face invites the first load; the collapsed face
-  // offers the retained result back. Same geometry, different verb.
-  if (phase === 'idle' || collapsed) {
+  // Slim bar: only ever reached via 收起 or a downward drag. The action
+  // button expands again — and from idle it fires the first load as it
+  // expands.
+  if (collapsed) {
     return (
       <div ref={sectionRef} style={slimBarStyle} data-insights-section="overview">
         {dividerHandle}
@@ -509,7 +519,10 @@ export function SessionOverview({
         <button
           type="button"
           style={slimActionButtonStyle}
-          onClick={phase === 'idle' ? load : () => { setCollapsed(false) }}
+          onClick={() => {
+            setCollapsed(false)
+            if (phase === 'idle') load()
+          }}
         >
           {phase === 'idle' ? t('insights.overview.load') : t('insights.overview.expand')}
         </button>
@@ -522,9 +535,9 @@ export function SessionOverview({
       ref={sectionRef}
       style={{
         ...sectionStyle,
-        // Always an explicit px height (measured); the '45%' string is only
+        // Always an explicit px height (measured); the '40%' string is only
         // the pre-measure placeholder for the one unpainted frame.
-        height: sectionHeight ?? '45%',
+        height: sectionHeight ?? '40%',
         flexShrink: 0,
       }}
       data-insights-section="overview"
@@ -533,7 +546,7 @@ export function SessionOverview({
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
         <p style={{ ...cardTitleStyle, fontSize: 'var(--yt-type-body)' }}>{t('insights.overview.title')}</p>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
-          {RANGE_OPTIONS.map(candidate => (
+          {result !== null && RANGE_OPTIONS.map(candidate => (
             <button
               key={candidate}
               type="button"
@@ -547,13 +560,15 @@ export function SessionOverview({
               {t(`insights.overview.range.${candidate}`)}
             </button>
           ))}
-          <button
-            type="button"
-            style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
-            onClick={load}
-          >
-            {t('insights.overview.refresh')}
-          </button>
+          {result !== null && (
+            <button
+              type="button"
+              style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
+              onClick={load}
+            >
+              {t('insights.overview.refresh')}
+            </button>
+          )}
           <button
             type="button"
             style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
@@ -564,7 +579,17 @@ export function SessionOverview({
         </span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {phase === 'failed' ? (
+        {phase === 'idle' ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              type="button"
+              style={{ ...slimActionButtonStyle, marginLeft: 0 }}
+              onClick={load}
+            >
+              {t('insights.overview.load')}
+            </button>
+          </div>
+        ) : phase === 'failed' ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.loadFailed')}</p>
             <button
