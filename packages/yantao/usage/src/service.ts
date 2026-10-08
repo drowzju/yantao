@@ -140,7 +140,18 @@ export class YantaoUsageService extends Service {
   private async scanAll(): Promise<void> {
     const snapshots = await this.ctx.sessionPersistence.list()
     for (const snapshot of snapshots) {
-      await this.scanSession(snapshot.header.id, snapshot.eventCount)
+      try {
+        await this.scanSession(snapshot.header.id, snapshot.eventCount)
+      } catch (error: unknown) {
+        // One unreadable session (e.g. a legacy log the format migration
+        // refuses) must not take the whole ledger down: skip it, keep what
+        // the rest folded. Its cursor is untouched, so a later scan retries
+        // it — the gap closes itself if the artifact is ever repaired.
+        this.ctx.logger.warn(
+          'yantaoUsage: session %s unreadable, skipped this scan: %s',
+          snapshot.header.id, error instanceof Error ? error.message : String(error),
+        )
+      }
     }
   }
 
