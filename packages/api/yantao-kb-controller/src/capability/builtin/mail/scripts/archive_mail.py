@@ -97,7 +97,11 @@ def attachment_filename_of(att):
     base = raw.rsplit("/", 1)[-1].strip(". ")
     cleaned = INVALID_CHARS.sub("_", base)
     if len(cleaned) > ATTACHMENT_NAME_CAP:
-        cleaned = cleaned[:ATTACHMENT_NAME_CAP].strip(". ")
+        # 截长保住扩展名（评审 2026-10-09）：扩展名住在尾巴上，从头截正好把它
+        # 切掉；只保留护 stem，扩展名比上限还长时才退回普通头截。
+        stem, ext = os.path.splitext(cleaned)
+        cut = ATTACHMENT_NAME_CAP - len(ext)
+        cleaned = (stem[:cut] + ext if ext and cut > 0 else cleaned[:ATTACHMENT_NAME_CAP]).strip(". ")
     return cleaned or "附件"
 
 
@@ -397,15 +401,24 @@ def save_attachments(item, month_dir, prefix, kb_root, subject, outcome, entry_i
     的失败，不该把整行拖进 failed 桶。
     """
     saved = []
-    for att in list(getattr(item, "Attachments", None) or []):
-        name = attachment_filename_of(att)
-        target = os.path.join(month_dir, f"{prefix}_{name}")
-        if os.path.exists(target):
-            continue
+    # 枚举与逐个取名都在保护圈内（评审 2026-10-09）：COM 读属性同样会炸，
+    # 一处异常只能降级成一条 warning，不能把这封拖进 failed 桶——.eml 已经
+    # 落了盘，索引行却不会写，重试又被同名同信跳过，这一行就永远补不回来。
+    try:
+        attachments = list(getattr(item, "Attachments", None) or [])
+    except Exception as error:
+        outcome["warnings"].append(f"{subject or '（无主题）'}：附件枚举失败：{error}")
+        return saved
+    for att in attachments:
+        name = None
         try:
+            name = attachment_filename_of(att)
+            target = os.path.join(month_dir, f"{prefix}_{name}")
+            if os.path.exists(target):
+                continue
             att.SaveAsFile(os.path.abspath(target))
         except Exception as error:
-            outcome["warnings"].append(f"{subject or '（无主题）'}：附件 {name} 落盘失败：{error}")
+            outcome["warnings"].append(f"{subject or '（无主题）'}：附件{name or ''}落盘失败：{error}")
             continue
         saved.append(os.path.relpath(target, os.path.join(kb_root, RESOURCES)).replace(os.sep, "/"))
     return saved
@@ -469,7 +482,10 @@ def archive_one(ns, kb_root, entry_id, summary, outcome, warned):
             month_dir = os.path.join(kb_root, RESOURCES, "mails", local.strftime("%Y"), local.strftime("%m"))
             os.makedirs(month_dir, exist_ok=True)
             # 原件超限拒落盘（决定 9），附件照存——附件往往才是真正要留的材料。
-            saved_atts = save_attachments(item, month_dir, local.strftime('%Y-%m-%d_%H%M'), kb_root, subject, outcome, entry_id)
+            # 前缀带上主题与短哈希（评审 2026-10-09）：这里没有 .eml 可验身，
+            # 裸时间戳前缀会让同分钟两封过大邮件的同名附件互相顶掉。
+            att_prefix = f"{local.strftime('%Y-%m-%d_%H%M')}_{sanitized(subject, SUBJECT_CAP)}-{identity[:8]}"
+            saved_atts = save_attachments(item, month_dir, att_prefix, kb_root, subject, outcome, entry_id)
             append_index_row(index_path, index_row([
                 subject, mail["sender"][0], recipients_cell(to_pairs + cc_pairs),
                 local.strftime("%Y-%m-%d %H:%M"), "；".join(saved_atts) if saved_atts else "—", summary,
@@ -500,7 +516,11 @@ def archive_one(ns, kb_root, entry_id, summary, outcome, warned):
         # 原件落盘成功，接着附件，然后立刻追加索引行（决定 7）：这对
         # （全部文件＋一行）从此自洽。
         relative = os.path.relpath(target, os.path.join(kb_root, RESOURCES)).replace(os.sep, "/")
-        saved_atts = save_attachments(item, month_dir, base, kb_root, subject, outcome, entry_id)
+        # 附件前缀跟 .eml 的实际落地名走（评审 2026-10-09）：撞名走了短哈希
+        # 分支时 target 已带后缀，仍用裸 base 会把附件写进别的信的名下、或被
+        # exists 幂等检查静默吞掉。
+        prefix = os.path.splitext(os.path.basename(target))[0]
+        saved_atts = save_attachments(item, month_dir, prefix, kb_root, subject, outcome, entry_id)
         month_stamp = local.strftime("%Y%m")
         index_path = index_path_for(kb_root, month_stamp)
         ensure_index(index_path, month_stamp)

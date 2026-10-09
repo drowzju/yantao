@@ -455,7 +455,7 @@ export class YantaoKbController extends TypertRemoteService {
         '在已安装能力的技能目录内执行一段脚本（ADR-0043 执行桥；ADR-0052 起是一切脚本执行的唯一通道）。'
         + '用途：技能指令里「执行 python xxx」这类中途步骤，或直接运行能力自带的命令行。'
         + 'cwd 锁定该能力的目录（<知识库>/.dsh/skills/<name>，越出即拒绝）；命令本身不做内容审查——安装即授权。'
-        + 'KB_ROOT（知识库根目录）经环境变量送达，命令行里可直接引用（Windows %KB_ROOT%、POSIX $KB_ROOT）；'
+        + 'KB_ROOT（知识库根目录）经环境变量送达，命令行里的 $KB_ROOT 与 %KB_ROOT% 占位符在执行前直接替换为真实路径——两种写法在任何平台都等价；'
         + 'stdin 也会收到一个 JSON 信封。kb_run_capability 只返回技能的指令正文，脚本执行一律走本工具。',
       parameters: {
         name: { type: 'string', required: true, description: '能力名，取自注入的能力目录；必须对 agent 开放' },
