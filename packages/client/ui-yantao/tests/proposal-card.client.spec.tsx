@@ -134,7 +134,10 @@ describe('ProposalCard create-project 领域勾选 (ADR-0034 决定 4)', () => {
   it('renders the row\'s 领域勾选 with the model\'s suggestion pre-checked', () => {
     render(<ProposalCard proposal={AREAS_PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
     expect(screen.getByText('新建项目')).toBeTruthy()
-    expect(screen.getByText(/关联领域：基础设施。/)).toBeTruthy()
+    // The editable grid replaced the prose prefix: the association is named
+    // once, by the control's own label, and the detail text stays the reason.
+    expect(screen.queryByText(/关联领域：基础设施。/)).toBeNull()
+    expect(screen.getByText('关联领域：')).toBeTruthy()
     // `matches(':checked')` instead of the `checked` property: the aggregated
     // typert build and oxlint disagree on what `getByLabelText` returns, and
     // this reads the same truth off either typing without a cast.
@@ -417,16 +420,27 @@ describe('ProposalCard 校验卡的实体分组与自由输入 (2026-09-30)', ()
     expect(send.disabled).toBe(false)
   })
 
-  it('resets the tick state when a revision round hands over a fresh proposal (2026-09-30 review)', () => {
+  it('resets the tick state only when a revision round changes the proposal (2026-09-30 review, 2026-10-09 修正)', () => {
     const base = { title: 't', actions: [LOG_A], prescan: { orphans: [], findings: [], actions: [] } }
     const { rerender } = render(
       <ProposalCard proposal={base} onConfirm={() => {}} onDismiss={() => {}} t={t} />,
     )
     fireEvent.click(screen.getByLabelText('张三 页 追加流水：确认了对接关系'))
     expect(screen.getByText('确认写入（1）')).toBeTruthy()
-    // Same shape, new object: the previous round's ticks must not leak in.
+    // Same content, fresh object — the inbox pane re-parses the stored payload
+    // into a new proposal on every poll; that must NOT wipe the verdict in progress.
     rerender(
       <ProposalCard proposal={{ ...base }} onConfirm={() => {}} onDismiss={() => {}} t={t} />,
+    )
+    expect(screen.getByText('确认写入（1）')).toBeTruthy()
+    // A genuinely revised round: the previous round's ticks must not leak in.
+    rerender(
+      <ProposalCard
+        proposal={{ ...base, actions: [LOG_A, { ...LOG_A, text: '新增一行' }] }}
+        onConfirm={() => {}}
+        onDismiss={() => {}}
+        t={t}
+      />,
     )
     expect(screen.getByText('确认写入（0）')).toBeTruthy()
   })
@@ -515,8 +529,10 @@ describe('ProposalCard 邮件卡可用性 (ADR-0038)', () => {
 
   it('merges an afterCreate supplement into its creation row, one checkbox ticking both (ADR-0038 决定 8)', () => {
     const onConfirm = vi.fn()
-    render(<ProposalCard proposal={MAIL_PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} t={t} />)
-    expect(screen.getByText('并补充决议：通过立项')).toBeTruthy()
+    const { container } = render(<ProposalCard proposal={MAIL_PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} t={t} />)
+    // The section name rides as a chip ahead of the text, not a「并补充…」sentence.
+    const supplement = container.querySelector('[data-proposal-supplement="决议"]')
+    expect(supplement?.textContent).toBe('决议通过立项')
     fireEvent.click(screen.getByLabelText('评审会'))
     fireEvent.click(screen.getByText('确认写入（2）'))
     expect(onConfirm).toHaveBeenCalledWith([0, 1], undefined)

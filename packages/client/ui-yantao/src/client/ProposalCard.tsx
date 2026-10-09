@@ -9,13 +9,14 @@
  * chose; the caller does the writing once, after confirmation — through
  * {@link ./proposal-apply.ts} `applyProposal`'s direct RPCs.
  */
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { Proposal, ProposalAction } from './proposal.ts'
 import { allProposalActions, GROUP_KEYS } from './proposal.ts'
 import { lineDiff, type DiffRow } from './diff.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
 import { disabledOverlay, ghostButtonStyle, primaryButtonStyle } from './buttons.ts'
 import { entityNameOf } from './validate.ts'
+import { bareSubject } from './mail-threads.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 
 const panelStyle = {
@@ -91,14 +92,16 @@ const toggleStyle = {
 } as const
 
 /** A per-mail layer's sub-header inside a creation group (ADR-0038 决定 7) —
-    a chip, so the middle layer can neither pass for the group header above
-    nor for the detail lines below. */
+   a chip, so the middle layer can neither pass for the group header above
+   nor for the detail lines below. The text truncates single-line: the layer
+   checkbox's aria-label and the title attribute still carry the full subject. */
 const subHeaderStyle = {
   display: 'inline-flex',
   gap: 6,
   alignItems: 'center',
   margin: '2px 0 4px',
   padding: '1px 8px',
+  maxWidth: '100%',
   fontSize: 'var(--yt-type-label)',
   fontWeight: 600,
   color: 'var(--yt-text-secondary)',
@@ -106,6 +109,33 @@ const subHeaderStyle = {
   border: '1px solid var(--yt-accent-border)',
   borderRadius: 10,
 } as const
+
+/** The layer chip's subject text: one line, ellipsized. */
+const subHeaderTextStyle = {
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  minWidth: 0,
+} as const
+
+/** A creation row's swallowed supplement (ADR-0038 决定 8): the section name
+   as a mini chip ahead of the text, so 决议/待办 scan as keywords instead of
+   dissolving into one long 「并补充…」sentence. Same chip vocabulary as the
+   mail layer header, quieter (4px radius, no 600-weight sentence). */
+const supplementChipStyle = {
+  display: 'inline-block',
+  marginRight: 6,
+  padding: '0 5px',
+  fontWeight: 600,
+  color: 'var(--yt-text-secondary)',
+  background: 'var(--yt-accent-bg)',
+  border: '1px solid var(--yt-accent-border)',
+  borderRadius: 4,
+} as const
+
+/** A mail layer's rows indent under their chip, so the layer reads as a layer
+   and not as a run of sibling rows (P1: chip and rows used to share one left edge). */
+const layerRowsStyle = { paddingLeft: 18 } as const
 
 const instructionStyle = {
   display: 'flex',
@@ -181,8 +211,11 @@ function rowLabelOf(action: ProposalAction): string {
   return `${owner} · ${action.section}`
 }
 
-/** One row's explanation — why the agent proposes this. */
-function detailOf(action: ProposalAction, t: WorkbenchT): string {
+/** One row's explanation — why the agent proposes this. `hasAreasControl`
+ * tells the create-project case the card renders the editable 领域勾选 grid,
+ * so the detail text must not repeat the association (the two would contradict
+ * each other the moment the human reticks a box). */
+function detailOf(action: ProposalAction, t: WorkbenchT, hasAreasControl = false): string {
   if (action.kind === 'edit-section') return `${action.path}：${action.why}`
   // ADR-0038 决定 9: the supplement's detail is the text that would land, not
   // the why (which repeats the creation's reason); the source mail rides ahead.
@@ -194,6 +227,7 @@ function detailOf(action: ProposalAction, t: WorkbenchT): string {
   if (action.kind === 'download-attachments') return `${action.sender}：${action.reason}`
   if (action.kind === 'skill-rewrite') return `${action.name}：${action.why}`
   if (action.kind === 'create-project') {
+    if (hasAreasControl) return action.reason
     const areas = action.areas !== undefined && action.areas.length > 0 ? `关联领域：${action.areas.join('、')}。` : ''
     return `${areas}${action.reason}`
   }
@@ -357,14 +391,22 @@ export function ProposalCard(props: {
       else props.onDismiss?.()
     },
   })
-  // A revision round produces a fresh proposal object; the tick state of the
-  // previous round must not leak into it (OCR review 2026-09-30).
+  // A revision round produces a proposal with different *content*; the tick
+  // state of the previous round must not leak into it (OCR review 2026-09-30).
+  // Content, not object identity (2026-10-09 修正): the inbox pane re-parses
+  // the same stored payload into a fresh proposal object on every render —
+  // the 30s schedule scan's loadInbox wiped an open card's ticks within one
+  // poll. An unchanged proposal must not reset the human's half-made verdict.
+  const fingerprint = useMemo(() => JSON.stringify(proposal), [proposal])
+  const settledFingerprint = useRef(fingerprint)
   useEffect(() => {
+    if (settledFingerprint.current === fingerprint) return
+    settledFingerprint.current = fingerprint
     setTicked([])
     setAreaPicks({})
     setPrescanOpen(false)
     setDigestOpen(false)
-  }, [proposal])
+  }, [fingerprint])
 
   /** Tick or untick one area of one create-project row. */
   const toggleArea = (index: number, area: string, areas: readonly string[]): void => {
@@ -603,7 +645,7 @@ export function ProposalCard(props: {
             return (
               <div key={layerAt}>
                 {layer.subject !== undefined && (
-                  <div style={subHeaderStyle} data-proposal-mail-layer={layer.subject}>
+                  <div style={subHeaderStyle} data-proposal-mail-layer={layer.subject} title={layer.subject}>
                     <input
                       type="checkbox"
                       aria-label={layer.subject}
@@ -611,59 +653,69 @@ export function ProposalCard(props: {
                       ref={(el) => { if (el !== null) el.indeterminate = !layerAllOn && layerSomeOn }}
                       onChange={() => { toggleRow(layerIndices) }}
                     />
-                    {layer.subject}
+                    <span style={subHeaderTextStyle}>{bareSubject(layer.subject) || layer.subject}</span>
                   </div>
                 )}
-                {layer.rows.map(({ action, index }) => {
-                  const supplements = supplementsOf.get(index - base) ?? []
-                  const rowIndices = [index, ...supplements.map(line => line.index)]
-                  const label = rowLabelOf(action)
-                  return (
-                    <div key={index} style={rowStyle} data-proposal-row={index}>
-                      <input
-                        type="checkbox"
-                        aria-label={label}
-                        checked={rowIndices.every(entry => ticked.includes(entry))}
-                        onChange={() => { toggleRow(rowIndices) }}
-                      />
-                      <div style={{ minWidth: 0 }}>
-                        <div>{label}</div>
-                        {detailOf(action, t) !== '' && <div style={detailStyle}>{detailOf(action, t)}</div>}
-                        {/* ADR-0054: the skill-rewrite row's folded diff — the
+                <div style={layer.subject !== undefined ? layerRowsStyle : undefined}>
+                  {layer.rows.map(({ action, index }) => {
+                    const supplements = supplementsOf.get(index - base) ?? []
+                    const rowIndices = [index, ...supplements.map(line => line.index)]
+                    const label = rowLabelOf(action)
+                    const areasControl = action.kind === 'create-project' && proposal.areas !== undefined && proposal.areas.length > 0
+                    const detail = detailOf(action, t, areasControl)
+                    return (
+                      <div key={index} style={rowStyle} data-proposal-row={index}>
+                        <input
+                          type="checkbox"
+                          aria-label={label}
+                          checked={rowIndices.every(entry => ticked.includes(entry))}
+                          onChange={() => { toggleRow(rowIndices) }}
+                        />
+                        <div style={{ minWidth: 0 }}>
+                          <div>{label}</div>
+                          {detail !== '' && <div style={detailStyle}>{detail}</div>}
+                          {/* ADR-0054: the skill-rewrite row's folded diff — the
                             无 diff 不成卡 envelope rendered where the human judges it. */}
-                        {action.kind === 'skill-rewrite' && (
-                          <SkillDiffBlock original={action.original} next={action.new} t={t} />
-                        )}
-                        {supplements.map((line, lineAt) => (
-                          <div key={lineAt} style={detailStyle} data-proposal-supplement={line.section}>
-                            {t('proposal.withSupplement', { section: line.section, text: line.text })}
-                          </div>
-                        ))}
-                        {/* ADR-0034 决定 4: the create-project row's 领域勾选 — the
-                            human adjusts the association before it is written. */}
-                        {action.kind === 'create-project' && proposal.areas !== undefined && proposal.areas.length > 0 && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 2 }} data-proposal-areas={index}>
-                            {proposal.areas.map((area) => {
-                              const current = areaPicks[index] ?? action.areas ?? []
-                              const on = current.includes(area)
-                              return (
-                                <label key={area} style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 'var(--yt-type-label)' }}>
-                                  <input
-                                    type="checkbox"
-                                    aria-label={`${action.name}·${area}`}
-                                    checked={on}
-                                    onChange={() => { toggleArea(index, area, action.areas ?? []) }}
-                                  />
-                                  {area}
-                                </label>
-                              )
-                            })}
-                          </div>
-                        )}
+                          {action.kind === 'skill-rewrite' && (
+                            <SkillDiffBlock original={action.original} next={action.new} t={t} />
+                          )}
+                          {supplements.map((line, lineAt) => (
+                            <div key={lineAt} style={detailStyle} data-proposal-supplement={line.section}>
+                              <span style={supplementChipStyle}>{line.section}</span>{line.text}
+                            </div>
+                          ))}
+                          {/* ADR-0034 决定 4: the create-project row's 领域勾选 — the
+                            human adjusts the association before it is written. The
+                            muted label names the control (the detail text no longer
+                            repeats it); the grid keeps wrapped rows on an even mesh
+                            instead of orphaning one box per line. */}
+                          {areasControl && proposal.areas !== undefined && (
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', marginTop: 2 }} data-proposal-areas={index}>
+                              <span style={detailStyle}>{t('proposal.areas')}</span>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: '2px 8px', flex: 1 }}>
+                                {proposal.areas.map((area) => {
+                                  const current = areaPicks[index] ?? action.areas ?? []
+                                  const on = current.includes(area)
+                                  return (
+                                    <label key={area} style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 'var(--yt-type-label)' }}>
+                                      <input
+                                        type="checkbox"
+                                        aria-label={`${action.name}·${area}`}
+                                        checked={on}
+                                        onChange={() => { toggleArea(index, area, action.areas ?? []) }}
+                                      />
+                                      {area}
+                                    </label>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
             )
           })}

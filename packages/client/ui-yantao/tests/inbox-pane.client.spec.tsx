@@ -64,6 +64,25 @@ describe('InboxPane', () => {
     expect(screen.getByText('发周报')).toBeTruthy()
   })
 
+  it('keeps the open card\'s ticks across a poll refresh with identical content (2026-10-09 回归)', () => {
+    const { rerender } = renderPane([entry()])
+    fireEvent.click(screen.getByText('调度「每日摘要」的提议'))
+    fireEvent.click(screen.getByLabelText('发周报'))
+    expect(screen.getByText('确认写入（1）')).toBeTruthy()
+    // The 30s schedule scan's loadInbox: fresh array, fresh entry objects,
+    // byte-identical payload — the verdict in progress must survive it.
+    rerender(
+      <InboxPane
+        entries={[entry()]}
+        busyId={null}
+        onConfirm={() => {}}
+        onDiscard={() => {}}
+        t={t}
+      />,
+    )
+    expect(screen.getByText('确认写入（1）')).toBeTruthy()
+  })
+
   it('closing the card without approving IS the discard (取消即丢弃，验收修正)', () => {
     const onDiscard = vi.fn<(called: KbQueuedProposal) => void>()
     const { container } = renderPane([entry()], { onDiscard })

@@ -84,6 +84,11 @@ const nameStyle = { fontWeight: 600 } as const
 
 const mutedStyle = { color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)' } as const
 
+/** One 可达性 checkbox row: block-level, so the three options stack on their
+   own lines instead of flowing inline (they used to separate only by text
+   wrap luck, and the 注销 button tailed the third row). */
+const reachLabelStyle = { ...mutedStyle, display: 'block', margin: '2px 0' } as const
+
 const errorStyle = { color: 'var(--yt-error)', fontSize: 'var(--yt-type-label)' } as const
 
 const titleStyle = { margin: '4px 0 2px', fontSize: 'var(--yt-type-body)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
@@ -514,7 +519,7 @@ function ReachSection({
     <div data-capability-reach="true">
       <div style={titleStyle}>{t('capability.reachHeading')}</div>
       {error !== null && <div style={errorStyle} data-capability-reach-error="true">{error}</div>}
-      <label style={mutedStyle}>
+      <label style={reachLabelStyle}>
         <input
           type="checkbox"
           disabled={busy}
@@ -524,7 +529,7 @@ function ReachSection({
         />{' '}
         {t('capability.reachAgent')}
       </label>
-      <label style={mutedStyle}>
+      <label style={reachLabelStyle}>
         <input
           type="checkbox"
           disabled={busy}
@@ -534,7 +539,7 @@ function ReachSection({
         />{' '}
         {t('capability.reachAllResources')}
       </label>
-      <label style={mutedStyle}>
+      <label style={reachLabelStyle}>
         <input
           type="checkbox"
           disabled={busy}
@@ -547,7 +552,7 @@ function ReachSection({
       {!confirmingUnregister ? (
         <button
           type="button"
-          style={buttonStyle}
+          style={{ ...buttonStyle, marginTop: 6 }}
           disabled={busy}
           data-capability-unregister="true"
           onClick={() => { setConfirmingUnregister(true) }}
@@ -587,6 +592,21 @@ function routeRawOf(capability: KbCapabilitySummary): string {
 }
 
 /**
+ * Local wall-clock for the run summary (P5): the store's ISO stamps used to
+ * reach the panel verbatim — `2026-10-09T04:03:50.813Z`, UTC noise and all.
+ * Renders `YYYY-MM-DD HH:mm` in the human's own timezone; an unparseable
+ * stamp degrades to its raw text rather than lying.
+ * @param stamp - the persisted ISO timestamp.
+ * @returns the display text.
+ */
+function formatRunAt(stamp: string): string {
+  const at = new Date(stamp)
+  if (Number.isNaN(at.getTime())) return stamp
+  const pad = (value: number): string => `${value}`.padStart(2, '0')
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
+}
+
+/**
  * The detail view's 运行摘要 line (ADR-0053 决定 3): the persistent counters
  * the host keeps in its root store — when the capability last ran, how often
  * altogether, and when it last failed. Segments with nothing to say stay
@@ -596,11 +616,11 @@ function routeRawOf(capability: KbCapabilitySummary): string {
  */
 function runSummaryOf(t: WorkbenchT, capability: KbCapabilitySummary): string | undefined {
   const segments = [
-    capability.lastRunAt !== undefined ? `${t('capability.lastRun')}${capability.lastRunAt}` : undefined,
+    capability.lastRunAt !== undefined ? `${t('capability.lastRun')}${formatRunAt(capability.lastRunAt)}` : undefined,
     capability.runCount !== undefined && capability.runCount > 0
       ? t('capability.runCount', { count: capability.runCount })
       : undefined,
-    capability.lastFailAt !== undefined ? `${t('capability.lastFail')}${capability.lastFailAt}` : undefined,
+    capability.lastFailAt !== undefined ? `${t('capability.lastFail')}${formatRunAt(capability.lastFailAt)}` : undefined,
   ].filter(Boolean)
   return segments.length > 0 ? segments.join(' · ') : undefined
 }
@@ -777,7 +797,7 @@ export function CapabilityPanel({
                       {t('capability.registerSimpleNote', { path: '.dsh/skills/yantao.json' })}
                     </div>
                   )}
-                  <label style={mutedStyle}>
+                  <label style={reachLabelStyle}>
                     <input
                       type="checkbox"
                       checked={registerReach.agentInvoke}
@@ -785,7 +805,7 @@ export function CapabilityPanel({
                     />{' '}
                     {t('capability.reachAgent')}
                   </label>
-                  <label style={mutedStyle}>
+                  <label style={reachLabelStyle}>
                     <input
                       type="checkbox"
                       checked={registerReach.resourceMenu}
@@ -793,7 +813,7 @@ export function CapabilityPanel({
                     />{' '}
                     {t('capability.reachAllResources')}
                   </label>
-                  <label style={mutedStyle}>
+                  <label style={reachLabelStyle}>
                     <input
                       type="checkbox"
                       checked={registerReach.selectionMenu}

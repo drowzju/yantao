@@ -106,6 +106,7 @@ describe('withProposalEnvelope（ADR-0047 验收修正：约定随 fire 附加�
     const composed = withProposalEnvelope('任意任务')
     expect(composed).toContain('"kind":"append-log"')
     expect(composed).toContain('"kind":"save-resource"')
+    expect(composed).toContain('"kind":"delete-mails"')
     expect(composed).toContain('不要自行执行')
     expect(composed).toContain('完全不输出信封')
   })

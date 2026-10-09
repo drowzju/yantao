@@ -265,7 +265,14 @@ describe('CapabilityPanel 详情 (ADR-0053 决定 1/2/3)', () => {
     const panel = props({ capabilities: [ran], unregistered: [] })
     const { container } = render(<CapabilityPanel {...panel} />)
     await openDetail()
-    expect(await screen.findByText('上次运行：2026-10-01T08:30:00Z · 共 3 次 · 上次失败：2026-10-02T09:00:00Z')).toBeTruthy()
+    // The summary shows local wall-clock (`YYYY-MM-DD HH:mm`), not the raw
+    // ISO stamp — compute the expectation in the runner's own timezone.
+    const fmt = (iso: string): string => {
+      const at = new Date(iso)
+      const pad = (value: number): string => `${value}`.padStart(2, '0')
+      return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
+    }
+    expect(await screen.findByText(`上次运行：${fmt('2026-10-01T08:30:00Z')} · 共 3 次 · 上次失败：${fmt('2026-10-02T09:00:00Z')}`)).toBeTruthy()
     // The mail panel receives the capability's persisted state.
     expect(container.querySelector('[data-mail-panel]')).not.toBeNull()
     expect(container.querySelector('[data-mail-state]')?.getAttribute('data-mail-state')).toBe(JSON.stringify({ folder: 'Inbox' }))

@@ -126,6 +126,7 @@ actions 每项是一个待人工批准的写入动作，常用类别与字段：
 - {"kind":"save-resource","path":"resources/<名>.md","content":"<全文>","reason":"<缘由>"}
 - {"kind":"add-todo","title":"<题目>","due":"YYYY-MM-DD 或省略","body":"<详情>","reason":"<缘由>"}
 - {"kind":"add-memory","scope":"<能力名>","text":"<规则一句话>","reason":"<缘由>"}
+- {"kind":"delete-mails","entryId":"<邮件 EntryID>","sender":"<发件人>","subject":"<主题>","reason":"<缘由>"}
 - {"kind":"archive-mails","entryId":"<邮件 EntryID>","sender":"<发件人>","subject":"<主题>","summary":"<摘要>","reason":"<缘由>"}
 若本任务读取或处理过邮件，信封再加一个 "mails" 字段，抄自实际取到的批次首尾："mails":{"lastReadAt":"<最新一封的 receivedAt>","firstReadAt":"<最早一封的 receivedAt>"}——人裁决提议后，这批邮件就计为已处理，不再重推。
 规则：只把值得人批准的写入列进信封，不为凑数编造；没有值得提议的就完全不输出信封（纯文字汇报即可）。信封里的动作不要自行执行（不要经 kb_write_state / kb_edit_section / kb_append_log 等落库），留给人在「提议」卡上勾选批准后再写入。`
