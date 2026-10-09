@@ -32,7 +32,10 @@ kind: "package-reference"
 | `yantaoKb.intakeTree` | `()` | 收集侧的小节（`resources`、`todos`）；资源按普通文件列出——原件保留文件名的后缀，因此 `周报.eml` 与 `周报.eml.md` 不会被看成同一个东西；递归含子目录（`kb_write_resource` 写进子目录的文件也会出现），嵌套文件的显示名带相对 `resources/` 的目录前缀，伴生笔记配对仍在同一目录内 |
 | `yantaoKb.workspaceTree` | `()` | 工作侧的小节（`projects`、`areas`、`people`、`meetings`）；实体行额外携带 `archived`，人物行还有 `relation` 与 `email` |
 | `yantaoKb.read` | `(path)` | `{ path, content }`——文件完整 UTF-8 内容 |
+| `yantaoKb.readResourceView` | `(path)` | `{ kind, path, … }`——只读文件的人类渲染视图（ADR-0046 决定 3）：`ReadOnlyFile` 按应答的 `kind` 选渲染器，不在客户端再嗅探后缀——`.pdf` 答 base64 字节（客户端转 Blob URL 交给内置 PDFium 视图器）、`.html` 答原文（客户端沙箱渲染）、`.eml` 答解析后的邮件（头部字段/正文/附件清单，绝不含附件内容），其余按纯文本；二进制（NUL 字节探测）一律 `yantao-kb/binary` 拒绝。agent 的读取面经同一批内核函数转译 `.pdf`/`.eml`，两张脸对文件「说了什么」口径一致 |
+| `yantaoKb.readResourceBinary` | `(path)` | `{ path, mime, base64, size }`——一张图片的完整字节（ADR-0048 决定 3）：客户端转 Blob URL 喂 `<img>`，与 `readResourceView` 为 PDF 建立的 base64-over-RPC 同一模式（其决定 4 解释了为何不存在 HTTP 字节通路）；只认图片后缀——阅读视图的图片通路是唯一调用方，堵死它长成通用二进制读 |
 | `yantaoKb.write` | `(path, content)` | `{ path }`——整文件写入，自动创建缺失的父目录 |
+| `yantaoKb.deleteResource` | `(path)` | `{ path }`——删除 `resources/` 下的一个资源文件：双重围栏（KB 围栏再叠 `resources/` 前缀，实体笔记与待办单例一律拒绝）；信任边界不动——它住在 agent 看不见的 Remote 命名空间上，agent 依旧只有创建式/只读的资源工具（ADR-0028）；UI 先二次确认再调用，服务端不复核人类手势 |
 | `yantaoKb.archiveEntity` | `(locator)` | `{ path, archived }`——归档一个实体：frontmatter 置 `archive: true` 并在「流水」追加一条「归档」（ADR-0041 决定 6/10）；幂等，重复归档不写盘；实体永不删除，工作台没有删除入口（决定 8） |
 | `yantaoKb.restoreEntity` | `(locator)` | `{ path, archived }`——还原一个归档实体：去掉 frontmatter 标志并在「流水」追加一条「还原」；同样幂等 |
 | `yantaoKb.setRelation` | `({ path, relation })` | `{ path, relation }`——改写人物实体 frontmatter 里的 `relation`，文件其余部分逐字节保持原样 |
@@ -48,14 +51,29 @@ kind: "package-reference"
 | `yantaoKb.writeTodos` | `({ items, expectedText })` | `{ path, text }`——替换单例的条目，保留 preamble（ADR-0018） |
 | `yantaoKb.mailMarkRead` | `({ lastReadAt?, firstReadAt? })` | `{ lastReadAt, firstReadAt? }`——把邮件能力的断点往前推，并把最早的 `firstReadAt` 记为已处理范围的起点；`lastReadAt` 缺省为当前时刻（ADR-0019） |
 | `yantaoKb.registerResource` | `({ name, contentBase64 })` | `{ resource }`——把一个拖入的文件逐字节复制进 `resources/`，清理文件名并拒绝重复；旁边不生成任何笔记（ADR-0020） |
+| `yantaoKb.promptInjection` | `()` | `{ staticTokens, behaviorMemoryTokens }`——yantao 注入的计价切片（ADR-0039）：文件系统小节按渲染后计价（`{{kbRoot}}` 随活根解析，ADR-0042）加各静态小节，再加全局行为记忆段的动态计价；固定密度启发（4 字符/令牌）与上下文拆解投影的系统桶同一口径，数字说的是同一套话 |
+| `yantaoKb.promptShortcutList` | `()` | `{ shortcuts }`——惯用提示词清单（ADR-0040）：人类的 `/` 别名按展示序列出；`/` 菜单快捷组与能力 tab 首屏惯用区都从这里读，agent 看的是注入的提示词小节，绝不是本 RPC |
+| `yantaoKb.promptShortcutSave` | `({ shortcuts })` | `{ shortcuts, path }`——全量替换惯用提示词清单（ADR-0040）：UI 只编辑少数行，整表替换让重排与删除天然正确；仅人类通道；会遮蔽已注册技能/能力名的别名被拒（ADR-0040 决定 8）——宿主 pre-step 先认领技能名，这种别名永远打不响，与其留下混淆不如拒绝 |
+| `yantaoKb.scheduleList` | `()` | `{ schedules }`——调度任务清单（ADR-0045）：人类的定时任务按展示序列出，调度 tab 与前端调度器都从这里读；agent 对此面全然无工具（ADR-0045 决定 4） |
+| `yantaoKb.scheduleSave` | `({ schedules })` | `{ schedules, path }`——全量替换调度清单（ADR-0045）：调度器拥有的簿记戳（`lastFiredAt`/`lastMissedAt`）不随保存旅行——编辑者的陈旧快照不得倒拨簿记，既有行保留存储持有的戳，调度器经 `scheduleMark` 打补丁 |
+| `yantaoKb.scheduleMark` | `({ id, lastFiredAt?, lastMissedAt? })` | `{ schedules, path }`——调度器自己的写路径（ADR-0045）：单行修补簿记戳，簿记不搭（也不赛跑）全量替换的车；`null` 清戳（真实触发顺手清掉误拍标记），缺省字段不动 |
+| `yantaoKb.proposalInboxList` | `()` | `{ proposals, path }`——提议收件箱清单（ADR-0047）：人类发起的卡片流之外产出的结构化提议（今日是调度任务的后台会话），待决与已决都按入队序列出；提议 tab 与前端调度器从这里读，agent 无工具（调度器是人类通道代码） |
+| `yantaoKb.proposalInboxEnqueue` | `({ source, sourceName, title, note?, proposal })` | `{ proposals, id, path }`——生产者的写路径（ADR-0047）：今日是前端调度器在某次点火会话的应答解析出统一提议后投递；存储分配 id、入队戳与 pending 态，载荷不透明地随行（schema 权威留在客户端，ADR-0021 决定 4） |
+| `yantaoKb.proposalInboxResolve` | `({ id, status })` | `{ proposals, path }`——记录人类对一个待决提议的裁决（ADR-0047）：批准或丢弃；落盘应用是 UI 的事（人类通道的 `applyProposal`），这里只结算行——裁决终局，已决条目拒绝 |
+| `yantaoKb.skillRewriteApply` | `({ name, file, original, new })` | `{ file, backupPath? }`——把一个批准的技能改写落盘（ADR-0054 决定 3/4）：`skill-rewrite` 提议行的人类裁决化作字节；写回重解析路由、拒绝过期 diff（`original` 必须仍与磁盘一致）、尽力备份写前内容到 `.dsh/yantao/capability-backups/<名>/<戳>/`、并把 SKILL.md 的 version 钳回原版——整套工序在 `capability/rewrite.ts`，本 RPC 只守 KB 根与着装失败；写回即时生效、不可撤销 |
 | `yantaoKb.mailRun` | `({ input? }, signal?)` | `{ name, runAt, result?, content?, memory?, artifacts, exec }`——邮件能力的专用 RPC（ADR-0052 决定 5）：执行统一后信封子进程机器仅存的角色，替人类通道驱动 `mail` 这一个能力（能力名不是参数）；一次 Python 子进程、stdin/stdout 走 JSON 信封，产物写入 `.dsh/yantao/capabilities/mail/`，状态记到 `<kbRoot>/.dsh/yantao/state.json`（ADR-0024）；`signal` 中止杀子进程并以 `cancelled` 类失败拒绝（ADR-0031）；结果附 `memory`（能力作用域行为记忆，ADR-0032）与 `exec` 运行信封（提炼经验的矿藏，ADR-0044 决定 6）。通用能力执行已退役：指令能力的运行就是读 SKILL.md 正文（`/` 手势注入与 agent 的 `kb_run_capability`，共用私有 `runInstructions` 缝），脚本步骤走 agent 的 `kb_exec_capability_script`（ADR-0052 决定 3） |
 | `yantaoKb.capabilityList` | `()` | `{ capabilities, unregistered }`——知识库根目录下每个声明了能力清单的技能，每行合并它的持久化记录（`lastRunAt`、`state`），被中央路由文件认领的技能也以能力行出现（描述读自其 SKILL.md，ADR-0025 落地注记三），外加 `unregistered` 分组：KB 外可采纳进知识库的技能目录、KB 内尚未被路由的技能（灰显行携带 `inKb` 与原因），以及投放进来的插件仓库（顶层无 SKILL.md 但有内嵌 `skills/<child>/SKILL.md`——行携带 `plugin: true` 与 `pluginSkills` 清单；注册时在中央路由文件为每个内含技能各写一条路由）（ADR-0025 决定 1）；内置能力会先被播种进 `<kbRoot>/.dsh/skills/`（ADR-0021） |
 | `yantaoKb.capabilityCreate` | `({ name })` | `{ path }`——在 `.dsh/skills/<name>/` 脚手架出一个干净的 SKILL.md（正文自带「给 agent 的指令」段落，教 agent 用 `kb_exec_capability_script` 跑脚本步骤、产出落 `resources/`），并在中央路由文件写一条 `invocation: ['human']` 的路由；第一次运行就能工作的能力（ADR-0021 决定 8；ADR-0052 后不再脚手架 sidecar 与入口脚本——执行形态由 SKILL.md 指令本身表达） |
 | `yantaoKb.capabilityAdopt` | `({ name })` | `{ path }`——把一个 KB 外的技能目录拷贝进 `.dsh/skills/<name>/`（永远是拷贝不是移动），并在中央路由文件 `.dsh/skills/yantao.json` 写一条 `invocation: ['human']` 的路由（ADR-0025 落地注记三）；源目录自带的 `yantao.json` 随行但惰性——sidecar 已不是声明通道，没有任何东西读它（ADR-0052）；拒绝已存在的目标、`user-invocable: false` 的技能，以及一切不是「带 SKILL.md 的扁平目录束」的东西 |
 | `yantaoKb.capabilityRegister` | `({ name, agentInvoke?, resourceMenu?, selectionMenu? })` | `{ path }`——把一个技能注册成能力：在中央路由文件 `<kbRoot>/.dsh/skills/yantao.json` 写入一条路由（`{path, invocation, appliesTo?}`），**不移动、不改名、不拷贝任何目录**；KB 内技能写 `path: <名>`，投放的插件仓库（顶层无 SKILL.md、内嵌 `skills/<child>/SKILL.md`）为每个内含技能各写 `path: <repo>/skills/<child>`——仓库原地保留；三个布尔是对话框收集的 reach——`agentInvoke` 把 `invocation` 写成 `['human','agent']`，`resourceMenu`/`selectionMenu` 分别写 `appliesTo.resource: true`（所有资源）/ `appliesTo.selection: true`；拒绝已是能力的技能、`user-invocable: false` 的技能与扁平单文件技能；重复注册覆盖旧路由条目（幂等）（ADR-0025 决定 1、落地注记三；ADR-0052 后路由是唯一配置，无 sidecar 可言） |
+| `yantaoKb.capabilityRouteUpdate` | `({ name, invocation?, appliesTo? })` | `{ path }`——改写一个已注册能力的可达性（ADR-0053 决定 2，运维开关的写路径）：面板上的开关折叠到路由条目的 `invocation` 与 `appliesTo`，`path` 永不被触碰；缺省布尔意为「维持现状」，由条目现有 reach 补齐——纯配置的一次读-改-写 |
+| `yantaoKb.capabilityUnregister` | `({ name })` | `{ path }`——注销一个能力（ADR-0053 决定 2）：从中央路由文件删除条目；技能目录原封不动——运维手势绝不毁人类的文件，重注册只是一次点击；注销未注册的名字照样成功（确认框已把后果告诉了人，终态才算数） |
 | `yantaoKb.memoryList` | `()` | `{ groups }`——`.dsh/yantao/memory/` 下每个有文件的记忆作用域（`global.md` 在前，能力作用域名排序），每组携带文件原文与解析出的条目（ADR-0032） |
 | `yantaoKb.memoryAdd` | `({ scope, text })` | `{ path, entry }`——往作用域的 markdown 文件追加一条带日期戳的 `- ` 条目，文件缺失则先建（含标题）；内容为空或该作用域已记得同文时拒绝（ADR-0032） |
 | `yantaoKb.memoryDelete` | `({ scope, id })` | `{ path }`——按 id 删除一条记忆；id 过期（人行间编辑过）报 `not-found`，调用方刷新而不是猜测（ADR-0032） |
+| `yantaoKb.memoryProposalList` | `()` | `{ groups }`——记忆提案队列的清单（ADR-0044）：每个仍有挂起提案的作用域一组（global 在前，能力作用域名序），携原文与解析出的待批提案（含来源标注，供人判断）；已批/已弃尽的队列不再列出——应答恰是在途提案；队列永不注入任何提示词，本清单与会话内的批准卡片是它仅有的读者 |
+| `yantaoKb.memoryProposalApprove` | `({ scope, text, targetScope? })` | `{ path, targetPath, entry }`——批准一条挂起提案（ADR-0044 决定 7）：裸文本经 `appendMemoryEntry` 落入目标作用域的记忆文件（去重/排序/行格式白得），然后才离开队列；目标作用域可逐条改判（缺省沿用来源作用域）；已记得的同文拒绝（`duplicate-memory`）且挂起副本保留待人显式丢弃；过期文本（已被处理）报 `not-found` 请调用方刷新 |
+| `yantaoKb.memoryProposalDiscard` | `({ scope, text })` | `{ path }`——丢弃一条挂起提案（ADR-0044 决定 7）：行离开队列，什么都不被记住；按文本寻址——批准卡持有工具参数（scope+text），逐作用域去重使文本在队列内唯一 |
 
 `setRelation` 只对人物文件作答：其它文件一律 `yantao-kb/rejected` 且不被改写，五种关系之外的取值同样拒绝。它是对 frontmatter 的一行拼接，绝不重排 YAML——重新生成映射会丢掉人类写的注释与顺序。
 
@@ -161,6 +179,6 @@ kind: "package-reference"
 <details>
 <summary>维护者的工作上下文——点击展开</summary>
 
-RPC 表落后于实现：`readResourceView`、`readResourceBinary`、`deleteResource`、`promptInjection`、`promptShortcutList/Save`、`scheduleList/Save/Mark`、`proposalInboxList/Enqueue/Resolve`、`memoryProposalList/Approve/Discard`、`skillRewriteApply`、`capabilityRouteUpdate`、`capabilityUnregister` 尚无表格行（语义权威在各自主 ADR）。逐行补齐属独立的文档任务，2026-10-09 文档收尾批只同步了能力面（ADR-0052 单信源现实）。
+无。
 
 </details>
