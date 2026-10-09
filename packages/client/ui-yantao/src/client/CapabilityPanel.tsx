@@ -8,24 +8,23 @@
  * human copied into `.dsh/skills/` or scaffolded through 「新建能力」. Under it
  * sits the 未注册 group (ADR-0025 决定 1): skills that are not capabilities
  * yet, greyed rows carrying their reason. Out-of-KB rows are adoption
- * candidates — an inline confirm precedes the copy; in-KB rows (missing or
- * invalid declaration) open a guided registration that writes a route entry
- * into the central routing file `.dsh/skills/yantao.json` (ADR-0025 落地注记二).
- * The mail capability's detail
- * embeds {@link MailPanel}; every other capability's detail is its manifest,
- * read-only. A script capability's detail also lists this session's runs
- * (ADR-0044 决定 6), each with a 提炼经验 button that turns the run's
- * envelope into memory proposals through a one-shot headless session.
+ * candidates — an inline confirm precedes the copy; in-KB rows open a guided
+ * registration that writes a route entry into the central routing file
+ * `.dsh/skills/yantao.json` (ADR-0025 落地注记二, ADR-0052 决定 1).
+ * The mail capability's detail embeds {@link MailPanel}; every other
+ * capability's detail is its 使用语义 (ADR-0052 决定 8, ADR-0053 决定 1):
+ * description, the reach toggles plus 注销 (both writing the central route
+ * and nothing else), the run summary, and the folded route raw text — the
+ * 形态 dimension is gone with the sidecar channel.
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import type {
-  KbCapabilityDeclarationResult, KbCapabilitySummary, KbPromptShortcut, KbUnregisteredSkill,
+  KbCapabilityAppliesTo, KbCapabilitySummary, KbPromptShortcut, KbUnregisteredSkill,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type {
-  CapabilityAdopter, CapabilityCreator, CapabilityDeclarationLoader, CapabilityLoader, CapabilityRegistrar,
-  PromptShortcutLister, PromptShortcutSaver, ShortcutFiller,
+  CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, CapabilityRouteUpdater,
+  CapabilityUnregisterer, PromptShortcutLister, PromptShortcutSaver, ShortcutFiller,
 } from './remote.ts'
-import type { CapabilityRunRecord } from './capability-distill.ts'
 import { remoteMessage } from './remote.ts'
 import { NewEntityRow } from './NewEntityRow.tsx'
 import type { WorkbenchT } from './locales.ts'
@@ -36,14 +35,16 @@ export interface CapabilityPanelProps {
   readonly t: WorkbenchT
   /** List the registered capabilities and the 未注册 group. */
   readonly load: CapabilityLoader
-  /** Read one capability's parsed declaration (ADR-0043 决定 7) — the detail view's 声明 section. */
-  readonly loadDeclaration: CapabilityDeclarationLoader
   /** Scaffold one new capability (「新建能力」). */
   readonly create: CapabilityCreator
   /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
   readonly adopt: CapabilityAdopter
   /** Register one in-KB skill by writing its route entry into the central routing file (ADR-0025 决定 1). */
   readonly register: CapabilityRegistrar
+  /** Rewrite one capability's route entry — the reach toggles' write path (ADR-0053 决定 2). */
+  readonly updateRoute: CapabilityRouteUpdater
+  /** Remove one capability's route entry — the 注销 button's write path (ADR-0053 决定 2). */
+  readonly unregister: CapabilityUnregisterer
   /**
    * A 任务 row's 「查看」 reveal (2026-10-08): the frame bumps the nonce and
    * names the capability to open — `mail` included, which selects the
@@ -59,12 +60,6 @@ export interface CapabilityPanelProps {
   readonly saveShortcuts: PromptShortcutSaver
   /** Fill the conversation's composer with `/alias ` without sending (ADR-0040 决定 5). */
   readonly fillShortcut: ShortcutFiller
-  /** This session's settled capability runs (ADR-0044 决定 6) — frontend memory, oldest first. */
-  readonly runs: readonly CapabilityRunRecord[]
-  /** Turn one run record into a headless distill session (ADR-0044 决定 6); outcomes arrive as frame notices. */
-  readonly onDistill: (record: CapabilityRunRecord) => void
-  /** The id of the record currently distilling, for the single-flight busy state. */
-  readonly distilling: string | null
 }
 
 const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' } as const
@@ -119,23 +114,7 @@ const codeStyle = {
   wordBreak: 'break-all',
 } as const
 
-const warnStyle = { color: 'var(--yt-warning-text)', fontSize: 'var(--yt-type-label)' } as const
-
-const preStyle = {
-  margin: '2px 0',
-  padding: 6,
-  background: 'var(--yt-surface-secondary)',
-  borderRadius: 4,
-  fontSize: 'var(--yt-type-label)',
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-all',
-  maxHeight: 160,
-  overflow: 'auto',
-} as const
-
 const confirmButtonRowStyle = { display: 'flex', gap: 8 } as const
-
-const runRowStyle = { display: 'flex', alignItems: 'baseline', gap: 6 } as const
 
 /** The reach checkboxes the register dialog offers; the type is never asked — registration always writes an instruction capability. */
 interface RegisterReach {
@@ -184,20 +163,6 @@ function greyReasonOf(skill: KbUnregisteredSkill): string | undefined {
   if (skill.flat) return '扁平单文件技能不支持采纳'
   if (!skill.userInvocable) return 'SKILL.md 已标记 user-invocable: false'
   return undefined
-}
-
-/**
- * Whether the source carries a declaration adoption will NOT carry over —
- * the confirm box warns so 「外带声明不能静默生效」 is seen before the copy.
- * @param skill - the unregistered row.
- * @returns true when the source's own sidecar declares an entry or agent invocation.
- */
-function declaresMore(skill: KbUnregisteredSkill): boolean {
-  const sidecar = skill.sidecar
-  if (typeof sidecar !== 'object' || sidecar === null || Array.isArray(sidecar)) return false
-  const record = sidecar as { entry?: unknown; invocation?: unknown }
-  if (record.entry !== undefined) return true
-  return Array.isArray(record.invocation) && record.invocation.includes('agent')
 }
 
 /** One capability row: its name on the first line, its description under it. */
@@ -465,217 +430,179 @@ function ShortcutSection({
 }
 
 /**
- * The detail view's 声明 section (ADR-0043 决定 7): the capability's parsed
- * declaration, read through the host's introspection RPC so a registration
- * problem — a missing sidecar, an unregistered route, a missing entry file —
- * is seen here, not discovered from a refused agent call. The sidecar's raw
- * text folds away; the resolved fields lie flat; every problem is a warning
- * line, never an exception that blanks the pane.
- * @param props - the translate face, the capability's name, and the RPC loader.
+ * The detail view's 可达性配置区 (ADR-0053 决定 1/2): three checkboxes —
+ * agent invocation, resource menu, selection menu — each writing the central
+ * route entry through {@link CapabilityRouteUpdater} and nothing else, plus
+ * the 注销 button whose inline confirm revokes the route entry entirely (the
+ * skill directory stays put). Every write refreshes the parent's list, since
+ * the route file is the single source the summary rows read.
+ * @param props - the translate face, the capability's summary row, the two
+ *   write faces, and the parent's refresh.
  * @returns the section element.
  */
-function DeclarationSection({
+function ReachSection({
   t,
-  name,
-  load,
+  capability,
+  updateRoute,
+  unregister,
+  onChanged,
 }: {
   t: WorkbenchT
-  name: string
-  load: CapabilityDeclarationLoader
+  capability: KbCapabilitySummary
+  updateRoute: CapabilityRouteUpdater
+  unregister: CapabilityUnregisterer
+  onChanged: () => Promise<void>
 }): ReactElement {
-  const [declaration, setDeclaration] = useState<KbCapabilityDeclarationResult | null>(null)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // The loader is a fresh closure on every render (inject face): read it
-  // through a ref, like the panel, and re-read only when the name changes.
-  const latest = useRef(load)
-  latest.current = load
+  const [confirmingUnregister, setConfirmingUnregister] = useState(false)
+  // Fresh closures from the inject face: read through a ref, like the panel.
+  const latest = useRef({ updateRoute, unregister, onChanged })
+  latest.current = { updateRoute, unregister, onChanged }
 
-  useEffect(() => {
-    let stale = false
-    setDeclaration(null)
-    setError(null)
-    latest.current(name).then(
-      (result) => {
-        if (!stale) setDeclaration(result)
-      },
-      (failure: unknown) => {
-        if (!stale) setError(remoteMessage(failure))
-      },
-    )
-    return () => {
-      stale = true
+  const agentOn = capability.invocation.includes('agent')
+  const resourceOn = capability.appliesTo?.resource !== undefined
+  const selectionOn = capability.appliesTo?.selection === true
+
+  /** One route rewrite; the parent's reload brings the summary back in sync. */
+  const write = async (args: Parameters<CapabilityRouteUpdater>[0]): Promise<void> => {
+    setBusy(true)
+    try {
+      await latest.current.updateRoute(args)
+      setError(null)
+      await latest.current.onChanged()
+    } catch (failure: unknown) {
+      setError(remoteMessage(failure))
+    } finally {
+      setBusy(false)
     }
-  }, [name])
+  }
 
-  const sidecar = declaration?.sidecar
-  const resolved = sidecar?.resolved
-  const route = declaration?.route
+  /**
+   * The next `appliesTo` after toggling one menu flag: the whole object is
+   * replaced on the host (an absent field would mean leave-as-is), so the
+   * untouched dimensions ride along and an all-clear result is the explicit
+   * empty object, not an omission.
+   */
+  const nextAppliesTo = (menu: 'resource' | 'selection', on: boolean): KbCapabilityAppliesTo => {
+    const base = capability.appliesTo
+    const next = {
+      ...(menu === 'resource' ? (on ? { resource: true as const } : {}) : base?.resource !== undefined ? { resource: base.resource } : {}),
+      ...(menu === 'selection' ? (on ? { selection: true as const } : {}) : base?.selection !== undefined ? { selection: base.selection } : {}),
+      ...(base?.entity !== undefined ? { entity: base.entity } : {}),
+      ...(base?.external !== undefined ? { external: base.external } : {}),
+    }
+    return next
+  }
+
+  /** 注销: revoke the route entry; the skill directory stays put. */
+  const doUnregister = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await latest.current.unregister(capability.name)
+      setError(null)
+      setConfirmingUnregister(false)
+      await latest.current.onChanged()
+    } catch (failure: unknown) {
+      setError(remoteMessage(failure))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
-    <div data-capability-declaration="true">
-      <div style={titleStyle}>{t('capability.declarationHeading')}</div>
-      {error !== null && <div style={errorStyle} data-declaration-error="true">{error}</div>}
-      {declaration === null && error === null && <div style={mutedStyle}>{t('capability.declarationLoading')}</div>}
-      {declaration !== null && sidecar !== undefined && (
-        <>
-          {sidecar.present
-            ? (
-              <div style={mutedStyle}>
-                {t(sidecar.source === 'sidecar' ? 'capability.declarationSourceSidecar' : 'capability.declarationSourceFrontmatter')}
-              </div>
-            )
-            : <div style={warnStyle} data-declaration-problem="sidecar">{sidecar.problem}</div>}
-          {sidecar.present && sidecar.problem !== undefined && (
-            <div style={warnStyle} data-declaration-problem="sidecar">{sidecar.problem}</div>
-          )}
-          {resolved !== undefined && (
-            <>
-              <div style={mutedStyle} data-declaration-kind={resolved.kind}>
-                {t(resolved.kind === 'script' ? 'capability.declarationKindScript' : 'capability.declarationKindInstruction')}
-              </div>
-              {resolved.entry !== undefined && (
-                <div style={mutedStyle}>{t('capability.declarationEntry')}<span style={codeStyle}>{resolved.entry}</span></div>
-              )}
-              {resolved.runtime !== undefined && (
-                <div style={mutedStyle}>{t('capability.declarationRuntime')}{resolved.runtime}</div>
-              )}
-              {resolved.version !== undefined && (
-                <div style={mutedStyle}>{t('capability.declarationVersion')}{resolved.version}</div>
-              )}
-              <div style={mutedStyle}>
-                {t('capability.declarationInvocation')}
-                <span style={codeStyle}>{JSON.stringify(resolved.invocation)}</span>
-              </div>
-              {resolved.appliesTo !== undefined && (
-                <div style={mutedStyle}>
-                  {t('capability.accepts')}
-                  <span style={codeStyle}>{JSON.stringify(resolved.appliesTo)}</span>
-                </div>
-              )}
-              {resolved.kind === 'script' && (
-                <>
-                  {resolved.entryPath !== undefined && (
-                    <div style={mutedStyle} data-declaration-entry-path="true">
-                      {t('capability.declarationEntryPath')}
-                      <span style={codeStyle}>{resolved.entryPath}</span>
-                    </div>
-                  )}
-                  {resolved.entryPath === undefined && (resolved.entryCandidates?.length ?? 0) > 0 && (
-                    <div style={warnStyle} data-declaration-problem="entry">{t('capability.declarationEntryMissing')}</div>
-                  )}
-                  {resolved.entryCandidates?.length === 0 && (
-                    <div style={warnStyle} data-declaration-problem="entry">{t('capability.declarationEntryEscaped')}</div>
-                  )}
-                  {(resolved.entryCandidates?.length ?? 0) > 0 && (
-                    <div style={mutedStyle} data-declaration-candidates="true">
-                      {t('capability.declarationEntryCandidates')}
-                      {resolved.entryCandidates?.map(candidate => (
-                        <div key={candidate}><span style={codeStyle}>{candidate}</span></div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          )}
-          {sidecar.raw !== undefined && (
-            <details data-declaration-raw="true">
-              <summary style={mutedStyle}>{t('capability.declarationRaw')}</summary>
-              <pre style={preStyle}>{sidecar.raw}</pre>
-            </details>
-          )}
-          {route !== undefined && (
-            <>
-              <div style={mutedStyle}>{t('capability.declarationRouteHeading')}</div>
-              {route.registered
-                ? (
-                  <div style={mutedStyle} data-declaration-route="registered">
-                    {t('capability.declarationRouteRegistered')}
-                    <span style={codeStyle}>
-                      {JSON.stringify({ path: route.path, invocation: route.invocation ?? [] })}
-                    </span>
-                  </div>
-                )
-                : (
-                  <div style={warnStyle} data-declaration-route="missing">
-                    {route.problem ?? t('capability.declarationRouteMissing')}
-                  </div>
-                )}
-            </>
-          )}
-          <div
-            style={declaration.agentInvocable ? mutedStyle : warnStyle}
-            data-declaration-agent={declaration.agentInvocable ? 'yes' : 'no'}
-          >
-            {t(declaration.agentInvocable ? 'capability.declarationAgentYes' : 'capability.declarationAgentNo')}
+    <div data-capability-reach="true">
+      <div style={titleStyle}>{t('capability.reachHeading')}</div>
+      {error !== null && <div style={errorStyle} data-capability-reach-error="true">{error}</div>}
+      <label style={mutedStyle}>
+        <input
+          type="checkbox"
+          disabled={busy}
+          checked={agentOn}
+          data-capability-reach-agent="true"
+          onChange={(event) => { void write({ name: capability.name, invocation: event.target.checked ? ['human', 'agent'] : ['human'] }) }}
+        />{' '}
+        {t('capability.reachAgent')}
+      </label>
+      <label style={mutedStyle}>
+        <input
+          type="checkbox"
+          disabled={busy}
+          checked={resourceOn}
+          data-capability-reach-resource="true"
+          onChange={(event) => { void write({ name: capability.name, appliesTo: nextAppliesTo('resource', event.target.checked) }) }}
+        />{' '}
+        {t('capability.reachAllResources')}
+      </label>
+      <label style={mutedStyle}>
+        <input
+          type="checkbox"
+          disabled={busy}
+          checked={selectionOn}
+          data-capability-reach-selection="true"
+          onChange={(event) => { void write({ name: capability.name, appliesTo: nextAppliesTo('selection', event.target.checked) }) }}
+        />{' '}
+        {t('capability.reachSelection')}
+      </label>
+      {!confirmingUnregister ? (
+        <button
+          type="button"
+          style={buttonStyle}
+          disabled={busy}
+          data-capability-unregister="true"
+          onClick={() => { setConfirmingUnregister(true) }}
+        >
+          {t('capability.unregister')}
+        </button>
+      ) : (
+        <div style={confirmStyle} data-capability-unregister-confirm="true">
+          <div style={mutedStyle}>{t('capability.unregisterConfirm', { name: capability.name })}</div>
+          <div style={confirmButtonRowStyle}>
+            <button type="button" style={buttonStyle} disabled={busy} onClick={() => { void doUnregister() }}>
+              {t('capability.unregister')}
+            </button>
+            <button type="button" style={buttonStyle} disabled={busy} onClick={() => { setConfirmingUnregister(false) }}>
+              {t('common.cancel')}
+            </button>
           </div>
-        </>
+        </div>
       )}
     </div>
   )
 }
 
 /**
- * The detail view's 运行记录 section (ADR-0044 决定 6): this session's runs
- * of the capability, oldest first, each carrying a 提炼经验 button that hands
- * the run's envelope to a one-shot headless distill session. Distilling is
- * single-flight across the whole panel — while one record distils, every
- * button rests. The records themselves are frontend memory; they vanish with
- * the window, and the lessons they yield land in the proposal queue.
- * @param props - the translate face, the capability's name, the run records, and the distill gesture.
- * @returns the section element.
+ * The route entry as the central routing file stores it (ADR-0053 决定 1's
+ * 技术细节 section shows it): `{path, invocation, appliesTo}` — reachability
+ * only, nothing else survives in there.
+ * @param capability - the summary row.
+ * @returns the JSON text.
  */
-function RunRecordsSection({
-  t,
-  name,
-  runs,
-  onDistill,
-  distilling,
-}: {
-  t: WorkbenchT
-  name: string
-  runs: readonly CapabilityRunRecord[]
-  onDistill: (record: CapabilityRunRecord) => void
-  distilling: string | null
-}): ReactElement {
-  const mine = runs.filter(record => record.name === name)
-  return (
-    <div data-capability-runs="true">
-      <div style={titleStyle}>{t('capability.runsHeading')}</div>
-      {mine.map((record) => {
-        const exec = record.exec
-        const summary = [
-          record.ok ? '成功' : '失败',
-          exec === undefined ? undefined : (exec.exitCode === null ? '被终止' : `退出码 ${exec.exitCode}`),
-          exec === undefined ? undefined : `${exec.durationMs} ms`,
-          new Date(record.at).toLocaleTimeString(),
-        ].filter(Boolean).join(' · ')
-        return (
-          <div key={record.id} style={runRowStyle} data-capability-run={record.id}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={record.ok ? mutedStyle : errorStyle}>{summary}</div>
-              {exec !== undefined && (
-                <details>
-                  <summary style={mutedStyle}>{exec.command}</summary>
-                  {exec.stdoutTail !== '' && <pre style={preStyle}>{exec.stdoutTail}</pre>}
-                  {exec.stderrTail !== '' && <pre style={preStyle}>{exec.stderrTail}</pre>}
-                </details>
-              )}
-            </div>
-            <button
-              type="button"
-              style={buttonStyle}
-              disabled={distilling !== null}
-              data-capability-distill={record.id}
-              onClick={() => { onDistill(record) }}
-            >
-              {distilling === record.id ? t('capability.distillRunning') : t('capability.distillRun')}
-            </button>
-          </div>
-        )
-      })}
-    </div>
-  )
+function routeRawOf(capability: KbCapabilitySummary): string {
+  return JSON.stringify({
+    path: capability.routePath ?? capability.name,
+    invocation: capability.invocation,
+    ...(capability.appliesTo !== undefined ? { appliesTo: capability.appliesTo } : {}),
+  })
+}
+
+/**
+ * The detail view's 运行摘要 line (ADR-0053 决定 3): the persistent counters
+ * the host keeps in its root store — when the capability last ran, how often
+ * altogether, and when it last failed. Segments with nothing to say stay
+ * silent; the whole line vanishes when the capability never ran.
+ * @param capability - the summary row carrying the counters.
+ * @returns the line's text, or undefined when the capability never ran.
+ */
+function runSummaryOf(t: WorkbenchT, capability: KbCapabilitySummary): string | undefined {
+  const segments = [
+    capability.lastRunAt !== undefined ? `${t('capability.lastRun')}${capability.lastRunAt}` : undefined,
+    capability.runCount !== undefined && capability.runCount > 0
+      ? t('capability.runCount', { count: capability.runCount })
+      : undefined,
+    capability.lastFailAt !== undefined ? `${t('capability.lastFail')}${capability.lastFailAt}` : undefined,
+  ].filter(Boolean)
+  return segments.length > 0 ? segments.join(' · ') : undefined
 }
 
 /**
@@ -684,8 +611,7 @@ function RunRecordsSection({
  * @returns the panel element.
  */
 export function CapabilityPanel({
-  t, load, loadDeclaration, create, adopt, register, reveal, mail, loadShortcuts, saveShortcuts, fillShortcut,
-  runs, onDistill, distilling,
+  t, load, create, adopt, register, updateRoute, unregister, reveal, mail, loadShortcuts, saveShortcuts, fillShortcut,
 }: CapabilityPanelProps): ReactElement {
   const [capabilities, setCapabilities] = useState<readonly KbCapabilitySummary[] | null>(null)
   const [unregistered, setUnregistered] = useState<readonly KbUnregisteredSkill[]>([])
@@ -830,11 +756,6 @@ export function CapabilityPanel({
                     {t('capability.adoptRouteTo', { path: '.dsh/skills/yantao.json' })}
                     <span style={codeStyle}>{JSON.stringify({ path: confirming.name, invocation: ['human'] })}</span>
                   </div>
-                  {declaresMore(confirming) && (
-                    <div style={warnStyle}>
-                      {t('capability.adoptSidecarNote')}
-                    </div>
-                  )}
                   <div style={confirmButtonRowStyle}>
                     <button type="button" style={buttonStyle} onClick={() => { void adoptSkill(confirming.name) }}>{t('capability.adoptConfirm')}</button>
                     <button type="button" style={buttonStyle} onClick={() => { setConfirming(null) }}>{t('common.cancel')}</button>
@@ -904,34 +825,30 @@ export function CapabilityPanel({
           <button type="button" style={buttonStyle} onClick={() => { setSelected(null) }}>{t('capability.backToList')}</button>
           <div style={titleStyle}>{current.name}</div>
           <div>{current.description}</div>
-          <div style={mutedStyle}>
-            {current.entry !== undefined
-              ? `${current.runtime} · ${current.entry}`
-              : t('capability.instructionNote')}
-            {current.directory !== undefined ? ` · ${current.directory}` : ''}
-          </div>
-          {current.invocation.includes('agent') && (
-            <div style={mutedStyle}>{t('capability.openedToAgent')}</div>
+          {/* ADR-0052 决定 8: the detail page is exactly the 使用语义 — reach
+              toggles + 注销, run summary, folded route raw text. */}
+          <ReachSection
+            t={t}
+            capability={current}
+            updateRoute={updateRoute}
+            unregister={unregister}
+            onChanged={refresh}
+          />
+          {runSummaryOf(t, current) !== undefined && (
+            <div style={mutedStyle} data-capability-last-run="true">{runSummaryOf(t, current)}</div>
           )}
-          {current.appliesTo !== undefined && (
+          <details data-capability-details="true">
+            <summary style={mutedStyle}>{t('capability.detailsHeading')}</summary>
+            {current.directory !== undefined && (
+              <div style={mutedStyle}>
+                {t('capability.directoryLabel')}<span style={codeStyle}>{current.directory}</span>
+              </div>
+            )}
             <div style={mutedStyle}>
-              {t('capability.accepts')}
-              {[
-                current.appliesTo.resource !== undefined
-                  ? `资源 ${current.appliesTo.resource === true ? '全部' : (Array.isArray(current.appliesTo.resource) ? current.appliesTo.resource.join(' ') : '')}`
-                  : undefined,
-                current.appliesTo.entity !== undefined ? `实体 ${current.appliesTo.entity.join(' ')}` : undefined,
-                current.appliesTo.external !== undefined ? `外部 ${current.appliesTo.external.join(' ')}` : undefined,
-              ].filter(Boolean).join('；')}
+              {t('capability.routeRaw')}
+              <span style={codeStyle}>{routeRawOf(current)}</span>
             </div>
-          )}
-          {current.lastRunAt !== undefined && (
-            <div style={mutedStyle}>{t('capability.lastRun')}{current.lastRunAt}</div>
-          )}
-          {runs.some(record => record.name === current.name) && (
-            <RunRecordsSection t={t} name={current.name} runs={runs} onDistill={onDistill} distilling={distilling} />
-          )}
-          <DeclarationSection t={t} name={current.name} load={loadDeclaration} />
+          </details>
           {current.name === 'mail' && mail(current.state)}
         </>
       )}

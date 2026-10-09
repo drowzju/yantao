@@ -13,7 +13,8 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
-  CapabilityAdopter, CapabilityCreator, CapabilityDeclarationLoader, CapabilityLoader, CapabilityRegistrar, CapabilityRunner,
+  CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, CapabilityRouteUpdater,
+  CapabilityUnregisterer,
   DirectoryPicker, EntityArchiver, EntityCreator,
   ExternalOpener, FileReader, FileWriter, ImageBinaryLoader, LinksLoader,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
@@ -26,7 +27,6 @@ import type {
   SessionPrompter, TodoLoader, TodoWriter,
 } from '../remote.ts'
 import type { AnalysisStage, MailAnalyser } from '../mail-analysis.ts'
-import type { CapabilityDistiller, CapabilityRunRecord } from '../capability-distill.ts'
 import { createMailRun, useMailRun } from '../mail-run.ts'
 import type { RefineGesture, RefineRosterEntry, RefineRunner, RefineRun } from '../refine.ts'
 import type { ValidateRun, ValidateRunner, ValidateScope, ValidateStage } from '../validate.ts'
@@ -35,7 +35,7 @@ import type { SessionDetailLoader } from '../session-detail.ts'
 import { SessionDetailDrawer } from '../SessionDetailDrawer.tsx'
 import type { Proposal, ProposalMailRange } from '../proposal.ts'
 import { applyProposal, runUndo, type ProposalApplyResult } from '../proposal-apply.ts'
-import { proposalOfPayload, proposalOfRunResult, runNoticeOf } from '../capability-match.ts'
+import { proposalOfPayload } from '../capability-match.ts'
 import { capabilityGestureMessage } from '../capability-gesture.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
 import { QuestionDialog } from '../QuestionDialog.tsx'
@@ -146,16 +146,16 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly deleteResource: ResourceDeleter
   /** List the registered capabilities (ADR-0021). */
   readonly capabilityList: CapabilityLoader
-  /** Read one capability's parsed declaration (ADR-0043 决定 7) — the 能力 tab detail view's 声明 section. */
-  readonly capabilityDeclaration: CapabilityDeclarationLoader
   /** Scaffold one new capability (「新建能力」). */
   readonly capabilityCreate: CapabilityCreator
   /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
   readonly capabilityAdopt: CapabilityAdopter
-  /** Register one in-KB skill by writing its sidecar in place (ADR-0025 决定 1). */
+  /** Register one in-KB skill by writing its central-route entry (ADR-0025 决定 1, ADR-0052 决定 1). */
   readonly capabilityRegister: CapabilityRegistrar
-  /** Run one capability with the caller's input (ADR-0021 决定 7's row menus). */
-  readonly capabilityRun: CapabilityRunner
+  /** Rewrite one capability's route entry — the detail view's reach toggles (ADR-0053 决定 2). */
+  readonly capabilityRouteUpdate: CapabilityRouteUpdater
+  /** Remove one capability's route entry — the detail view's 注销 (ADR-0053 决定 2). */
+  readonly capabilityUnregister: CapabilityUnregisterer
   /** Send one prompt to the conversation the human is watching (ADR-0025 决定 4). */
   readonly promptSession: SessionPrompter
   /** Read one task session's transcript back for the 任务 tab's 「详情」 drawer (ADR-0033). */
@@ -172,8 +172,6 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly memoryProposalApprove: MemoryProposalApprover
   /** Drop one pending proposal without promoting it. */
   readonly memoryProposalDiscard: MemoryProposalDiscarder
-  /** Distill one finished run's lessons into memory proposals (ADR-0044 决定 6). */
-  readonly capabilityDistill: CapabilityDistiller
   /** List the prompt shortcuts (ADR-0040) — the 能力 tab's 惯用提示词 first screen. */
   readonly promptShortcutList: PromptShortcutLister
   /** Replace the whole prompt-shortcut list (ADR-0040). */
@@ -482,9 +480,8 @@ export function Frame({
   t, renderSlot, panels, sidebarFiles, intake, workspace, read, readView, readImage, write, archiveEntity, restoreEntity, setRelation,
   createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine, validate,
-  registerResource, deleteResource, capabilityList, capabilityDeclaration, capabilityCreate, capabilityAdopt,
-  capabilityRegister, capabilityRun,
-  capabilityDistill,
+  registerResource, deleteResource, capabilityList, capabilityCreate, capabilityAdopt,
+  capabilityRegister, capabilityRouteUpdate, capabilityUnregister,
   promptSession, memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
   sessionDetail, onKbRootChanged, mailDelete, mailArchive, mailDownloadAttachments,
   promptShortcutList, promptShortcutSave, fillShortcut,
@@ -691,15 +688,13 @@ export function Frame({
     taskPatch(id, { status, stage, endedAt: Date.now() })
   }, [taskPatch])
 
-  // ADR-0021 决定 7 + ADR-0026 决定 4: a row menu's capability run. A
-  // script capability still runs through `capabilityRun` — a run that
-  // answers with a proposal (`{ actions: [...] }`) opens the shared card,
-  // anything else is one dismissable notice at the frame's foot. An
-  // instruction capability is the gesture instead: the client sends the
-  // plain user message `/name @path` — no fetch, no concatenation — and the
-  // controller's pre-step (ADR-0025 决定 3) injects the SKILL.md body. The
-  // message lands in the transcript exactly as if the human had typed it.
-  const [capabilityProposal, setCapabilityProposal] = useState<Proposal | null>(null)
+  // ADR-0021 决定 7 + ADR-0052 决定 3: a row menu's capability click is
+  // always the gesture now — the client sends the plain user message
+  // `/name @path` — no fetch, no concatenation — and the controller's
+  // pre-step (ADR-0025 决定 3) injects the SKILL.md body. The message lands
+  // in the transcript exactly as if the human had typed it. Scripts the
+  // human channel may run deterministically survive only as builtin RPCs
+  // (the mail verbs); the generic run path is gone.
   const [capabilityNotice, setCapabilityNoticeRaw] = useState<CapabilityNotice | null>(null)
   /**
    * The foot notice's one door. Severity is declared by the caller ({@link
@@ -790,11 +785,6 @@ export function Frame({
       setCapabilityNotice(`写入失败：${remoteMessage(failure)}`, { severity: 'error' })
     })
   }, [applyConfirmed])
-  // ADR-0044 决定 6: every settled script run leaves a record — the 能力
-  // tab's 运行记录 renders them, and the 提炼经验 button turns one record
-  // into a distill session. Frontend memory, this session only.
-  const [capabilityRuns, setCapabilityRuns] = useState<readonly CapabilityRunRecord[]>([])
-  const capabilityRunSeq = useRef(0)
 
   // ── the 调度 tab and its scheduler (ADR-0045) ────────────────────────────
   // Definitions persist in the KB store; instances are ordinary task rows.
@@ -1084,119 +1074,18 @@ export function Frame({
     const timer = setInterval(tick, SCHEDULE_SCAN_MS)
     return () => { clearInterval(timer) }
   }, [schedulesLoaded, markScheduleStamps, runSchedule, taskBegin, taskPatch, taskEnd, loadInbox])
-  const [distillingRunId, setDistillingRunId] = useState<string | null>(null)
-  // Cancellation (ADR-0031): the running script capability's abort controller.
-  // The signal is both the RPC's cancel line and the witness that separates
-  // 「人停的」 from a real failure in the rejection path.
-  const capabilityAbort = useRef<AbortController | null>(null)
-  // The distill gesture's own cancel line (ADR-0031): keyed by task id so a
-  // capability run and a distill never sever each other's line.
-  const distillAbort = useRef<AbortController | null>(null)
-  const distillTaskId = useRef<string | null>(null)
-  const [capabilityRunning, setCapabilityRunning] = useState(false)
+  // A row menu's capability click (ADR-0052 决定 3): always the gesture —
+  // the plain user message rides the watched session, and the controller's
+  // pre-step injects the SKILL.md body. No subprocess, no abort line, no
+  // run record: the persistent 运行摘要 (ADR-0053 决定 3) counts the
+  // instruction call at the host seam instead.
   const runRowCapability = useCallback((capability: KbCapabilitySummary, path: string): void => {
     setCapabilityNotice(null)
-    if (capability.entry === undefined) {
-      void promptSession(capabilityGestureMessage(capability.name, { path })).then(
-        () => {},
-        (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`, { severity: 'error' }) },
-      )
-      return
-    }
-    const aborter = new AbortController()
-    capabilityAbort.current = aborter
-    setCapabilityRunning(true)
-    setCapabilityNotice(`能力「${capability.name}」执行中…`, { severity: 'progress' })
-    // The run is a task row too (ADR-0031); its 取消 drives the same aborter.
-    const taskId = taskBegin('capability', `能力「${capability.name}」`, '执行中', capability.name)
-    void capabilityRun({ name: capability.name, input: { path } }, aborter.signal).then((result) => {
-      capabilityAbort.current = null
-      setCapabilityRunning(false)
-      // The run's observable envelope is the distill gesture's input — keep
-      // it while the session lives (ADR-0044 决定 6).
-      const exec = result.exec
-      capabilityRunSeq.current += 1
-      setCapabilityRuns(rows => [{
-        id: `cap-run-${capabilityRunSeq.current}`,
-        name: capability.name,
-        ok: exec === undefined || exec.exitCode === 0,
-        ...(exec !== undefined ? { exec } : {}),
-        at: Date.now(),
-      }, ...rows])
-      const proposal = proposalOfRunResult(result)
-      if (proposal !== null) {
-        setCapabilityProposal(proposal)
-        taskEnd(taskId, 'done', '提议已出，待确认')
-      } else {
-        setCapabilityNotice(runNoticeOf(result), { severity: 'info' })
-        taskEnd(taskId, 'done', runNoticeOf(result))
-      }
-    }, (failure: unknown) => {
-      capabilityAbort.current = null
-      setCapabilityRunning(false)
-      // A refused run is a record too: a failure is exactly where the
-      // lessons live. The refusal prose rides along as the record's note —
-      // without it the distiller would misread the missing envelope as an
-      // instruction-type run and lose the failure's reason.
-      capabilityRunSeq.current += 1
-      setCapabilityRuns(rows => [{
-        id: `cap-run-${capabilityRunSeq.current}`,
-        name: capability.name,
-        ok: false,
-        note: remoteMessage(failure),
-        at: Date.now(),
-      }, ...rows])
-      if (aborter.signal.aborted) {
-        setCapabilityNotice(`能力「${capability.name}」已取消。`, { severity: 'info' })
-        taskEnd(taskId, 'cancelled', '已取消')
-      } else {
-        setCapabilityNotice(`能力「${capability.name}」失败：${remoteMessage(failure)}`, { severity: 'error' })
-        taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
-      }
-    })
-  }, [capabilityRun, promptSession, taskBegin, taskEnd])
-
-  /** Stop the running script capability (ADR-0031): the subprocess is killed server-side. */
-  const cancelCapability = useCallback((): void => {
-    capabilityAbort.current?.abort()
-  }, [])
-
-  // ADR-0044 决定 6: the 提炼经验 gesture on one run record — a headless
-  // session proposes 0–3 memory candidates through kb_propose_memory. The
-  // queue count is the outcome; the session is kept for re-reading. One
-  // distill at a time: each burns a model call, and stacking them hides
-  // that cost.
-  const distillRun = useCallback((record: CapabilityRunRecord): void => {
-    if (distillingRunId !== null) return
-    setDistillingRunId(record.id)
-    setCapabilityNotice(`提炼「${record.name}」经验中…`, { severity: 'progress' })
-    const taskId = taskBegin('capability', `提炼「${record.name}」经验`, '提炼中', record.name)
-    // The distill is a task row too, and its 取消 must bite (ADR-0031): a
-    // dedicated aborter rides the RPC — cancelling tears down the local wait
-    // and `session/cancel` ends the headless turn (no orphaned token burn).
-    // The ref is its own, not `capabilityAbort`'s: a run and a distill may
-    // legitimately overlap, and clobbering would sever one of the two lines.
-    distillTaskId.current = taskId
-    const aborter = new AbortController()
-    distillAbort.current = aborter
-    void capabilityDistill(record, aborter.signal).then((outcome) => {
-      setDistillingRunId(null)
-      setCapabilityNotice(`提炼完成：提案队列共 ${outcome.pending} 条待批准。`, { severity: 'info' })
-      taskEnd(taskId, 'done', `提案队列共 ${outcome.pending} 条待批准`)
-    }, (failure: unknown) => {
-      setDistillingRunId(null)
-      if (aborter.signal.aborted) {
-        setCapabilityNotice(`提炼「${record.name}」已取消。`, { severity: 'info' })
-        taskEnd(taskId, 'cancelled', '已取消')
-      } else {
-        setCapabilityNotice(`提炼失败：${remoteMessage(failure)}`, { severity: 'error' })
-        taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
-      }
-    }).finally(() => {
-      distillTaskId.current = null
-      distillAbort.current = null
-    })
-  }, [capabilityDistill, distillingRunId, taskBegin, taskEnd])
+    void promptSession(capabilityGestureMessage(capability.name, { path })).then(
+      () => {},
+      (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`, { severity: 'error' }) },
+    )
+  }, [promptSession])
 
   // ADR-0029 + ADR-0030: the refine gestures — 归入 (a resource dropped on an
   // entity row), 提炼 (an entity row's menu item) and 提炼到实体 (a resource
@@ -1350,7 +1239,7 @@ export function Frame({
   // 提案换届播报（2026-10-05 补课）：卡片换了届，读屏原本一片寂静。一张
   // 视觉隐藏的 live region 播报当前在场的提案标题——文字变了才播，撤场
   // 归空，不打扰别的消息。
-  const liveProposal = capabilityProposal ?? refineProposal ?? validateProposal
+  const liveProposal = refineProposal ?? validateProposal
 
   /** One validate run's end: the stats notice, then the card. */
   const showValidateRun = useCallback((run: ValidateRun, taskId: string): void => {
@@ -1566,12 +1455,9 @@ export function Frame({
     else if (row.kind === 'schedule') scheduleAborts.current.get(row.id)?.abort()
     else if (row.kind === 'mail' && row.id === mailFetchTaskId.current) mailFetchAbort.current?.abort()
     else if (row.kind === 'mail') mailRun.cancel()
-    // Here `row.kind` has narrowed to 'capability' (the other four arms
-    // eliminated the rest of the union), so compare only the task id: a
-    // distill row cancels its own aborter, any script run falls through.
-    else if (row.id === distillTaskId.current) distillAbort.current?.abort()
-    else cancelCapability()
-  }, [cancelRefine, cancelValidate, cancelCapability, mailRun])
+    // ADR-0052 决定 3 retired the generic capability run, so no 'capability'
+    // task row is minted any more — nothing to cancel here.
+  }, [cancelRefine, cancelValidate, mailRun])
 
   // ADR-0017: editing belongs to Obsidian, so this only hands the file over.
   // Without a root we still open the KB-relative path and let the host resolve
@@ -1621,8 +1507,7 @@ export function Frame({
     void capabilityList().then((result) => {
       if (stale) return
       setSelectionCaps(result.capabilities.filter(capability =>
-        capability.entry === undefined
-        && capability.appliesTo?.selection === true
+        capability.appliesTo?.selection === true
         && capability.invocation.includes('human')))
     }, () => {
       // A failed load just leaves the menu with 「发送到会话」.
@@ -1856,10 +1741,11 @@ export function Frame({
           registerResource={registerResource}
           deleteResource={removeResource}
           capabilityList={capabilityList}
-          capabilityDeclaration={capabilityDeclaration}
           capabilityCreate={capabilityCreate}
           capabilityAdopt={capabilityAdopt}
           capabilityRegister={capabilityRegister}
+          capabilityRouteUpdate={capabilityRouteUpdate}
+          capabilityUnregister={capabilityUnregister}
           mailRun={mailRun}
           revealConnector={connectorReveal}
           memoryList={memoryList}
@@ -1873,9 +1759,6 @@ export function Frame({
           fillShortcut={fillShortcut}
           onRunCapability={runRowCapability}
           onRefine={runRefineGesture}
-          capabilityRuns={capabilityRuns}
-          onDistillCapability={distillRun}
-          distillingRunId={distillingRunId}
           kbRoot={kbRoot}
           t={t}
         />
@@ -2087,18 +1970,6 @@ export function Frame({
           onClose={() => { setConfigOpen(false) }}
         />
       )}
-      {capabilityProposal !== null && (
-        <ProposalCard
-          proposal={capabilityProposal}
-          onConfirm={(ticked) => {
-            const proposal = capabilityProposal
-            setCapabilityProposal(null)
-            confirmProposal(proposal, ticked)
-          }}
-          onDismiss={() => { setCapabilityProposal(null) }}
-          t={t}
-        />
-      )}
       {refineProposal !== null && (
         <ProposalCard
           proposal={refineProposal}
@@ -2249,7 +2120,7 @@ export function Frame({
           )}
           {/* A running refine is cancellable right where it announces itself
               (ADR-0031): the chip stops the run and drops the queue. */}
-          {(refineActive || capabilityRunning || validateActive) && (
+          {(refineActive || validateActive) && (
             <button
               type="button"
               style={{
@@ -2264,7 +2135,6 @@ export function Frame({
               onClick={(event) => {
                 event.stopPropagation()
                 if (refineActive) cancelRefine()
-                if (capabilityRunning) cancelCapability()
                 if (validateActive) cancelValidate()
               }}
             >

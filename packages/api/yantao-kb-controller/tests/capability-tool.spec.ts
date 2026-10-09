@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { agentEvents, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
-import type { SkillDefinition, SkillRegistry } from '@deepseek-ai/dsh-skill'
+import type { SkillRegistry } from '@deepseek-ai/dsh-skill'
 import { type YantaoKbService } from '@deepseek-ai/dsh-yantao-kb'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import YantaoKbController from '../src/index.ts'
@@ -14,12 +14,10 @@ import YantaoKbController from '../src/index.ts'
 // `let` is initialized — hence the hoisted holder.
 const { state } = vi.hoisted(() => ({
   state: {
-    home: '', kbConfigured: true, runCapability: vi.fn(), skillGet: vi.fn(), skillList: vi.fn(),
+    home: '', kbConfigured: true, skillGet: vi.fn(), skillList: vi.fn(),
     registerProvider: vi.fn(), registerTool: vi.fn(),
   },
 }))
-const runCapability = state.runCapability
-const skillGet = state.skillGet
 const skillList = state.skillList
 
 let home: string
@@ -29,28 +27,38 @@ vi.mock('node:os', async importOriginal => ({
   homedir: () => state.home,
 }))
 
-// The subprocess is the one part that would need Python; the gate, the
-// instruction branch, and the catalog injection are the subject here.
-vi.mock('../src/capability/run.ts', async importOriginal => ({
-  ...await importOriginal<typeof import('../src/capability/run.ts')>(),
-  runCapability: state.runCapability,
-}))
-
 let ctx: Context
 let fiber: { dispose(): Promise<void> }
 let skillDir: string
+
+/** The central routing file's path in the test KB. */
+function routesPath(): string {
+  return join(home, '.dsh', 'skills', 'yantao.json')
+}
+
+/** Write one central-route entry (ADR-0052: the only capability configuration). */
+async function routeEntry(name: string, invocation: readonly string[]): Promise<void> {
+  await writeFile(routesPath(), JSON.stringify({
+    version: 1,
+    capabilities: { [name]: { path: name, invocation } },
+  }), 'utf8')
+}
 
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'yantao-kb-tool-'))
   state.home = home
   skillDir = join(home, '.dsh', 'skills', 'mail')
-  await mkdir(join(skillDir, 'scripts'), { recursive: true })
-  await writeFile(join(skillDir, 'scripts', 'entry.py'), 'print(1)', 'utf8')
-  // A version far above the shipped master's keeps the builtin seeder from
-  // overwriting this fake with the real mail capability mid-test.
-  await writeFile(join(skillDir, 'SKILL.md'), '---\nname: mail\ndescription: 测试\nversion: 999\n---\n\n测试。\n', 'utf8')
-  runCapability.mockReset()
-  skillGet.mockReset()
+  await mkdir(skillDir, { recursive: true })
+  // A version far above the shipped master's (declared in the frontmatter's
+  // metadata.yantao.version — the only version basis, ADR-0052 决定 6) keeps
+  // the builtin seeder from overwriting this fake with the real mail
+  // capability mid-test.
+  await writeFile(
+    join(skillDir, 'SKILL.md'),
+    '---\nname: mail\ndescription: 读 Outlook 邮件\nmetadata:\n  yantao:\n    version: 999\n---\n\n# 邮件能力说明\n',
+    'utf8',
+  )
+  state.skillGet.mockReset()
   skillList.mockReset().mockImplementation(async () => {
     try {
       return (await readdir(join(home, '.dsh', 'skills'), { withFileTypes: true }))
@@ -74,7 +82,7 @@ beforeEach(async () => {
     setRoot(): void {},
   } satisfies YantaoKbService)
   ctx.provide('skills', {
-    get: skillGet,
+    get: state.skillGet,
     list: skillList,
     registerProvider: state.registerProvider,
   } as unknown as SkillRegistry)
@@ -86,21 +94,6 @@ afterEach(async () => {
   await fiber.dispose()
   await rm(home, { recursive: true, force: true })
 })
-
-/** A winning skill definition for the `mail` capability, as skill-filesystem would load it. */
-function definition(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
-  return {
-    name: 'mail',
-    description: '读 Outlook 邮件',
-    invocation: { modelInvocable: false, userInvocable: true },
-    source: 'custom',
-    provider: 'skill-filesystem',
-    content: '# 邮件能力说明',
-    resourceBase: { kind: 'directory', path: skillDir },
-    metadata: { yantao: { entry: 'scripts/entry.py', runtime: 'python' } },
-    ...overrides,
-  }
-}
 
 /** The registered `kb_run_capability` tool definition, or undefined. */
 function registeredTool(): { name: string; execute: (args: unknown) => Promise<unknown> } | undefined {
@@ -120,80 +113,75 @@ function preStepPayload(text: string) {
   }
 }
 
-describe('kb_run_capability tool (ADR-0023)', () => {
+describe('kb_run_capability tool (ADR-0023, ADR-0052 决定 3)', () => {
   it('is registered by the controller', () => {
     expect(registeredTool()?.name).toBe('kb_run_capability')
   })
 
-  it('runs a capability the sidecar declared open to the agent', async () => {
-    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
-      entry: 'scripts/entry.py', runtime: 'python', invocation: ['human', 'agent'],
-    }), 'utf8')
-    skillGet.mockResolvedValue(definition({ metadata: {} }))
-    runCapability.mockResolvedValue({ result: { mails: 3 } })
-    const result = await registeredTool()?.execute({ name: 'mail', input: { limit: 10 } }) as {
+  it('answers a routed capability open to the agent with its SKILL.md body', async () => {
+    await routeEntry('mail', ['human', 'agent'])
+    const result = await registeredTool()?.execute({ name: 'mail' }) as {
       name: string
-      result?: unknown
-      artifacts: readonly string[]
+      runAt: string
+      content?: string
+      memory?: string
     }
-    expect(result).toMatchObject({ name: 'mail', result: { mails: 3 }, artifacts: [] })
-    // The agent's testimony rides the envelope too (ADR-0034 决定 5) — the
-    // counterpart of the human RPC's `channel: 'human'`.
-    expect(runCapability).toHaveBeenCalledWith(expect.objectContaining({ name: 'mail', input: { limit: 10 }, channel: 'agent' }))
+    expect(result.name).toBe('mail')
+    expect(result.runAt).toBeTruthy()
+    expect(result.content).toContain('# 邮件能力说明')
   })
 
-  it('refuses a capability the sidecar did not open to the agent', async () => {
-    skillGet.mockResolvedValue(definition())
+  it('refuses a capability the route did not open to the agent', async () => {
+    // Pre-write the human-only entry: the builtin seeder never overwrites an
+    // existing route, so the agent gate sees exactly this.
+    await routeEntry('mail', ['human'])
     const failure = await registeredTool()?.execute({ name: 'mail' }).catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({
       code: 'yantao-kb/capability',
       details: { kind: 'not-invocable' },
     })
-    expect(runCapability).not.toHaveBeenCalled()
   })
 
-  it('hands an instruction capability\'s SKILL.md body back as the answer', async () => {
-    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human', 'agent'] }), 'utf8')
-    skillGet.mockResolvedValue(definition({ metadata: {}, content: '# 指令正文' }))
-    const result = await registeredTool()?.execute({ name: 'mail' }) as { content?: string; artifacts: readonly string[] }
-    expect(result).toMatchObject({ name: 'mail', content: '# 指令正文', artifacts: [] })
-    expect(runCapability).not.toHaveBeenCalled()
+  it('refuses an unrouted capability name', async () => {
+    // No route file at all; the seeder only seeds `mail` — but only when a
+    // settle runs, and a missing name that IS seeded would be agent-open…
+    // so use a name the seeder never touches.
+    const failure = await registeredTool()?.execute({ name: 'nope' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({
+      code: 'yantao-kb/capability',
+      details: { kind: 'not-found' },
+    })
   })
 
   it('runs a centrally routed skill the registry never discovered when the route opens it to the agent', async () => {
     const directory = join(home, '.dsh', 'skills', 'routed-skill')
     await mkdir(directory, { recursive: true })
     await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n# 路由正文\n', 'utf8')
-    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({
+    await writeFile(routesPath(), JSON.stringify({
       version: 1,
       capabilities: { 'routed-skill': { path: 'routed-skill', invocation: ['human', 'agent'] } },
     }), 'utf8')
-    skillGet.mockResolvedValue(undefined)
-    const result = await registeredTool()?.execute({ name: 'routed-skill' }) as { content?: string; artifacts: readonly string[] }
+    const result = await registeredTool()?.execute({ name: 'routed-skill' }) as { content?: string }
     expect(result.content).toContain('路由正文')
-    expect(result.artifacts).toEqual([])
-    expect(runCapability).not.toHaveBeenCalled()
   })
 
   it('refuses a routed capability whose route did not open it to the agent', async () => {
     const directory = join(home, '.dsh', 'skills', 'routed-skill')
     await mkdir(directory, { recursive: true })
     await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n# 路由正文\n', 'utf8')
-    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({
+    await writeFile(routesPath(), JSON.stringify({
       version: 1,
       capabilities: { 'routed-skill': { path: 'routed-skill', invocation: ['human'] } },
     }), 'utf8')
-    skillGet.mockResolvedValue(undefined)
     const failure = await registeredTool()?.execute({ name: 'routed-skill' }).catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({
       code: 'yantao-kb/capability',
       details: { kind: 'not-invocable' },
     })
-    expect(runCapability).not.toHaveBeenCalled()
   })
 })
 
-describe('agent-facing capability catalog (ADR-0023 决定 5)', () => {
+describe('agent-facing capability catalog (ADR-0023 决定 5, ADR-0052 决定 1)', () => {
   /** A minimal agent stand-in; the pre-step listener never touches it. */
   const agent = {} as Agent
 
@@ -212,11 +200,7 @@ describe('agent-facing capability catalog (ADR-0023 决定 5)', () => {
   }
 
   it('appends a catalog message when a user-prompted step has agent capabilities', async () => {
-    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
-      entry: 'scripts/entry.py', runtime: 'python', invocation: ['human', 'agent'],
-    }), 'utf8')
-    skillList.mockResolvedValue([{ name: 'mail', description: '读 Outlook 邮件', source: 'project' }])
-    skillGet.mockResolvedValue(definition({ metadata: {} }))
+    await routeEntry('mail', ['human', 'agent'])
     const decision = await preStep({ kind: 'enter', messages: userMessages('帮我看看邮件') })
     expect(decision.kind).toBe('enter')
     const messages = decision.kind === 'enter' ? decision.messages : []
@@ -233,8 +217,9 @@ describe('agent-facing capability catalog (ADR-0023 决定 5)', () => {
   })
 
   it('leaves the turn untouched when no capability is open to the agent', async () => {
-    skillList.mockResolvedValue([{ name: 'mail', description: '读 Outlook 邮件', source: 'project' }])
-    skillGet.mockResolvedValue(definition())
+    // A human-only mail entry suppresses the seeder's agent-open default, so
+    // nothing is agent-open and the turn stays untouched.
+    await routeEntry('mail', ['human'])
     const decision = await preStep({ kind: 'enter', messages: [] })
     expect(decision.kind === 'enter' ? decision.messages : []).toHaveLength(0)
   })
@@ -243,12 +228,10 @@ describe('agent-facing capability catalog (ADR-0023 决定 5)', () => {
     const directory = join(home, '.dsh', 'skills', 'routed-skill')
     await mkdir(directory, { recursive: true })
     await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n正文\n', 'utf8')
-    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({
+    await writeFile(routesPath(), JSON.stringify({
       version: 1,
       capabilities: { 'routed-skill': { path: 'routed-skill', invocation: ['agent'] } },
     }), 'utf8')
-    skillList.mockResolvedValue([])
-    skillGet.mockResolvedValue(undefined)
     const decision = await preStep({ kind: 'enter', messages: userMessages('帮我看看邮件') })
     expect(decision.kind).toBe('enter')
     const messages = decision.kind === 'enter' ? decision.messages : []
@@ -260,11 +243,7 @@ describe('agent-facing capability catalog (ADR-0023 决定 5)', () => {
   })
 
   it('leaves a rejected decision untouched and skips non-user steps', async () => {
-    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
-      entry: 'scripts/entry.py', runtime: 'python', invocation: ['human', 'agent'],
-    }), 'utf8')
-    skillList.mockResolvedValue([{ name: 'mail', description: '读 Outlook 邮件', source: 'project' }])
-    skillGet.mockResolvedValue(definition({ metadata: {} }))
+    await routeEntry('mail', ['human', 'agent'])
     expect(await preStep({ kind: 'reject' })).toEqual({ kind: 'reject' })
     // A tool-result step's last message is not a user prompt: no injection.
     const toolMessage = { source: { kind: 'tool' }, content: [] } as unknown as UserMessage
@@ -277,7 +256,7 @@ describe('agent-facing capability catalog (ADR-0023 决定 5)', () => {
   })
 })
 
-describe('the /xxx gesture (ADR-0025 决定 3)', () => {
+describe('the /xxx gesture (ADR-0025 决定 3, ADR-0052 决定 1)', () => {
   /** A minimal agent stand-in; the pre-step listener never touches it. */
   const agent = {} as Agent
 
@@ -304,9 +283,8 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
     })
   }
 
-  it('injects an instruction capability\'s SKILL.md body for a leading /name', async () => {
-    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
-    skillGet.mockResolvedValue(definition({ metadata: {}, content: '# 指令正文' }))
+  it('injects a routed human-invocable capability\'s SKILL.md body for a leading /name', async () => {
+    await routeEntry('mail', ['human'])
     const decision = await preStep(
       { kind: 'enter', messages: userMessages('/mail 帮我看看今天的邮件') },
       '/mail 帮我看看今天的邮件',
@@ -319,47 +297,14 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
   })
 
   it('keeps a mid-sentence /name and an unknown name as ordinary prose', async () => {
-    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
-    skillGet.mockImplementation(async (name: string) =>
-      name === 'mail' ? definition({ metadata: {} }) : undefined)
     for (const text of ['请 /mail 看看', '/unknown 做事']) {
       const decision = await preStep({ kind: 'enter', messages: userMessages(text) }, text)
       expect(injectedSources(decision)).toEqual([])
     }
   })
 
-  it('answers a script-type hit with an ordinary notice, not instructions', async () => {
-    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
-      entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'],
-    }), 'utf8')
-    skillGet.mockResolvedValue(definition({ metadata: {} }))
-    const decision = await preStep(
-      { kind: 'enter', messages: userMessages('/mail 读一下') },
-      '/mail 读一下',
-    )
-    expect(injectedSources(decision)).toEqual([{ kind: 'yantao-kb-controller', form: 'notice' }])
-  })
-
-  it('answers a script-type hit with the positive wording and the environment note (ADR-0043 决定 3)', async () => {
-    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({
-      entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'],
-    }), 'utf8')
-    skillGet.mockResolvedValue(definition({ metadata: {} }))
-    const decision = await preStep(
-      { kind: 'enter', messages: userMessages('/mail 读一下') },
-      '/mail 读一下',
-    )
-    const messages = decision.kind === 'enter' ? decision.messages : []
-    const injected = messages[1] as unknown as { content: readonly { type: string; text: string }[] }
-    const text = injected.content[0]?.text ?? ''
-    expect(text).toContain('能力「mail」是脚本型：经 kb_run_capability 调用（产出缺省落 resources/），或按下方说明在会话中执行其脚本。')
-    expect(text).toContain('【环境说明】')
-    expect(text).not.toContain('/xxx 不适用')
-  })
-
-  it('prefixes the environment note onto an instruction capability\'s injected body (ADR-0043 决定 3)', async () => {
-    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
-    skillGet.mockResolvedValue(definition({ metadata: {}, content: '# 指令正文' }))
+  it('prefixes the environment note onto the injected body (ADR-0043 决定 3)', async () => {
+    await routeEntry('mail', ['human'])
     const decision = await preStep(
       { kind: 'enter', messages: userMessages('/mail 读一下') },
       '/mail 读一下',
@@ -375,11 +320,10 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
     const directory = join(home, '.dsh', 'skills', 'routed-skill')
     await mkdir(directory, { recursive: true })
     await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n# 路由正文\n', 'utf8')
-    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({
+    await writeFile(routesPath(), JSON.stringify({
       version: 1,
       capabilities: { 'routed-skill': { path: 'routed-skill', invocation: ['human'] } },
     }), 'utf8')
-    skillGet.mockResolvedValue(undefined)
     const decision = await preStep(
       { kind: 'enter', messages: userMessages('/routed-skill 做事') },
       '/routed-skill 做事',
@@ -391,18 +335,16 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
     expect(text).toContain('<skill_content name="routed-skill">')
   })
 
-  it('keeps a human-disabled capability and a sidecar-less plain skill plain', async () => {
-    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['agent'] }), 'utf8')
-    skillGet.mockResolvedValue(definition({ metadata: {} }))
+  it('keeps a human-disabled capability and an unrouted plain skill plain', async () => {
+    await routeEntry('mail', ['agent'])
     // The gesture stays silent, but the capability is agent-open, so the
     // catalog still rides the step.
     expect(injectedSources(await preStep(
       { kind: 'enter', messages: userMessages('/mail 读一下') },
       '/mail 读一下',
     ))).toEqual([{ kind: 'yantao-kb-controller', form: 'catalog' }])
-    // No yantao.json and no legacy metadata: a plain skill, not a capability.
-    skillGet.mockResolvedValue(definition({ metadata: {} }))
-    await rm(join(skillDir, 'yantao.json'), { force: true })
+    // No route entry at all: a plain skill, not a capability.
+    await rm(routesPath(), { force: true })
     expect(injectedSources(await preStep(
       { kind: 'enter', messages: userMessages('/mail 读一下') },
       '/mail 读一下',
@@ -410,16 +352,16 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
   })
 
   it('lands the catalog before the skill instructions', async () => {
-    await mkdir(join(home, '.dsh', 'skills', 'digest'), { recursive: true })
-    await writeFile(join(home, '.dsh', 'skills', 'digest', 'SKILL.md'), '---\nname: digest\ndescription: d\nversion: 999\n---\n\n正文\n', 'utf8')
-    await writeFile(join(home, '.dsh', 'skills', 'digest', 'yantao.json'), JSON.stringify({ invocation: ['human', 'agent'] }), 'utf8')
-    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
-    skillGet.mockImplementation(async (name: string) => name === 'mail'
-      ? definition({ metadata: {}, content: '# 指令正文' })
-      : definition({
-        name, metadata: {}, content: '# d',
-        resourceBase: { kind: 'directory', path: join(home, '.dsh', 'skills', name) },
-      }))
+    const digestDir = join(home, '.dsh', 'skills', 'digest')
+    await mkdir(digestDir, { recursive: true })
+    await writeFile(join(digestDir, 'SKILL.md'), '---\nname: digest\ndescription: d\n---\n\n正文\n', 'utf8')
+    await writeFile(routesPath(), JSON.stringify({
+      version: 1,
+      capabilities: {
+        digest: { path: 'digest', invocation: ['human', 'agent'] },
+        mail: { path: 'mail', invocation: ['human'] },
+      },
+    }), 'utf8')
     const decision = await preStep(
       { kind: 'enter', messages: userMessages('/mail 读一下') },
       '/mail 读一下',
@@ -434,11 +376,10 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
     const directory = join(home, '.dsh', 'skills', 'routed-skill')
     await mkdir(directory, { recursive: true })
     await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n# 路由正文\n', 'utf8')
-    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({
+    await writeFile(routesPath(), JSON.stringify({
       version: 1,
       capabilities: { 'routed-skill': { path: 'routed-skill', invocation: ['human'] } },
     }), 'utf8')
-    skillGet.mockResolvedValue(undefined)
     const decision = await preStep(
       { kind: 'enter', messages: userMessages('/routed-skill 做事') },
       '/routed-skill 做事',
@@ -453,11 +394,10 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
     const directory = join(home, '.dsh', 'skills', 'routed-skill')
     await mkdir(directory, { recursive: true })
     await writeFile(join(directory, 'SKILL.md'), '---\nname: routed-skill\ndescription: 路由技能\n---\n\n# 路由正文\n', 'utf8')
-    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({
+    await writeFile(routesPath(), JSON.stringify({
       version: 1,
       capabilities: { 'routed-skill': { path: 'routed-skill', invocation: ['agent'] } },
     }), 'utf8')
-    skillGet.mockResolvedValue(undefined)
     const decision = await preStep(
       { kind: 'enter', messages: userMessages('/routed-skill 做事') },
       '/routed-skill 做事',
@@ -468,8 +408,7 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
   })
 
   it('keeps the gesture silent when the central routing file is broken', async () => {
-    await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), '{ not json', 'utf8')
-    skillGet.mockResolvedValue(undefined)
+    await writeFile(routesPath(), '{ not json', 'utf8')
     const decision = await preStep(
       { kind: 'enter', messages: userMessages('/mail 读一下') },
       '/mail 读一下',
@@ -481,8 +420,7 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
     // Regression: on a session's first turn the system-prompt sandbox snapshot
     // lands after the user's gesture; the hook used to bail on it and the
     // model received a bare `/name` with no instructions.
-    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
-    skillGet.mockResolvedValue(definition({ metadata: {}, content: '# 指令正文' }))
+    await routeEntry('mail', ['human'])
     const gesture = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '/mail 读一下' }] })
     const snapshot = createUserMessage({
       source: { kind: 'runtime-context', form: 'snapshot', sections: [{ name: 'sandbox', text: 'Current runtime context.' }] },
@@ -500,8 +438,7 @@ describe('the /xxx gesture (ADR-0025 决定 3)', () => {
   })
 
   it('stops skipping once an assistant or tool turn follows the user message', async () => {
-    await writeFile(join(skillDir, 'yantao.json'), JSON.stringify({ invocation: ['human'] }), 'utf8')
-    skillGet.mockResolvedValue(definition({ metadata: {}, content: '# 指令正文' }))
+    await routeEntry('mail', ['human'])
     const gesture = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '/mail 读一下' }] })
     const toolMessage = { source: { kind: 'tool' }, content: [] } as unknown as UserMessage
     const decision = await agentEvents(ctx, agent).waterfall(
@@ -530,7 +467,7 @@ describe('the tool surface declarations (ADR-0043)', () => {
       output: { render: (args: unknown, value: unknown) => readonly { type: string; text?: string }[] }
     } | undefined
     const blocks = tool?.output.render({}, {
-      name: 'mail', runAt: '2026-10-01T00:00:00Z', content: '# 指令正文', artifacts: [],
+      name: 'mail', runAt: '2026-10-01T00:00:00Z', content: '# 指令正文',
     })
     const text = blocks?.[0]?.text ?? ''
     expect(text).toContain('【环境说明】')

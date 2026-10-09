@@ -27,6 +27,9 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseFrontmatter } from '@deepseek-ai/dsh-yantao-kb'
+import { addRoutes, readRoutes } from './routing.ts'
+import type { CapabilityRoute } from './routing.ts'
 
 /**
  * Builtin capabilities that no longer ship. A seeded copy found in the KB is
@@ -49,24 +52,31 @@ function builtinRoot(): string {
 }
 
 /**
- * A master's declared version, read out of its `yantao.json` sidecar first
- * (`version` field) and out of the legacy SKILL.md frontmatter
- * (`metadata.yantao.version`) second. A directory without a readable version
- * counts as 0, so a versioned master always wins over an unversioned leftover.
+ * Builtin reachability, seeded into the central routing file on first use
+ * (ADR-0052 决定 5): idempotent — an entry the human already has (edited or
+ * not) is never overwritten; only a missing name is added.
+ */
+const BUILTIN_ROUTES: Readonly<Record<string, CapabilityRoute>> = {
+  mail: { path: 'mail', invocation: ['human', 'agent'], appliesTo: { external: ['mailbox'] } },
+}
+
+/**
+ * A master's declared version, read out of the SKILL.md frontmatter's
+ * `metadata.yantao.version` (ADR-0052 决定 6): a lazy number that exists only
+ * for the "package newer than copy" comparison — no permission semantics,
+ * nothing else reads it. A directory without a readable version counts as 0,
+ * so a versioned master always wins over an unversioned leftover.
  * @param directory - the capability directory to read.
  * @returns the declared version, or 0.
  */
 function manifestVersion(directory: string): number {
   try {
-    const sidecar: unknown = JSON.parse(readFileSync(join(directory, 'yantao.json'), 'utf8'))
-    const version = (sidecar as { version?: unknown }).version
+    const frontmatter = parseFrontmatter(readFileSync(join(directory, 'SKILL.md'), 'utf8'), 'SKILL.md')
+    const metadata = frontmatter.data.metadata
+    if (typeof metadata !== 'object' || metadata === null) return 0
+    const version = (metadata as { yantao?: { version?: unknown } }).yantao?.version
     if (typeof version === 'number' && Number.isInteger(version) && version >= 0) return version
-  } catch {
-    // No sidecar (or an unreadable one): the frontmatter fallback decides.
-  }
-  try {
-    const match = /^\s*version:\s*(\d+)\s*$/m.exec(readFileSync(join(directory, 'SKILL.md'), 'utf8'))
-    return match === null ? 0 : Number(match[1])
+    return 0
   } catch {
     return 0
   }
@@ -191,4 +201,24 @@ export function ensureBuiltinCapabilities(kbRoot: string): readonly string[] {
     seeded.push(entry.name)
   }
   return seeded
+}
+
+/**
+ * Seed the builtins' reachability entries into the central routing file
+ * (ADR-0052 决定 5): add-if-absent, never overwriting an entry the human has
+ * (or merely has). Best-effort by design — a broken or unwritable routing
+ * file surfaces at the next readRoutes, which is the authority; seeding is
+ * a convenience, not a gate.
+ * @param kbRoot - the live knowledge-base root.
+ */
+export async function seedBuiltinRoutes(kbRoot: string): Promise<void> {
+  try {
+    const skillsRoot = join(kbRoot, '.dsh', 'skills')
+    const routes = await readRoutes(skillsRoot)
+    const missing = Object.entries(BUILTIN_ROUTES).filter(([name]) => routes[name] === undefined)
+    if (missing.length === 0) return
+    await addRoutes(skillsRoot, Object.fromEntries(missing))
+  } catch {
+    // The next readRoutes reports a broken file where it matters.
+  }
 }

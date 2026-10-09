@@ -566,11 +566,14 @@ export interface KbCapabilityArtifact {
   readonly contentBase64: string
 }
 
-/** Parameters of `yantaoKb.capabilityRun` (ADR-0021). */
+/**
+ * Parameters of `yantaoKb.mailRun` (ADR-0052 决定 5): the mail capability's
+ * dedicated RPC — the one survivor of the execution unification, driving the
+ * mail entry script on the human channel's behalf. The capability name is
+ * not a parameter: the RPC serves exactly one capability, `mail`.
+ */
 export interface KbCapabilityRunArgs {
-  /** The capability's skill name, as `ctx.skills` knows it. */
-  readonly name: string
-  /** The caller's input, handed to the capability's entry script verbatim. */
+  /** The caller's input, handed to the mail entry script verbatim. */
   readonly input?: JsonValue
 }
 
@@ -593,7 +596,7 @@ export interface KbCapabilityExec {
   readonly stderrTail: string
 }
 
-/** Result of `yantaoKb.capabilityRun` (ADR-0021; agent channel ADR-0023). */
+/** Result of `yantaoKb.mailRun` (ADR-0052 决定 5). */
 export interface KbCapabilityRunResult {
   /** The capability that ran. */
   readonly name: string
@@ -646,9 +649,9 @@ export interface KbCapabilityAppliesTo {
   readonly selection?: boolean
 }
 
-/** One capability as the 能力 tab lists it (ADR-0021 决定 8). */
+/** One capability as the 能力 tab lists it (ADR-0021 决定 8; ADR-0053 决定 4). */
 export interface KbCapabilitySummary {
-  /** The capability's skill name, as `capabilityRun` addresses it. */
+  /** The capability's skill name, as the central route addresses it. */
   readonly name: string
   /** The SKILL.md description. */
   readonly description: string
@@ -656,16 +659,18 @@ export interface KbCapabilitySummary {
   readonly source: string
   /** Absolute path of the capability's directory, when the provider reported one. */
   readonly directory?: string
-  /** Entry script path, relative to the capability's directory; absent = instruction capability (ADR-0023 决定 6). */
-  readonly entry?: string
-  /** The only runtime in v1: `python`; absent on an instruction capability. */
-  readonly runtime?: string
+  /** The route entry's `path` as the routing file stores it (ADR-0053 决定 1's 技术细节 section shows it). */
+  readonly routePath?: string
   /** Who may invoke the capability (ADR-0023 决定 2): a subset of `['human', 'agent']`. */
   readonly invocation: readonly string[]
   /** What the capability accepts; absent means "offered from the 能力 tab only". */
   readonly appliesTo?: KbCapabilityAppliesTo
   /** When the capability last ran, as an ISO 8601 string; absent when never run. */
   readonly lastRunAt?: string
+  /** How many runs were accounted (ADR-0053 决定 3); absent when never run. */
+  readonly runCount?: number
+  /** When the capability last failed, as an ISO 8601 string; kept across later successes. */
+  readonly lastFailAt?: string
   /** The state the last run left behind; opaque to the controller. */
   readonly state?: JsonValue
 }
@@ -678,10 +683,9 @@ export interface KbCapabilityListResult {
    * Skills that are not yet capabilities (ADR-0025 决定 1), name-sorted,
    * registered capabilities excluded. Two origins share the group: skills
    * discovered outside the KB that adoption could copy in, and skills living
-   * inside the KB's own `.dsh/skills/` whose declaration is missing or
-   * invalid — those carry `inKb` and registration routes them in the central
-   * routing file (ADR-0025 落地注记二). Greyed rows carry the reason in their
-   * flags.
+   * inside the KB's own `.dsh/skills/` that no route claims yet — those
+   * carry `inKb` and registration writes their central-route entry
+   * (ADR-0052 决定 1). Greyed rows carry the reason in their flags.
    */
   readonly unregistered: readonly KbUnregisteredSkill[]
 }
@@ -689,8 +693,8 @@ export interface KbCapabilityListResult {
 /**
  * One skill in `capabilityList`'s 未注册 group (ADR-0025 决定 1): either a
  * skill `ctx.skills` discovered outside the KB's own `.dsh/skills/` that
- * adoption can copy into it, or an in-KB skill without a valid yantao
- * declaration that registration can route in the central routing file.
+ * adoption can copy into it, or an in-KB skill no central route claims that
+ * registration can route in place.
  */
 export interface KbUnregisteredSkill {
   /** The skill's frontmatter name. */
@@ -703,7 +707,7 @@ export interface KbUnregisteredSkill {
   readonly directory?: string
   /** False when the frontmatter declared `user-invocable: false` — not adoptable, not /xxx-able. */
   readonly userInvocable: boolean
-  /** True for a flat `xxx.md` skill: no directory to carry a sidecar, so adoption is unsupported. */
+  /** True for a flat `xxx.md` skill: no directory to route, so adoption is unsupported. */
   readonly flat: boolean
   /**
    * The skill lives inside `<kbRoot>/.dsh/skills/` — registration routes it
@@ -711,7 +715,7 @@ export interface KbUnregisteredSkill {
    * candidate.
    */
   readonly inKb?: boolean
-  /** Why the skill is not a capability — missing or invalid declaration; only in-KB rows carry it. */
+  /** Why the skill is not a capability — no route claims it; only in-KB rows carry it. */
   readonly reason?: string
   /**
    * The directory is a dropped plugin repository (no top-level `SKILL.md`,
@@ -721,8 +725,6 @@ export interface KbUnregisteredSkill {
   readonly plugin?: boolean
   /** The nested skill directory names a plugin repository carries; only plugin rows carry it. */
   readonly pluginSkills?: readonly string[]
-  /** The skill's own `yantao.json` sidecar, when it carries one — the adopt confirm box previews it. */
-  readonly sidecar?: JsonValue
 }
 
 /** Parameters of `yantaoKb.capabilityAdopt` (ADR-0025 决定 1). */
@@ -774,99 +776,36 @@ export interface KbCapabilityCreateResult {
   readonly path: string
 }
 
-/** Parameters of `yantaoKb.capabilityDeclaration` (ADR-0043 决定 7). */
-export interface KbCapabilityDeclarationArgs {
-  /** The capability's skill name, as `capabilityList` reports it. */
+/**
+ * Parameters of `yantaoKb.capabilityRouteUpdate` (ADR-0053 决定 2): one
+ * registered capability's reachability, collapsed onto the route entry's
+ * `invocation` and `appliesTo`. Absent fields mean "leave as-is".
+ */
+export interface KbCapabilityRouteUpdateArgs {
+  /** The capability's name, as the central route addresses it. */
+  readonly name: string
+  /** Who may invoke the capability after the update (ADR-0023 决定 2). */
+  readonly invocation?: readonly ('human' | 'agent')[]
+  /** What the capability accepts after the update. */
+  readonly appliesTo?: KbCapabilityAppliesTo
+}
+
+/** Result of `yantaoKb.capabilityRouteUpdate` (ADR-0053 决定 2). */
+export interface KbCapabilityRouteUpdateResult {
+  /** KB-relative path of the routing file the call rewrote, `.dsh/skills/yantao.json`. */
+  readonly path: string
+}
+
+/** Parameters of `yantaoKb.capabilityUnregister` (ADR-0053 决定 2). */
+export interface KbCapabilityUnregisterArgs {
+  /** The capability's name, as the central route addresses it. */
   readonly name: string
 }
 
-/**
- * One valid declaration in its resolved form (ADR-0043 决定 7): the parsed
- * fields flat, plus what the declaration *means* — instruction or script —
- * and where the entry actually lands on disk.
- */
-export interface KbCapabilityResolvedDeclaration {
-  /** Instruction (no entry, ADR-0023 决定 6) or script capability. */
-  readonly kind: 'instruction' | 'script'
-  /** The declared entry, relative as written; script kind only. */
-  readonly entry?: string
-  /** The declared runtime (`python` in v1); script kind only. */
-  readonly runtime?: string
-  /** The SKILL.md frontmatter's version, when it declares one. */
-  readonly version?: string
-  /** Who may invoke the capability, as declared (ADR-0023 决定 2). */
-  readonly invocation: readonly string[]
-  /** What the capability accepts, as declared. */
-  readonly appliesTo?: KbCapabilityAppliesTo
-  /**
-   * Every absolute path the entry may resolve to, nearest root first: inside
-   * the skill directory, then inside the `.dsh/` adapter plane (ADR-0043
-   * 决定 2). Script kind only; an empty list means the entry escapes both roots.
-   */
-  readonly entryCandidates?: readonly string[]
-  /** The first candidate that exists on disk; absent means the entry file is missing. */
-  readonly entryPath?: string
-}
-
-/**
- * The sidecar channel's answer for one capability name (ADR-0043 决定 7):
- * the directory's own `yantao.json` (raw text included) or the legacy
- * `metadata.yantao` frontmatter section. A missing or invalid declaration is
- * spelled out in `problem`, never thrown — the panel must render it.
- */
-export interface KbCapabilitySidecarAnswer {
-  /** True when any declaration exists — a sidecar file or a frontmatter section. */
-  readonly present: boolean
-  /** Which channel the declaration came from; absent when `present` is false. */
-  readonly source?: 'sidecar' | 'frontmatter'
-  /** The sidecar file's raw text, when the file exists. */
-  readonly raw?: string
-  /** The validated, resolved declaration; absent when missing or invalid. */
-  readonly resolved?: KbCapabilityResolvedDeclaration
-  /** Why the channel has no resolved declaration: none declared, invalid shape, entry problems. */
-  readonly problem?: string
-}
-
-/**
- * The central routing channel's answer for one capability name (ADR-0025
- * 落地注记二; ADR-0043 决定 7): whether `.dsh/skills/yantao.json` carries an
- * entry for it, and that entry's declaration. A broken routing file is
- * spelled out in `problem`, never thrown.
- */
-export interface KbCapabilityRouteAnswer {
-  /** True when the routing file carries an entry for this name. */
-  readonly registered: boolean
-  /** The route's skill-directory path, relative to `.dsh/skills/`. */
-  readonly path?: string
-  /** Who may invoke the capability, as the route declares. */
-  readonly invocation?: readonly string[]
-  /** What the capability accepts, as the route declares. */
-  readonly appliesTo?: KbCapabilityAppliesTo
-  /** When the routing file itself is unreadable/invalid, its error. */
-  readonly problem?: string
-}
-
-/**
- * Result of `yantaoKb.capabilityDeclaration` (ADR-0043 决定 7): both
- * declaration channels, parsed and resolved, with every miss stated in data
- * so the 能力 tab — and an agent troubleshooting a refused call — can see a
- * broken or missing registration without provoking one.
- */
-export interface KbCapabilityDeclarationResult {
-  /** The queried name, echoed. */
-  readonly name: string
-  /** Absolute path of the skill directory the registry resolved inside the KB; absent when nothing resolved. */
-  readonly directory?: string
-  /** The sidecar/frontmatter channel's answer. */
-  readonly sidecar: KbCapabilitySidecarAnswer
-  /** The central routing channel's answer. */
-  readonly route: KbCapabilityRouteAnswer
-  /**
-   * Whether the agent may invoke this capability — the same dual-gate
-   * precedence `kb_run_capability` and `kb_exec_capability_script` apply: a
-   * valid sidecar declaration wins, the central route answers otherwise.
-   */
-  readonly agentInvocable: boolean
+/** Result of `yantaoKb.capabilityUnregister` (ADR-0053 决定 2). */
+export interface KbCapabilityUnregisterResult {
+  /** KB-relative path of the routing file the call removed the entry from, `.dsh/skills/yantao.json`. */
+  readonly path: string
 }
 
 /**

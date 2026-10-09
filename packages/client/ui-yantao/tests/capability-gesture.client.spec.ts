@@ -9,7 +9,7 @@ import { capabilityGestureMessage, capabilityGestureSource } from '../src/client
 const CAPABILITIES: KbCapabilitySummary[] = [
   { name: 'mail', description: '读 Outlook 邮件', source: 'project', invocation: ['human'] },
   { name: 'digest', description: '给 agent 的摘要', source: 'project', invocation: ['agent'] },
-  { name: 'eml-digest', description: '读一封邮件', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'] },
+  { name: 'eml-digest', description: '读一封邮件', source: 'project', invocation: ['human'] },
   { name: 'notes-helper', description: '整理笔记', source: 'project', invocation: ['human', 'agent'] },
 ]
 
@@ -29,16 +29,12 @@ function candidates(query = ''): Promise<readonly { name?: string; description?:
 }
 
 describe('capability / source', () => {
-  it('lists every human-invocable capability, script-type ones ⚙-marked (ADR-0043 决定 5)', async () => {
+  it('lists every human-invocable capability with its bare description (ADR-0052：形态维度蒸发)', async () => {
     const rows = await candidates()
-    // `digest` is agent-only: not a `/xxx` the human can invoke. `eml-digest`
-    // is script-type — offered since ADR-0043 决定 5 (revising ADR-0025
-    // 决定 3), its description ⚙-prefixed so "click to run" reads
-    // differently from "click to instruct".
+    // `digest` is agent-only: not a `/xxx` the human can invoke. Every
+    // capability is instruction-shaped now — there is no script-type marker.
     expect(rows.map(row => row.name)).toEqual(['mail', 'eml-digest', 'notes-helper'])
-    const eml = rows.find(row => row.name === 'eml-digest')
-    expect(eml?.description).toBe('⚙ 读一封邮件')
-    // Instruction-type rows keep the bare description.
+    expect(rows.find(row => row.name === 'eml-digest')?.description).toBe('读一封邮件')
     expect(rows.find(row => row.name === 'mail')?.description).toBe('读 Outlook 邮件')
   })
 

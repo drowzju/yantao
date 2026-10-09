@@ -5,12 +5,13 @@
  * a human may invoke (ADR-0023 决定 2). `external` capabilities (the mail
  * connector) name no row, so they never appear here.
  *
- * The run's answer is parsed here too: a capability that answers with a
- * proposal (`{ actions: [...] }`, the one schema from {@link ./proposal.ts})
- * opens the shared card; anything else is reported as a plain notice.
+ * Session answers are parsed here too (ADR-0047): a schedule prompt or an
+ * inbox entry that closes with an actions-envelope JSON (`{ actions: [...] }`,
+ * the one schema from {@link ./proposal.ts}) opens the shared card; anything
+ * else is reported as a plain notice.
  * @module @deepseek-ai/dsh-client-ui-yantao/capability-match
  */
-import type { KbCapabilityRunResult, KbCapabilitySummary } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { Proposal, ProposalAction, ProposalMailRange } from './proposal.ts'
 
 /** The row a menu is open for, in the shape the matcher reads. */
@@ -128,26 +129,6 @@ function mailsOf(raw: unknown): ProposalMailRange | undefined {
   return { lastReadAt, ...(firstReadAt !== undefined ? { firstReadAt } : {}) }
 }
 
-/**
- * Read a run's answer as a proposal: an object carrying a non-empty
- * `actions` array becomes the card's proposal — title from the capability's
- * name, actions filtered to known kinds whose required fields are present
- * (the gate above; an unreadable row is dropped, never rendered as blanks).
- * Anything else is
- * not a proposal and the caller reports the run as a plain notice instead.
- * @param result - what `capabilityRun` answered.
- * @returns the proposal, or null when the answer is not one.
- */
-export function proposalOfRunResult(result: KbCapabilityRunResult): Proposal | null {
-  const value = result.result
-  if (typeof value !== 'object' || value === null) return null
-  const raw = (value as Record<string, unknown>).actions
-  if (!Array.isArray(raw) || raw.length === 0) return null
-  const actions = actionsOf(raw)
-  if (actions.length === 0) return null
-  return { title: `能力「${result.name}」的提议`, actions }
-}
-
 /** The JSON fragments one answer text may hide: fenced blocks, then the whole text, then the outermost brace span. */
 function jsonCandidatesOf(answer: string): readonly string[] {
   const candidates: string[] = []
@@ -210,15 +191,4 @@ export function proposalOfPayload(raw: unknown): Proposal | null {
   if (actions.length === 0) return null
   const mails = mailsOf(candidate.mails)
   return { title: candidate.title.trim(), actions, ...(mails !== undefined ? { mails } : {}) }
-}
-
-/**
- * The one-line notice a non-proposal run answers with: what ran, and what it
- * left behind, if anything.
- * @param result - what `capabilityRun` answered.
- * @returns the notice line.
- */
-export function runNoticeOf(result: KbCapabilityRunResult): string {
-  if (result.artifacts.length > 0) return `能力「${result.name}」完成，产物：${result.artifacts.join('、')}`
-  return `能力「${result.name}」已完成。`
 }

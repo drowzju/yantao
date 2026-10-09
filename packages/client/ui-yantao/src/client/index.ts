@@ -41,14 +41,13 @@ import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 // through it.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {
-  KbCapabilityRunArgs, KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation,
+  KbCapabilityRouteUpdateArgs, KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation,
   KbPromptShortcutSaveArgs, KbProposalInboxEnqueueArgs, KbProposalInboxResolveArgs,
   KbScheduleMarkArgs, KbScheduleSaveArgs, KbWriteTodosArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { UsageWireDailyArgs } from '@deepseek-ai/dsh-api-yantao-usage-controller/types'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
-import { runCapabilityDistill, type CapabilityRunRecord } from './capability-distill.ts'
 import { runRefine, type RefineRunnerArgs } from './refine.ts'
 import { runScheduledTask } from './scheduler.ts'
 import { runValidate, type ValidateScope } from './validate.ts'
@@ -71,13 +70,13 @@ import {
   addMemory, adoptCapability, approveMemoryProposal, archiveEntity, archiveMails, createCapability, createEntity,
   deleteMemory, deleteMails, deleteResource, downloadMailAttachments,
   discardMemoryProposal, fetchMail, fillComposerWithShortcut, listMemory, listMemoryProposals,
-  loadCapabilities, loadCapabilityDeclaration, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
+  loadCapabilities, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
   loadRevision, loadRoot, loadTodos,
-  loadWorkspace, loadResourceView, markMailRead, openExternal, readFile, registerCapability, registerResource, restoreEntity, runCapability,
+  loadWorkspace, loadResourceView, markMailRead, openExternal, readFile, registerCapability, registerResource, restoreEntity,
   loadImageBinary,
   loadSchedules, markSchedule, savePromptShortcuts, saveSchedules, setKbRoot,
   enqueueInboxProposal, loadProposalInbox, loadRelationGraph, resolveInboxProposal,
-  setRelation, writeFile, writeTodos,
+  setRelation, unregisterCapability, updateCapabilityRoute, writeFile, writeTodos,
 } from './remote.ts'
 import type { CapabilityRegisterReach } from './remote.ts'
 import type { MailMessage } from './remote.ts'
@@ -350,27 +349,14 @@ export function apply(ctx: Context): void {
       registerResource: (name: string, contentBase64: string) => registerResource(ctx, name, contentBase64),
       // ADR-0021: the capability surface the 能力 tab reads.
       capabilityList: () => loadCapabilities(ctx),
-      // ADR-0043 决定 7: the 能力 tab detail view's parsed-declaration 声明 section.
-      capabilityDeclaration: (name: string) => loadCapabilityDeclaration(ctx, name),
-      capabilityRun: (args: KbCapabilityRunArgs, signal?: AbortSignal) => runCapability(ctx, args, signal),
-      // ADR-0044 决定 6: the 能力 tab's 提炼经验 gesture — one headless
-      // session turns a finished run's envelope into 0–3 memory proposals.
-      capabilityDistill: async (record: CapabilityRunRecord, signal?: AbortSignal) => {
-        const cwd = await kbCwd()
-        return runCapabilityDistill({
-          ctx,
-          name: record.name,
-          ok: record.ok,
-          ...(record.exec !== undefined ? { exec: record.exec } : {}),
-          ...(record.note !== undefined ? { note: record.note } : {}),
-          ...(cwd !== undefined ? { cwd } : {}),
-          ...(signal !== undefined ? { signal } : {}),
-        })
-      },
+      // ADR-0053 决定 2: the detail page's reach toggles and 注销 button —
+      // both write the central route and nothing else.
+      capabilityRouteUpdate: (args: KbCapabilityRouteUpdateArgs) => updateCapabilityRoute(ctx, args),
+      capabilityUnregister: (name: string) => unregisterCapability(ctx, name),
       capabilityCreate: (name: string) => createCapability(ctx, name),
       // ADR-0025 决定 1: adopt an out-of-KB skill into `.dsh/skills/`.
       capabilityAdopt: (name: string) => adoptCapability(ctx, name),
-      // ADR-0025 决定 1: register an in-KB skill by writing its sidecar in place.
+      // ADR-0025 决定 1: register an in-KB skill by writing its central-route entry.
       capabilityRegister: (name: string, reach?: CapabilityRegisterReach) => registerCapability(ctx, name, reach),
       // ADR-0025 决定 4: an instruction capability's prompt goes to the
       // conversation the human is watching, on a KB-rooted session.

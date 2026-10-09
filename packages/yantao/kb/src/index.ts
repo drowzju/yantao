@@ -584,7 +584,7 @@ export type { InitKbResult, ListedEntity, ListedResource, ReadResourceResult } f
 export { entityDisplayPath, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
 export {
   capabilityStatePath, importLegacyRootState, readCapabilityRecord, readCapabilityState,
-  writeCapabilityState, writeMailWatermark,
+  recordCapabilityRun, writeCapabilityState, writeMailWatermark,
 } from './root-store.ts'
 export type { CapabilityRecord } from './root-store.ts'
 export { appendToLogSection, logBullet, replaceSection, replaceStateSection } from './splice.ts'

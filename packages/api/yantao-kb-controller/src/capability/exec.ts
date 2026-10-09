@@ -9,13 +9,13 @@
  * `directory`: the resolved capability directory must stay under the KB's
  * own `.dsh/skills/`, and the subprocess's `cwd` is pinned to it.
  *
- * The envelope mirrors the declarative channel's (`run.ts`): `KB_ROOT`,
- * `CAPABILITY_NAME`, and `CAPABILITY_CHANNEL=agent` ride the environment,
- * and one JSON object (`name`, `kbRoot`, `input`, `channel`) is written to
- * stdin before it closes — so a script can serve both channels unchanged.
- * Unlike `runCapability`, stdout is *not* a JSON contract: it comes back
- * verbatim, capped alongside stderr, and the exit code — not parsed output —
- * decides `ok`.
+ * The envelope mirrors the mail dedicated RPC's (`run.ts`, the one surviving
+ * spawn channel): `KB_ROOT`, `CAPABILITY_NAME`, and `CAPABILITY_CHANNEL=agent`
+ * ride the environment, and one JSON object (`name`, `kbRoot`, `input`,
+ * `channel`) is written to stdin before it closes — so a script can serve
+ * both channels unchanged. Unlike `runCapability`, stdout is *not* a JSON
+ * contract: it comes back verbatim, capped alongside stderr, and the exit
+ * code — not parsed output — decides `ok`.
  *
  * The environment note ({@link CAPABILITY_ENVIRONMENT_NOTE}) is the single
  * source every channel prefixes (ADR-0043 决定 3): instruction-capability
@@ -29,17 +29,17 @@ import type { SpawnLike } from '../open.ts'
 import { CapabilityError } from './run.ts'
 
 /**
- * The host-owned environment note (ADR-0043 决定 3), prefixed wherever a
- * capability's own words are handed to the model: the instruction
- * capability's SKILL.md body, and the script-type `/name` notice. The core
- * semantics stay in the (untouched) SKILL.md; these are the host facts.
+ * The host-owned environment note (ADR-0043 决定 3; ADR-0052 决定 3/4), prefixed
+ * wherever a capability's own words are handed to the model: the instruction
+ * capability's SKILL.md body. The core semantics stay in the (untouched)
+ * SKILL.md; these are the host facts — the one execution channel and the
+ * environment facts a skill's instructions may rely on.
  */
 export const CAPABILITY_ENVIRONMENT_NOTE =
   '【环境说明】\n'
-  + '- 本工作台没有通用 shell；技能指令里「执行 python xxx」这类步骤，用 kb_exec_capability_script 在该能力的目录内执行（cwd 锁定该目录，KB_ROOT 等信封经环境变量与 stdin 送达）。\n'
-  + '- 能力的声明式调用走 kb_run_capability。\n'
-  + '- 未特别说明时，「资源」指知识库的 resources/ 目录。\n'
-  + '- 能力产出的落盘是脚本自己的事，真实位置以返回为准。'
+  + '- 本工作台没有通用 shell；技能指令里「执行 python xxx」这类步骤，用 kb_exec_capability_script 在该能力的目录内执行（cwd 锁定该目录，命令不做内容审查——安装即授权）。\n'
+  + '- KB_ROOT（知识库根目录的绝对路径）已注入环境变量：命令行里可直接引用，Windows 写 %KB_ROOT%、POSIX 写 $KB_ROOT，平台 shell 会展开；stdin 也会送达同一个 JSON 信封。\n'
+  + '- 未特别说明时，「资源」指知识库的 resources/ 目录；能力产出到 $KB_ROOT/resources/，过程临时文件到 resources/temp/（用完即弃，无人清理）。'
 
 /** Options of {@link execCapabilityScript}. */
 export interface ExecCapabilityScriptOptions {

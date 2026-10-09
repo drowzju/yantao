@@ -10,7 +10,8 @@ import type {
   KbCapabilitySummary, KbPersonRelation, KbTreeFile, KbTreeSection, KbTreeSectionId,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type {
-  CapabilityAdopter, CapabilityCreator, CapabilityDeclarationLoader, CapabilityLoader, CapabilityRegistrar,
+  CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, CapabilityRouteUpdater,
+  CapabilityUnregisterer,
   EntityArchiver, EntityCreator, FileReader,
   FileWriter,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
@@ -20,7 +21,6 @@ import type {
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
 import { useFloatingMenu } from './menu-behavior.ts'
-import type { CapabilityRunRecord } from './capability-distill.ts'
 import type { MailAnalyser } from './mail-analysis.ts'
 import { RESOURCE_DRAG_TYPE, dropPayloadOf, type RefineGesture } from './refine.ts'
 import type { ProposalTarget } from './proposal-apply.ts'
@@ -1017,14 +1017,16 @@ export interface RailProps {
 
 /** Intake-side additions: the intake rail owns the 能力 tab (ADR-0021). */
 export interface IntakeRailProps extends RailProps {
-  /** Read one capability's parsed declaration (ADR-0043 决定 7) — the detail view's 声明 section. */
-  readonly capabilityDeclaration: CapabilityDeclarationLoader
   /** Scaffold one new capability (「新建能力」). */
   readonly capabilityCreate: CapabilityCreator
   /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
   readonly capabilityAdopt: CapabilityAdopter
-  /** Register one in-KB skill by writing its sidecar in place (ADR-0025 决定 1). */
+  /** Register one in-KB skill by writing its central-route entry (ADR-0025 决定 1, ADR-0052 决定 1). */
   readonly capabilityRegister: CapabilityRegistrar
+  /** Rewrite one capability's route entry — the detail view's reach toggles (ADR-0053 决定 2). */
+  readonly capabilityRouteUpdate: CapabilityRouteUpdater
+  /** Remove one capability's route entry — the detail view's 注销 (ADR-0053 决定 2). */
+  readonly capabilityUnregister: CapabilityUnregisterer
   /**
    * The frame-owned mail run store (ADR-0031): the analysis must be visible
    * to the 任务 tab, so the store outlives the rail the same way it already
@@ -1049,12 +1051,6 @@ export interface IntakeRailProps extends RailProps {
   readonly memoryProposalApprove: MemoryProposalApprover
   /** Drop one pending proposal without promoting it. */
   readonly memoryProposalDiscard: MemoryProposalDiscarder
-  /** The session's settled script runs (ADR-0044 决定 6) — the 能力 tab's 运行记录. */
-  readonly capabilityRuns: readonly CapabilityRunRecord[]
-  /** Distill one run's lessons into memory proposals (ADR-0044 决定 6). */
-  readonly onDistillCapability: (record: CapabilityRunRecord) => void
-  /** The record id currently being distilled, if any. */
-  readonly distillingRunId: string | null
   /** List the prompt shortcuts (ADR-0040) — the 能力 tab's 惯用提示词 first screen. */
   readonly promptShortcutList: PromptShortcutLister
   /** Replace the whole prompt-shortcut list (ADR-0040). */
@@ -1133,9 +1129,9 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, loadTodos, writeTodos, createEntity,
     read, write, archiveEntity, restoreEntity, setRelation, workspace, mailFetch, mailMarkRead, analyseMail,
     registerResource, deleteResource, onRefine,
-    capabilityList, capabilityDeclaration, capabilityCreate, capabilityAdopt, capabilityRegister, onRunCapability, kbRoot = '',
+    capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRouteUpdate, capabilityUnregister,
+    onRunCapability, kbRoot = '',
     memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
-    capabilityRuns, onDistillCapability, distillingRunId,
     promptShortcutList, promptShortcutSave, fillShortcut,
   } = props
   const mailDelete = props.mailDelete
@@ -1295,17 +1291,15 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
         <CapabilityPanel
           t={t}
           load={capabilityList}
-          loadDeclaration={capabilityDeclaration}
           create={capabilityCreate}
           adopt={capabilityAdopt}
           register={capabilityRegister}
+          updateRoute={capabilityRouteUpdate}
+          unregister={capabilityUnregister}
           reveal={props.revealConnector}
           loadShortcuts={promptShortcutList}
           saveShortcuts={promptShortcutSave}
           fillShortcut={fillShortcut}
-          runs={capabilityRuns}
-          onDistill={onDistillCapability}
-          distilling={distillingRunId}
           mail={state => (
             <MailPanel
               t={t}

@@ -1,31 +1,29 @@
 /**
- * The central capability routing file (ADR-0025 落地注记二): one
- * `<kbRoot>/.dsh/skills/yantao.json` that declares capabilities by
- * configuration instead of filesystem surgery. Registration writes a route
- * entry per capability — `path` points anywhere inside the skills root, at
- * any depth — and the upstream scanner ignores the file (it only reads
- * `*.md` flat files and one-level directories), so a dropped third-party
- * tree is never moved, renamed, or merged.
- *
- * Two declaration channels share one precedence: a skill directory's own
- * `yantao.json` sidecar wins over a central route with the same name — a
- * valid sidecar is the stronger, closer declaration. Registration therefore
- * refuses to route a name a sidecar capability already claims, and refuses a
- * directory whose sidecar file exists but is invalid (fix or delete it
- * first). A route entry declares only an *instruction capability*: no
- * `entry`/`runtime` — a routed SKILL.md body is the whole answer.
+ * The central capability routing file (ADR-0025 落地注记二; ADR-0052 决定 1
+ * 升格): the ONE capability configuration file —
+ * `<kbRoot>/.dsh/skills/yantao.json`. Each entry is pure *reachability*:
+ * `{path, invocation, appliesTo}` — where the skill directory sits (any
+ * depth inside the skills root) and who may reach it. There is no other
+ * declaration anywhere: no sidecar, no frontmatter section, no entry/runtime
+ * (ADR-0052 决定 2 — the form layer evaporated with the spawn execution
+ * model). The upstream scanner ignores the file (it only reads `*.md` flat
+ * files and one-level directories), so a dropped third-party tree is never
+ * moved, renamed, or merged.
  * @module @deepseek-ai/dsh-api-yantao-kb-controller/capability/routing
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import { parseFrontmatter } from '@deepseek-ai/dsh-yantao-kb'
-import { CapabilityError, manifestFrom } from './run.ts'
+import { CapabilityError, appliesToOf, invocationOf } from './run.ts'
 import type { CapabilityAppliesTo, CapabilityInvoker } from './run.ts'
 
 /** The KB-relative path of the routing file, for prose. */
 export const ROUTES_PATH = '.dsh/skills/yantao.json'
 
-/** One route entry: where the capability's skill directory sits and how it may be reached. */
+/**
+ * One route entry: where the capability's skill directory sits and who may
+ * reach it — the whole configuration there is (ADR-0052 决定 1).
+ */
 export interface CapabilityRoute {
   /** The skill directory's path, relative to `.dsh/skills/`, with forward slashes. */
   readonly path: string
@@ -77,7 +75,7 @@ function routePathOf(value: unknown): string {
   return normalized
 }
 
-/** Validate one route entry, refusing anything but an instruction-capability declaration. */
+/** Validate one route entry: reachability only — `path`, `invocation`, `appliesTo`, nothing else. */
 function routeOf(name: string, declared: unknown): CapabilityRoute {
   if (typeof declared !== 'object' || declared === null || Array.isArray(declared)) {
     throw new CapabilityError(
@@ -86,25 +84,24 @@ function routeOf(name: string, declared: unknown): CapabilityRoute {
       `请修正 ${ROUTES_PATH} 里 capabilities.${name} 的形状。`,
     )
   }
-  const { path, entry, runtime, ...rest } = declared as {
-    path?: unknown
-    entry?: unknown
-    runtime?: unknown
-  } & Record<string, unknown>
-  if (entry !== undefined || runtime !== undefined) {
+  const keys = Object.keys(declared as Record<string, unknown>)
+  const unknownKey = keys.find(key => key !== 'path' && key !== 'invocation' && key !== 'appliesTo')
+  if (unknownKey !== undefined) {
     throw new CapabilityError(
       'bad-manifest',
-      `能力「${name}」的中央路由条目不支持 entry/runtime——中央路由只声明指令型能力。`,
-      `脚本型能力请用技能目录自己的 yantao.json 声明；请删除 ${ROUTES_PATH} 里 capabilities.${name} 的 entry/runtime。`,
+      `能力「${name}」的中央路由条目只支持 path/invocation/appliesTo（ADR-0052：路由只存可达），发现了「${unknownKey}」。`,
+      `请从 ${ROUTES_PATH} 里 capabilities.${name} 删除「${unknownKey}」字段。`,
     )
   }
-  void rest
-  // manifestFrom validates invocation and appliesTo with the shared rules.
-  const manifest = manifestFrom(name, declared)
+  const { path, invocation, appliesTo } = declared as {
+    path?: unknown
+    invocation?: unknown
+    appliesTo?: unknown
+  }
   return {
     path: routePathOf(path),
-    invocation: manifest.invocation,
-    ...manifest.appliesTo !== undefined ? { appliesTo: manifest.appliesTo } : {},
+    invocation: invocationOf(name, invocation),
+    ...appliesTo !== undefined ? { appliesTo: appliesToOf(name, appliesTo) } : {},
   }
 }
 
@@ -166,14 +163,15 @@ export async function readRoutes(skillsRoot: string): Promise<Record<string, Cap
 }
 
 /**
- * Add route entries to the central routing file — registration's whole
- * filesystem effect. One read-modify-write: unknown top-level keys and
- * unrelated entries survive, `version` is pinned to 1. A file that exists
- * but is unreadable is reported, never silently reset.
+ * One read-modify-write over the routing file's capabilities map: the mutator
+ * receives the parsed (unvalidated) capabilities object and answers its
+ * replacement; unknown top-level keys survive, `version` is pinned to 1. A
+ * file that exists but is unreadable is reported, never silently reset.
  */
-export async function addRoutes(
+async function mutateRoutes(
   skillsRoot: string,
-  entries: Record<string, CapabilityRoute>,
+  action: 'append' | 'update' | 'remove',
+  mutate: (capabilities: Record<string, unknown>) => Record<string, unknown>,
 ): Promise<void> {
   let existing: Record<string, unknown>
   try {
@@ -185,8 +183,8 @@ export async function addRoutes(
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw new CapabilityError(
         'bad-manifest',
-        `中央路由文件 ${ROUTES_PATH} 损坏，无法追加路由：${(error as Error).message}`,
-        '请先修复或删除该文件，再重新注册。',
+        `中央路由文件 ${ROUTES_PATH} 损坏，无法${action === 'append' ? '追加' : action === 'update' ? '更新' : '删除'}路由：${(error as Error).message}`,
+        '请先修复或删除该文件，再重试。',
       )
     }
     existing = {}
@@ -199,7 +197,7 @@ export async function addRoutes(
     await mkdir(skillsRoot, { recursive: true })
     await writeFile(
       join(skillsRoot, 'yantao.json'),
-      `${JSON.stringify({ ...existing, version: 1, capabilities: { ...capabilities, ...entries } }, null, 2)}\n`,
+      `${JSON.stringify({ ...existing, version: 1, capabilities: mutate(capabilities) }, null, 2)}\n`,
       'utf8',
     )
   } catch (error) {
@@ -209,6 +207,59 @@ export async function addRoutes(
       '请检查 .dsh/skills/ 的写权限。',
     )
   }
+}
+
+/**
+ * Add route entries to the central routing file — registration's whole
+ * filesystem effect. Unknown top-level keys and unrelated entries survive.
+ */
+export async function addRoutes(
+  skillsRoot: string,
+  entries: Record<string, CapabilityRoute>,
+): Promise<void> {
+  await mutateRoutes(skillsRoot, 'append', capabilities => ({ ...capabilities, ...entries }))
+}
+
+/**
+ * Rewrite one entry's reachability (ADR-0053 决定 2's 写回): the entry must
+ * already exist — toggling reachability is not a hidden re-registration.
+ * The `path` is never touched; only `invocation`/`appliesTo` are replaced.
+ */
+export async function updateRoute(
+  skillsRoot: string,
+  name: string,
+  reach: Pick<CapabilityRoute, 'invocation' | 'appliesTo'>,
+): Promise<void> {
+  await mutateRoutes(skillsRoot, 'update', (capabilities) => {
+    const raw = capabilities[name]
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new CapabilityError(
+        'bad-manifest',
+        `中央路由文件 ${ROUTES_PATH} 里没有能力「${name}」的条目，无法更新。`,
+        '请先在能力清单里注册该能力。',
+      )
+    }
+    // Validate the untouched entry too: a broken file must not be rewritten
+    // into a "fixed-looking" one with the other entries silently dropped.
+    const validated = routeOf(name, raw)
+    return { ...capabilities, [name]: { ...validated, ...reach } }
+  })
+}
+
+/**
+ * Remove one entry from the central routing file — unregistration's whole
+ * filesystem effect (ADR-0053 决定 2). Answers whether an entry was actually
+ * removed; removing an absent name is a caller-visible miss, not an error.
+ */
+export async function removeRoute(skillsRoot: string, name: string): Promise<boolean> {
+  let removed = false
+  await mutateRoutes(skillsRoot, 'remove', (capabilities) => {
+    if (!(name in capabilities)) return capabilities
+    removed = true
+    const { [name]: _dropped, ...rest } = capabilities
+    return rest
+  })
+  return removed
 }
 
 /**

@@ -1,12 +1,12 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { SkillDefinition, SkillRegistry } from '@deepseek-ai/dsh-skill'
+import type { SkillRegistry } from '@deepseek-ai/dsh-skill'
 import { type YantaoKbService } from '@deepseek-ai/dsh-yantao-kb'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
-import { CapabilityError, resolveEntry } from '../src/capability/run.ts'
+import { CapabilityError } from '../src/capability/run.ts'
 import { execCapabilityScript } from '../src/capability/exec.ts'
 import YantaoKbController from '../src/index.ts'
 
@@ -18,7 +18,6 @@ const { state } = vi.hoisted(() => ({
     registerProvider: vi.fn(), registerTool: vi.fn(),
   },
 }))
-const skillGet = state.skillGet
 const skillList = state.skillList
 
 let home: string
@@ -43,30 +42,16 @@ function registeredTool(name: string): {
     .find(tool => tool.name === name)
 }
 
-/** A winning skill definition for the `probe` capability, as skill-filesystem would load it. */
-function definition(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
-  return {
-    name: 'probe',
-    description: '探针能力',
-    invocation: { modelInvocable: false, userInvocable: true },
-    source: 'custom',
-    provider: 'skill-filesystem',
-    content: '# 探针',
-    resourceBase: { kind: 'directory', path: skillDir },
-    metadata: {},
-    ...overrides,
-  }
-}
-
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'yantao-kb-exec-'))
   state.home = home
   skillDir = join(home, '.dsh', 'skills', 'probe')
   await mkdir(skillDir, { recursive: true })
-  // A version far above the shipped master's keeps the builtin seeder from
-  // overwriting this fake with a real capability mid-test.
-  await writeFile(join(skillDir, 'SKILL.md'), '---\nname: probe\ndescription: 探针\nversion: 999\n---\n\n探针。\n', 'utf8')
-  skillGet.mockReset().mockResolvedValue(definition())
+  // routedSkill reads the routed directory's SKILL.md; without it the route
+  // reads as stale and every exec would answer not-found. `probe` is not a
+  // builtin, so the seeder never touches this directory.
+  await writeFile(join(skillDir, 'SKILL.md'), '---\nname: probe\ndescription: 探针\n---\n\n探针。\n', 'utf8')
+  state.skillGet.mockReset().mockResolvedValue(undefined)
   skillList.mockReset().mockImplementation(async () => {
     try {
       return (await readdir(join(home, '.dsh', 'skills'), { withFileTypes: true }))
@@ -90,7 +75,7 @@ beforeEach(async () => {
     setRoot(): void {},
   } satisfies YantaoKbService)
   ctx.provide('skills', {
-    get: skillGet,
+    get: state.skillGet,
     list: skillList,
     registerProvider: state.registerProvider,
   } as unknown as SkillRegistry)
@@ -105,9 +90,12 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 300 })
 })
 
-/** Declare the probe capability's sidecar. */
-async function declareSidecar(sidecar: Record<string, unknown>): Promise<void> {
-  await writeFile(join(skillDir, 'yantao.json'), JSON.stringify(sidecar), 'utf8')
+/** Route the probe capability in the central routing file (ADR-0052: the only configuration). */
+async function routeProbe(invocation: readonly string[]): Promise<void> {
+  await writeFile(join(home, '.dsh', 'skills', 'yantao.json'), JSON.stringify({
+    version: 1,
+    capabilities: { probe: { path: 'probe', invocation } },
+  }), 'utf8')
 }
 
 /** A probe script that reports its cwd, envelope environment, and stdin. */
@@ -141,7 +129,7 @@ describe('kb_exec_capability_script (ADR-0043 决定 2)', () => {
   })
 
   it('runs a command inside an agent-open capability, delivering the envelope by env and stdin', async () => {
-    await declareSidecar({ invocation: ['human', 'agent'] })
+    await routeProbe(['human', 'agent'])
     await writeFile(join(skillDir, 'probe.js'), PROBE_JS, 'utf8')
     const result = await registeredTool('kb_exec_capability_script')
       ?.execute({ name: 'probe', command: 'node probe.js', input: '你好' }) as ExecResult
@@ -167,8 +155,31 @@ describe('kb_exec_capability_script (ADR-0043 决定 2)', () => {
     expect(probe.envelope.channel).toBe('agent')
   })
 
+  it('records a passing run in the capability account (ADR-0053 决定 3)', async () => {
+    await routeProbe(['human', 'agent'])
+    await writeFile(join(skillDir, 'probe.js'), PROBE_JS, 'utf8')
+    await registeredTool('kb_exec_capability_script')
+      ?.execute({ name: 'probe', command: 'node probe.js' }) as ExecResult
+    // recordCapabilityRun is fire-and-forget (its state-file write is not
+    // awaited by the tool), so poll briefly for the ledger entry.
+    let runCount: number | undefined
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try {
+        const state = JSON.parse(
+          await readFile(join(home, '.dsh', 'yantao', 'state.json'), 'utf8'),
+        ) as { capabilities?: Record<string, { runCount?: number }> }
+        runCount = state.capabilities?.probe?.runCount
+        if (runCount !== undefined) break
+      } catch {
+        // the write has not landed yet
+      }
+      await new Promise(resolveSleep => setTimeout(resolveSleep, 20))
+    }
+    expect(runCount).toBe(1)
+  })
+
   it('reports a non-zero exit as not-ok with the exit code', async () => {
-    await declareSidecar({ invocation: ['human', 'agent'] })
+    await routeProbe(['human', 'agent'])
     await writeFile(join(skillDir, 'fail.js'), 'process.stderr.write("差一点")\nprocess.exit(3)\n', 'utf8')
     const result = await registeredTool('kb_exec_capability_script')
       ?.execute({ name: 'probe', command: 'node fail.js' }) as ExecResult
@@ -178,7 +189,7 @@ describe('kb_exec_capability_script (ADR-0043 决定 2)', () => {
   })
 
   it('caps an outsized stream and marks the truncation', async () => {
-    await declareSidecar({ invocation: ['human', 'agent'] })
+    await routeProbe(['human', 'agent'])
     await writeFile(join(skillDir, 'big.js'), 'process.stdout.write("x".repeat(256 * 1024))\n', 'utf8')
     const result = await registeredTool('kb_exec_capability_script')
       ?.execute({ name: 'probe', command: 'node big.js' }) as ExecResult
@@ -188,7 +199,7 @@ describe('kb_exec_capability_script (ADR-0043 决定 2)', () => {
   })
 
   it('caps by bytes, not UTF-16 units, and keeps multi-byte output intact across chunk boundaries', async () => {
-    await declareSidecar({ invocation: ['human', 'agent'] })
+    await routeProbe(['human', 'agent'])
     // 40000 CJK chars = 120000 UTF-8 bytes: over the 64KB byte cap (so the
     // truncation marker must appear) yet under the old 64K UTF-16-unit cap
     // (so the old code stayed silent) — and the pipe's 64KB chunk boundary
@@ -202,7 +213,7 @@ describe('kb_exec_capability_script (ADR-0043 决定 2)', () => {
   })
 
   it('kills an over-long command and answers not-ok', async () => {
-    await declareSidecar({ invocation: ['human', 'agent'] })
+    await routeProbe(['human', 'agent'])
     await writeFile(join(skillDir, 'hang.js'), 'setTimeout(() => {}, 3_000)\n', 'utf8')
     const result = await registeredTool('kb_exec_capability_script')
       ?.execute({ name: 'probe', command: 'node hang.js', timeoutMs: 300 }) as ExecResult
@@ -211,8 +222,8 @@ describe('kb_exec_capability_script (ADR-0043 决定 2)', () => {
     expect(result.stderr).toContain('已终止')
   })
 
-  it('refuses a capability the sidecar did not open to the agent', async () => {
-    await declareSidecar({ invocation: ['human'] })
+  it('refuses a capability the route did not open to the agent', async () => {
+    await routeProbe(['human'])
     const failure = await registeredTool('kb_exec_capability_script')
       ?.execute({ name: 'probe', command: 'node probe.js' }).catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({
@@ -221,8 +232,9 @@ describe('kb_exec_capability_script (ADR-0043 决定 2)', () => {
     })
   })
 
-  it('refuses an unknown capability name', async () => {
-    skillGet.mockResolvedValue(undefined)
+  it('refuses an unrouted capability name', async () => {
+    // No central-route entry for `nope` — and the seeder only ever seeds
+    // `mail`, so the name stays missing.
     const failure = await registeredTool('kb_exec_capability_script')
       ?.execute({ name: 'nope', command: 'node probe.js' }).catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({
@@ -240,7 +252,6 @@ describe('kb_exec_capability_script (ADR-0043 决定 2)', () => {
       version: 1,
       capabilities: { 'routed-probe': { path: 'nested/routed-probe', invocation: ['human', 'agent'] } },
     }), 'utf8')
-    skillGet.mockResolvedValue(undefined)
     const result = await registeredTool('kb_exec_capability_script')
       ?.execute({ name: 'routed-probe', command: 'node probe.js' }) as ExecResult
     expect(result.ok).toBe(true)
@@ -256,7 +267,6 @@ describe('kb_exec_capability_script (ADR-0043 决定 2)', () => {
       version: 1,
       capabilities: { 'routed-probe': { path: 'routed-probe', invocation: ['human'] } },
     }), 'utf8')
-    skillGet.mockResolvedValue(undefined)
     const failure = await registeredTool('kb_exec_capability_script')
       ?.execute({ name: 'routed-probe', command: 'node probe.js' }).catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({
@@ -279,48 +289,5 @@ describe('the bridge’s directory confinement', () => {
     }).catch((error: unknown) => error)
     expect(failure).toBeInstanceOf(CapabilityError)
     expect((failure as CapabilityError).kind).toBe('bad-manifest')
-  })
-})
-
-describe('resolveEntry and the adapter plane (ADR-0043 决定 2)', () => {
-  /** A definition whose sidecar declares `entry`. */
-  async function entryDefinition(entry: string): Promise<SkillDefinition> {
-    await declareSidecar({ entry, runtime: 'python', invocation: ['human', 'agent'] })
-    return definition()
-  }
-
-  it('resolves an entry inside the skill directory, as before', async () => {
-    await mkdir(join(skillDir, 'scripts'), { recursive: true })
-    await writeFile(join(skillDir, 'scripts', 'entry.py'), 'print(1)', 'utf8')
-    const resolved = resolveEntry(await entryDefinition('scripts/entry.py'), join(home, '.dsh'))
-    expect(resolved.entryPath).toBe(join(skillDir, 'scripts', 'entry.py'))
-    expect(resolved.directory).toBe(skillDir)
-  })
-
-  it('resolves an entry on the adapter plane, relative to the .dsh root', async () => {
-    const adapter = join(home, '.dsh', 'yantao', 'capability-adapters', 'probe')
-    await mkdir(adapter, { recursive: true })
-    await writeFile(join(adapter, 'entry.py'), 'print(1)', 'utf8')
-    const resolved = resolveEntry(
-      await entryDefinition('yantao/capability-adapters/probe/entry.py'),
-      join(home, '.dsh'),
-    )
-    expect(resolved.entryPath).toBe(join(adapter, 'entry.py'))
-  })
-
-  it('reports a missing adapter-plane entry as a missing entry script', () => {
-    return entryDefinition('yantao/capability-adapters/nope/entry.py').then((def) => {
-      expect(() => resolveEntry(def, join(home, '.dsh'))).toThrow(/入口脚本不存在/)
-    })
-  })
-
-  it('refuses an entry escaping both the skill directory and .dsh/', async () => {
-    const def = await entryDefinition('../../../outside.py')
-    expect(() => resolveEntry(def, join(home, '.dsh'))).toThrow(/越出了能力目录与 \.dsh\/ 目录/)
-  })
-
-  it('refuses an out-of-directory entry when no .dsh root is given', async () => {
-    const def = await entryDefinition('yantao/capability-adapters/probe/entry.py')
-    expect(() => resolveEntry(def)).toThrow(/入口脚本不存在/)
   })
 })

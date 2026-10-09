@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ensureBuiltinCapabilities } from '../src/capability/builtin.ts'
+import { ensureBuiltinCapabilities, seedBuiltinRoutes } from '../src/capability/builtin.ts'
 
 let kbRoot: string
 
@@ -14,16 +14,22 @@ afterEach(async () => {
   await rm(kbRoot, { recursive: true, force: true })
 })
 
+/** The version a SKILL.md frontmatter declares (ADR-0052 决定 6), 0 when absent. */
+function declaredVersion(skillMd: string): number {
+  const match = /version:\s*(\d+)/.exec(skillMd)
+  return match === null ? 0 : Number(match[1])
+}
+
 /** The version the seeded copy declares, for writing older/newer seeded copies. */
 async function seededVersion(name: string): Promise<number> {
-  const sidecar = await readFile(join(kbRoot, '.dsh', 'skills', name, 'yantao.json'), 'utf8')
-  return (JSON.parse(sidecar) as { version?: number }).version ?? 0
+  const skillMd = await readFile(join(kbRoot, '.dsh', 'skills', name, 'SKILL.md'), 'utf8')
+  return declaredVersion(skillMd)
 }
 
 /** The version the shipped master declares, so this spec survives version bumps. */
 async function masterVersion(name: string): Promise<number> {
-  const sidecar = await readFile(join(import.meta.dirname, '..', 'src', 'capability', 'builtin', name, 'yantao.json'), 'utf8')
-  return (JSON.parse(sidecar) as { version?: number }).version ?? 0
+  const skillMd = await readFile(join(import.meta.dirname, '..', 'src', 'capability', 'builtin', name, 'SKILL.md'), 'utf8')
+  return declaredVersion(skillMd)
 }
 
 describe('ensureBuiltinCapabilities', () => {
@@ -44,7 +50,7 @@ describe('ensureBuiltinCapabilities', () => {
 
   it('overwrites an older seeded copy when the master is newer', async () => {
     ensureBuiltinCapabilities(kbRoot)
-    // A seeded copy from an older ship: version 0 has no declaration at all.
+    // A seeded copy from an older ship: no version in the frontmatter counts as 0.
     const target = join(kbRoot, '.dsh', 'skills', 'mail')
     await rm(target, { recursive: true, force: true })
     await mkdir(target, { recursive: true })
@@ -54,24 +60,13 @@ describe('ensureBuiltinCapabilities', () => {
     expect(await readFile(join(target, 'scripts', 'entry.py'), 'utf8')).toMatch(/json\.load/)
   })
 
-  it('overwrites a legacy frontmatter-declared copy whose version is older than the sidecar\'s', async () => {
-    ensureBuiltinCapabilities(kbRoot)
-    // A seeded copy from before the sidecar: the version lives in SKILL.md.
-    const target = join(kbRoot, '.dsh', 'skills', 'mail')
-    const skillMd = await readFile(join(target, 'SKILL.md'), 'utf8')
-    await rm(join(target, 'yantao.json'), { force: true })
-    await writeFile(join(target, 'SKILL.md'), `${skillMd}version: 1\n`, 'utf8')
-    expect(ensureBuiltinCapabilities(kbRoot)).toContain('mail')
-    expect(await seededVersion('mail')).toBe(await masterVersion('mail'))
-  })
-
   it('leaves a newer human-edited copy alone even when the master changes', async () => {
     ensureBuiltinCapabilities(kbRoot)
     const target = join(kbRoot, '.dsh', 'skills', 'mail')
-    // The human bumped their own copy past the shipped version.
+    // The human bumped their own copy's frontmatter version past the shipped one.
     const shipped = await masterVersion('mail')
-    const sidecar = await readFile(join(target, 'yantao.json'), 'utf8')
-    await writeFile(join(target, 'yantao.json'), sidecar.replace(`"version": ${shipped}`, `"version": ${shipped + 5}`), 'utf8')
+    const skillMd = await readFile(join(target, 'SKILL.md'), 'utf8')
+    await writeFile(join(target, 'SKILL.md'), skillMd.replace(`version: ${shipped}`, `version: ${shipped + 5}`), 'utf8')
     expect(ensureBuiltinCapabilities(kbRoot)).toEqual([])
     expect(await seededVersion('mail')).toBe(shipped + 5)
   })
@@ -114,9 +109,11 @@ describe('ensureBuiltinCapabilities', () => {
     // versioned master wins over their older copy, and the hand edit
     // survives in the backup.
     const shipped = await masterVersion('mail')
-    await writeFile(join(target, 'SKILL.md'), '---\nname: mail\ndescription: 人改过的版本\n---\n', 'utf8')
-    const sidecar = await readFile(join(target, 'yantao.json'), 'utf8')
-    await writeFile(join(target, 'yantao.json'), sidecar.replace(`"version": ${shipped}`, `"version": ${shipped - 1}`), 'utf8')
+    await writeFile(
+      join(target, 'SKILL.md'),
+      `---\nname: mail\ndescription: 人改过的版本\nmetadata:\n  yantao:\n    version: ${shipped - 1}\n---\n\n人改的正文。\n`,
+      'utf8',
+    )
     expect(ensureBuiltinCapabilities(kbRoot)).toContain('mail')
     const backups = await readdir(join(kbRoot, '.dsh', 'yantao', 'capability-backups', 'mail'))
     expect(backups).toHaveLength(1)
@@ -143,5 +140,58 @@ describe('ensureBuiltinCapabilities', () => {
     expect(backups).toHaveLength(1)
     expect(await readFile(join(kbRoot, '.dsh', 'yantao', 'capability-backups', 'cap', backups[0]!, 'SKILL.md'), 'utf8'))
       .toBe('人改过')
+  })
+})
+
+describe('seedBuiltinRoutes', () => {
+  /** The routing file's parsed capabilities record. */
+  async function routes(): Promise<Record<string, unknown>> {
+    const raw = await readFile(join(kbRoot, '.dsh', 'skills', 'yantao.json'), 'utf8')
+    return (JSON.parse(raw) as { capabilities: Record<string, unknown> }).capabilities
+  }
+
+  it('adds the builtins\' reachability entries to a fresh routing file', async () => {
+    await seedBuiltinRoutes(kbRoot)
+    expect(await routes()).toMatchObject({
+      mail: { path: 'mail', invocation: ['human', 'agent'], appliesTo: { external: ['mailbox'] } },
+    })
+  })
+
+  it('is idempotent: a second call changes nothing', async () => {
+    await seedBuiltinRoutes(kbRoot)
+    const first = await readFile(join(kbRoot, '.dsh', 'skills', 'yantao.json'), 'utf8')
+    await seedBuiltinRoutes(kbRoot)
+    expect(await readFile(join(kbRoot, '.dsh', 'skills', 'yantao.json'), 'utf8')).toBe(first)
+  })
+
+  it('never overwrites an entry the human already has', async () => {
+    await mkdir(join(kbRoot, '.dsh', 'skills'), { recursive: true })
+    const humanEntry = { path: 'my-own-mail', invocation: ['human'] }
+    await writeFile(
+      join(kbRoot, '.dsh', 'skills', 'yantao.json'),
+      JSON.stringify({ version: 1, capabilities: { mail: humanEntry } }),
+      'utf8',
+    )
+    await seedBuiltinRoutes(kbRoot)
+    expect(await routes()).toEqual({ mail: humanEntry })
+  })
+
+  it('keeps unrelated entries while adding the missing builtin', async () => {
+    await mkdir(join(kbRoot, '.dsh', 'skills'), { recursive: true })
+    await writeFile(
+      join(kbRoot, '.dsh', 'skills', 'yantao.json'),
+      JSON.stringify({ version: 1, capabilities: { 'paper-digest': { path: 'repo/skills/paper-digest', invocation: ['agent'] } } }),
+      'utf8',
+    )
+    await seedBuiltinRoutes(kbRoot)
+    const seeded = await routes()
+    expect(seeded['paper-digest']).toMatchObject({ path: 'repo/skills/paper-digest' })
+    expect(seeded.mail).toBeDefined()
+  })
+
+  it('swallows a broken routing file instead of throwing', async () => {
+    await mkdir(join(kbRoot, '.dsh', 'skills'), { recursive: true })
+    await writeFile(join(kbRoot, '.dsh', 'skills', 'yantao.json'), '{ not json', 'utf8')
+    await expect(seedBuiltinRoutes(kbRoot)).resolves.toBeUndefined()
   })
 })

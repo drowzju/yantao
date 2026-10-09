@@ -42,9 +42,7 @@ export function capabilityGestureSource(list: CapabilityLoader): InputTriggerSou
         .slice(0, LIMIT)
         .map(capability => ({
           name: capability.name,
-          // ADR-0043 决定 5: script-type rows carry the ⚙ marker — a click
-          // runs them via kb_run_capability, not an instruction gesture.
-          description: capability.entry === undefined ? capability.description : `⚙ ${capability.description}`,
+          description: capability.description,
           section: '能力',
         }))
     },

@@ -25,6 +25,10 @@ interface CapabilityState {
   state?: unknown
   /** ISO 8601 timestamp of the most recent completed run. */
   lastRunAt?: string
+  /** Total completed runs since the KB began counting (ADR-0053 决定 3); human and agent mixed. */
+  runCount?: number
+  /** ISO 8601 timestamp of the most recent failed run; absent when the last run succeeded (or never ran). */
+  lastFailAt?: string
 }
 
 /** The whole persisted state: the capabilities bound to one KB root. */
@@ -111,11 +115,16 @@ export interface CapabilityRecord {
   readonly state?: unknown
   /** ISO 8601 timestamp of the most recent completed run, absent when it never ran. */
   readonly lastRunAt?: string
+  /** Total completed runs (ADR-0053 决定 3); human and agent mixed into one count. */
+  readonly runCount?: number
+  /** ISO 8601 timestamp of the most recent failed run; absent when no failure is on record. */
+  readonly lastFailAt?: string
 }
 
 /**
- * Read one capability's whole persisted record — state plus run stamp — for
- * the capability list (ADR-0021 决定 8: the 清单 shows 上次运行/断点摘要).
+ * Read one capability's whole persisted record — state plus run stamps — for
+ * the capability list (ADR-0021 决定 8: the 清单 shows 上次运行/断点摘要;
+ * ADR-0053 决定 4 adds 共 N 次/上次失败).
  * @param kbRoot - the knowledge-base root directory.
  * @param name - the capability's kebab-case name.
  * @returns the record, or `undefined` when the capability has never run.
@@ -126,6 +135,45 @@ export function readCapabilityRecord(kbRoot: string, name: string): CapabilityRe
   return {
     ...slot.state !== undefined ? { state: slot.state } : {},
     ...slot.lastRunAt !== undefined ? { lastRunAt: slot.lastRunAt } : {},
+    ...slot.runCount !== undefined ? { runCount: slot.runCount } : {},
+    ...slot.lastFailAt !== undefined ? { lastFailAt: slot.lastFailAt } : {},
+  }
+}
+
+/**
+ * Book one completed capability run at the accounting seam (ADR-0053 决定 3):
+ * `lastRunAt` advances always; `runCount` increments; a failed run also
+ * stamps `lastFailAt` (kept across later successes — the field answers "when
+ * did this capability last fail", not "did the last run fail"). Gate
+ * rejections and cancellations are not runs and never reach here.
+ * Fire-and-forget and self-swallowing: a lost ledger entry must never cost a
+ * capability its run, so every error — unreadable file, locked disk — is
+ * swallowed.
+ * @param kbRoot - the knowledge-base root directory.
+ * @param name - the capability's kebab-case name.
+ * @param ok - whether the run succeeded (exit code 0 / clean answer).
+ */
+export function recordCapabilityRun(kbRoot: string, name: string, ok: boolean): void {
+  try {
+    const existing = readCapabilityStateFile(kbRoot)
+    const previous = existing?.capabilities?.[name]
+    const now = new Date().toISOString()
+    writeCapabilityStateFile(kbRoot, {
+      ...existing,
+      capabilities: {
+        ...existing?.capabilities,
+        [name]: {
+          ...previous,
+          lastRunAt: now,
+          runCount: (typeof previous?.runCount === 'number' ? previous.runCount : 0) + 1,
+          ...(ok ? {} : { lastFailAt: now }),
+        },
+      },
+    }).catch(() => {
+      // A lost ledger entry is cheaper than a failed run.
+    })
+  } catch {
+    // Same discipline, synchronous half.
   }
 }
 

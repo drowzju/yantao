@@ -1,38 +1,29 @@
 /**
- * Run one capability's host-side entry (ADR-0021): one subprocess call, one
- * JSON object back — the mail connector's (ADR-0019) and the extractor's
- * (ADR-0020) pattern, generalized.
+ * The builtin envelope-script machinery (ADR-0021), surviving ADR-0052's
+ * execution unification in exactly one role: the **mail dedicated RPC**.
+ * The generic "host spawns a declaration-speaking script" channel is
+ * retired — every script execution goes through the exec bridge
+ * (`capability/exec.ts`), and `kb_run_capability` returns SKILL.md
+ * instructions only. What remains here is the subprocess contract the mail
+ * panel's dedicated RPC drives (`mailRun`): one Python subprocess, one JSON
+ * object in on stdin (`name`, `kbRoot`, `input`, `state`, `channel`), one
+ * JSON object back on stdout — `{ok: true, result?, state?, artifacts?}` or
+ * `{ok: false, kind, message, hint?}`.
  *
- * A capability is a dsh skill directory whose declaration lives in a
- * `yantao.json` sidecar at the directory root (`entry`/`runtime`/`appliesTo`/
- * `invocation`) —
- * out-of-band, so an open-source skill directory can be dropped in without
- * touching its SKILL.md; the legacy `metadata.yantao` frontmatter section still
- * answers when no sidecar is present. Discovery is `ctx.skills`' business, this
- * module owns the contract between the host and
- * the entry script. The script reads one JSON object on stdin (`name`,
- * `kbRoot`, the caller's `input`, and the capability's previous `state`) and
- * answers with one JSON object on stdout: either
- * `{ ok: true, result?, state?, artifacts? }` — artifacts are name/base64
- * pairs the *controller* writes under `.dsh/yantao/capabilities/<name>/`, so a
- * downloaded script never picks its own write paths — or
- * `{ ok: false, kind?, message, hint? }`, which surfaces verbatim.
- *
- * Every failure mode — a missing manifest, an escaping entry path, missing
- * Python, a timeout, garbage on stdout — becomes one {@link CapabilityError}
- * carrying a Chinese message and a Chinese hint (ADR-0006). The `spawn`
- * implementation is injectable, so tests exercise every branch without
- * Python ever being touched.
+ * The shared vocabulary also lives here: `CapabilityError` (every failure
+ * mode becomes one error with a Chinese message and hint, ADR-0006), the
+ * reach types (`CapabilityInvoker`, `CapabilityAppliesTo`) the routing file
+ * validates, and the observable run envelope (`CapabilityExec`, ADR-0044
+ * 决定 6) the 提炼经验 gesture mines. The `spawn` implementation is
+ * injectable, so tests exercise every branch without Python ever being
+ * touched.
  * @module @deepseek-ai/dsh-api-yantao-kb-controller/capability
  */
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
-import { join, resolve, sep } from 'node:path'
 import type { SpawnLike } from '../open.ts'
 import type { KbCapabilityArtifact as CapabilityArtifact } from '../types.ts'
-import type { SkillDefinition } from '@deepseek-ai/dsh-skill'
 
-/** What a resource may be applied to, as declared by the capability. */
+/** What a resource may be applied to, as recorded in the capability's route entry. */
 export interface CapabilityAppliesTo {
   /**
    * Resource suffixes (with dot, lowercase), e.g. `['.epub', '.pdf']` — or
@@ -54,40 +45,6 @@ export interface CapabilityAppliesTo {
 
 /** Who may invoke a capability (ADR-0023 决定 2): the 能力 tab, the agent's `kb_run_capability`, or both. */
 export type CapabilityInvoker = 'human' | 'agent'
-
-/** The `metadata.yantao` declaration that turns a skill directory into a capability. */
-export interface CapabilityManifest {
-  /**
-   * Entry script path, relative to the skill directory — or (ADR-0043 决定 2)
-   * to the `.dsh/` root when it names the adapter plane, e.g.
-   * `yantao/capability-adapters/<name>/entry.py`; either way it must stay
-   * inside its root. Absent marks an *instruction capability* (ADR-0023
-   * 决定 6): no script — "running" it hands the agent the SKILL.md body as
-   * its instructions.
-   */
-  readonly entry?: string
-  /** The only runtime in v1 (ADR-0021 取舍台账第 7 条); present exactly when `entry` is. */
-  readonly runtime?: 'python'
-  /** What the capability accepts; absent means "offered from the capability tab only". */
-  readonly appliesTo?: CapabilityAppliesTo
-  /**
-   * Who may invoke this capability (ADR-0023 决定 2). Defaults to
-   * `['human']` — undeclared means invisible and uncallable from the agent.
-   */
-  readonly invocation: readonly CapabilityInvoker[]
-}
-
-/** The `yantao.json` sidecar's shape: the same declaration, out-of-band. */
-interface CapabilitySidecar {
-  /** Entry script path, relative to the skill directory; absent = instruction capability. */
-  readonly entry?: unknown
-  /** The only runtime in v1. */
-  readonly runtime?: unknown
-  /** What the capability accepts. */
-  readonly appliesTo?: unknown
-  /** Who may invoke the capability; absent defaults to `['human']`. */
-  readonly invocation?: unknown
-}
 
 /** Why a capability run failed; the UI picks its wording and its remedy from this. */
 export type CapabilityErrorKind =
@@ -167,9 +124,9 @@ const CAPABILITY_ERROR_MESSAGES: Readonly<Record<CapabilityErrorKind, string>> =
 
 /** Chinese remedy per failure kind. */
 export const CAPABILITY_HINTS: Readonly<Record<CapabilityErrorKind, string>> = {
-  'not-found': '请确认能力目录还在已注册的技能目录下，且 yantao.json（或 SKILL.md frontmatter）完好。',
-  'bad-manifest': '请检查能力目录的 yantao.json：entry 指向目录内的 .py 脚本，runtime 为 python。',
-  'not-invocable': '请在能力的 yantao.json 里声明 "invocation": ["human", "agent"]，再由人确认后使用。',
+  'not-found': '请确认能力已注册在中央路由文件 .dsh/skills/yantao.json 中，且技能目录还在。',
+  'bad-manifest': '请检查中央路由文件 .dsh/skills/yantao.json：条目形如 {path, invocation, appliesTo}。',
+  'not-invocable': '请在能力详情页勾选「允许 agent 调用」，或手动在中央路由文件的 invocation 里加入 "agent"。',
   'python-missing': '请安装 Python 3（安装时勾选 Add to PATH）。',
   timeout: '任务可能过大，请重试一次。',
   cancelled: '本次执行已按要求停止；已经落地的部分不受影响。',
@@ -184,72 +141,11 @@ function fail(kind: CapabilityErrorKind, message?: string, hint?: string, exec?:
 }
 
 /**
- * Read the `yantao.json` sidecar of one capability directory, when the
- * definition names a local directory at all. A missing or unreadable sidecar
- * answers `undefined` (the frontmatter fallback takes over); a sidecar that
- * exists but is not a JSON object is a broken declaration, not a fallback.
- * @param directory - the capability's local directory, when it has one.
- * @param name - the capability's name, for the error message.
- * @returns the parsed sidecar, or `undefined` when there is none.
- */
-function sidecarOf(directory: string | undefined, name: string): CapabilitySidecar | undefined {
-  if (directory === undefined) return undefined
-  let raw: string
-  try {
-    raw = readFileSync(join(directory, 'yantao.json'), 'utf8')
-  } catch {
-    return undefined
-  }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    throw fail('bad-manifest', `能力「${name}」的 yantao.json 不是合法 JSON。`)
-  }
-  if (typeof parsed !== 'object' || parsed === null) {
-    throw fail('bad-manifest', `能力「${name}」的 yantao.json 必须是 JSON 对象。`)
-  }
-  return parsed
-}
-
-/** The legacy `metadata.yantao` frontmatter section of one skill definition. */
-function frontmatterOf(definition: SkillDefinition): unknown {
-  const metadata = definition.metadata
-  return typeof metadata === 'object' ? (metadata as { yantao?: unknown }).yantao : undefined
-}
-
-/** Assemble one manifest from a declaration, validating every field. */
-export function manifestFrom(name: string, declared: unknown): CapabilityManifest {
-  if (typeof declared !== 'object' || declared === null) {
-    throw fail('bad-manifest', `能力「${name}」没有能力声明（yantao.json 或 SKILL.md 的 metadata.yantao 段）。`)
-  }
-  const { entry, runtime, appliesTo, invocation } = declared as {
-    entry?: unknown
-    runtime?: unknown
-    appliesTo?: unknown
-    invocation?: unknown
-  }
-  if (entry !== undefined && (typeof entry !== 'string' || entry === '')) {
-    throw fail('bad-manifest', `能力「${name}」的 entry 必须是非空字符串，或整个省略（缺 entry 即指令型能力）。`)
-  }
-  if (runtime !== undefined && runtime !== 'python') {
-    const shown = typeof runtime === 'string' ? runtime : JSON.stringify(runtime)
-    throw fail('bad-manifest', `能力「${name}」的 runtime 只支持 python，声明的是 ${shown}。`)
-  }
-  return {
-    ...typeof entry === 'string' ? { entry } : {},
-    ...typeof entry === 'string' ? { runtime: 'python' as const } : {},
-    ...appliesTo !== undefined ? { appliesTo: appliesToOf(name, appliesTo) } : {},
-    invocation: invocationOf(name, invocation),
-  }
-}
-
-/**
  * Validate one `invocation` value (ADR-0023 决定 2): a non-empty array drawn
  * from `human`/`agent`; absent defaults to `['human']` — undeclared means the
- * agent never sees the capability.
+ * agent never sees the capability. Shared by the routing file's reader.
  */
-function invocationOf(name: string, value: unknown): readonly CapabilityInvoker[] {
+export function invocationOf(name: string, value: unknown): readonly CapabilityInvoker[] {
   if (value === undefined) return ['human']
   if (!Array.isArray(value) || value.length === 0 || value.some(item => item !== 'human' && item !== 'agent')) {
     throw fail('bad-manifest', `能力「${name}」的 invocation 必须是由 "human" 和/或 "agent" 组成的非空数组。`)
@@ -257,20 +153,8 @@ function invocationOf(name: string, value: unknown): readonly CapabilityInvoker[
   return value as readonly CapabilityInvoker[]
 }
 
-/**
- * Read and validate one skill definition's capability declaration: the
- * `yantao.json` sidecar in the capability directory when it exists (the
- * out-of-band form, so an unmodified open-source skill directory works),
- * falling back to the legacy `metadata.yantao` frontmatter section.
- */
-export function manifestOf(definition: SkillDefinition): CapabilityManifest {
-  const directory = definition.resourceBase?.kind === 'directory' ? definition.resourceBase.path : undefined
-  const sidecar = sidecarOf(directory, definition.name)
-  return manifestFrom(definition.name, sidecar ?? frontmatterOf(definition))
-}
-
-/** Validate one `appliesTo` value; unknown shapes are refused, not coerced. */
-function appliesToOf(name: string, value: unknown): CapabilityAppliesTo {
+/** Validate one `appliesTo` value; unknown shapes are refused, not coerced. Shared by the routing file's reader. */
+export function appliesToOf(name: string, value: unknown): CapabilityAppliesTo {
   if (typeof value !== 'object' || value === null) {
     throw fail('bad-manifest', `能力「${name}」的 appliesTo 必须是对象。`)
   }
@@ -309,70 +193,6 @@ function suffixList(name: string, key: string, value: unknown): readonly string[
     }
   }
   return list.map(suffix => suffix.toLowerCase())
-}
-
-/**
- * The absolute paths an `entry` may legitimately resolve to, nearest root
- * first (ADR-0043 决定 2): inside the skill directory itself, then inside
- * the `.dsh/` root (the adapter plane — `.dsh/yantao/capability-adapters/<name>/entry.py`
- * and kin, so the skill directory can stay a pristine copy). A candidate
- * outside its root is not a candidate at all — an escaping entry answers an
- * empty list. Shared by {@link resolveEntry} (which picks the first existing
- * one) and the declaration introspection RPC (which shows every candidate).
- * @param directory - the capability's skill directory.
- * @param entry - the declared entry, as written.
- * @param dshRoot - the KB's `.dsh/` root; omit to skip the adapter plane.
- * @returns the candidate absolute paths, in precedence order.
- */
-export function entryCandidatesOf(directory: string, entry: string, dshRoot?: string): readonly string[] {
-  const within = (root: string, path: string): boolean => {
-    const confined = resolve(root)
-    return path === confined || path.startsWith(confined + sep)
-  }
-  const candidates: string[] = []
-  const localPath = resolve(directory, entry)
-  if (within(directory, localPath)) candidates.push(localPath)
-  if (dshRoot !== undefined) {
-    const adapterPath = resolve(dshRoot, entry)
-    if (within(dshRoot, adapterPath)) candidates.push(adapterPath)
-  }
-  return candidates
-}
-
-/**
- * Resolve one skill definition into a runnable capability: its manifest, the
- * skill directory it lives in, and the entry script's absolute path — the
- * first of {@link entryCandidatesOf}'s candidates that exists on disk.
- * Anything further out is refused, whatever the declaration says.
- * @param definition - the winning skill definition from `ctx.skills.get`.
- * @param dshRoot - the KB's `.dsh/` root; required for out-of-directory
- *   entries, harmless otherwise.
- * @returns the manifest, the skill directory, and the entry's absolute path.
- */
-export function resolveEntry(definition: SkillDefinition, dshRoot?: string): {
-  manifest: CapabilityManifest
-  directory: string
-  entryPath: string
-} {
-  if (definition.resourceBase?.kind !== 'directory') {
-    throw fail('bad-manifest', `能力「${definition.name}」没有可执行的本地目录（远程或打包资源没有宿主入口）。`)
-  }
-  const manifest = manifestOf(definition)
-  // An instruction capability (no entry, ADR-0023 决定 6) has no subprocess to
-  // resolve; the caller branches on `manifest.entry` before coming here.
-  if (manifest.entry === undefined) {
-    throw fail('bad-manifest', `能力「${definition.name}」是指令型能力，没有入口脚本可执行。`)
-  }
-  const directory = definition.resourceBase.path
-  const entry = manifest.entry
-  const candidates = entryCandidatesOf(directory, entry, dshRoot)
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return { manifest, directory, entryPath: candidate }
-  }
-  if (candidates.length > 0) {
-    throw fail('bad-manifest', `能力「${definition.name}」的入口脚本不存在：${entry}`)
-  }
-  throw fail('bad-manifest', `能力「${definition.name}」的 entry 越出了能力目录与 .dsh/ 目录：${entry}`)
 }
 
 /** One artifact the script asks the controller to write; the wire shape is `KbCapabilityArtifact`. */
@@ -434,7 +254,8 @@ export const CAPABILITY_TIMEOUT_MS = 300_000
 const MAX_STDOUT_BYTES = 64 * 1024 * 1024
 
 /**
- * Run one capability's entry script — one subprocess call, no retries.
+ * Run the mail capability's entry script (ADR-0052 决定 5: the one survivor
+ * of the execution unification) — one subprocess call, no retries.
  * @param options - see {@link RunCapabilityOptions}.
  * @returns the script's output (result, next state, artifacts).
  */

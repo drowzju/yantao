@@ -19,6 +19,7 @@ import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionInputResolver } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   SessionCancelRequest, SessionCancelValue, SessionCreateRequest, SessionCreateValue, SessionFollowFrame,
@@ -31,9 +32,10 @@ import type {
 import type {
   KbMailArchiveArgs, KbMailArchiveResult, KbCapabilityAdoptArgs, KbCapabilityAdoptResult, KbCapabilityCreateArgs, KbCapabilityCreateResult,
   KbCapabilityListResult,
-  KbCapabilityDeclarationArgs, KbCapabilityDeclarationResult,
   KbCapabilityRegisterArgs, KbCapabilityRegisterResult,
-  KbCapabilityRunArgs, KbCapabilityRunResult, KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
+  KbCapabilityRouteUpdateArgs, KbCapabilityRouteUpdateResult,
+  KbCapabilityRunArgs, KbCapabilityRunResult, KbCapabilityUnregisterArgs, KbCapabilityUnregisterResult,
+  KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
   KbDeleteResourceResult, KbFileContent, KbGraphResult, KbLinksResult,
   KbMailDeleteArgs, KbMailDeleteResult, KbMailDownloadAttachmentsArgs, KbMailDownloadAttachmentsResult,
   KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
@@ -90,16 +92,23 @@ export interface KbRemote {
   mailMarkRead(args: KbMailMarkReadArgs): Promise<RemoteResult<KbMailMarkReadResult>>
   /** List the registered capabilities (ADR-0021). */
   capabilityList(): Promise<RemoteResult<KbCapabilityListResult>>
-  /** One capability's parsed declaration, both channels (ADR-0043 决定 7) — the 能力 tab's 声明 section. */
-  capabilityDeclaration(args: KbCapabilityDeclarationArgs): Promise<RemoteResult<KbCapabilityDeclarationResult>>
-  /** Run one capability's entry script (ADR-0021); the signal is the human channel's cancel line (ADR-0031). */
-  capabilityRun(args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<RemoteResult<KbCapabilityRunResult>>
+  /**
+   * Run the `mail` capability's entry script — the one dedicated internal RPC
+   * that survives ADR-0052 决定 3's execution unification (the 台账 #1
+   * builtin-RPC pattern). The signal is the human channel's cancel line
+   * (ADR-0031).
+   */
+  mailRun(args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<RemoteResult<KbCapabilityRunResult>>
   /** Scaffold one new capability under `.dsh/skills/` (ADR-0021 决定 8's 「新建能力」). */
   capabilityCreate(args: KbCapabilityCreateArgs): Promise<RemoteResult<KbCapabilityCreateResult>>
   /** Adopt one out-of-KB skill into `.dsh/skills/` (ADR-0025 决定 1). */
   capabilityAdopt(args: KbCapabilityAdoptArgs): Promise<RemoteResult<KbCapabilityAdoptResult>>
-  /** Register one in-KB skill by writing its sidecar in place (ADR-0025 决定 1). */
+  /** Register one in-KB skill by writing its central-route entry (ADR-0025 决定 1, ADR-0052 决定 1). */
   capabilityRegister(args: KbCapabilityRegisterArgs): Promise<RemoteResult<KbCapabilityRegisterResult>>
+  /** Rewrite one capability's route entry — the reach toggles' write path (ADR-0053 决定 2). */
+  capabilityRouteUpdate(args: KbCapabilityRouteUpdateArgs): Promise<RemoteResult<KbCapabilityRouteUpdateResult>>
+  /** Remove one capability's route entry — the 注销 button's write path (ADR-0053 决定 2). */
+  capabilityUnregister(args: KbCapabilityUnregisterArgs): Promise<RemoteResult<KbCapabilityUnregisterResult>>
   /** Copy one dropped file into `resources/` (ADR-0020). */
   registerResource(args: KbRegisterResourceArgs): Promise<RemoteResult<KbRegisterResourceResult>>
   /** The behavior-memory store's listing (ADR-0032): every scope that has a file. */
@@ -281,9 +290,6 @@ export type ResourceDeleter = (path: string) => Promise<KbDeleteResourceResult>
 /** List the registered capabilities (ADR-0021). */
 export type CapabilityLoader = () => Promise<KbCapabilityListResult>
 
-/** Read one capability's parsed declaration, both channels (ADR-0043 决定 7). */
-export type CapabilityDeclarationLoader = (name: string) => Promise<KbCapabilityDeclarationResult>
-
 /** List the prompt shortcuts (ADR-0040). */
 export type PromptShortcutLister = () => Promise<KbPromptShortcutListResult>
 
@@ -315,8 +321,18 @@ export type ProposalInboxResolver = (args: KbProposalInboxResolveArgs) => Promis
  */
 export type ShortcutFiller = (alias: string) => void
 
-/** Run one capability with the caller's input (ADR-0021; agent channel ADR-0023); the signal cancels the subprocess (ADR-0031). */
-export type CapabilityRunner = (args: KbCapabilityRunArgs, signal?: AbortSignal) => Promise<KbCapabilityRunResult>
+/**
+ * Run the `mail` capability's entry script through the dedicated `mailRun`
+ * RPC (ADR-0052 决定 3's surviving internal channel); the signal cancels the
+ * subprocess (ADR-0031).
+ */
+export type CapabilityMailRunner = (args: KbCapabilityRunArgs, signal?: AbortSignal) => Promise<KbCapabilityRunResult>
+
+/** Rewrite one capability's route entry — the reach toggles' write path (ADR-0053 决定 2). */
+export type CapabilityRouteUpdater = (args: KbCapabilityRouteUpdateArgs) => Promise<KbCapabilityRouteUpdateResult>
+
+/** Remove one capability's route entry — the 注销 button's write path (ADR-0053 决定 2). */
+export type CapabilityUnregisterer = (name: string) => Promise<KbCapabilityUnregisterResult>
 
 /** Scaffold one new capability under `.dsh/skills/` (ADR-0021 决定 8's 「新建能力」). */
 export type CapabilityCreator = (name: string) => Promise<KbCapabilityCreateResult>
@@ -325,10 +341,10 @@ export type CapabilityCreator = (name: string) => Promise<KbCapabilityCreateResu
 export type CapabilityAdopter = (name: string) => Promise<KbCapabilityAdoptResult>
 
 /**
- * Register one in-KB skill by writing its `yantao.json` sidecar in place
- * (ADR-0025 决定 1) — always an instruction capability; the three booleans
- * are the capability's reach (agent invocation, resource menu, selection
- * menu). A plugin repository registers by extraction.
+ * Register one in-KB skill by writing its central-route entry (ADR-0025
+ * 决定 1, ADR-0052 决定 1) — always an instruction capability; the three
+ * booleans are the capability's reach (agent invocation, resource menu,
+ * selection menu). A plugin repository registers by extraction.
  */
 export type CapabilityRegisterReach = {
   readonly agentInvoke?: boolean
@@ -675,7 +691,7 @@ export async function writeTodos(ctx: Context, args: KbWriteTodosArgs): Promise<
  * @returns the bound used, the mails, and the two flags the panel reports.
  */
 export async function fetchMail(ctx: Context, args: KbMailFetchArgs, signal?: AbortSignal): Promise<MailFetchResult> {
-  const run = await runCapability(ctx, { name: 'mail', input: args } as unknown as KbCapabilityRunArgs, signal)
+  const run = await runMail(ctx, { input: args as unknown as JsonValue }, signal)
   const result = run.result as unknown as KbMailFetchResult
   return {
     ...result,
@@ -698,9 +714,9 @@ export async function markMailRead(ctx: Context, args: KbMailMarkReadArgs): Prom
 
 /**
  * Move nominated mails to Outlook's 已删除 folder (ADR-0034 决定 5), through
- * the `mail` capability's delete verb. The generic `capabilityRun` RPC
- * hardcodes the human invoker, and the controller testifies that channel in
- * the request envelope — the entry script refuses the verb to anyone else.
+ * the `mail` capability's delete verb. The dedicated `mailRun` RPC hardcodes
+ * the human invoker, and the controller testifies that channel in the
+ * request envelope — the entry script refuses the verb to anyone else.
  * @param ctx - client root context.
  * @param ids - the nominated mails' Outlook EntryIDs (from the analysed batch).
  * @param signal - the human channel's cancel line (ADR-0031).
@@ -708,15 +724,15 @@ export async function markMailRead(ctx: Context, args: KbMailMarkReadArgs): Prom
  */
 export async function deleteMails(ctx: Context, ids: readonly string[], signal?: AbortSignal): Promise<KbMailDeleteResult> {
   const args: KbMailDeleteArgs = { verb: 'delete', ids }
-  const run = await runCapability(ctx, { name: 'mail', input: args } as unknown as KbCapabilityRunArgs, signal)
+  const run = await runMail(ctx, { input: args as unknown as JsonValue }, signal)
   return run.result as unknown as KbMailDeleteResult
 }
 
 /**
  * Keep nominated mails as `.eml` originals plus monthly index rows (ADR-0037),
- * through the `mail` capability's archive verb. The generic `capabilityRun`
- * RPC hardcodes the human invoker, and the controller testifies that channel
- * in the request envelope — the entry script refuses the verb to anyone else.
+ * through the `mail` capability's archive verb. The dedicated `mailRun` RPC
+ * hardcodes the human invoker, and the controller testifies that channel in
+ * the request envelope — the entry script refuses the verb to anyone else.
  * @param ctx - client root context.
  * @param mails - the nominated mails, each located by EntryID with the
  *   analysis's summary for the index.
@@ -725,7 +741,7 @@ export async function deleteMails(ctx: Context, ids: readonly string[], signal?:
  */
 export async function archiveMails(ctx: Context, mails: readonly ArchiveMail[], signal?: AbortSignal): Promise<KbMailArchiveResult> {
   const args: KbMailArchiveArgs = { verb: 'archive', mails }
-  const run = await runCapability(ctx, { name: 'mail', input: args } as unknown as KbCapabilityRunArgs, signal)
+  const run = await runMail(ctx, { input: args as unknown as JsonValue }, signal)
   return run.result as unknown as KbMailArchiveResult
 }
 
@@ -733,7 +749,7 @@ export async function archiveMails(ctx: Context, mails: readonly ArchiveMail[], 
  * Pull the attachments of nominated mails to `resources/mails/YYYY/MM/`
  * (the archive originals' directory) through the `mail` capability's
  * download-attachments verb. Like delete and
- * archive, the knife is human-channel-only: the generic `capabilityRun` RPC
+ * archive, the knife is human-channel-only: the dedicated `mailRun` RPC
  * hardcodes the human invoker, and the entry script refuses the verb to
  * anyone else.
  * @param ctx - client root context.
@@ -745,7 +761,7 @@ export async function downloadMailAttachments(
   ctx: Context, mails: readonly { entryId: string; summary?: string }[], signal?: AbortSignal,
 ): Promise<KbMailDownloadAttachmentsResult> {
   const args: KbMailDownloadAttachmentsArgs = { verb: 'download-attachments', mails }
-  const run = await runCapability(ctx, { name: 'mail', input: args } as unknown as KbCapabilityRunArgs, signal)
+  const run = await runMail(ctx, { input: args as unknown as JsonValue }, signal)
   return run.result as unknown as KbMailDownloadAttachmentsResult
 }
 
@@ -776,32 +792,47 @@ export async function loadCapabilities(ctx: Context): Promise<KbCapabilityListRe
 }
 
 /**
- * Read one capability's parsed declaration (ADR-0043 决定 7): the sidecar's
- * raw text and resolved fields, the central route's registration state, and
- * the dual gate's agent-invocability — every miss stated in data, so the
- * 能力 tab's 声明 section renders problems instead of a blank pane.
+ * Rewrite one capability's central-route entry (ADR-0053 决定 2) — the
+ * detail page's reach toggles' write path. Only the routing file moves;
+ * the skill directory is untouched.
  * @param ctx - client root context.
- * @param name - the capability's skill name.
- * @returns the parsed declaration, or a rejected promise carrying the reason.
+ * @param args - the capability's name plus the fields to rewrite; an absent
+ *   field is left alone.
+ * @returns the routing file's KB-relative path, or a rejected promise carrying the reason.
  */
-export async function loadCapabilityDeclaration(ctx: Context, name: string): Promise<KbCapabilityDeclarationResult> {
+export async function updateCapabilityRoute(ctx: Context, args: KbCapabilityRouteUpdateArgs): Promise<KbCapabilityRouteUpdateResult> {
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
-  return unwrapRemote(await kb.capabilityDeclaration({ name }))
+  return unwrapRemote(await kb.capabilityRouteUpdate(args))
 }
 
 /**
- * Run one capability's entry script (ADR-0021).
+ * Remove one capability's central-route entry (ADR-0053 决定 2's 注销) — the
+ * skill directory stays put; only reachability is revoked.
  * @param ctx - client root context.
- * @param args - the capability's name and its input.
+ * @param name - the capability's name, as the central route addresses it.
+ * @returns the routing file's KB-relative path, or a rejected promise carrying the reason.
+ */
+export async function unregisterCapability(ctx: Context, name: string): Promise<KbCapabilityUnregisterResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.capabilityUnregister({ name }))
+}
+
+/**
+ * Run the `mail` capability's entry script through the dedicated `mailRun`
+ * RPC (ADR-0052 决定 3): the one internal channel that survived execution
+ * unification, serving the mail verbs and nothing else.
+ * @param ctx - client root context.
+ * @param args - the caller's input, handed to the entry script verbatim.
  * @param signal - the human channel's cancel line (ADR-0031); an abort kills
  *   the entry script's subprocess server-side.
  * @returns the run record, or a rejected promise carrying the reason.
  */
-export async function runCapability(ctx: Context, args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<KbCapabilityRunResult> {
+async function runMail(ctx: Context, args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<KbCapabilityRunResult> {
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
-  return unwrapRemote(await kb.capabilityRun(args, signal))
+  return unwrapRemote(await kb.mailRun(args, signal))
 }
 
 /**

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import type { KbTreeSection } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { KbCapabilityDeclarationResult, KbCapabilityRunResult, KbCapabilitySummary, KbLinksResult, KbMailFetchResult, KbTodosResult, KbUnregisteredSkill } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary, KbLinksResult, KbMailFetchResult, KbTodosResult, KbUnregisteredSkill } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { TreeLoader } from '../src/client/Workbench.tsx'
 import { IntakeRail, WorkspaceRail, groupResourceFiles, type IntakeRailProps } from '../src/client/Workbench.tsx'
 import { Frame } from '../src/client/frame/Frame.tsx'
@@ -958,24 +958,16 @@ describe('WorkspaceRail', () => {
 
 /** Two capabilities as `capabilityList` answers them (ADR-0021). */
 const CAPABILITIES: KbCapabilitySummary[] = [
-  { name: 'mail', description: '读 Outlook 邮件', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human', 'agent'] },
-  { name: 'paper-digest', description: '摘要一篇论文', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'] },
+  { name: 'mail', description: '读 Outlook 邮件', source: 'project', invocation: ['human', 'agent'] },
+  { name: 'paper-digest', description: '摘要一篇论文', source: 'project', invocation: ['human'] },
 ]
-
-/** The declaration stub every detail view gets (ADR-0043 决定 7); the section's own assertions live in capability-panel.client.spec.tsx. */
-const DECLARATION: KbCapabilityDeclarationResult = {
-  name: 'mail',
-  sidecar: { present: false, problem: 'sidecar 不存在：目录内没有 yantao.json，SKILL.md 也没有 metadata.yantao 段。' },
-  route: { registered: false },
-  agentInvocable: false,
-}
 
 /** Capabilities for the row-menu matching tests (ADR-0021 决定 7, ADR-0023 决定 2). */
 const ROW_CAPABILITIES: KbCapabilitySummary[] = [
-  { name: 'eml-digest', description: '读一封邮件', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'], appliesTo: { resource: ['.eml'] } },
-  { name: 'meeting-minutes', description: '整理会议纪要', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'], appliesTo: { entity: ['meeting'] } },
-  { name: 'project-review', description: '回顾一个项目', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['human'], appliesTo: { entity: ['project'] } },
-  { name: 'agent-only', description: '只给智能体调用', source: 'project', entry: 'scripts/entry.py', runtime: 'python', invocation: ['agent'], appliesTo: { resource: ['.eml'] } },
+  { name: 'eml-digest', description: '读一封邮件', source: 'project', invocation: ['human'], appliesTo: { resource: ['.eml'] } },
+  { name: 'meeting-minutes', description: '整理会议纪要', source: 'project', invocation: ['human'], appliesTo: { entity: ['meeting'] } },
+  { name: 'project-review', description: '回顾一个项目', source: 'project', invocation: ['human'], appliesTo: { entity: ['project'] } },
+  { name: 'agent-only', description: '只给智能体调用', source: 'project', invocation: ['agent'], appliesTo: { resource: ['.eml'] } },
 ]
 
 /** The capability panel's faces, all spies. */
@@ -983,17 +975,15 @@ function capabilityProps(overrides: Partial<Parameters<typeof CapabilityPanel>[0
   return {
     t,
     load: () => Promise.resolve({ capabilities: CAPABILITIES, unregistered: [] }),
-    loadDeclaration: () => Promise.resolve(DECLARATION),
     create: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     adopt: () => Promise.resolve({ path: '.dsh/skills/新能力' }),
     register: () => Promise.resolve({ path: '.dsh/skills/yantao.json' }),
+    updateRoute: () => Promise.resolve({ path: '.dsh/skills/yantao.json' }),
+    unregister: () => Promise.resolve({ path: '.dsh/skills/yantao.json' }),
     mail: () => <div data-mail-stub="true">邮件面板</div>,
     loadShortcuts: () => Promise.resolve({ shortcuts: [] }),
     saveShortcuts: () => Promise.resolve({ shortcuts: [], path: '.dsh/yantao/prompt-shortcuts.json' }),
     fillShortcut: () => {},
-    runs: [],
-    onDistill: () => {},
-    distilling: null,
     ...overrides,
   }
 }
@@ -1129,14 +1119,6 @@ describe('CapabilityPanel', () => {
     await act(async () => { fireEvent.click(screen.getByText('采纳')) })
     expect(adopt).toHaveBeenCalledWith('notes-helper')
     expect(await screen.findByText('← 返回清单')).toBeTruthy()
-  })
-
-  it('warns in the confirm when the source carries its own declaration', async () => {
-    const rows = [unregistered({ sidecar: { entry: 'run.py', invocation: ['human', 'agent'] } })]
-    render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }) })} />)
-    await unfoldInventory()
-    fireEvent.click(await screen.findByText('notes-helper'))
-    expect(await screen.findByText(/外带声明不会静默生效/)).toBeTruthy()
   })
 
   it('registers an in-KB skill through the guided dialog, human-only by default', async () => {
@@ -1709,50 +1691,6 @@ describe('Frame', () => {
     expect(await screen.findByText('发送失败：会话通道不可用，无法发送。')).toBeTruthy()
   })
 
-  it('lists a running capability in the 任务 tab and cancels it from there (ADR-0031)', async () => {
-    let kill: (() => void) | null = null
-    const capabilityRun = vi.fn((_args: unknown, signal?: AbortSignal): Promise<KbCapabilityRunResult> =>
-      new Promise((_resolve, reject) => {
-        kill = () => { reject(new Error('aborted')) }
-        signal?.addEventListener('abort', () => { kill?.() }, { once: true })
-      }))
-    const { container } = render(renderFrame({
-      capabilityList: () => Promise.resolve({
-        capabilities: [{
-          name: 'slow-report', description: '慢慢跑', source: 'project', invocation: ['human'],
-          appliesTo: { resource: ['.eml'] }, entry: 'run.py', runtime: 'python',
-        }],
-        unregistered: [],
-      }),
-      capabilityRun,
-    }))
-    fireEvent.contextMenu(await screen.findByText('周报.eml'), { clientX: 40, clientY: 60 })
-    const group = await waitFor(() => {
-      const found = container.querySelector('[data-row-capabilities="true"]')
-      expect(found).not.toBeNull()
-      return found as HTMLElement
-    })
-    fireEvent.click(within(group).getByText('slow-report'))
-    expect(await screen.findByText('能力「slow-report」执行中…')).toBeTruthy()
-
-    // The 任务 tab shows the run with a badge, running on top.
-    fireEvent.click(screen.getByText('任务'))
-    const pane = await waitFor(() => {
-      const found = document.querySelector('[data-tasks-pane="true"]')
-      expect(found).not.toBeNull()
-      return found as HTMLElement
-    })
-    expect(document.querySelector('[data-tasks-badge="true"]')?.textContent).toBe('1')
-    const line = pane.querySelector('[data-task-row]') as HTMLElement
-    expect(line.getAttribute('data-task-status')).toBe('running')
-    expect(line.textContent).toContain('能力「slow-report」')
-
-    // 取消 on the row reaches the runner's abort signal and ends the row.
-    fireEvent.click(within(line).getByText('取消'))
-    await waitFor(() => { expect(line.getAttribute('data-task-status')).toBe('cancelled') })
-    expect((capabilityRun.mock.calls[0]?.[1] as AbortSignal).aborted).toBe(true)
-  })
-
   it('opens the validate run\'s detail drawer from its 查看 verb (ADR-0035)', async () => {
     const sessionDetail = vi.fn((): Promise<SessionDetail> => Promise.resolve({
       items: [
@@ -2160,11 +2098,11 @@ describe('Frame', () => {
     expect(capabilityRun).not.toHaveBeenCalled()
   })
 
-  it('leaves the selection menu out of a non-opting capability and foreign textareas', async () => {
+  it('offers an opting capability on the selection menu whatever its former shape', async () => {
     const { container } = render(renderFrame({
       capabilityList: () => Promise.resolve({
         capabilities: [{
-          name: 'script-cap', description: '脚本型', source: 'project', entry: 'scripts/entry.py', runtime: 'python',
+          name: 'script-cap', description: '曾是脚本型', source: 'project',
           invocation: ['human'], appliesTo: { selection: true },
         }],
         unregistered: [],
@@ -2184,10 +2122,9 @@ describe('Frame', () => {
     } finally {
       spy.mockRestore()
     }
-    // The menu opens, but the script-type capability never appears — only
-    // instruction capabilities are offered on the selection.
-    expect(await screen.findByText('发送到会话')).toBeTruthy()
-    expect(screen.queryByText('script-cap')).toBeNull()
-    expect(container.querySelector('[data-selection-capability]')).toBeNull()
+    // The 形态 dimension is gone with the sidecar channel (ADR-0052): every
+    // routed capability that opted into the selection menu is offered.
+    expect(await screen.findByText('script-cap')).toBeTruthy()
+    expect(container.querySelector('[data-selection-capability="script-cap"]')).not.toBeNull()
   })
 })
