@@ -1856,6 +1856,7 @@ export function Frame({
                 <button
                   type="button"
                   data-hover="tab"
+                  data-selected={viewMode === 'read' ? '' : undefined}
                   style={viewMode === 'read' ? activeModeStyle : modeButtonStyle}
                   onClick={() => { setViewMode('read') }}
                 >
@@ -1864,6 +1865,7 @@ export function Frame({
                 <button
                   type="button"
                   data-hover="tab"
+                  data-selected={viewMode === 'source' ? '' : undefined}
                   style={viewMode === 'source' ? activeModeStyle : modeButtonStyle}
                   onClick={() => { setViewMode('source') }}
                 >

@@ -91,8 +91,14 @@ button[data-hover="close"]:hover {
 /* 2026-10-09 第二轮评审 P1-A：hover 覆盖由 tests/hover-gate.client.spec.ts
    门禁保证（每个 <button> 必须携带 data-hover），此前的 [data-row-menu]
    作用域规则与之重复，随门禁一并退役。 */
-[data-inbox-pane] [role="button"]:hover {
+/* 2026-10-09 第三轮评审 P1：role="button" 的可点击行（调度行等）在此前
+   只有收件箱 pane 拿到治疗——同样的行，一处有声一处无声。门禁（hover-gate）
+   只扫 <button> 标签看不到它们，故这里全局兜底。 */
+[role="button"][tabindex]:hover {
   background: var(--yt-surface-secondary) !important;
+}
+[role="button"][tabindex]:active {
+  background: var(--yt-border-subtle) !important;
 }
 `
 

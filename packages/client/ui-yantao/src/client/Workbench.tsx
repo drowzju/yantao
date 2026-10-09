@@ -1315,6 +1315,9 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
             key={id}
             type="button"
             data-hover="true"
+            /* 空串值：CSS 豁免只看属性存在性；data-selected="true" 保留给
+               文件行（测试契约 workbench.client.spec.tsx:708,1491）。 */
+            data-selected={tab === id ? '' : undefined}
             style={tab === id ? { ...tabRowStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } : tabRowStyle}
             onClick={() => { setTab(id) }}
           >
@@ -1505,6 +1508,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
             key={id}
             type="button"
             data-hover="true"
+            data-selected={tab === id ? '' : undefined}
             style={tab === id ? { ...tabRowStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } : tabRowStyle}
             onClick={() => { setTab(id) }}
           >
