@@ -3,16 +3,17 @@
  * ticked a `skill-rewrite` row in the 提议 inbox, and this is the one place
  * the verdict becomes bytes on disk. Three protections ride along:
  *
- * - the drift guard — the file on disk must still match the envelope's
- *   `original`, or the diff is stale and the write refuses (the human is
- *   told to have the agent re-nominate);
+ * - the drift guard — the envelope's `original` (the whole file, or an
+ *   excerpt occurring exactly once in it — the 2026-10-09 anchor mode) must
+ *   still match the file on disk, or the diff is stale and the write refuses
+ *   (the human is told to have the agent re-nominate);
  * - the backup — the pre-write content is copied under
  *   `.dsh/yantao/capability-backups/<name>/<stamp>/` (ADR-0023 决定 7's
  *   posture), best-effort: the inbox entry itself retains the original, so
  *   a failed copy costs convenience, not the undo material;
  * - the version clamp — SKILL.md frontmatter `metadata.yantao.version`
  *   belongs to builtin releases (ADR-0052 决定 6), not to the agent: a diff
- *   that moved it is written with the original's value restored, so a
+ *   that moved it is written with the disk's value restored, so a
  *   nomination can never dodge the version-driven upgrade comparison.
  * @module @deepseek-ai/dsh-api-yantao-kb-controller/capability/rewrite
  */
@@ -21,7 +22,7 @@ import { randomBytes } from 'node:crypto'
 import { basename, dirname, join, resolve } from 'node:path'
 import { writeFileAtomic, withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import {
-  CapabilityFileError, confineCapabilityFile, parseFrontmatter, readCapabilityTextFile,
+  CapabilityFileError, confineCapabilityFile, locateUniqueSpan, parseFrontmatter, readCapabilityTextFile,
 } from '@deepseek-ai/dsh-yantao-kb'
 import { readRoutes, routedSkill } from './routing.ts'
 
@@ -110,7 +111,9 @@ function probeFrontmatter(raw: string, displayPath: string): FrontmatterProbe {
  * indentation, a foreign `version:` the lexer mistakes for ours), is refused
  * loudly instead of blind-spliced — a wrong splice here corrupts the file the
  * route resolves through and bricks the capability.
- * @param originalRaw - the file's content as the agent read it.
+ * @param originalRaw - the file's current content on disk (the clamp's
+ *   reference version is disk truth, which in full-file mode equals the
+ *   envelope's `original`).
  * @param newRaw - the approved content about to be written.
  * @returns the content to write, version-clamped.
  */
@@ -292,12 +295,23 @@ export async function applySkillRewrite(kbRoot: string, args: SkillRewriteWriteb
     if (current.includes('\0')) {
       throw new Error(`${file} 是二进制内容，拒绝写回`)
     }
-    if (current !== args.original) {
-      throw new Error(`${file} 在提名后又被改动，diff 已过期；请让 agent 重新读取后再提名`)
+    // The anchor-mode drift guard (ADR-0054, 2026-10-09 修订): `original` is
+    // either the whole file (then the locate degenerates to index 0 and the
+    // composite is exactly `new`) or an excerpt occurring exactly once — the
+    // one span the write replaces. Absent means the file moved underneath the
+    // nomination; ambiguous means the anchor cannot pick a target. Either way
+    // the human re-nominates from a fresh read.
+    const located = locateUniqueSpan(current, args.original)
+    if (located === 'absent') {
+      throw new Error(`${file} 在提名后又被改动，original 段已不在文件里，diff 已过期；请让 agent 重新读取后再提名`)
     }
+    if (located === 'ambiguous') {
+      throw new Error(`${file} 里 original 出现了多处，无法定位替换目标；请让 agent 扩大片段范围重新提名`)
+    }
+    const composite = current.slice(0, located.at) + args.new + current.slice(located.at + args.original.length)
     const written = basename(file).toLowerCase() === 'skill.md'
-      ? stripVersionChange(args.original, args.new)
-      : args.new
+      ? stripVersionChange(current, composite)
+      : composite
     // The backup is the fallback (ADR-0054): best-effort, because the inbox
     // entry retains the original bytes either way — a failed copy is reported
     // by omission, never allowed to block the approved write. The stamp

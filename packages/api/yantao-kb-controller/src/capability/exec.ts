@@ -40,7 +40,8 @@ export const CAPABILITY_ENVIRONMENT_NOTE =
   + '- 本工作台没有通用 shell；技能指令里「执行 python xxx」这类步骤，用 kb_exec_capability_script 在该能力的目录内执行（cwd 锁定该目录，命令不做内容审查——安装即授权）。\n'
   + '- KB_ROOT（知识库根目录的绝对路径）已注入环境变量，且命令行里的 $KB_ROOT 与 %KB_ROOT% 占位符由工作台在执行前直接替换为真实路径——两种写法在任何平台都等价，无需引号包裹也无需关心平台 shell；stdin 也会送达同一个 JSON 信封。\n'
   + '- Windows 上命令经 cmd.exe 执行，两个已知语义：命令串里的换行是命令分隔符（python -c 多行载荷会在首个换行处被静默截断，退出码还是 0——单行语句或 exec(\'…\') 内嵌，或干脆让能力自带 .py 文件）；路径段里的裸 & 会截断命令行（含 & 的目录名把该段用引号包裹或避开）。\n'
-  + '- 未特别说明时，「资源」指知识库的 resources/ 目录；能力产出到 $KB_ROOT/resources/，过程临时文件到 resources/temp/（用完即弃，无人清理）。'
+  + '- 未特别说明时，「资源」指知识库的 resources/ 目录；能力产出到 $KB_ROOT/resources/，过程临时文件到 resources/temp/（用完即弃，无人清理）。\n'
+  + '- 用毕自省：发现毛病出在技能自身（指令含糊、步骤失效、脚本坑、模板错）时，用 kb_propose_skill_rewrite 提名改写该能力的文件（附 original 与 new，人批准即生效）——不要把技能的缺陷沉淀成绕行记忆；技能管不了的经验与偏好，才走 kb_propose_memory。'
 
 /** Options of {@link execCapabilityScript}. */
 export interface ExecCapabilityScriptOptions {

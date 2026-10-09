@@ -7,6 +7,14 @@
  * controller's `skillRewriteApply` — this module never touches the skill
  * directory.
  *
+ * The envelope's `original` may be the file's whole content (a full-file
+ * rewrite) or any excerpt that occurs in it exactly once (2026-10-09 修订，
+ * anchor mode): a 1,150-line script cannot be faithfully regurgitated into a
+ * nomination, and demanding the full text priced script fixes — the most
+ * valuable kind — out of existence. The anchor span is what the approval
+ * writeback uniquely matches and replaces; everything outside it is untouched
+ * by construction.
+ *
  * Scope rules (ADR-0054 决定 1): the capability must be registered in the
  * central routing file, the file must sit inside the routed directory, and
  * the run-artifact directories (`state/`, `downloads/`, `reports/`, `out/`,
@@ -41,12 +49,36 @@ export interface SkillRewriteNomination {
   readonly name: string
   /** The file's path relative to the capability's directory, forward slashes. */
   readonly file: string
-  /** The file's content as the proposing agent read it — the diff's left side. */
+  /**
+   * The file's content as the proposing agent read it — the diff's left side.
+   * Either the whole file or an excerpt occurring exactly once in it (anchor
+   * mode); the excerpt must be verbatim from the latest read.
+   */
   readonly original: string
-  /** The proposed content — the diff's right side. */
+  /** The proposed content for that range — the diff's right side. */
   readonly new: string
   /** Why the rewrite is worth a human's attention. */
   readonly why: string
+}
+
+/** Where a span sits in a file, as the anchor-mode guards report it. */
+export type SpanLocate =
+  | { readonly at: number }
+  | 'absent'
+  | 'ambiguous'
+
+/**
+ * Locate `span` in `haystack`, demanding uniqueness (the anchor-mode guard,
+ * shared by nomination and writeback): the writeback replaces the one
+ * occurrence, so a span that is gone (file changed underneath) or appears
+ * several times (too generic an anchor) must both refuse loudly.
+ * @returns the unique index, or why the span cannot anchor a replacement.
+ */
+export function locateUniqueSpan(haystack: string, span: string): SpanLocate {
+  const at = haystack.indexOf(span)
+  if (at === -1) return 'absent'
+  if (haystack.indexOf(span, at + 1) !== -1) return 'ambiguous'
+  return { at }
 }
 
 /** What one accepted nomination reports: the inbox's pending depth. */
@@ -100,10 +132,11 @@ function badFile(reason: CapabilityFileError['reason'], file: string): KbError {
 
 /**
  * Validate one nomination and append it to the proposal inbox (ADR-0054).
- * The envelope's `original` must match the file's current bytes — a stale
- * diff would either clobber a human's fresh edit or fail confusingly at
- * approval time, so the mismatch refuses here, where the agent can re-read
- * and re-propose.
+ * The envelope's `original` must match the file's current bytes — as the
+ * whole content, or as an excerpt occurring exactly once in it (anchor mode).
+ * A stale or ambiguous anchor would either clobber a human's fresh edit or
+ * fail confusingly at approval time, so the mismatch refuses here, where the
+ * agent can re-read and re-propose.
  * @param kbRoot - the live KB root.
  * @param args - the nomination.
  * @returns the inbox's pending depth after the append.
@@ -154,9 +187,17 @@ export async function proposeSkillRewrite(kbRoot: string, args: SkillRewriteNomi
     throw new KbError('skill-file-not-found', `读不了 ${file}：${error instanceof Error ? error.message : String(error)}`)
   }
   if (current !== args.original) {
-    throw new KbError('skill-file-drifted', `${file} 的现内容与 original 不符——文件在提名前已被改动，请重新读取后再提名`)
+    // Full-file equality missed — fall back to the anchor mode: the excerpt
+    // must occur exactly once for the writeback to have a target.
+    const located = locateUniqueSpan(current, args.original)
+    if (located === 'absent') {
+      throw new KbError('skill-file-drifted', `${file} 的现内容里找不到 original——文件在提名前已被改动，请重新读取后再提名`)
+    }
+    if (located === 'ambiguous') {
+      throw new KbError('skill-file-ambiguous', `original 在 ${file} 里出现了多处，锚点不唯一——扩大片段范围（或改用全文）后再提名`)
+    }
   }
-  if (current === args.new) {
+  if (args.original === args.new) {
     throw new KbError('skill-rewrite-empty', 'original 与 new 相同，没有可裁决的 diff')
   }
   const stored = await enqueueProposal(kbRoot, {

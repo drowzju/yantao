@@ -140,6 +140,33 @@ describe('proposeSkillRewrite', () => {
       .rejects.toMatchObject({ code: 'skill-file-drifted' })
   })
 
+  it('锚点式提名：original 是文件中唯一出现的片段时通过，载荷原样入队', async () => {
+    await writeFile(join(kbRoot, '.dsh', 'skills', 'mail-reader', 'notes.md'), '第一段\n原始笔记\n第三段\n', 'utf8')
+    const result = await proposeSkillRewrite(kbRoot, nomination({ original: '原始笔记', new: '改好的笔记' }))
+    expect(result.pending).toBe(1)
+    const rows = await readProposalInbox(kbRoot)
+    expect(rows[0]?.proposal).toMatchObject({
+      actions: [{ kind: 'skill-rewrite', original: '原始笔记', new: '改好的笔记' }],
+    })
+  })
+
+  it('锚点不唯一拒绝（skill-file-ambiguous）——泛片段钉不住替换目标', async () => {
+    await writeFile(join(kbRoot, '.dsh', 'skills', 'mail-reader', 'notes.md'), '原始笔记\n中间\n原始笔记\n', 'utf8')
+    await expect(proposeSkillRewrite(kbRoot, nomination({ original: '原始笔记', new: '改好的笔记' })))
+      .rejects.toMatchObject({ code: 'skill-file-ambiguous' })
+  })
+
+  it('锚点式提名里 original 等于 new 也拒绝（skill-rewrite-empty）', async () => {
+    await expect(proposeSkillRewrite(kbRoot, nomination({ original: '原始', new: '原始' })))
+      .rejects.toMatchObject({ code: 'skill-rewrite-empty' })
+  })
+
+  it('锚点恰为全文时视作全文提名（degenerate 到唯一位置 0）', async () => {
+    await proposeSkillRewrite(kbRoot, nomination())
+    const rows = await readProposalInbox(kbRoot)
+    expect(rows).toHaveLength(1)
+  })
+
   it('original 与 new 相同拒绝（skill-rewrite-empty）——无 diff 不成卡', async () => {
     await expect(proposeSkillRewrite(kbRoot, nomination({ new: '原始笔记\n' })))
       .rejects.toMatchObject({ code: 'skill-rewrite-empty' })

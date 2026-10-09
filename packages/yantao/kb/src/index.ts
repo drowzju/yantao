@@ -591,7 +591,7 @@ export function apply(ctx: Context, config: Config): void {
       + '批准即刻生效（下一次调用就读到新说明书），无需重启。'
       + 'SKILL.md frontmatter 里的 metadata.yantao.version 不归你管——批准时会自动还原为原值，改了也白改。'
       + `运行产物目录（${[...CAPABILITY_ARTIFACT_DIRS].map(dir => `${dir}/`).join('、')}）与二进制文件不接受提名。`
-      + 'original 必须是你最近一次实际读到的内容：文件已被改动时提名会被拒绝，重读后再提。'
+      + 'original 必须逐字取自你最近一次实读的内容：可以是全文，也可以是文件中唯一出现的一段原文——改大脚本时提名涉及的段落即可，不必背全文；批准时按这段原文在文件中唯一匹配替换，段落消失（文件被改动）或不唯一都会被拒绝，重读后再提。'
       + `队列未决策提议最多 ${INBOX_PENDING_SOFT_CAP} 条，满了会拒绝。`,
     parameters: {
       name: { type: 'string', required: true, description: '能力名（中央路由 .dsh/skills/yantao.json 里的键）' },
@@ -630,6 +630,8 @@ export {
 } from './root-store.ts'
 export type { CapabilityRecord } from './root-store.ts'
 export { appendToLogSection, logBullet, replaceSection, replaceStateSection } from './splice.ts'
+export { locateUniqueSpan } from './skill-rewrite.ts'
+export type { SpanLocate } from './skill-rewrite.ts'
 export {
   appendMemoryEntry, assertMemoryScope, listMemoryScopes, MEMORY_GLOBAL_SCOPE, MEMORY_SCOPE_SOFT_CAP,
   memoryDisplayPath, memoryEntryId, memoryEntryLine, parseMemoryFile, readGlobalMemoryEntries,

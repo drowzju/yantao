@@ -349,6 +349,38 @@ describe('yantaoKb.skillRewriteApply', () => {
     await expect(readFile(join(kbRoot, '.dsh', 'skills', 'mail-reader', 'notes.md'), 'utf8')).resolves.toBe('人改过了\n')
   })
 
+  it('锚点式写回：original 是唯一片段时只替换该段，其余字节不动，备份仍是整文件', async () => {
+    await writeFile(join(kbRoot, '.dsh', 'skills', 'mail-reader', 'notes.md'), '第一段\n原始笔记\n第三段\n', 'utf8')
+    const result = await ctx.yantaoKbController.skillRewriteApply({
+      name: 'mail-reader', file: 'notes.md', original: '原始笔记', new: '改好的笔记',
+    })
+    expect(result.file).toBe('notes.md')
+    await expect(readFile(join(kbRoot, '.dsh', 'skills', 'mail-reader', 'notes.md'), 'utf8'))
+      .resolves.toBe('第一段\n改好的笔记\n第三段\n')
+    const backupDisk = join(kbRoot, result.backupPath ?? '')
+    await expect(readFile(backupDisk, 'utf8')).resolves.toBe('第一段\n原始笔记\n第三段\n')
+  })
+
+  it('锚点式写回 SKILL.md：片段外的版本行不受牵连，钳制以磁盘为准', async () => {
+    const result = await ctx.yantaoKbController.skillRewriteApply({
+      name: 'mail-reader', file: 'SKILL.md', original: '按批次读。', new: '按线程读。',
+    })
+    expect(result.file).toBe('SKILL.md')
+    const written = await readFile(join(kbRoot, '.dsh', 'skills', 'mail-reader', 'SKILL.md'), 'utf8')
+    expect(written).toContain('version: 3')
+    expect(written).toContain('按线程读。')
+    expect(written).toContain('description: 读邮件')
+  })
+
+  it('锚点在批准时不再唯一（提名后文件被改成两处）——拒绝写回', async () => {
+    await writeFile(join(kbRoot, '.dsh', 'skills', 'mail-reader', 'notes.md'), '原始笔记\n中间\n原始笔记\n', 'utf8')
+    const failure = await ctx.yantaoKbController.skillRewriteApply({
+      name: 'mail-reader', file: 'notes.md', original: '原始笔记', new: '改好的笔记',
+    }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((failure as Error).message).toMatch(/无法定位替换目标/)
+  })
+
   it('已注销的能力拒绝写回', async () => {
     await writeFile(
       join(kbRoot, '.dsh', 'skills', 'yantao.json'),
