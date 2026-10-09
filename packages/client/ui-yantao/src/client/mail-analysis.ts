@@ -600,7 +600,8 @@ async function analyseChunk(options: {
  *
  * Every session is named with its place in the batch
  * (「邮件分析 YYYY-MM-DD·k/n」) so a judgement can still be found again
- * (ADR-0033); the first one created anchors the task row's 「详情」 entry.
+ * (ADR-0033); whichever chunk settles first anchors the task row's 「详情」
+ * entry (in practice the first one created).
  * Chunks land out of order under concurrency: verdicts are reported sorted
  * by mail number, and the merged verdict is assembled in batch order.
  * @param options - the context, the batch, what the KB already holds, and the
@@ -648,9 +649,11 @@ export async function runMailAnalysis(options: {
     if (!named.ok) throw named.error
     if (options.signal !== undefined) cancelSessionTurnOnAbort(options.signal, session, chunkSessionId)
 
-    // The first session created backs the task row's detail anchor
-    // (ADR-0033); the rest are equally findable by name. The check and the
-    // set are synchronous, so concurrent chunks cannot both claim it.
+    // Whichever chunk gets here first backs the task row's detail anchor
+    // (ADR-0033) — in practice the leading chunk, but under concurrency a
+    // rename racing ahead may take it; the rest are equally findable by
+    // name. The check and the set are synchronous, so concurrent chunks
+    // cannot both claim it.
     if (anchorSessionId === undefined) {
       anchorSessionId = chunkSessionId
       onProgress?.({ stage: 'prompt', sessionId: chunkSessionId })
@@ -693,10 +696,14 @@ export async function runMailAnalysis(options: {
   }
   await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, chunkCount) }, worker))
 
-  if (failure !== undefined) throw failure
-  // An abort between chunks leaves no thrown failure — the run must still
-  // reject, so the store can tell cancellation from success (ADR-0031).
+  // Cancellation outranks any captured failure: an aborted chunk settles as
+  // an internal abort error in `failure`, and the canonical 「已取消」 message
+  // must win regardless of where the abort landed (ADR-0031). The signal
+  // check also covers an abort between chunks, which leaves no thrown
+  // failure at all — the run must still reject so the store can tell
+  // cancellation from success.
   if (options.signal?.aborted) throw new Error('邮件分析已取消。')
+  if (failure !== undefined) throw failure
 
   const merged = {
     verdicts: [] as MailVerdict[],

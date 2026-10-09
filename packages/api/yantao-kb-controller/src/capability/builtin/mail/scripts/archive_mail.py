@@ -392,7 +392,7 @@ def same_mail(existing, mail):
             and (minute == "" or minute == mail["received"].strftime("%Y%m%d%H%M")))
 
 
-def save_attachments(item, month_dir, prefix, kb_root, subject, outcome, entry_id):
+def save_attachments(item, month_dir, prefix, kb_root, subject, outcome):
     """
     把一封邮件的全部附件落进 month_dir（与 .eml 原件同目录、同文件名前缀），
     返回本次新落盘附件的相对路径列表（相对 `resources/`）。
@@ -485,7 +485,7 @@ def archive_one(ns, kb_root, entry_id, summary, outcome, warned):
             # 前缀带上主题与短哈希（评审 2026-10-09）：这里没有 .eml 可验身，
             # 裸时间戳前缀会让同分钟两封过大邮件的同名附件互相顶掉。
             att_prefix = f"{local.strftime('%Y-%m-%d_%H%M')}_{sanitized(subject, SUBJECT_CAP)}-{identity[:8]}"
-            saved_atts = save_attachments(item, month_dir, att_prefix, kb_root, subject, outcome, entry_id)
+            saved_atts = save_attachments(item, month_dir, att_prefix, kb_root, subject, outcome)
             append_index_row(index_path, index_row([
                 subject, mail["sender"][0], recipients_cell(to_pairs + cc_pairs),
                 local.strftime("%Y-%m-%d %H:%M"), "；".join(saved_atts) if saved_atts else "—", summary,
@@ -520,7 +520,7 @@ def archive_one(ns, kb_root, entry_id, summary, outcome, warned):
         # 分支时 target 已带后缀，仍用裸 base 会把附件写进别的信的名下、或被
         # exists 幂等检查静默吞掉。
         prefix = os.path.splitext(os.path.basename(target))[0]
-        saved_atts = save_attachments(item, month_dir, prefix, kb_root, subject, outcome, entry_id)
+        saved_atts = save_attachments(item, month_dir, prefix, kb_root, subject, outcome)
         month_stamp = local.strftime("%Y%m")
         index_path = index_path_for(kb_root, month_stamp)
         ensure_index(index_path, month_stamp)

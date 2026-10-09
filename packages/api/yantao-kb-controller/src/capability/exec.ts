@@ -127,8 +127,10 @@ export async function execCapabilityScript(
   // one work everywhere; the env var stays for scripts that read it as an
   // environment rather than from their argv.
   const command = options.command
-    .replaceAll('%KB_ROOT%', options.kbRoot)
-    .replaceAll('$KB_ROOT', options.kbRoot)
+    // Replacer-function form: a string replacement would interpret $-patterns
+    // ($&, $`, …) in the KB root path itself, mangling it into the command.
+    .replaceAll('%KB_ROOT%', () => options.kbRoot)
+    .replaceAll('$KB_ROOT', () => options.kbRoot)
 
   const child = spawnImpl(command, [], {
     cwd: directory,
