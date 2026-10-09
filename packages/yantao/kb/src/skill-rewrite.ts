@@ -17,15 +17,13 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
+import { CapabilityFileError, confineCapabilityFile, readCapabilityTextFile } from './capability-file.ts'
 import { enqueueProposal } from './proposal-inbox.ts'
 import { KbError } from './types.ts'
 
 /** The inbox `source` prefix a nomination carries: `<kind>:<capability>`. */
 export const SKILL_REWRITE_SOURCE = 'skill-rewrite'
-
-/** Run-artifact directories a nomination may never touch. */
-const ARTIFACT_DIRS: ReadonlySet<string> = new Set(['state', 'downloads', 'reports', 'out', '__pycache__'])
 
 /** Per-side character cap on the envelope — a nomination is a diff, not a dump. */
 const SIDE_CHARS_CAP = 200_000
@@ -82,34 +80,15 @@ async function routedDirectoryOf(kbRoot: string, name: string): Promise<string> 
   return resolve(skillsRoot, path)
 }
 
-/** Normalize and confine one nomination's `file` against the capability directory. */
-function confinedRelativeOf(directory: string, file: string): string {
-  const slashed = file.replaceAll('\\', '/')
-  // Absoluteness is judged on the path as given — stripping leading slashes
-  // first would quietly turn `/etc/passwd` into a tame-looking `etc/passwd`.
-  if (isAbsolute(slashed)) {
-    throw new KbError('bad-skill-file', `file 不得越出能力目录：${file}`)
+/** Dress the shared confinement's refusal in the nomination's KbError voice. */
+function badFile(reason: CapabilityFileError['reason'], file: string): KbError {
+  if (reason === 'artifact') {
+    return new KbError('bad-skill-file', `${file} 落在运行产物目录里——那不是说明书，不接受改写提名`)
   }
-  const normalized = slashed.replace(/^\/+/, '')
-  if (normalized === '' || normalized.endsWith('/')) {
-    throw new KbError('bad-skill-file', 'file 必须指向技能目录里的一个文件，不是目录')
+  if (reason === 'escapes') {
+    return new KbError('bad-skill-file', `file 不得越出能力目录：${file}`)
   }
-  if (normalized.split('/').includes('..')) {
-    throw new KbError('bad-skill-file', `file 不得越出能力目录：${file}`)
-  }
-  for (const segment of normalized.split('/')) {
-    if (ARTIFACT_DIRS.has(segment)) {
-      throw new KbError('bad-skill-file', `${normalized} 落在运行产物目录 ${segment}/ 里——那不是说明书，不接受改写提名`)
-    }
-  }
-  // The containment double-check against the real filesystem view: the
-  // lexical checks above are the gate, this catches what slips past them.
-  const target = resolve(directory, normalized)
-  const rel = relative(directory, target)
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
-    throw new KbError('bad-skill-file', `file 不得越出能力目录：${file}`)
-  }
-  return rel.replaceAll('\\', '/')
+  return new KbError('bad-skill-file', `file 不合法或必须指向技能目录里的一个文件：${file}`)
 }
 
 /**
@@ -127,25 +106,40 @@ export async function proposeSkillRewrite(kbRoot: string, args: SkillRewriteNomi
   const why = args.why.trim()
   if (name === '') throw new KbError('bad-skill-file', 'name 不能为空')
   if (why === '') throw new KbError('bad-skill-file', 'why 不能为空——人要看理由才能裁决')
+  // Pre-limit the framing fields to what the inbox store will accept
+  // (SOURCE_NAME_MAX/TITLE_MAX/NOTE_MAX) — a rejection here names the fix,
+  // where the store's normalizer would only say "第 N 条提议格式不对".
+  if (name.length > 64) throw new KbError('bad-skill-file', `name 超过 64 字（现 ${name.length} 字）——先核对能力名`)
+  if (args.file.length > 120) throw new KbError('bad-skill-file', `file 路径超过 120 字（现 ${args.file.length} 字），不像技能目录里的文件`)
+  if (why.length > 500) throw new KbError('bad-skill-file', `why 超过 500 字（现 ${why.length} 字）——一句话说服人，写短些`)
   for (const [side, text] of [['original', args.original], ['new', args.new]] as const) {
     if (typeof text !== 'string' || text === '') throw new KbError('bad-skill-file', `${side} 不能为空——无 diff 不成卡`)
     if (text.length > SIDE_CHARS_CAP) {
       throw new KbError('skill-file-too-large', `${side} 超过 ${SIDE_CHARS_CAP} 字上限，先拆小再提名`)
     }
+    if (text.includes('\0')) {
+      throw new KbError('skill-file-binary', `${side} 是二进制内容（含 NUL 字节），卡片渲染不了行级 diff，不接受提名`)
+    }
   }
   const directory = await routedDirectoryOf(kbRoot, name)
-  const file = confinedRelativeOf(directory, args.file)
+  let file: string
+  try {
+    file = confineCapabilityFile(directory, args.file)
+  } catch (error) {
+    if (!(error instanceof CapabilityFileError)) throw error
+    throw badFile(error.reason, args.file)
+  }
   let current: string
   try {
-    current = await readFile(resolve(directory, file), 'utf8')
+    current = await readCapabilityTextFile(directory, file)
   } catch (error) {
+    if (error instanceof CapabilityFileError) {
+      throw new KbError('skill-file-symlink', `${file} 是符号链接，拒绝穿越读写——请由人类检查该文件`)
+    }
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new KbError('skill-file-not-found', `能力「${name}」的技能目录里没有 ${file}——只能提名已存在的文件`)
     }
-    throw new KbError('skill-file-not-found', `读不了 ${file}：${(error as Error).message}`)
-  }
-  if (current.includes('\0')) {
-    throw new KbError('skill-file-binary', `${file} 是二进制内容，不接受改写提名`)
+    throw new KbError('skill-file-not-found', `读不了 ${file}：${error instanceof Error ? error.message : String(error)}`)
   }
   if (current !== args.original) {
     throw new KbError('skill-file-drifted', `${file} 的现内容与 original 不符——文件在提名前已被改动，请重新读取后再提名`)

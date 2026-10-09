@@ -184,8 +184,8 @@ describe('WorkbenchLayout', () => {
   it('reports the conversation as the only panel and rejects other ids', () => {
     const layout = new WorkbenchLayout(createPanelSeat())
     expect(layout.panelInfo.getSnapshot()).toEqual({ activePanelId: null })
-    expect(() => layout.selectPanel('plugins' as never)).toThrow('not registered')
-    expect(() => layout.selectPanel(null)).not.toThrow()
+    expect(() =>{  layout.selectPanel('plugins' as never) }).toThrow('not registered')
+    expect(() =>{  layout.selectPanel(null) }).not.toThrow()
   })
 })
 

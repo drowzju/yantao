@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -130,6 +130,75 @@ describe('stripVersionChange（版本钳制单元）', () => {
     expect(clamped).toBe(original)
     expect(clamped).toContain('version: 99')
   })
+
+  it('流式 metadata（parser 看得见、lexer 定位不了）——响亮拒绝', () => {
+    const original = skillMd(3)
+    const next = [
+      '---',
+      'name: mail-reader',
+      'description: 读邮件',
+      'metadata: { yantao: { version: 9 } }',
+      '---',
+      '',
+      '按批次读。',
+    ].join('\n')
+    expect(() => stripVersionChange(original, next)).toThrow(/版本钳制无法.*无歧义地定位/)
+  })
+
+  it('yantao 用了更深的缩进——响亮拒绝', () => {
+    const original = skillMd(3)
+    const next = [
+      '---',
+      'name: mail-reader',
+      'description: 读邮件',
+      'metadata:',
+      '    yantao:',
+      '        version: 9',
+      '---',
+      '',
+      '按批次读。',
+    ].join('\n')
+    expect(() => stripVersionChange(original, next)).toThrow(/无歧义地定位/)
+  })
+
+  it('version 行深缩进到八空格——响亮拒绝', () => {
+    const original = skillMd(3)
+    const next = [
+      '---',
+      'name: mail-reader',
+      'description: 读邮件',
+      'metadata:',
+      '  yantao:',
+      '        version: 9',
+      '---',
+      '',
+      '按批次读。',
+    ].join('\n')
+    expect(() => stripVersionChange(original, next)).toThrow(/标准四空格位置/)
+  })
+
+  it('四空格 version 行其实挂在别的父键下——拒绝踩踏外语键', () => {
+    const original = skillMd(3)
+    const next = [
+      '---',
+      'name: mail-reader',
+      'description: 读邮件',
+      'metadata:',
+      '  yantao:',
+      '  other:',
+      '    version: 9',
+      '---',
+      '',
+      '按批次读。',
+    ].join('\n')
+    expect(() => stripVersionChange(original, next)).toThrow(/不属于 YAML 里的 metadata\.yantao/)
+  })
+
+  it('diff 把 frontmatter 整个剥掉了——不再静默放过（M6 吸收）', () => {
+    const original = skillMd(3)
+    const next = ['', '# 读邮件', '', '按批次读。', ''].join('\n')
+    expect(() => stripVersionChange(original, next)).toThrow(/frontmatter 无法解析/)
+  })
 })
 
 describe('yantaoKb.skillRewriteApply', () => {
@@ -203,13 +272,35 @@ describe('yantaoKb.skillRewriteApply', () => {
     await expect(readdir(join(kbRoot, '.dsh', 'yantao', 'capability-backups').replace(/\\/g, '/'))).rejects.toThrow()
   })
 
-  it('二进制内容拒绝写回', async () => {
+  it('二进制内容拒绝写回——两侧都查', async () => {
     await writeFile(join(kbRoot, '.dsh', 'skills', 'mail-reader', 'blob.md'), 'a\0b', 'utf8')
     const failure = await ctx.yantaoKbController.skillRewriteApply({
       name: 'mail-reader', file: 'blob.md', original: 'a\0b', new: 'ab',
     }).catch((error: unknown) => error)
     expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
     expect((failure as Error).message).toMatch(/二进制/)
+    const poisoned = await ctx.yantaoKbController.skillRewriteApply({
+      name: 'mail-reader', file: 'notes.md', original: '原始笔记\n', new: 'a\0b',
+    }).catch((error: unknown) => error)
+    expect(remoteErrorOf(poisoned)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((poisoned as Error).message).toMatch(/二进制/)
+  })
+
+  it('符号链接目标拒绝写回，不穿越出能力目录', async () => {
+    const outside = join(kbRoot, 'outside.md')
+    await writeFile(outside, '原始笔记\n', 'utf8')
+    const link = join(kbRoot, '.dsh', 'skills', 'mail-reader', 'link.md')
+    try {
+      await symlink(outside, link)
+    } catch {
+      return // Windows 无开发者模式的环境造不了符号链接，跳过
+    }
+    const failure = await ctx.yantaoKbController.skillRewriteApply({
+      name: 'mail-reader', file: 'link.md', original: '原始笔记\n', new: '改好的笔记\n',
+    }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((failure as Error).message).toMatch(/符号链接/)
+    await expect(readFile(outside, 'utf8')).resolves.toBe('原始笔记\n')
   })
 
   it('未配置 KB 根时拒绝', async () => {

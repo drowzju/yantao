@@ -82,9 +82,9 @@ describe('CapabilityPanel 清单 (ADR-0052 决定 8)', () => {
     fireEvent.click(screen.getByText('demo'))
     expect(await screen.findByText(/采纳「demo」？/)).toBeTruthy()
     fireEvent.click(screen.getByText('采纳', { exact: true }))
-    await vi.waitFor(() => expect(panel.adopt).toHaveBeenCalledWith('demo'))
+    await vi.waitFor(() =>{  expect(panel.adopt).toHaveBeenCalledWith('demo') })
     // The confirm folded away; the refreshed list no longer offers the row.
-    await vi.waitFor(() => expect(container.querySelector('[data-capability-confirm]')).toBeNull())
+    await vi.waitFor(() =>{  expect(container.querySelector('[data-capability-confirm]')).toBeNull() })
   })
 
   it('registers an in-KB skill by writing its central route, with the reach checkboxes shaping the entry', async () => {
@@ -111,7 +111,7 @@ describe('CapabilityPanel 清单 (ADR-0052 决定 8)', () => {
     expect(container.querySelector('[data-capability-register]')?.textContent).toContain('{"path":"notes-helper","invocation":["human","agent"]}')
     // …and the confirmed write carries it.
     fireEvent.click(screen.getByText('注册', { exact: true }))
-    await vi.waitFor(() => expect(panel.register).toHaveBeenCalledWith('notes-helper', { agentInvoke: true, resourceMenu: false, selectionMenu: false }))
+    await vi.waitFor(() =>{  expect(panel.register).toHaveBeenCalledWith('notes-helper', { agentInvoke: true, resourceMenu: false, selectionMenu: false }) })
   })
 
   it('registers a plugin repository by extraction, previewing the first nested child', async () => {
@@ -134,7 +134,7 @@ describe('CapabilityPanel 清单 (ADR-0052 决定 8)', () => {
     expect(await screen.findByText(/这是插件仓库/)).toBeTruthy()
     expect(container.querySelector('[data-capability-register]')?.textContent).toContain('{"path":"repo/skills/child-a","invocation":["human"]}')
     fireEvent.click(screen.getByText('注册', { exact: true }))
-    await vi.waitFor(() => expect(panel.register).toHaveBeenCalledWith('repo', { agentInvoke: false, resourceMenu: false, selectionMenu: false }))
+    await vi.waitFor(() =>{  expect(panel.register).toHaveBeenCalledWith('repo', { agentInvoke: false, resourceMenu: false, selectionMenu: false }) })
   })
 
   it('greyed rows do not open anything', async () => {
@@ -159,7 +159,7 @@ describe('CapabilityPanel 清单 (ADR-0052 决定 8)', () => {
     const input = await screen.findByPlaceholderText('能力名称（如 paper-digest）')
     fireEvent.change(input, { target: { value: 'paper-digest' } })
     fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => expect(panel.create).toHaveBeenCalledWith('paper-digest'))
+    await vi.waitFor(() =>{  expect(panel.create).toHaveBeenCalledWith('paper-digest') })
   })
 
   it('renders a failed listing as an error line instead of a blank pane', async () => {
@@ -191,10 +191,10 @@ describe('CapabilityPanel 详情 (ADR-0053 决定 1/2/3)', () => {
     expect(selection.checked).toBe(false)
     // Revoking the agent reach narrows the invocation.
     fireEvent.click(agent)
-    await vi.waitFor(() => expect(panel.updateRoute).toHaveBeenCalledWith({ name: 'mail', invocation: ['human'] }))
+    await vi.waitFor(() =>{  expect(panel.updateRoute).toHaveBeenCalledWith({ name: 'mail', invocation: ['human'] }) })
     // Turning the resource menu on writes the appliesTo.
     fireEvent.click(resource)
-    await vi.waitFor(() => expect(panel.updateRoute).toHaveBeenLastCalledWith({ name: 'mail', appliesTo: { resource: true } }))
+    await vi.waitFor(() =>{  expect(panel.updateRoute).toHaveBeenLastCalledWith({ name: 'mail', appliesTo: { resource: true } }) })
     expect(container.querySelector('[data-capability-unregister]')).not.toBeNull()
   })
 
@@ -209,17 +209,17 @@ describe('CapabilityPanel 详情 (ADR-0053 决定 1/2/3)', () => {
     await openDetail()
     const selection = (await screen.findByText('可达性')) && (container.querySelector('[data-capability-reach-selection]') as HTMLInputElement)
     fireEvent.click(selection)
-    await vi.waitFor(() => expect(panel.updateRoute).toHaveBeenCalledWith({
+    await vi.waitFor(() =>{  expect(panel.updateRoute).toHaveBeenCalledWith({
       name: 'mail',
       appliesTo: { resource: true, entity: ['paper'], selection: true },
-    }))
+    }) })
     // An all-clear result is the explicit empty object, not an omission.
     const resource = container.querySelector('[data-capability-reach-resource]') as HTMLInputElement
     fireEvent.click(resource)
-    await vi.waitFor(() => expect(panel.updateRoute).toHaveBeenLastCalledWith({
+    await vi.waitFor(() =>{  expect(panel.updateRoute).toHaveBeenLastCalledWith({
       name: 'mail',
       appliesTo: { entity: ['paper'] },
-    }))
+    }) })
   })
 
   it('unregisters through an inline confirm, then reloads the list', async () => {
@@ -238,7 +238,7 @@ describe('CapabilityPanel 详情 (ADR-0053 决定 1/2/3)', () => {
     const confirm = container.querySelector('[data-capability-unregister-confirm]')
     expect(confirm?.textContent).toContain('从中央路由移除「mail」的条目')
     fireEvent.click(confirm!.querySelectorAll('button')[0]!)
-    await vi.waitFor(() => expect(panel.unregister).toHaveBeenCalledWith('mail'))
+    await vi.waitFor(() =>{  expect(panel.unregister).toHaveBeenCalledWith('mail') })
     // The parent's reload brought the list back.
     expect(await screen.findByText(/能力清单/)).toBeTruthy()
   })

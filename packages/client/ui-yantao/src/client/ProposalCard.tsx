@@ -9,10 +9,10 @@
  * chose; the caller does the writing once, after confirmation — through
  * {@link ./proposal-apply.ts} `applyProposal`'s direct RPCs.
  */
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import type { Proposal, ProposalAction } from './proposal.ts'
 import { allProposalActions, GROUP_KEYS } from './proposal.ts'
-import { lineDiff } from './diff.ts'
+import { lineDiff, type DiffRow } from './diff.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
 import { disabledOverlay, ghostButtonStyle, primaryButtonStyle } from './buttons.ts'
 import { entityNameOf } from './validate.ts'
@@ -228,7 +228,22 @@ const diffBoxStyle = {
 
 const diffDelStyle = { background: 'var(--yt-error-bg)', color: 'var(--yt-error)' } as const
 const diffAddStyle = { background: 'var(--yt-accent-bg)' } as const
+const diffSameStyle = { color: 'var(--yt-text-secondary)' } as const
 const diffOmittedStyle = { color: 'var(--yt-text-secondary)' } as const
+
+/** Paint for one diff row: removal red, addition accent, unchanged context grey. */
+function rowStyleOf(type: DiffRow['type']): typeof diffDelStyle | typeof diffAddStyle | typeof diffSameStyle {
+  if (type === 'del') return diffDelStyle
+  if (type === 'add') return diffAddStyle
+  return diffSameStyle
+}
+
+/** The line prefix a diff row reads with — git's vocabulary. */
+function rowPrefixOf(type: DiffRow['type']): string {
+  if (type === 'del') return '- '
+  if (type === 'add') return '+ '
+  return '  '
+}
 
 /**
  * One skill-rewrite row's folded diff (ADR-0054): closed by default — the
@@ -239,7 +254,13 @@ const diffOmittedStyle = { color: 'var(--yt-text-secondary)' } as const
 function SkillDiffBlock(props: { readonly original: string; readonly next: string; readonly t: WorkbenchT }): ReactElement {
   const { t } = props
   const [open, setOpen] = useState(false)
-  const diff = lineDiff(props.original, props.next)
+  // The LCS runs only when the human actually opens the block: a folded diff
+  // must cost nothing on render, however large the envelope (the kb tool caps
+  // each side at 200k chars — a full DP table for that is main-thread death).
+  const diff = useMemo(
+    () => (open ? lineDiff(props.original, props.next) : undefined),
+    [open, props.original, props.next],
+  )
   return (
     <div data-proposal-diff="true">
       <button
@@ -250,16 +271,16 @@ function SkillDiffBlock(props: { readonly original: string; readonly next: strin
       >
         {open ? t('proposal.diffHide') : t('proposal.diffView')}
       </button>
-      {open && (
+      {diff !== undefined && (
         <div style={diffBoxStyle} data-proposal-diff-body="true">
           {diff.omitted > 0 && <div style={diffOmittedStyle}>{t('proposal.diffOmitted', { count: diff.omitted })}</div>}
           {diff.rows.map((row, index) => (
             <div
               key={index}
-              style={row.type === 'del' ? diffDelStyle : row.type === 'add' ? diffAddStyle : undefined}
+              style={rowStyleOf(row.type)}
               data-proposal-diff-row={row.type}
             >
-              {row.type === 'del' ? `- ${row.text}` : row.type === 'add' ? `+ ${row.text}` : `  ${row.text}`}
+              {rowPrefixOf(row.type) + row.text}
             </div>
           ))}
         </div>

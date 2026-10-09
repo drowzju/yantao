@@ -60,6 +60,38 @@ describe('lineDiff', () => {
     expect(lineDiff('', '新的一行\n').rows).toEqual([{ type: 'add', text: '新的一行' }])
     expect(lineDiff('旧的一行\n', '').rows).toEqual([{ type: 'del', text: '旧的一行' }])
   })
+
+  it('CRLF 行尾不画幻影行', () => {
+    const diff = lineDiff('a\r\nb\r\n', 'a\r\nB\r\n')
+    expect(diff.rows).toEqual([
+      { type: 'same', text: 'a' },
+      { type: 'del', text: 'b' },
+      { type: 'add', text: 'B' },
+    ])
+    expect(diff.omitted).toBe(0)
+  })
+
+  it('超预算的对齐先剥公共首尾，近亲巨文仍出真 diff', () => {
+    const lines = Array.from({ length: 2500 }, (_, at) => `L${at}`)
+    const left = lines.join('\n')
+    const right = [...lines.slice(0, 1250), '改', ...lines.slice(1250)].join('\n')
+    // 2500×2500 超出 DP 预算；剥离后核心只有 1×1，照常对齐。
+    const diff = lineDiff(left, right)
+    // 总行数 = 1250 头 + 1 删 + 1 增 + 1249 尾 = 2501；超出帽后保留首尾各 20 行。
+    expect(diff.omitted).toBe(2501 - 40)
+    expect(diff.rows.length).toBe(40)
+    expect(diff.rows[0]).toEqual({ type: 'same', text: 'L0' })
+    expect(diff.rows[19]).toEqual({ type: 'same', text: 'L19' })
+  })
+
+  it('真正发散的巨核退化为整体替换，不再硬算 LCS', () => {
+    const left = Array.from({ length: 2500 }, (_, at) => `左${at}`).join('\n')
+    const right = Array.from({ length: 2500 }, (_, at) => `右${at}`).join('\n')
+    const diff = lineDiff(left, right)
+    // 无公共首尾可剥，核心 2500×2500 超预算 → 全删全加，行帽折叠。
+    expect(diff.rows[0]?.type).toBe('del')
+    expect(diff.omitted).toBe(5000 - 40)
+  })
 })
 
 describe('proposalOfPayload：skill-rewrite 载荷回读', () => {

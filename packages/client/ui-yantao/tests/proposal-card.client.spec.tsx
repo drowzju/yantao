@@ -469,7 +469,7 @@ describe('ProposalCard 校验卡的实体分组与自由输入 (2026-09-30)', ()
     // 失败不清空草稿：人可以直接改字重试。
     await vi.waitFor(() => {
       expect(input.value).toBe('意见')
-      expect((screen.getByText('发送') as HTMLButtonElement).disabled).toBe(false)
+      expect((screen.getByText('发送')).disabled).toBe(false)
     })
   })
 })

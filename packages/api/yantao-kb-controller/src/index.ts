@@ -1649,7 +1649,7 @@ export class YantaoKbController extends TypertRemoteService {
       }
       throw new RemoteError(
         'yantao-kb/rejected',
-        (error as Error).message,
+        error instanceof Error ? error.message : String(error),
         { path: `.dsh/skills/${args.name}` },
         { cause: error instanceof Error ? error : undefined },
       )
@@ -1870,7 +1870,7 @@ export class YantaoKbController extends TypertRemoteService {
     }
     const skillsRoot = join(this.kbRoot, '.dsh', 'skills')
     // Absent booleans mean "leave as-is"; the entry's current reach fills the gaps.
-    const routes = await readRoutes(skillsRoot).catch((error) => { throw badManifestError(error) })
+    const routes = await readRoutes(skillsRoot).catch((error: unknown) => { throw badManifestError(error) })
     const current = routes[args.name]
     if (current === undefined) {
       throw new RemoteError(

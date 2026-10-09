@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -105,10 +105,25 @@ describe('proposeSkillRewrite', () => {
     await expect(proposeSkillRewrite(kbRoot, nomination({ file: 'absent.md' }))).rejects.toMatchObject({ code: 'skill-file-not-found' })
   })
 
-  it('二进制内容（NUL 字节）拒绝（skill-file-binary）', async () => {
+  it('二进制内容（NUL 字节）拒绝（skill-file-binary）——两侧都查', async () => {
     await writeFile(join(kbRoot, '.dsh', 'skills', 'mail-reader', 'blob.md'), 'a\0b', 'utf8')
     await expect(proposeSkillRewrite(kbRoot, nomination({ file: 'blob.md', original: 'a\0b' })))
       .rejects.toMatchObject({ code: 'skill-file-binary' })
+    await expect(proposeSkillRewrite(kbRoot, nomination({ new: 'a\0b' })))
+      .rejects.toMatchObject({ code: 'skill-file-binary' })
+  })
+
+  it('符号链接目标拒绝提名（skill-file-symlink）', async () => {
+    const outside = join(kbRoot, 'outside.md')
+    await writeFile(outside, '原始笔记\n', 'utf8')
+    const link = join(kbRoot, '.dsh', 'skills', 'mail-reader', 'link.md')
+    try {
+      await symlink(outside, link)
+    } catch {
+      return // Windows 无开发者模式的环境造不了符号链接，跳过
+    }
+    await expect(proposeSkillRewrite(kbRoot, nomination({ file: 'link.md' })))
+      .rejects.toMatchObject({ code: 'skill-file-symlink' })
   })
 
   it('original 与现内容漂移拒绝（skill-file-drifted）', async () => {
@@ -126,6 +141,15 @@ describe('proposeSkillRewrite', () => {
     await expect(proposeSkillRewrite(kbRoot, nomination({ why: '  ' }))).rejects.toMatchObject({ code: 'bad-skill-file' })
     await expect(proposeSkillRewrite(kbRoot, nomination({ original: '' }))).rejects.toMatchObject({ code: 'bad-skill-file' })
     await expect(proposeSkillRewrite(kbRoot, nomination({ new: '' }))).rejects.toMatchObject({ code: 'bad-skill-file' })
+  })
+
+  it('框架字段超限拒绝（name/file/why 有界，错误直说怎么修）', async () => {
+    await expect(proposeSkillRewrite(kbRoot, nomination({ name: 'x'.repeat(65) })))
+      .rejects.toMatchObject({ code: 'bad-skill-file' })
+    await expect(proposeSkillRewrite(kbRoot, nomination({ file: `a/${'b'.repeat(120)}` })))
+      .rejects.toMatchObject({ code: 'bad-skill-file' })
+    await expect(proposeSkillRewrite(kbRoot, nomination({ why: '很'.repeat(501) })))
+      .rejects.toMatchObject({ code: 'bad-skill-file' })
   })
 
   it('单边超 20 万字拒绝（skill-file-too-large）', async () => {

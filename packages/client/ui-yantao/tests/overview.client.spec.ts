@@ -36,7 +36,7 @@ function summary(overrides: Partial<SessionSummary> & Pick<SessionSummary, 'id'>
     blank: false,
     updatedAt: 0,
     ...overrides,
-  } as SessionSummary
+  }
 }
 
 const state = (byId: Record<string, SessionSummary>): SessionListState =>
