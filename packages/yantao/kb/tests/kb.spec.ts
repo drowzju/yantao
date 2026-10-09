@@ -611,6 +611,20 @@ describe('kb_list_entities', () => {
   it('omits the todo singleton when its file is absent', async () => {
     expect((await listEntities(kbRoot, 'todo')).entities).toEqual([])
   })
+
+  it('keeps a person with an email in the full listing, email attached', async () => {
+    // 回归：core 给 person 条目附加 email，而 kb_list_entities 的输出 schema
+    // 曾漏声明它（additionalProperties:false）——只要存在带邮箱的人，全量
+    // 列举就被宿主以 INVALID_TOOL_OUTPUT 拒绝，只有按类型过滤才幸免。
+    await createEntity(kbRoot, 'person', '李四')
+    await writeFile(
+      join(kbRoot, 'entities/people/李四.md'),
+      (await read('entities/people/李四.md')).replace('tags: []', 'email: lisi@example.com\ntags: []'),
+    )
+    const listed = await listEntities(kbRoot)
+    const person = listed.entities.find(entry => entry.name === '李四')
+    expect(person).toMatchObject({ type: 'person', archived: false, email: 'lisi@example.com' })
+  })
 })
 
 describe('kb_register_resource', () => {

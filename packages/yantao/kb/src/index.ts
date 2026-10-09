@@ -432,6 +432,9 @@ export function apply(ctx: Context, config: Config): void {
                 name: { type: 'string', required: true },
                 archived: { type: 'boolean', required: true },
                 relation: { type: 'string' },
+                // person 条目可能携带（core.ts 附给 person）；漏声明会让
+                // additionalProperties:false 在存在带邮箱的人时拒掉全量列举
+                email: { type: 'string' },
               },
             },
             required: true,
