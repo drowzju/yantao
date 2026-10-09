@@ -106,16 +106,16 @@ describe('withProposalEnvelope（ADR-0047 验收修正：约定随 fire 附加�
     const composed = withProposalEnvelope('任意任务')
     expect(composed).toContain('"kind":"append-log"')
     expect(composed).toContain('"kind":"save-resource"')
-    expect(composed).toContain('"kind":"delete-mails"')
     expect(composed).toContain('不要自行执行')
     expect(composed).toContain('完全不输出信封')
   })
 
-  it('约定带上 mails 范围字段（验收修正 2：裁决联动邮件水位）', () => {
-    const composed = withProposalEnvelope('邮件任务')
-    expect(composed).toContain('"mails"')
-    expect(composed).toContain('lastReadAt')
-    expect(composed).toContain('firstReadAt')
+  it('统一约定不带邮件机器（2026-10-09 修订：邮件教学归 mail 能力的 SKILL.md）', () => {
+    const composed = withProposalEnvelope('任意任务')
+    expect(composed).not.toContain('delete-mails')
+    expect(composed).not.toContain('archive-mails')
+    expect(composed).not.toContain('"mails"')
+    expect(composed).not.toContain('lastReadAt')
   })
 })
 

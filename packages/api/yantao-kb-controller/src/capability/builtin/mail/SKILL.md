@@ -4,7 +4,7 @@ description: 读取本地 Outlook 桌面客户端的邮件，按断点增量拉�
 disable-model-invocation: true
 metadata:
   yantao:
-    version: 12
+    version: 13
 ---
 
 # 邮件能力
@@ -84,6 +84,28 @@ yantao 工作台的邮件能力（ADR-0019 建立，ADR-0021 迁移为能力目�
 
 两类动词共用的失败：`{ok: false, kind, message, hint}`，kind ∈
 python-missing / outlook-unavailable / folder-missing / not-invocable / other。
+
+## 提议信封的邮件扩展（ADR-0047）
+
+调度任务的提示词末尾带有统一的「调度约定」，教一个提议信封（`{"title":…,
+"actions":[…]}`，只提名值得人批准的写入、不自行执行、没有提议就沉默）。
+那个统一约定只教能力无关的 KB 写入类别；**邮件专属的信封扩展只在本能力里
+教**——也就是说，只有真正加载了本能力、实际读取过邮件的任务才可使用：
+
+- `{"kind":"delete-mails","entryId":"<邮件 EntryID>","sender":"<发件人>",
+  "subject":"<主题>","reason":"<缘由>"}` ← 删除提名：只对广告、失效通知这类
+  不值得留存的邮件提名。agent 只有提名权；执行在人批准后走上面的人通道
+  `delete` 动词。
+- `{"kind":"archive-mails","entryId":"<邮件 EntryID>","sender":"<发件人>",
+  "subject":"<主题>","summary":"<摘要>","reason":"<缘由>"}` ← 保存邮件：批准后
+  .eml 原件与其全部附件一起落入 `resources/mails/` 并记入邮件索引（即上面的
+  人通道 `archive` 动词）。只提名值得长期留存的邮件，宁缺勿滥。
+
+若本任务读取或处理过邮件，信封再加一个 `"mails"` 水位字段，抄自实际取到的
+批次首尾：`"mails":{"lastReadAt":"<最新一封的 receivedAt>","firstReadAt":
+"<最早一封的 receivedAt>"}`——人裁决提议后，这批邮件就计为已处理，不再重推。
+没读过邮件就不要带这个字段：水位随人批准的提议推进，误报的范围会把那批邮件
+永久计为已处理。
 
 ## 前提
 
