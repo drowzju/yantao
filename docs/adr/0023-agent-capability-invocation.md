@@ -4,6 +4,15 @@ status: accepted
 
 # 能力的模型侧调用（`kb_run_capability` 与指令型能力）
 
+> **修订（2026-10-09，ADR-0052）：** 本文确立的执行模型已被整编——**声明 spawn 通道退役**。
+> `kb_run_capability` 的单一语义 = 校验可达后返回 SKILL.md 指令正文（"指令型能力"从一个
+> 声明形态变成唯一形态）；一切脚本执行走 `kb_exec_capability_script`（ADR-0043 落地的执行桥，
+> 已放宽为对任何已注册技能可用）；sidecar 的 `invocation` 显式 opt-in 门控随 sidecar 一并
+> 废除，逐能力可达改由中央路由 `.dsh/skills/yantao.json` 条目的 `invocation` 字段承载——
+> 门控语义（缺省 human、声明 agent 才可见）不变，唯一变的声明住址。决定 6 的"缺 entry 即
+> 指令型"分类法与"sidecar 显式声明保住可审计性"的论据随 sidecar 一并退役；"完全没有声明
+> 的 skill 目录不是能力"的铁律升格为"不在路由表里的技能目录不可达"。
+
 ADR-0021 把能力定为"仅人可调用"（取舍台账第 1、2 条），并写明了重开条件："能力白名单
 机制落地后，可对白名单内能力开 `modelInvocable`"。本 ADR 兑现那个条件：门控机制设计
 完成（决定 2），真实需求出现——会话中补拉邮件/重抽取（第 2 条牺牲的场景）、复用上游

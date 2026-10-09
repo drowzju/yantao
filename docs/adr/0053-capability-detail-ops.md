@@ -117,3 +117,12 @@ ADR-0052 改写稿决定 8 的四块结构施工；决定 2 的开关随单轨�
   同步（LocaleDictOf 键对齐门禁会拦）。
 - 决定 2（可达性开关 + 注销）未施工：写路由必须是对可达性的真写，等 ADR-0052 单轨制
   落地后开启，否则对 sidecar 型能力撒谎。
+
+**完工（2026-10-09，ADR-0052/0053 第一批施工 8c98f6db64）：** 上面两段注记所述的目标状态
+至此全部落地，且形态随 ADR-0052 改写稿蒸发后呈现收敛为使用语义四块——description、
+可达三勾选 + 注销（`data-capability-reach-agent/resource/selection`、
+`data-capability-unregister[-confirm]`，全部只写中央路由）、运行摘要
+（`data-capability-last-run`，`上次运行 · 共 N 次 · 上次失败`，记账缝在实际执行点、
+闸门拒绝与取消不入账）、折叠的路由原文（`data-capability-details`）。旧注记描述的
+`data-capability-form`/`data-capability-last-run` 旧语义从未存在于 main（见上更正），
+本次按实际标记重建；决定 1/2/3/4 全部清账。

@@ -26,9 +26,9 @@ _Avoid_: 会议记录（那说的是内容，不是实体）
 
 _Avoid_: 任务清单、TODO.md
 
-**能力 (Capability)**: 一个 dsh skill 目录（`SKILL.md` 指令 + `scripts/` 宿主入口），目录根的 `yantao.json` sidecar 声明入口、运行时与 `appliesTo`（资源扩展名 / 实体类型 / 外部源）——声明外带，开源 skill 目录可原样复用。由人触发、宿主在会话前执行、经统一提议流写库；清单与断点存 `~/.dsh/yantao-kb.json`，不进 tree（ADR-0021）。
+**能力 (Capability)**: 一个注册进中央路由 `<kbRoot>/.dsh/skills/yantao.json` 的 dsh skill 目录——路由条目 `{path, invocation, appliesTo}`（可达性：human/agent 调用、资源右键、选区右键）是唯一的能力配置，技能目录一个字节都不为我们改（ADR-0052）。执行只有一条语义：`kb_run_capability` 返回 SKILL.md 指令正文，脚本步骤走 `kb_exec_capability_script`（cwd 锁技能目录、KB_ROOT 经环境变量送达）；运行记账（runCount/lastFailAt/lastRunAt）存根存储 state.json，不进 tree。agent 提名改写技能文件走 `kb_propose_skill_rewrite`（ADR-0054），人批准才落笔。
 
-_Avoid_: 连接（旧称，已被能力取代，见 ADR-0021）、集成、插件
+_Avoid_: 连接（旧称，已被能力取代，见 ADR-0021）、集成、插件、sidecar（ADR-0052 废除）、脚本型/指令型（形态维度随声明蒸发）
 
 **Archive**: Entity 的一种 frontmatter 状态标签（`archive: true`），不是目录——归档的实体永不删除、随时可还原（去掉标志即还原）。归档 = 退出活跃：提炼花名册默认隐藏它，关联/校验图谱过滤它的节点连同边；但指向它的 `[[链接]]` 保留解析，历史文档仍可读可跳转，人类指引下 agent 仍可读取它（可作为输入被引用）。写面非对称：agent 的 kb_edit_section / kb_write_state / kb_append_log 对归档实体拒绝（「已归档，先还原」），人通过 UI 不受限；agent 无归档工具，只有纯文本提名权，归档/还原由人经 UI 执行，各在「流水」留一条。实体没有删除入口（ADR-0041 废弃了右键删除与 deleteFile RPC），终极删除只能人在文件系统层动手。
 
@@ -58,7 +58,7 @@ _Avoid_: 整理、归纳
 
 _Avoid_: 批量归类、自动打标签
 
-**实体校验 (Validate)**: 第四个手势（ADR-0035/0036）：一次手动操作对全库做纯体检——零 token 的确定性预扫直接产出卡的确定性区块（孤儿条目、失效双链及其代码相似度修复候选），模型只在一个真 Session 里研判预扫窄化后的清单（过期/矛盾/缺链机会），其结论先过代码侧防御核验再进卡的模型区块。两区块在提议卡上分列（`Proposal.prescan` 与模型 findings/actions 类型上互斥）；只弹卡不落盘，不注册指令型能力。L1 白名单没有建页（建页归提炼手势）；todos 与内容陈旧/矛盾属 L2（重新构想后另立 ADR）。
+**实体校验 (Validate)**: 第四个手势（ADR-0035/0036）：一次手动操作对全库做纯体检——零 token 的确定性预扫直接产出卡的确定性区块（孤儿条目、失效双链及其代码相似度修复候选），模型只在一个真 Session 里研判预扫窄化后的清单（过期/矛盾/缺链机会），其结论先过代码侧防御核验再进卡的模型区块。两区块在提议卡上分列（`Proposal.prescan` 与模型 findings/actions 类型上互斥）；只弹卡不落盘，不注册为能力。L1 白名单没有建页（建页归提炼手势）；todos 与内容陈旧/矛盾属 L2（重新构想后另立 ADR）。
 
 _Avoid_: 体检（口语可用但词条从全）、全库整理、自动修复
 

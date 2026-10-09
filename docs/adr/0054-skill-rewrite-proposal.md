@@ -78,3 +78,32 @@ status: accepted
   语义建立在"技能原样"的地基上。
 - 台账「skill 自进化」就此清账：接入/注册/调用设计（ADR-0025）+ 改写提议（本篇）；
   "改了技能想立刻生效"的痛点由"改写即时生效"的事实直接消解，无需设计。
+
+落地注记（2026-10-09，第二批施工 22a4a429e6，23 文件 +1242/−14；三包 1186 例全绿）：
+
+- **kb 工具**（决定 1/2）：`kb_propose_skill_rewrite`（第十三→十四个 `kb_*` 工具，kb 插件
+  12 个 + controller 2 个）——路由校验（未注册/路由 path 越界 → `skill-not-routed`）、
+  file 围栏（越出/绝对路径/黑名单产物目录 → `bad-skill-file`）、ENOENT/二进制/漂移/
+  同文/空字段/20 万字上限各有专名错误码；提名只追加 ADR-0047 收件箱（source
+  `skill-rewrite:<name>`），目标磁盘字节不动。
+- **批准写回**（决定 3/4）：controller `skillRewriteApply` RPC——批准时重解析路由（提名
+  的有效性不随注销存活）、漂移守卫（磁盘 ≠ original 拒绝并要求重新提名）、best-effort
+  备份到 `.dsh/yantao/capability-backups/<name>/<stamp>/`（失败吞掉不挡写）、版本钳制
+  `stripVersionChange`（bump 扣回/整 nest 删除按原版重建/version 行删除插回/原版无版本
+  则剥净——孤儿 `metadata:`/`yantao:` 壳连壳摘除，钳制输出字节等于原文）、原子写 0o644。
+- **diff 面**（决定 2）：朴素逐行 `-`/`+`/空格两行 diff，自实现 LCS（`ui-yantao/diff.ts`，
+  无 diff 库）；300 行帽、首尾各留 20 行、中段折叠为**本地化**的计数省略（`omitted`
+  出计数、卡片渲染词条，diff 层不藏中文）；卡片 `SkillDiffBlock` 默认折叠，
+  「查看改动/收起改动」开合；skill-rewrite 行批准即生效、记为不可逆——不出撤销步骤。
+- **提示层**：skills.md 礼仪条——改说明书走提名、`original` 必须是最近一次实读全文、
+  version 不归 agent 管、产物目录不接受提名。
+- **顺手修复的历史缺口**：Frame 的 `applyConfirmed` 目标（收件箱确认与提案确认共用）
+  自 ADR-0047 第三批起从未携带 mail 三动词（deleteMails/archiveMails/downloadAttachments）
+  ——经收件箱批准的删除/归档/下载行一直在静默跳过；本次随 `skillRewrite` 缝接线一并补上
+  （`git show f5e74b0e16` 考古确认）。
+- **测试中抓出的真 bug 两枚**：① 两侧 `confinedRelativeOf` 都是先剥前导 `/` 再判
+  isAbsolute，`/etc/passwd` 被静默相对化成 `etc/passwd` 走到 ENOENT——改为先判原始路径；
+  ② diff 回溯比较写反（后缀表下应向较大邻居走），致 LCS 失配、行数虚胖——一并修正，
+  并统一尾部换行语义（结尾 `\n` 是终止符不是空行，空串零行，同 git diff 口径）。
+- **文档收尾**（第三批）：ADR-0023/0025/0043 修订注记（spawn 通道退役/路由升格/信封契约
+  退役）、ADR-0053 落地注记补完工、CONTEXT「能力」词条改写、TODO 台账行。
