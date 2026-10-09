@@ -98,13 +98,14 @@ async function routeProbe(invocation: readonly string[]): Promise<void> {
   }), 'utf8')
 }
 
-/** A probe script that reports its cwd, envelope environment, and stdin. */
+/** A probe script that reports its cwd, argv, envelope environment, and stdin. */
 const PROBE_JS = `
 let raw = ''
 process.stdin.on('data', chunk => { raw += chunk })
 process.stdin.on('end', () => {
   process.stdout.write(JSON.stringify({
     cwd: process.cwd(),
+    argv: process.argv.slice(2),
     kbRoot: process.env.KB_ROOT,
     capabilityName: process.env.CAPABILITY_NAME,
     channel: process.env.CAPABILITY_CHANNEL,
@@ -153,6 +154,20 @@ describe('kb_exec_capability_script (ADR-0043 决定 2)', () => {
     expect(probe.envelope.kbRoot.toLowerCase()).toBe(resolve(home).toLowerCase())
     expect(probe.envelope.input).toBe('你好')
     expect(probe.envelope.channel).toBe('agent')
+  })
+
+  it('expands $KB_ROOT and %KB_ROOT% in the command before the shell runs it', async () => {
+    // The point of the bridge-side substitution: cmd.exe never expands $VAR
+    // and sh never expands %VAR%, so a SKILL.md spelling that happens to
+    // mismatch the platform used to leak a literal "$KB_ROOT/..." path into
+    // the script's argv. Both spellings must arrive as the real root.
+    await routeProbe(['human', 'agent'])
+    await writeFile(join(skillDir, 'probe.js'), PROBE_JS, 'utf8')
+    const result = await registeredTool('kb_exec_capability_script')
+      ?.execute({ name: 'probe', command: 'node probe.js $KB_ROOT %KB_ROOT%' }) as ExecResult
+    expect(result.ok).toBe(true)
+    const probe = JSON.parse(result.stdout) as { argv: string[] }
+    expect(probe.argv).toEqual([resolve(home), resolve(home)])
   })
 
   it('records a passing run in the capability account (ADR-0053 决定 3)', async () => {

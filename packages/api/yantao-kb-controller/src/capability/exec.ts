@@ -38,7 +38,7 @@ import { CapabilityError } from './run.ts'
 export const CAPABILITY_ENVIRONMENT_NOTE =
   '【环境说明】\n'
   + '- 本工作台没有通用 shell；技能指令里「执行 python xxx」这类步骤，用 kb_exec_capability_script 在该能力的目录内执行（cwd 锁定该目录，命令不做内容审查——安装即授权）。\n'
-  + '- KB_ROOT（知识库根目录的绝对路径）已注入环境变量：命令行里可直接引用，Windows 写 %KB_ROOT%、POSIX 写 $KB_ROOT，平台 shell 会展开；stdin 也会送达同一个 JSON 信封。\n'
+  + '- KB_ROOT（知识库根目录的绝对路径）已注入环境变量，且命令行里的 $KB_ROOT 与 %KB_ROOT% 占位符由工作台在执行前直接替换为真实路径——两种写法在任何平台都等价，无需引号包裹也无需关心平台 shell；stdin 也会送达同一个 JSON 信封。\n'
   + '- 未特别说明时，「资源」指知识库的 resources/ 目录；能力产出到 $KB_ROOT/resources/，过程临时文件到 resources/temp/（用完即弃，无人清理）。'
 
 /** Options of {@link execCapabilityScript}. */
@@ -57,6 +57,8 @@ export interface ExecCapabilityScriptOptions {
    * The command line, run through the platform shell (`cmd /d /s /c` on
    * Windows, `/bin/sh -c` elsewhere). Not reviewed (ADR-0043 决定 2): the
    * capability is installed, therefore trusted; the directory is the limit.
+   * `$KB_ROOT` and `%KB_ROOT%` are replaced with the live KB root before
+   * the shell runs — either spelling works on either platform.
    */
   readonly command: string
   /** The live KB root, handed to the script as `KB_ROOT` and in the envelope. */
@@ -116,7 +118,17 @@ export async function execCapabilityScript(
     timeoutMs = CAPABILITY_EXEC_TIMEOUT_MS,
   } = options
 
-  const child = spawnImpl(options.command, [], {
+  // KB-root placeholder expansion, done by the bridge before the shell sees
+  // the string: cmd.exe expands %KB_ROOT% but never $KB_ROOT, while sh is
+  // exactly the reverse — a SKILL.md that picks one spelling cannot know
+  // which platform runs it. Substituting both spellings here makes either
+  // one work everywhere; the env var stays for scripts that read it as an
+  // environment rather than from their argv.
+  const command = options.command
+    .replaceAll('%KB_ROOT%', options.kbRoot)
+    .replaceAll('$KB_ROOT', options.kbRoot)
+
+  const child = spawnImpl(command, [], {
     cwd: directory,
     env: {
       ...process.env,
