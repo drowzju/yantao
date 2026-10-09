@@ -23,7 +23,7 @@ import type {
   ScheduleLister, ScheduleMarker,
   ScheduleSaver, ProposalInboxLister, ProposalInboxResolver, ShortcutFiller,
   RootLoader, RootSetter,
-  Archiver, AttachmentDownloader,
+  Archiver, AttachmentDownloader, SkillRewriteApplier,
   SessionPrompter, TodoLoader, TodoWriter,
 } from '../remote.ts'
 import type { AnalysisStage, MailAnalyser } from '../mail-analysis.ts'
@@ -130,6 +130,12 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
    * `mailArchive` — embedders without the face simply don't offer the button.
    */
   readonly mailDownloadAttachments?: AttachmentDownloader
+  /**
+   * Write one approved skill rewrite back (ADR-0054); optional for the same
+   * reason as the mail verbs — embedders without the face render the card,
+   * whose skill-rewrite rows then skip honestly.
+   */
+  readonly skillRewriteApply?: SkillRewriteApplier
   /** Run one mail analysis in a dsh session (ADR-0019). */
   readonly analyseMail: MailAnalyser
   /** Run one refine analysis in a dsh session — both ADR-0029 gestures. */
@@ -483,7 +489,7 @@ export function Frame({
   registerResource, deleteResource, capabilityList, capabilityCreate, capabilityAdopt,
   capabilityRegister, capabilityRouteUpdate, capabilityUnregister,
   promptSession, memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
-  sessionDetail, onKbRootChanged, mailDelete, mailArchive, mailDownloadAttachments,
+  sessionDetail, onKbRootChanged, mailDelete, mailArchive, mailDownloadAttachments, skillRewriteApply,
   promptShortcutList, promptShortcutSave, fillShortcut,
   scheduleList, scheduleSave, scheduleMark, runSchedule,
   proposalInboxList, proposalInboxResolve, relationGraph,
@@ -646,13 +652,24 @@ export function Frame({
   // direct RPCs — the frame owns the KB seams, the task owns the state machine.
   // ADR-0032 批次③: the card's 记忆 rows go through the same memoryAdd. The
   // three undo-only verbs ride along so the written report can offer 撤销.
+  // The mail verbs and the skill writeback ride along too (their absence made
+  // inbox-approved 删除/归档/下载 rows skip honestly — the inbox IS their
+  // decision surface, so the knives belong here), each only when the host
+  // supplied the face.
   const applyConfirmed = useCallback(
     (options: { proposal: Proposal; ticked: readonly number[] }): Promise<ProposalApplyResult> =>
       applyProposal({
         ...options,
-        target: { createEntity, read, write, todos, writeTodos, memoryAdd, archiveEntity, memoryDelete, deleteResource },
+        target: {
+          createEntity, read, write, todos, writeTodos, memoryAdd, archiveEntity, memoryDelete, deleteResource,
+          ...(mailDelete !== undefined ? { deleteMails: mailDelete } : {}),
+          ...(mailArchive !== undefined ? { archiveMails: mailArchive } : {}),
+          ...(mailDownloadAttachments !== undefined ? { downloadAttachments: mailDownloadAttachments } : {}),
+          ...(skillRewriteApply !== undefined ? { skillRewrite: skillRewriteApply } : {}),
+        },
       }),
-    [createEntity, read, write, todos, writeTodos, memoryAdd, archiveEntity, memoryDelete, deleteResource],
+    [createEntity, read, write, todos, writeTodos, memoryAdd, archiveEntity, memoryDelete, deleteResource,
+      mailDelete, mailArchive, mailDownloadAttachments, skillRewriteApply],
   )
 
   // The one confirm path every proposal card shares (capability runs'

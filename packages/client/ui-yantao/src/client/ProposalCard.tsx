@@ -12,6 +12,7 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import type { Proposal, ProposalAction } from './proposal.ts'
 import { allProposalActions, GROUP_KEYS } from './proposal.ts'
+import { lineDiff } from './diff.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
 import { disabledOverlay, ghostButtonStyle, primaryButtonStyle } from './buttons.ts'
 import { entityNameOf } from './validate.ts'
@@ -137,7 +138,7 @@ const footerStyle = {
 
 /** The kinds in the order the card lists their groups. */
 const GROUP_ORDER: readonly ProposalAction['kind'][] = [
-  'create-entity', 'create-project', 'add-todo', 'append-log', 'write-state', 'edit-section', 'append-section', 'create-link', 'save-resource', 'add-memory', 'delete-mails', 'archive-mails', 'download-attachments',
+  'create-entity', 'create-project', 'add-todo', 'append-log', 'write-state', 'edit-section', 'append-section', 'create-link', 'save-resource', 'add-memory', 'delete-mails', 'archive-mails', 'download-attachments', 'skill-rewrite',
 ]
 
 /** A person action's relation, as the row's detail names it (self is never proposed). */
@@ -164,6 +165,7 @@ function labelOf(action: ProposalAction): string {
     case 'delete-mails': return action.subject
     case 'archive-mails': return action.subject
     case 'download-attachments': return action.subject
+    case 'skill-rewrite': return action.file
   }
 }
 
@@ -190,6 +192,7 @@ function detailOf(action: ProposalAction, t: WorkbenchT): string {
   if (action.kind === 'delete-mails') return `${action.sender}：${action.reason}`
   if (action.kind === 'archive-mails') return `${action.sender}：${action.summary || action.reason}`
   if (action.kind === 'download-attachments') return `${action.sender}：${action.reason}`
+  if (action.kind === 'skill-rewrite') return `${action.name}：${action.why}`
   if (action.kind === 'create-project') {
     const areas = action.areas !== undefined && action.areas.length > 0 ? `关联领域：${action.areas.join('、')}。` : ''
     return `${areas}${action.reason}`
@@ -205,6 +208,64 @@ function detailOf(action: ProposalAction, t: WorkbenchT): string {
 function targetOfLink(link: string): string {
   const match = /\[\[([^\]]+)\]\]/.exec(link)
   return match?.[1] ?? link
+}
+
+/** The skill-rewrite diff block's styles: monospace, quietly striped. */
+const diffBoxStyle = {
+  margin: '4px 0 2px',
+  padding: '6px 8px',
+  background: 'var(--yt-surface)',
+  border: '1px solid var(--yt-border-subtle)',
+  borderRadius: 6,
+  fontFamily: 'monospace',
+  fontSize: 'var(--yt-type-label)',
+  lineHeight: 1.5,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-all',
+  maxWidth: '100%',
+  overflowX: 'auto',
+} as const
+
+const diffDelStyle = { background: 'var(--yt-error-bg)', color: 'var(--yt-error)' } as const
+const diffAddStyle = { background: 'var(--yt-accent-bg)' } as const
+const diffOmittedStyle = { color: 'var(--yt-text-secondary)' } as const
+
+/**
+ * One skill-rewrite row's folded diff (ADR-0054): closed by default — the
+ * label and why suffice to judge whether to look; opening it renders the
+ * plain line diff, `-` for the original's lines and `+` for the proposed
+ * ones, unchanged context in grey. The toggle holds its own open state.
+ */
+function SkillDiffBlock(props: { readonly original: string; readonly next: string; readonly t: WorkbenchT }): ReactElement {
+  const { t } = props
+  const [open, setOpen] = useState(false)
+  const diff = lineDiff(props.original, props.next)
+  return (
+    <div data-proposal-diff="true">
+      <button
+        type="button"
+        style={toggleStyle}
+        data-proposal-diff-toggle="true"
+        onClick={() => { setOpen(o => !o) }}
+      >
+        {open ? t('proposal.diffHide') : t('proposal.diffView')}
+      </button>
+      {open && (
+        <div style={diffBoxStyle} data-proposal-diff-body="true">
+          {diff.omitted > 0 && <div style={diffOmittedStyle}>{t('proposal.diffOmitted', { count: diff.omitted })}</div>}
+          {diff.rows.map((row, index) => (
+            <div
+              key={index}
+              style={row.type === 'del' ? diffDelStyle : row.type === 'add' ? diffAddStyle : undefined}
+              data-proposal-diff-row={row.type}
+            >
+              {row.type === 'del' ? `- ${row.text}` : row.type === 'add' ? `+ ${row.text}` : `  ${row.text}`}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 /** One visual row of the validate layout: possibly several actions behind one checkbox. */
@@ -547,6 +608,11 @@ export function ProposalCard(props: {
                       <div style={{ minWidth: 0 }}>
                         <div>{label}</div>
                         {detailOf(action, t) !== '' && <div style={detailStyle}>{detailOf(action, t)}</div>}
+                        {/* ADR-0054: the skill-rewrite row's folded diff — the
+                            无 diff 不成卡 envelope rendered where the human judges it. */}
+                        {action.kind === 'skill-rewrite' && (
+                          <SkillDiffBlock original={action.original} next={action.new} t={t} />
+                        )}
                         {supplements.map((line, lineAt) => (
                           <div key={lineAt} style={detailStyle} data-proposal-supplement={line.section}>
                             {t('proposal.withSupplement', { section: line.section, text: line.text })}

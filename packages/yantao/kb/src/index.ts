@@ -26,6 +26,7 @@ import { appendLog, createEntity, editSection, initKb, listEntities, readEntity,
 import { kbMentions, renderKbMentions } from './mentions.ts'
 import { appendMemoryProposal, PROPOSAL_PENDING_SOFT_CAP } from './proposals.ts'
 import { importLegacyRootState } from './root-store.ts'
+import { proposeSkillRewrite } from './skill-rewrite.ts'
 import { registerBehaviorMemorySection, registerFilesystemSection, registerPromptSections, registerPromptShortcutsSection } from './sections.ts'
 import { ENTITY_TYPES, PERSON_RELATIONS } from './types.ts'
 
@@ -573,6 +574,42 @@ export function apply(ctx: Context, config: Config): void {
       const scope = appendMemoryProposal(liveRoot.root, args.scope, args.text, args.source)
       return scope.then(queue => ({ scope: queue.scope, pending: queue.entries.length }))
     },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'kb_propose_skill_rewrite',
+    description:
+      '提名改写一个已注册能力目录里的文本文件（ADR-0054）——包括能力的 SKILL.md 说明书本身。礼仪：'
+      + '提名的是改进，不是重写——错字、失效步骤、缺失的注意事项值得提；推倒重来不值得；'
+      + '一次任务里的顺手小修通常不值得打断人，攒到收尾或有实据时再提。'
+      + '提名不立即生效：带着 original + new 的 diff 信封进入提议队列，人批准后由工作台写回；'
+      + '批准即刻生效（下一次调用就读到新说明书），无需重启。'
+      + 'SKILL.md frontmatter 里的 metadata.yantao.version 不归你管——批准时会自动还原为原值，改了也白改。'
+      + '运行产物目录（state/、downloads/、reports/、out/、__pycache__/）与二进制文件不接受提名。'
+      + 'original 必须是你最近一次实际读到的内容：文件已被改动时提名会被拒绝，重读后再提。'
+      + `队列未决策提议最多 ${PROPOSAL_PENDING_SOFT_CAP} 条，满了会拒绝。`,
+    parameters: {
+      name: { type: 'string', required: true, description: '能力名（中央路由 .dsh/skills/yantao.json 里的键）' },
+      file: { type: 'string', required: true, description: '技能目录内的相对路径（如 SKILL.md 或 scripts/run.py）' },
+      original: { type: 'string', required: true, description: '文件的现内容——你读到的原文，作为 diff 左侧' },
+      new: { type: 'string', required: true, description: '提议的新内容，作为 diff 右侧' },
+      why: { type: 'string', required: true, description: '为什么值得改，一句话说服人' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          pending: { type: 'number', required: true },
+        },
+      },
+      render: (args, value) => [{
+        type: 'text',
+        text: `已提名改写 ${args.name}/${args.file}（待批准提议共 ${value.pending} 条）：${args.why}`
+          + '\n提名尚未生效——人批准后才写回；批准即刻可用。',
+      }],
+    },
+    execute: args => proposeSkillRewrite(liveRoot.root, args),
   }))
 }
 

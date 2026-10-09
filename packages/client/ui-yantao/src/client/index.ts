@@ -43,7 +43,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {
   KbCapabilityRouteUpdateArgs, KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation,
   KbPromptShortcutSaveArgs, KbProposalInboxEnqueueArgs, KbProposalInboxResolveArgs,
-  KbScheduleMarkArgs, KbScheduleSaveArgs, KbWriteTodosArgs,
+  KbScheduleMarkArgs, KbScheduleSaveArgs, KbSkillRewriteApplyArgs, KbWriteTodosArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { UsageWireDailyArgs } from '@deepseek-ai/dsh-api-yantao-usage-controller/types'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
@@ -67,7 +67,8 @@ import { promptShortcutSource } from './prompt-shortcut-gesture.ts'
 import { WORKBENCH_NS, en, zh } from './locales.ts'
 import { MemoryProposalCard } from './MemoryProposalCard.tsx'
 import {
-  addMemory, adoptCapability, approveMemoryProposal, archiveEntity, archiveMails, createCapability, createEntity,
+  addMemory, adoptCapability, applySkillRewriteRpc, approveMemoryProposal, archiveEntity, archiveMails, createCapability,
+  createEntity,
   deleteMemory, deleteMails, deleteResource, downloadMailAttachments,
   discardMemoryProposal, fetchMail, fillComposerWithShortcut, listMemory, listMemoryProposals,
   loadCapabilities, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
@@ -312,6 +313,9 @@ export function apply(ctx: Context): void {
       mailArchive: (mails: readonly { entryId: string; summary?: string }[]) => archiveMails(ctx, mails),
       // 附件下载 — same human channel, the third knife of the mail capability.
       mailDownloadAttachments: (mails: readonly { entryId: string; summary?: string }[]) => downloadMailAttachments(ctx, mails),
+      // ADR-0054: the skill-rewrite writeback — backup + version clamp +
+      // atomic write live in the controller; the tick on the card arms it.
+      skillRewriteApply: (args: KbSkillRewriteApplyArgs) => applySkillRewriteRpc(ctx, args),
       analyseMail: async (
         mails: readonly MailMessage[],
         known: KnownEntities,

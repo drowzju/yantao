@@ -1099,3 +1099,23 @@ export interface KbProposalInboxResolveResult {
   /** KB-relative path of the store, for the UI's error copy. */
   readonly path: string
 }
+
+/** Parameters of `yantaoKb.skillRewriteApply` (ADR-0054): one approved rewrite's writeback. */
+export interface KbSkillRewriteApplyArgs {
+  /** The capability's name, as the central routing file keys it. */
+  readonly name: string
+  /** The file's path relative to the capability's directory, forward slashes. */
+  readonly file: string
+  /** The file's content as the proposing agent read it — must still match on disk. */
+  readonly original: string
+  /** The approved content to write. */
+  readonly new: string
+}
+
+/** Result of `yantaoKb.skillRewriteApply` (ADR-0054). */
+export interface KbSkillRewriteApplyResult {
+  /** The written file's path relative to the capability directory, forward slashes. */
+  readonly file: string
+  /** Where the pre-write content was backed up, when the copy succeeded. */
+  readonly backupPath?: string
+}

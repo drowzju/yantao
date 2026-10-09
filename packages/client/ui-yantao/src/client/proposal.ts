@@ -218,6 +218,28 @@ export type ProposalAction =
     readonly subject: string
     readonly reason: string
   }
+  | {
+    /**
+     * Rewrite one text file inside a registered capability's directory
+     * (ADR-0054). The agent nominates with a full diff envelope (`original`
+     * + `new`, 无 diff 不成卡); the card renders the line diff and the
+     * human's tick arms the writeback — the optional `skillRewrite` seam
+     * drives the controller's `skillRewriteApply`, which backs the pre-write
+     * content up and clamps SKILL.md's `metadata.yantao.version` to the
+     * original's. Absent seam ⇒ the row is honestly skipped.
+     */
+    readonly kind: 'skill-rewrite'
+    /** The capability's name, as the central routing file keys it. */
+    readonly name: string
+    /** The file's path relative to the capability's directory. */
+    readonly file: string
+    /** The file's content as the proposing agent read it — the diff's left side. */
+    readonly original: string
+    /** The proposed content — the diff's right side. */
+    readonly new: string
+    /** Why the rewrite is worth a human's attention. */
+    readonly why: string
+  }
 
 /** One mail the analysis flagged, shown on the card without a checkbox. */
 export interface ProposalHighlight {
@@ -360,6 +382,7 @@ export const GROUP_KEYS: Record<ProposalAction['kind'], WorkbenchLocaleKey> = {
   'delete-mails': 'group.deleteMails',
   'archive-mails': 'group.archiveMails',
   'download-attachments': 'group.downloadAttachments',
+  'skill-rewrite': 'group.skillRewrite',
 }
 
 /** Today as a YYYY-MM-DD stamp, in the human's own timezone. */

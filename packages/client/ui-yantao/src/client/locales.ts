@@ -387,6 +387,12 @@ export const zh = {
   'group.deleteMails': '删除邮件（移入已删除）',
   'group.archiveMails': '归档邮件（.eml 原件）',
   'group.downloadAttachments': '下载附件（存入 mails 目录并记索引）',
+  'group.skillRewrite': '技能改写（批准即生效）',
+
+  // Proposal card: the skill-rewrite diff block (ADR-0054)
+  'proposal.diffView': '查看改动',
+  'proposal.diffHide': '收起改动',
+  'proposal.diffOmitted': '…… 中间略去 {count} 行 ……',
 } satisfies Record<string, string>
 
 /** Workbench locale key union. */
@@ -761,4 +767,10 @@ export const en = {
   'group.deleteMails': 'Mail deletions (move to Deleted)',
   'group.archiveMails': 'Mail archives (.eml originals)',
   'group.downloadAttachments': 'Attachment downloads (into the mails directory, indexed)',
+  'group.skillRewrite': 'Skill rewrites (effective on approval)',
+
+  // Proposal card: the skill-rewrite diff block (ADR-0054)
+  'proposal.diffView': 'View changes',
+  'proposal.diffHide': 'Hide changes',
+  'proposal.diffOmitted': '…… {count} lines omitted in the middle ……',
 } satisfies Record<WorkbenchLocaleKey, string>

@@ -36,7 +36,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"   # headless sm
 | 路径 | 是什么 |
 |---|---|
 | `apps/yantao/` | 工作台前端(React + Vite),由 dsh 伺服 |
-| `packages/yantao/kb/` | PARA+P 领域插件:十三个 `kb_*` 工具(agent 的唯一写入通道) |
+| `packages/yantao/kb/` | PARA+P 领域插件:十四个 `kb_*` 工具(agent 的唯一写入通道) |
 | `packages/api/yantao-kb-controller/` | `yantaoKb` Typert Remote:给 UI 的 `tree` / `read` / `write` |
 | `packages/client/ui-yantao/` | 我们的客户端插件:基于 `ctx.remote` 的工作台 React 树 |
 | `packages/bundle/yantao/`、`packages/bundle/yantao-web-app/` | profile 层:模型网关、KB 工具、工作台名单 |

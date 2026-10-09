@@ -56,6 +56,7 @@ import {
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities, seedBuiltinRoutes } from './capability/builtin.ts'
+import { applySkillRewrite } from './capability/rewrite.ts'
 import { CAPABILITY_HINTS, CapabilityError, runCapability } from './capability/run.ts'
 import type { CapabilityInvoker } from './capability/run.ts'
 import { CAPABILITY_ENVIRONMENT_NOTE, execCapabilityScript } from './capability/exec.ts'
@@ -123,6 +124,8 @@ import type {
   KbSetRelationArgs,
   KbSetRelationResult,
   KbSetRootResult,
+  KbSkillRewriteApplyArgs,
+  KbSkillRewriteApplyResult,
   KbTodosResult,
   KbTree,
   KbTreeFile,
@@ -1621,6 +1624,35 @@ export class YantaoKbController extends TypertRemoteService {
       return { proposals: stored as readonly KbQueuedProposal[], path: PROPOSAL_INBOX_DISPLAY_PATH }
     } catch (error: unknown) {
       throw this.inboxError(error)
+    }
+  }
+
+  /**
+   * Write one approved skill rewrite back (ADR-0054 决定 3/4): the human
+   * channel's verdict on a `skill-rewrite` proposal row, landing as bytes.
+   * The writeback re-resolves the route, refuses a stale diff, backs the
+   * pre-write content up, and clamps SKILL.md's `metadata.yantao.version` to
+   * the original's — the whole procedure lives in
+   * {@link ./capability/rewrite.ts} and this RPC only guards the KB root and
+   * dresses the failure.
+   * @param args - the approved rewrite's envelope.
+   * @returns what was written and where the backup sits.
+   */
+  @Remote('skillRewriteApply')
+  async skillRewriteApply(args: KbSkillRewriteApplyArgs): Promise<KbSkillRewriteApplyResult> {
+    this.requireKbRootForInbox()
+    try {
+      return await applySkillRewrite(this.kbRoot, args)
+    } catch (error: unknown) {
+      if (error instanceof CapabilityError) {
+        throw new RemoteError('yantao-kb/capability', error.message, { kind: error.kind, hint: error.hint }, { cause: error })
+      }
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        (error as Error).message,
+        { path: `.dsh/skills/${args.name}` },
+        { cause: error instanceof Error ? error : undefined },
+      )
     }
   }
 

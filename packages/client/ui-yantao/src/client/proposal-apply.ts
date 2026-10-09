@@ -20,7 +20,8 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/proposal-apply
  */
 import type {
-  KbMailArchiveResult, KbMailDeleteResult, KbMailDownloadAttachmentsResult, KbTodoItem, KbTodosResult, KbWriteTodosResult,
+  KbMailArchiveResult, KbMailDeleteResult, KbMailDownloadAttachmentsResult, KbSkillRewriteApplyResult, KbTodoItem,
+  KbTodosResult, KbWriteTodosResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import {
   isDuplicateMemory,
@@ -34,6 +35,7 @@ import {
   type MemoryAdder,
   type MemoryDeleter,
   type ResourceDeleter,
+  type SkillRewriteApplier,
   type TodoLoader,
   type TodoWriter,
 } from './remote.ts'
@@ -76,6 +78,13 @@ export interface ProposalTarget {
    * honestly.
    */
   readonly downloadAttachments?: AttachmentDownloader
+  /**
+   * Write one approved skill rewrite back (ADR-0054) — optional, same reason
+   * as the mail verbs: only the human channel carries the writeback (backup,
+   * version clamp, atomic write live in the controller). A caller without it
+   * (the refine loop's target) skips skill-rewrite rows honestly.
+   */
+  readonly skillRewrite?: SkillRewriteApplier
   /**
    * Archive one entity (the frame's 归档 gesture, ADR-0041) — optional,
    * because it exists only for the undo safety net: a target without it
@@ -246,6 +255,7 @@ function writtenLine(action: ProposalAction): string {
     case 'delete-mails': return `删除邮件 ${action.subject}`
     case 'archive-mails': return `归档邮件 ${action.subject}`
     case 'download-attachments': return `下载附件 ${action.subject}`
+    case 'skill-rewrite': return `技能改写 ${action.name}/${action.file}`
   }
 }
 
@@ -513,6 +523,28 @@ export async function applyProposal(options: {
             skipped.push(warning)
           }
         }
+        continue
+      }
+      if (action.kind === 'skill-rewrite') {
+        // ADR-0054: the agent nominated with a full diff envelope, the human
+        // ticked; the writeback itself is the controller's human-channel-only
+        // RPC — it re-checks routing and confinement, refuses a drifted
+        // `original`, backs the pre-write bytes up and clamps the SKILL.md
+        // version before landing the new content atomically.
+        const applier = target.skillRewrite
+        if (applier === undefined) {
+          skipped.push(`${writtenLine(action)}：这条通道没有挂技能写回动词`)
+          continue
+        }
+        const outcome: KbSkillRewriteApplyResult = await applier({
+          name: action.name, file: action.file, original: action.original, new: action.new,
+        })
+        const suffix = outcome.backupPath !== undefined ? `（原内容已备份 → ${outcome.backupPath}）` : ''
+        written.push(`${writtenLine(action)}${suffix}`)
+        // The rewrite is a done deed on disk: the undo window cannot promise
+        // a restore (the inbox entry keeps the original bytes, and the
+        // backup is the human's fallback), so it names itself irreversible.
+        irreversible.push(writtenLine(action))
         continue
       }
       if (action.kind === 'edit-section') {

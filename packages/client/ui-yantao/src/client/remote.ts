@@ -51,7 +51,7 @@ import type {
   KbScheduleListResult, KbScheduleMarkArgs, KbScheduleMarkResult, KbScheduleSaveArgs, KbScheduleSaveResult,
   KbRegisterResourceArgs, KbRegisterResourceResult, KbResourceBinary, KbRevisionResult,
   KbRootResult, KbSetEntityArchivedResult, KbSetRelationArgs, KbSetRelationResult,
-  KbSetRootResult, KbTodosResult, KbTree,
+  KbSetRootResult, KbSkillRewriteApplyArgs, KbSkillRewriteApplyResult, KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 
@@ -141,6 +141,8 @@ export interface KbRemote {
   proposalInboxEnqueue(args: KbProposalInboxEnqueueArgs): Promise<RemoteResult<KbProposalInboxEnqueueResult>>
   /** Record the human's decision on one pending inbox entry (ADR-0047); a decision is final. */
   proposalInboxResolve(args: KbProposalInboxResolveArgs): Promise<RemoteResult<KbProposalInboxResolveResult>>
+  /** Write one approved skill rewrite back (ADR-0054): backup, version clamp, atomic write. */
+  skillRewriteApply(args: KbSkillRewriteApplyArgs): Promise<RemoteResult<KbSkillRewriteApplyResult>>
 }
 
 /**
@@ -276,6 +278,15 @@ export type Archiver = (mails: readonly ArchiveMail[]) => Promise<KbMailArchiveR
  * the human clicks, the script saves, the agent never carries the blade.
  */
 export type AttachmentDownloader = (mails: readonly { entryId: string; summary?: string }[]) => Promise<KbMailDownloadAttachmentsResult>
+
+/**
+ * Write one approved skill rewrite back (ADR-0054): the controller re-checks
+ * routing and confinement, refuses a drifted `original`, backs the pre-write
+ * content up, clamps SKILL.md's `metadata.yantao.version` to the original's,
+ * and lands the new content atomically. Human channel only — the agent
+ * nominates through `kb_propose_skill_rewrite`; the tick is what arms this.
+ */
+export type SkillRewriteApplier = (args: KbSkillRewriteApplyArgs) => Promise<KbSkillRewriteApplyResult>
 
 /** Copy one dropped file into `resources/` and resolve its path (ADR-0020). */
 export type ResourceRegistrar = (name: string, contentBase64: string) => Promise<string>
@@ -1111,6 +1122,20 @@ export async function resolveInboxProposal(ctx: Context, args: KbProposalInboxRe
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.proposalInboxResolve(args))
+}
+
+/**
+ * Write one approved skill rewrite back (ADR-0054 决定 3): the applier's
+ * `skillRewrite` seam drives this — backup, version clamp and the atomic
+ * write all live host-side; the client only relays the envelope.
+ * @param ctx - client root context.
+ * @param args - the approved rewrite's envelope.
+ * @returns what was written and where the backup sits.
+ */
+export async function applySkillRewriteRpc(ctx: Context, args: KbSkillRewriteApplyArgs): Promise<KbSkillRewriteApplyResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.skillRewriteApply(args))
 }
 
 /**

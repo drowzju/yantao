@@ -84,7 +84,7 @@ function routeOf(name: string, declared: unknown): CapabilityRoute {
       `请修正 ${ROUTES_PATH} 里 capabilities.${name} 的形状。`,
     )
   }
-  const keys = Object.keys(declared as Record<string, unknown>)
+  const keys = Object.keys(declared)
   const unknownKey = keys.find(key => key !== 'path' && key !== 'invocation' && key !== 'appliesTo')
   if (unknownKey !== undefined) {
     throw new CapabilityError(
