@@ -25,11 +25,15 @@ import type { ILayout, MainPanelId, PanelInfo } from '@deepseek-ai/dsh-client-ui
 export interface PanelToggles {
   /** Collapse or expand the intake rail. */
   toggleIntake(): void
+  /** Switch the middle-column tab by key (e.g. `INBOX_TAB`). */
+  activateTab(key: string): void
+  /** Open or close the config dialog. */
+  setConfigOpen(open: boolean): void
 }
 
 /** A seat whose members are no-ops until the frame claims them. */
 export function createPanelSeat(): PanelToggles {
-  return { toggleIntake: () => {} }
+  return { toggleIntake: () => {}, activateTab: () => {}, setConfigOpen: () => {} }
 }
 
 /** The workbench's constant panel state: only the Conversation exists. */

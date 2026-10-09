@@ -8,7 +8,7 @@ import type { TreeLoader } from '../src/client/Workbench.tsx'
 import { IntakeRail, WorkspaceRail, groupResourceFiles, type IntakeRailProps } from '../src/client/Workbench.tsx'
 import { Frame } from '../src/client/frame/Frame.tsx'
 import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveColumns } from '../src/client/frame/columns.ts'
-import { WorkbenchLayout, createPanelSeat } from '../src/client/frame/layout.ts'
+import { WorkbenchLayout, createPanelSeat, type PanelToggles } from '../src/client/frame/layout.ts'
 import { createSidebarRightFileSeat } from '../src/client/sidebar-right.ts'
 import type {
   CapabilityDeclarationLoader, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityArchiver, EntityCreator,
@@ -32,7 +32,7 @@ import { CapabilityPanel } from '../src/client/CapabilityPanel.tsx'
 import { RESOURCE_DRAG_TYPE } from '../src/client/refine.ts'
 import type { Proposal } from '../src/client/proposal.ts'
 import { t } from './helpers.client.ts'
-import { TAB_STORAGE_KEY } from '../src/client/tabs.ts'
+import { INBOX_TAB, TAB_STORAGE_KEY } from '../src/client/tabs.ts'
 
 afterEach(() => {
   cleanup()
@@ -1319,13 +1319,14 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
 }
 
 /** Render the frame with a stub conversation seat. */
-function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => void = () => {}): ReactElement {
+function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => void = () => {},
+  panels: PanelToggles = createPanelSeat()): ReactElement {
   const kb = faces(override)
   return (
     <Frame
       t={t}
       renderSlot={(key, _props, options) => <div data-seat={key}>{key === 'main' && options?.entryKey === 'conversation' ? 'middle' : null}</div>}
-      panels={createPanelSeat()}
+      panels={panels}
       sidebarFiles={createSidebarRightFileSeat()}
       intake={loader(intake)}
       workspace={loader(workspace)}
@@ -1390,6 +1391,22 @@ describe('Frame', () => {
     expect(screen.getByText('middle')).toBeTruthy()
     expect(await screen.findByText('资源')).toBeTruthy()
     expect(await screen.findByText('领域')).toBeTruthy()
+  })
+
+  it('drives the centre pane and the config dialog through the keyboard-command seat', async () => {
+    const seat = createPanelSeat()
+    const { container } = render(renderFrame({}, () => {}, seat))
+    // The keyboard commands fire into this seat; before mount they are
+    // no-ops, after mount they swing the tabs and the dialog.
+    expect((container.querySelector('[data-tab="inbox"]') as HTMLElement).style.display).toBe('none')
+    act(() => { seat.activateTab(INBOX_TAB) })
+    expect((container.querySelector('[data-tab="inbox"]') as HTMLElement).style.display).toBe('flex')
+    expect((container.querySelector('[data-tab="conversation"]') as HTMLElement).style.display).toBe('none')
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    act(() => { seat.setConfigOpen(true) })
+    expect(container.querySelector('[role="dialog"]')).toBeTruthy()
+    act(() => { seat.setConfigOpen(false) })
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
   })
 
   it('opens a rail row as a tab and keeps the conversation mounted but hidden', async () => {

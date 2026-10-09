@@ -530,9 +530,13 @@ export function Frame({
   // dead component.
   useEffect(() => {
     panels.toggleIntake = () => { setIntakeOpen(open => !open) }
+    panels.activateTab = (key) => { setTabs(state => activateTab(state, key)) }
+    panels.setConfigOpen = (open) => { setConfigOpen(open) }
     sidebarFiles.openFile = (path) => { setTabs(state => openTab(state, path, readOnlyPath(path) ? 'read' : 'edit')) }
     return () => {
       panels.toggleIntake = () => {}
+      panels.activateTab = () => {}
+      panels.setConfigOpen = () => {}
       sidebarFiles.openFile = () => {}
     }
   }, [panels, sidebarFiles])

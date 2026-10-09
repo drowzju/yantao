@@ -40,6 +40,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 // declaration) — the workbench registers its `yantao.workbench` dictionaries
 // through it.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: pulls the `ctx.shortcuts` service merge (the shortcuts plugin
+// owns the declaration) — the workbench's keyboard commands register through
+// it (see ./shortcuts.ts).
+import type {} from '@deepseek-ai/dsh-client-shortcuts/client'
 import type {
   KbCapabilityRouteUpdateArgs, KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation,
   KbPromptShortcutSaveArgs, KbProposalInboxEnqueueArgs, KbProposalInboxResolveArgs,
@@ -65,6 +69,7 @@ import { kbReferenceSource } from './kb-reference.ts'
 import { capabilityGestureSource } from './capability-gesture.ts'
 import { promptShortcutSource } from './prompt-shortcut-gesture.ts'
 import { WORKBENCH_NS, en, zh } from './locales.ts'
+import { installWorkbenchShortcuts } from './shortcuts.ts'
 import { MemoryProposalCard } from './MemoryProposalCard.tsx'
 import {
   addMemory, adoptCapability, applySkillRewriteRpc, approveMemoryProposal, archiveEntity, archiveMails, createCapability,
@@ -159,7 +164,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const inject = [
   'slots', 'theme', 'locale', 'remote', 'remote.yantaoKb', 'remote.session', 'remote.settings', 'remote.credentials',
   'remote.yantaoUsage',
-  'sessions', 'workspaces', 'inputTriggers',
+  'sessions', 'workspaces', 'inputTriggers', 'shortcuts',
 ]
 
 /**
@@ -182,6 +187,9 @@ export function apply(ctx: Context): void {
 
   // Panel actions: the frame fills this seat on mount, `ctx.layout` reads it.
   const panels = createPanelSeat()
+  // Keyboard commands (tab jumps, config, intake rail) fire into the same
+  // seat — no-ops until the frame mounts, handled afterwards.
+  installWorkbenchShortcuts(ctx, panels, t)
   const layout = new WorkbenchLayout(panels)
   // The 0.2.1 `sidebarRight` stand-in: ui-chat / ui-reference inject the
   // service, the upstream provider (ui-sidebar-right) drags in ui-layout

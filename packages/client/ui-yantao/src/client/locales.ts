@@ -394,6 +394,10 @@ export const zh = {
   'proposal.diffView': '查看改动',
   'proposal.diffHide': '收起改动',
   'proposal.diffOmitted': '…… 中间略去 {count} 行 ……',
+
+  // Keyboard shortcuts (tab labels reuse the center.* keys)
+  'shortcut.configOpen': '打开配置',
+  'shortcut.railIntake': '折叠/展开采集栏',
 } satisfies Record<string, string>
 
 /** Workbench locale key union. */
@@ -775,4 +779,8 @@ export const en = {
   'proposal.diffView': 'View changes',
   'proposal.diffHide': 'Hide changes',
   'proposal.diffOmitted': '…… {count} lines omitted in the middle ……',
+
+  // Keyboard shortcuts (tab labels reuse the center.* keys)
+  'shortcut.configOpen': 'Open settings',
+  'shortcut.railIntake': 'Toggle intake rail',
 } satisfies Record<WorkbenchLocaleKey, string>
