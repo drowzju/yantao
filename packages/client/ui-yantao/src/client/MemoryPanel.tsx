@@ -398,12 +398,13 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
             }}
           />
           <div style={addActionsStyle}>
-            <button type="button" style={primaryButtonStyle} disabled={busy || text.trim() === ''} onClick={() => { void remember() }}>
+            <button type="button" style={primaryButtonStyle} data-hover="primary" disabled={busy || text.trim() === ''} onClick={() => { void remember() }}>
               {t('memory.save')}
             </button>
             <button
               type="button"
               style={ghostButtonStyle}
+              data-hover="true"
               disabled={busy}
               data-memory-add-cancel="true"
               onClick={() => { setAdding(false); setText('') }}

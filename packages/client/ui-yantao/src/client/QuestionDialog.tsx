@@ -26,7 +26,8 @@ export interface QuestionRun {
 const panelStyle = {
   position: 'absolute',
   inset: 0,
-  background: 'rgba(28, 26, 22, 0.45)',
+  // 幕布随主题取色（--yt-scrim，2026-10-09）——见 ConfigDialog 同款注释。
+  background: 'var(--yt-scrim)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -125,6 +126,7 @@ export function QuestionDialog(props: {
           <button
             type="button"
             style={primaryButtonStyle}
+            data-hover="primary"
             disabled={settled}
             data-question-submit="true"
             onClick={() => { onSubmit(questions.map((_, index) => answers[index] ?? '')) }}

@@ -69,6 +69,7 @@ export function InsightsFooterButton({ useProjection, onOpen, t }: InsightsFoote
       type="button"
       style={{ ...buttonStyle, borderColor: stroke }}
       data-insights-button="true"
+      data-hover="true"
       aria-label={t('insights.open')}
       title={t('insights.open')}
       onClick={onOpen}

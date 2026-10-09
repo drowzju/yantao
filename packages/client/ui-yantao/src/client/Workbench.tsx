@@ -266,6 +266,7 @@ function FileRow({
       }}
       data-selected={selection === file.path || undefined}
       data-drop-target={drop !== undefined || undefined}
+      data-hover="true"
       draggable={drag !== undefined || undefined}
       onClick={() => { onSelect(file.path) }}
       onContextMenu={onMenu === undefined ? undefined : (event) => {
@@ -368,6 +369,7 @@ function Section({
             type="button"
             style={{ ...rowStyle, color: 'var(--yt-text-secondary)' }}
             data-archive-group={id}
+            data-hover="true"
             aria-expanded={archiveOpen}
             onClick={() => { setArchiveOpen(open => !open) }}
           >
@@ -895,8 +897,12 @@ function useRowMenu(args: {
  * @param refreshKey - the frame's tree-generation counter.
  * @returns the registered capabilities.
  */
-function useCapabilities(load: CapabilityLoader, refreshKey: number): readonly KbCapabilitySummary[] {
+function useCapabilities(
+  load: CapabilityLoader,
+  refreshKey: number,
+): { capabilities: readonly KbCapabilitySummary[]; error: string | null } {
   const [capabilities, setCapabilities] = useState<readonly KbCapabilitySummary[]>([])
+  const [error, setError] = useState<string | null>(null)
   // Same fresh-closure discipline as useRail: the loader comes from the
   // inject face, so the effect reads it through a ref.
   const latest = useRef(load)
@@ -904,16 +910,22 @@ function useCapabilities(load: CapabilityLoader, refreshKey: number): readonly K
   useEffect(() => {
     let stale = false
     void latest.current().then((result) => {
-      if (!stale) setCapabilities(result.capabilities)
-    }).catch(() => {
-      // The row menu simply offers nothing; the 能力 tab reports the failure.
+      if (!stale) {
+        setCapabilities(result.capabilities)
+        setError(null)
+      }
+    }).catch((failure: unknown) => {
+      // The row menu simply offers nothing; the failure surfaces in the
+      // 能力 tab as a readable error row (2026-10-09 评审 P2：不再静默).
+      if (!stale) setError(remoteMessage(failure))
     })
     return () => { stale = true }
   }, [refreshKey])
-  return capabilities
+  return { capabilities, error }
 }
 
-/** The compact column both rails render while collapsed. */function CompactRail({
+/** The compact column both rails render while collapsed. */
+function CompactRail({
   label,
   error,
   onExpand,
@@ -926,10 +938,23 @@ function useCapabilities(load: CapabilityLoader, refreshKey: number): readonly K
 }): ReactElement {
   return (
     <div style={compactStyle}>
-      <button type="button" style={rowStyle} title={label} onClick={onExpand}>
+      <button type="button" style={rowStyle} data-hover="true" title={label} onClick={onExpand}>
         {side === 'intake' ? '›' : '‹'}
       </button>
-      {error !== null && <span style={{ color: 'var(--yt-error)' }} title={error}>!</span>}
+      {error !== null && (
+        // The collapsed rail's error marker is itself the exit: clicking it
+        // expands the rail, where the full error row waits (2026-10-09 评审
+        // P2：此前只是一个 title 兜底的裸字符).
+        <button
+          type="button"
+          style={{ ...rowStyle, width: 'auto', padding: '2px 8px', color: 'var(--yt-error)' }}
+          data-hover="true"
+          title={error}
+          onClick={onExpand}
+        >
+          !
+        </button>
+      )}
     </div>
   )
 }
@@ -1060,11 +1085,34 @@ export interface IntakeRailProps extends RailProps {
   readonly fillShortcut: ShortcutFiller
 }
 
-/** The rail's error marker: it is the only thing left above the tab strip. */
-function RailHeader({ error }: { error: string | null }): ReactElement {
+/** A small ghost face for the error row's 重试 (matches the discard ghost). */
+const railRetryStyle = {
+  padding: '1px 8px',
+  minHeight: 'var(--yt-control-min-h)',
+  boxSizing: 'border-box',
+  background: 'transparent',
+  border: '1px solid var(--yt-border-subtle)',
+  borderRadius: 4,
+  color: 'var(--yt-text-secondary)',
+  cursor: 'pointer',
+  fontFamily: FONT,
+  fontSize: 'var(--yt-type-label)',
+} as const
+
+/** The rail's error row: the load failure stays interactive — readable in
+    place, with 重试 to reload (2026-10-09 评审 P2：此前是一个不可交互、正文
+    藏在 title 里的"！"). */
+function RailHeader({ error, onRetry, t }: { error: string | null; onRetry: () => void; t: WorkbenchT }): ReactElement {
   return (
-    <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-      {error !== null && <span style={{ color: 'var(--yt-error)' }} title={error}>!</span>}
+    <div style={{ marginBottom: 8 }}>
+      {error !== null && (
+        <div style={errorStyle} role="alert" data-rail-error="true">
+          <span style={{ display: 'block', marginBottom: 4 }}>{error}</span>
+          <button type="button" style={railRetryStyle} data-hover="true" onClick={onRetry}>
+            {t('workbench.retry')}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -1138,7 +1186,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const mailDelete = props.mailDelete
   const mailArchive = props.mailArchive
   const { sections, error, refresh } = useRail(load, refreshKey)
-  const capabilities = useCapabilities(capabilityList, refreshKey)
+  const { capabilities, error: capabilityError } = useCapabilities(capabilityList, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector' | 'memory'>('resources')
   // The mail run outlives the panel: tab switches, capability switches and a
   // collapsed rail all unmount MailPanel, and an analysis (or the proposal
@@ -1253,12 +1301,13 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
       }}
       onDrop={(event) => { void onDrop(event) }}
     >
-      <RailHeader error={error} />
+      <RailHeader error={error} onRetry={() => { void refresh() }} t={t} />
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {INTAKE_PANEL_IDS.map(id => (
           <button
             key={id}
             type="button"
+            data-hover="true"
             style={tab === id ? { ...tabRowStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } : tabRowStyle}
             onClick={() => { setTab(id) }}
           >
@@ -1288,32 +1337,37 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
           />
         )}
         {tab === 'connector' && (
-          <CapabilityPanel
-            t={t}
-            load={capabilityList}
-            create={capabilityCreate}
-            adopt={capabilityAdopt}
-            register={capabilityRegister}
-            updateRoute={capabilityRouteUpdate}
-            unregister={capabilityUnregister}
-            reveal={props.revealConnector}
-            loadShortcuts={promptShortcutList}
-            saveShortcuts={promptShortcutSave}
-            fillShortcut={fillShortcut}
-            mail={state => (
-              <MailPanel
-                t={t}
-                fetch={mailFetch}
-                mark={mailMarkRead}
-                analyse={analyseMail}
-                target={mailTarget}
-                entities={async () => entitiesOfTree(await workspace())}
-                processed={mailRangeOf(state)}
-                store={mailRun}
-                memoryAdd={memoryAdd}
-              />
+          <>
+            {capabilityError !== null && (
+              <div style={errorStyle} role="alert">{t('workbench.capabilityLoadFailed')}：{capabilityError}</div>
             )}
-          />
+            <CapabilityPanel
+              t={t}
+              load={capabilityList}
+              create={capabilityCreate}
+              adopt={capabilityAdopt}
+              register={capabilityRegister}
+              updateRoute={capabilityRouteUpdate}
+              unregister={capabilityUnregister}
+              reveal={props.revealConnector}
+              loadShortcuts={promptShortcutList}
+              saveShortcuts={promptShortcutSave}
+              fillShortcut={fillShortcut}
+              mail={state => (
+                <MailPanel
+                  t={t}
+                  fetch={mailFetch}
+                  mark={mailMarkRead}
+                  analyse={analyseMail}
+                  target={mailTarget}
+                  entities={async () => entitiesOfTree(await workspace())}
+                  processed={mailRangeOf(state)}
+                  store={mailRun}
+                  memoryAdd={memoryAdd}
+                />
+              )}
+            />
+          </>
         )}
         {tab === 'memory' && (
           <MemoryPanel
@@ -1391,7 +1445,9 @@ export function WorkspaceRail(props: RailProps): ReactElement {
     setRelation: writeRelation, registerResource, onRefine, onValidate, capabilityList, onRunCapability, kbRoot = '',
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
-  const capabilities = useCapabilities(capabilityList, refreshKey)
+  // The workspace rail's menus only consume the list; a load failure surfaces
+  // in the intake rail's 能力 tab, the one place a capability failure shows.
+  const { capabilities } = useCapabilities(capabilityList, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId>('areas')
   const [actionError, setActionError] = useState<string | null>(null)
   /** The relation a new person gets; 同事 unless the human picks another. */
@@ -1435,12 +1491,13 @@ export function WorkspaceRail(props: RailProps): ReactElement {
       onDragOver={(event) => { event.stopPropagation() }}
       onDragLeave={(event) => { event.stopPropagation() }}
     >
-      <RailHeader error={error} />
+      <RailHeader error={error} onRetry={() => { void refresh() }} t={t} />
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {WORKSPACE_TAB_IDS.map(id => (
           <button
             key={id}
             type="button"
+            data-hover="true"
             style={tab === id ? { ...tabRowStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } : tabRowStyle}
             onClick={() => { setTab(id) }}
           >

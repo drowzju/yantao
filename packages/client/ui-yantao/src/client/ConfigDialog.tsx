@@ -20,7 +20,9 @@ import { remoteMessage } from './remote.ts'
 const backdropStyle = {
   position: 'absolute',
   inset: 0,
-  background: 'rgba(28, 26, 22, 0.45)',
+  // 幕布随主题取色（--yt-scrim，2026-10-09）：裸 rgba 值在此前的四处模态
+  // 各写一份，暗色下压不出层次。
+  background: 'var(--yt-scrim)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -253,7 +255,7 @@ export function ConfigDialog(props: ConfigDialogProps): ReactElement {
               </select>
             </label>
             <footer style={footerStyle}>
-              <button style={primaryButtonStyle} disabled={busy} onClick={() => { void saveDraft() }}>
+              <button style={primaryButtonStyle} data-hover="primary" disabled={busy} onClick={() => { void saveDraft() }}>
                 {busy ? t('config.saving') : t('config.save')}
               </button>
             </footer>

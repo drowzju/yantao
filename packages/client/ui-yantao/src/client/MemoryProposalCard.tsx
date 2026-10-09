@@ -175,6 +175,7 @@ export function MemoryProposalCard(props: MemoryProposalCardProps): ReactElement
             type="button"
             style={primaryButtonStyle}
             data-memory-proposal-approve="true"
+            data-hover="primary"
             disabled={verdict.phase === 'busy'}
             onClick={() => { act('approve') }}
           >
@@ -184,6 +185,7 @@ export function MemoryProposalCard(props: MemoryProposalCardProps): ReactElement
             type="button"
             style={ghostButtonStyle}
             data-memory-proposal-discard="true"
+            data-hover="true"
             disabled={verdict.phase === 'busy'}
             onClick={() => { act('discard') }}
           >

@@ -126,7 +126,8 @@ const discardButtonStyle = {
 const plainCardStyle = {
   position: 'absolute',
   inset: 0,
-  background: 'rgba(28, 26, 22, 0.45)',
+  // 幕布随主题取色（--yt-scrim，2026-10-09）——见 ConfigDialog 同款注释。
+  background: 'var(--yt-scrim)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -210,6 +211,7 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, t }: InboxPan
                     type="button"
                     style={discardButtonStyle}
                     data-inbox-row-discard="true"
+                    data-hover="true"
                     disabled={busyId === entry.id}
                     onClick={() => { onDiscard(entry) }}
                   >

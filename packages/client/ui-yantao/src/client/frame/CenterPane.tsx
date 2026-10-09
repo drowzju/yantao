@@ -187,12 +187,12 @@ export function CenterPane({
     <div style={paneStyle}>
       <div style={stripStyle}>
         <div style={conversationActive ? activeTabStyle : tabStyle}>
-          <button type="button" style={labelButtonStyle} onClick={() => { onActivate(CONVERSATION_TAB) }}>
+          <button type="button" style={labelButtonStyle} data-hover="tab" onClick={() => { onActivate(CONVERSATION_TAB) }}>
             {t('center.conversation')}
           </button>
         </div>
         <div style={tasksActive ? activeTabStyle : tabStyle}>
-          <button type="button" style={labelButtonStyle} onClick={() => { onActivate(TASKS_TAB) }}>
+          <button type="button" style={labelButtonStyle} data-hover="tab" onClick={() => { onActivate(TASKS_TAB) }}>
             {t('center.tasks')}
           </button>
           {running > 0 && (
@@ -201,7 +201,9 @@ export function CenterPane({
               style={{
                 background: 'var(--yt-accent)',
                 borderRadius: 8,
-                color: '#fff',
+                // accent 面上的文字随主题取色（--yt-on-accent，2026-10-09）：
+                // 此前硬编码 #fff，暗色下对 #7ba3e0 只有 ≈2.6:1。
+                color: 'var(--yt-on-accent)',
                 fontSize: 'var(--yt-type-label)',
                 lineHeight: '16px',
                 padding: '0 6px',
@@ -212,26 +214,26 @@ export function CenterPane({
           )}
         </div>
         <div style={schedulesActive ? activeTabStyle : tabStyle}>
-          <button type="button" style={labelButtonStyle} onClick={() => { onActivate(SCHEDULES_TAB) }}>
+          <button type="button" style={labelButtonStyle} data-hover="tab" onClick={() => { onActivate(SCHEDULES_TAB) }}>
             {t('center.schedules')}
           </button>
         </div>
         <div style={inboxActive ? activeTabStyle : tabStyle}>
-          <button type="button" style={labelButtonStyle} onClick={() => { onActivate(INBOX_TAB) }}>
+          <button type="button" style={labelButtonStyle} data-hover="tab" onClick={() => { onActivate(INBOX_TAB) }}>
             {t('center.inbox')}
           </button>
           {inboxPending > 0 && (
             <span
               data-inbox-badge="true"
               style={{
-                // Light: plain --yt-accent gives 12px white text only ~4:1;
-                // the stronger accent clears AA there (~5.6:1). Dark aliases
-                // strong to plain accent (#7ba3e0), where white still lands
-                // near 2.6:1 — below AA — so dark needs its own treatment
-                // (a darker dark-scheme chip token, or non-white badge text).
+                // Light: plain --yt-accent gives 12px text only ~4:1; the
+                // stronger accent clears AA there (~5.6:1). Dark aliases
+                // strong to plain accent (#7ba3e0), so the ink flips to the
+                // dark scheme's --yt-on-accent (墨色，7:1+) instead of white
+                // (≈2.6:1，2026-10-09 评审 P1 收口).
                 background: 'var(--yt-accent-strong)',
                 borderRadius: 8,
-                color: '#fff',
+                color: 'var(--yt-on-accent)',
                 fontSize: 'var(--yt-type-label)',
                 lineHeight: '16px',
                 padding: '0 6px',
@@ -242,12 +244,12 @@ export function CenterPane({
           )}
         </div>
         <div style={graphActive ? activeTabStyle : tabStyle}>
-          <button type="button" style={labelButtonStyle} onClick={() => { onActivate(GRAPH_TAB) }}>
+          <button type="button" style={labelButtonStyle} data-hover="tab" onClick={() => { onActivate(GRAPH_TAB) }}>
             {t('center.graph')}
           </button>
         </div>
         <div style={insightsActive ? activeTabStyle : tabStyle}>
-          <button type="button" style={labelButtonStyle} onClick={() => { onActivate(INSIGHTS_TAB) }}>
+          <button type="button" style={labelButtonStyle} data-hover="tab" onClick={() => { onActivate(INSIGHTS_TAB) }}>
             {t('center.insights')}
           </button>
         </div>
@@ -261,6 +263,7 @@ export function CenterPane({
                 style={labelButtonStyle}
                 title={tab.path}
                 data-tab-button={tab.path}
+                data-hover="tab"
                 onClick={() => { onActivate(tab.path) }}
               >
                 {tab.title}
@@ -269,6 +272,7 @@ export function CenterPane({
                 type="button"
                 style={closeButtonStyle}
                 title={t('center.close')}
+                data-hover="close"
                 onClick={() => { onClose(tab.path) }}
               >
                 ×

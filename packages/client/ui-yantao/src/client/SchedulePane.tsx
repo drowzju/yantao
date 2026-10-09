@@ -462,7 +462,7 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
               <div style={metaLineStyle}>停用的调度保留在列表里但不触发。</div>
             </div>
             <div style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center' }}>
-              <button type="button" style={primaryButtonStyle} disabled={busy || draft.name.trim() === '' || draft.prompt.trim() === ''} onClick={() => { void saveDraft() }}>
+              <button type="button" style={primaryButtonStyle} data-hover="primary" disabled={busy || draft.name.trim() === '' || draft.prompt.trim() === ''} onClick={() => { void saveDraft() }}>
                 {draft.id === null ? '创建' : '保存'}
               </button>
               <button type="button" style={buttonStyle} disabled={busy} onClick={() => { setDraft(null); setSelectedId(null); setDeleteArmed(false) }}>

@@ -318,7 +318,6 @@ const noticeStyle = {
   boxShadow: '0 4px 12px rgba(28, 26, 22, 0.15)',
   fontSize: 12,
   zIndex: 45,
-  cursor: 'pointer',
 } as const
 
 /** An error notice: the error pair speaks, the human must dismiss it. */
@@ -1856,6 +1855,7 @@ export function Frame({
               <div style={fileModeBarStyle}>
                 <button
                   type="button"
+                  data-hover="tab"
                   style={viewMode === 'read' ? activeModeStyle : modeButtonStyle}
                   onClick={() => { setViewMode('read') }}
                 >
@@ -1863,6 +1863,7 @@ export function Frame({
                 </button>
                 <button
                   type="button"
+                  data-hover="tab"
                   style={viewMode === 'source' ? activeModeStyle : modeButtonStyle}
                   onClick={() => { setViewMode('source') }}
                 >
@@ -1872,6 +1873,7 @@ export function Frame({
                     控制，原先散在 MarkdownView 的属性条里，两行两处不好找。 */}
                 <button
                   type="button"
+                  data-hover="tab"
                   style={{ ...modeButtonStyle, marginLeft: 'auto' }}
                   title={t('md.openExternallyTitle')}
                   onClick={() => { openInObsidian(tab.path) }}
@@ -1956,7 +1958,7 @@ export function Frame({
           entries ride beside it (ADR-0045 决定 8 / ADR-0050) — the latter's
           stroke carries the current session's pressure alarm. */}
       <div style={footerStripStyle}>
-        <button style={footerButtonStyle} data-config-button="true" onClick={() => { setConfigOpen(true) }}>
+        <button style={footerButtonStyle} data-config-button="true" data-hover="true" onClick={() => { setConfigOpen(true) }}>
           {t('config.open')}
         </button>
         {/* ADR-0045 决定 8: the 调度 entry rides beside 配置 at the window's
@@ -1964,6 +1966,7 @@ export function Frame({
         <button
           style={footerButtonStyle}
           data-schedule-button="true"
+          data-hover="true"
           onClick={() => { setTabs(state => activateTab(state, SCHEDULES_TAB)) }}
         >
           {t('schedule.open')}
@@ -2103,8 +2106,6 @@ export function Frame({
           data-capability-notice-severity={capabilityNotice.severity}
           role={capabilityNotice.severity === 'error' ? 'alert' : 'status'}
           aria-live={capabilityNotice.severity === 'error' ? 'assertive' : 'polite'}
-          title={t('frame.closeNotice')}
-          onClick={() => { setCapabilityNoticeRaw(null) }}
         >
           {capabilityNotice.text}
           {/* The written report's undo chip: takes back what the applier
@@ -2130,7 +2131,9 @@ export function Frame({
             >
               {capabilityNotice.action.label}
               {capabilityNotice.severity === 'undo' && undoRemaining !== null && (
-                <span style={{ marginLeft: 4, color: 'var(--yt-text-tertiary)' }}>· {undoRemaining}s</span>
+                // --yt-text-tertiary 从未定义（2026-10-09 评审 P3）：倒计时
+                // 曾因此继承父色，severity 配色形同虚设——回落到 muted。
+                <span style={{ marginLeft: 4, color: 'var(--yt-text-muted)' }}>· {undoRemaining}s</span>
               )}
             </button>
           )}
@@ -2157,6 +2160,28 @@ export function Frame({
               取消
             </button>
           )}
+          {/* Explicit close (2026-10-09 评审 P2)：此前整条通知点任意处即消失，
+              想选中错误文字复制时正好把它点没了——关闭收进一枚明确的钮，
+              错误正文可以安心停留、复制。 */}
+          <button
+            type="button"
+            style={{
+              marginLeft: 10,
+              padding: '1px 8px',
+              border: '1px solid var(--yt-border-strong)',
+              borderRadius: 4,
+              background: 'var(--yt-surface-raised)',
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'inherit',
+            }}
+            title={t('frame.closeNotice')}
+            data-notice-close="true"
+            data-hover="close"
+            onClick={() => { setCapabilityNoticeRaw(null) }}
+          >
+            ✕
+          </button>
         </div>
       )}
       {selectionMenu !== null && (

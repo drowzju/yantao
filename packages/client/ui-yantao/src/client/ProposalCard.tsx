@@ -22,7 +22,8 @@ import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 const panelStyle = {
   position: 'absolute',
   inset: 0,
-  background: 'rgba(28, 26, 22, 0.45)',
+  // 幕布随主题取色（--yt-scrim，2026-10-09）——见 ConfigDialog 同款注释。
+  background: 'var(--yt-scrim)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -36,10 +37,25 @@ const cardStyle = {
   padding: 16,
   width: 'min(560px, 92vw)',
   maxHeight: '80vh',
-  overflow: 'auto',
+  // 头底固定、仅中段滚动（2026-10-09 评审 P2）：此前整卡 overflow:auto，
+  // 大批量邮件会把裁决页脚卷出视野，勾完最后一行回头找不到按钮。
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
   boxShadow: '0 12px 32px rgba(28, 26, 22, 0.25)',
   // 卡自身接收初始焦点（tabIndex=-1）；轮廓交给卡内的真控件去画。
   outline: 'none',
+} as const
+
+/** The card's scrollable middle: everything between the title block and the
+    verdict footer — the footer (确认写入（N）) never leaves the viewport. */
+const cardScrollStyle = {
+  flex: 1,
+  minHeight: 0,
+  overflowY: 'auto',
+  // 吃掉卡自身的左右 padding，让滚动条贴卡缘；内容再用 padding 补回。
+  margin: '0 -16px',
+  padding: '0 16px',
 } as const
 
 // 层级秩序（2026-09-30 展示修订）：片区有物理边界，组头是全卡最大的字，
@@ -161,6 +177,7 @@ const footerStyle = {
   display: 'flex',
   gap: 8,
   alignItems: 'center',
+  flexShrink: 0,
   marginTop: 14,
   paddingTop: 10,
   borderTop: '1px solid var(--yt-border-subtle)',
@@ -734,145 +751,150 @@ export function ProposalCard(props: {
         tabIndex={-1}
         ref={cardRef}
       >
-        <div style={{ fontSize: 'var(--yt-type-title)', fontWeight: 600 }}>{proposal.title}</div>
-        {proposal.note !== undefined && <div style={{ ...detailStyle, marginTop: 2 }}>{proposal.note}</div>}
-        {proposal.highlights !== undefined && proposal.highlights.length > 0 && (
-          <div data-proposal-highlights="true">
-            <div style={focusTitleStyle}>{t('proposal.highlight')}</div>
-            {proposal.highlights.map((entry, index) => (
-              <div key={index} style={focusRowStyle}>
-                <span style={{ fontWeight: 600 }}>{entry.sender}：{entry.subject}</span>
-                <span style={detailStyle}>{entry.why}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {/* ADR-0038 决定 1: routine notices fold to a count line — the rows
-            open on demand, the same calm pattern the prescan block uses. */}
-        {proposal.digest !== undefined && proposal.digest.length > 0 && (
-          <div data-proposal-digest="true">
-            <div style={summaryRowStyle}>
-              <div style={foldTitleStyle}>{t('proposal.digest')}</div>
-              <span style={summaryTextStyle} data-proposal-digest-count="true">
-                {t('proposal.digestSummary', { count: proposal.digest.length })}
-              </span>
-              <button
-                type="button"
-                style={toggleStyle}
-                data-proposal-digest-toggle="true"
-                onClick={() => { setDigestOpen(open => !open) }}
-              >
-                {digestOpen ? t('proposal.collapse') : t('proposal.expand')}
-              </button>
+        <div style={{ flexShrink: 0 }}>
+          <div style={{ fontSize: 'var(--yt-type-title)', fontWeight: 600 }}>{proposal.title}</div>
+          {proposal.note !== undefined && <div style={{ ...detailStyle, marginTop: 2 }}>{proposal.note}</div>}
+        </div>
+        <div style={cardScrollStyle}>
+          {proposal.highlights !== undefined && proposal.highlights.length > 0 && (
+            <div data-proposal-highlights="true">
+              <div style={focusTitleStyle}>{t('proposal.highlight')}</div>
+              {proposal.highlights.map((entry, index) => (
+                <div key={index} style={focusRowStyle}>
+                  <span style={{ fontWeight: 600 }}>{entry.sender}：{entry.subject}</span>
+                  <span style={detailStyle}>{entry.why}</span>
+                </div>
+              ))}
             </div>
-            {digestOpen && proposal.digest.map((entry, index) => (
-              <div key={index} style={detailStyle} data-proposal-digest-row={index}>
-                {entry.sender}：{entry.subject} — {entry.why}
+          )}
+          {/* ADR-0038 决定 1: routine notices fold to a count line — the rows
+            open on demand, the same calm pattern the prescan block uses. */}
+          {proposal.digest !== undefined && proposal.digest.length > 0 && (
+            <div data-proposal-digest="true">
+              <div style={summaryRowStyle}>
+                <div style={foldTitleStyle}>{t('proposal.digest')}</div>
+                <span style={summaryTextStyle} data-proposal-digest-count="true">
+                  {t('proposal.digestSummary', { count: proposal.digest.length })}
+                </span>
+                <button
+                  type="button"
+                  style={toggleStyle}
+                  data-proposal-digest-toggle="true"
+                  onClick={() => { setDigestOpen(open => !open) }}
+                >
+                  {digestOpen ? t('proposal.collapse') : t('proposal.expand')}
+                </button>
               </div>
-            ))}
-          </div>
-        )}
-        {/* The deterministic block (ADR-0036 决定 2/6): zero-token prescan
+              {digestOpen && proposal.digest.map((entry, index) => (
+                <div key={index} style={detailStyle} data-proposal-digest-row={index}>
+                  {entry.sender}：{entry.subject} — {entry.why}
+                </div>
+              ))}
+            </div>
+          )}
+          {/* The deterministic block (ADR-0036 决定 2/6): zero-token prescan
             rows and fix candidates, above everything the model said, in the
             same calm grey as any group title — no alarm colour, nothing here
             needs the human's suspicion. Folded into a one-line summary
             (2026-09-30 修订): the detail opens on demand. Hidden whole when
             empty. */}
-        {prescan !== undefined && (prescan.orphans.length > 0 || prescan.findings.length > 0 || prescan.actions.length > 0) && (
-          <div data-proposal-prescan="true">
-            <div style={summaryRowStyle}>
-              <div style={foldTitleStyle}>{t('proposal.prescanFindings')}</div>
-              <span style={summaryTextStyle} data-proposal-prescan-summary="true">
-                {t('proposal.prescanSummary', {
-                  orphans: prescan.orphans.length,
-                  broken: prescan.findings.length,
-                  fixes: prescan.actions.length,
-                })}
-              </span>
-              <button
-                type="button"
-                style={toggleStyle}
-                data-proposal-prescan-toggle="true"
-                onClick={() => { setPrescanOpen(open => !open) }}
-              >
-                {prescanOpen ? t('proposal.collapse') : t('proposal.expand')}
-              </button>
+          {prescan !== undefined && (prescan.orphans.length > 0 || prescan.findings.length > 0 || prescan.actions.length > 0) && (
+            <div data-proposal-prescan="true">
+              <div style={summaryRowStyle}>
+                <div style={foldTitleStyle}>{t('proposal.prescanFindings')}</div>
+                <span style={summaryTextStyle} data-proposal-prescan-summary="true">
+                  {t('proposal.prescanSummary', {
+                    orphans: prescan.orphans.length,
+                    broken: prescan.findings.length,
+                    fixes: prescan.actions.length,
+                  })}
+                </span>
+                <button
+                  type="button"
+                  style={toggleStyle}
+                  data-proposal-prescan-toggle="true"
+                  onClick={() => { setPrescanOpen(open => !open) }}
+                >
+                  {prescanOpen ? t('proposal.collapse') : t('proposal.expand')}
+                </button>
+              </div>
+              {prescanOpen && (
+                <div data-proposal-prescan-detail="true">
+                  {prescan.orphans.map((orphan, index) => (
+                    <div key={`orphan-${index}`} style={detailStyle} data-proposal-orphan={orphan.name}>
+                      {orphan.name}（{orphan.type}，{t('proposal.orphanIncoming', { count: orphan.incoming })}）
+                    </div>
+                  ))}
+                  {prescan.findings.map((finding, index) => (
+                    <div key={`finding-${index}`} style={detailStyle} data-proposal-finding={finding.kind}>
+                      {finding.subject} — {finding.why}
+                    </div>
+                  ))}
+                  {renderEntityGroups(prescan.actions, 0, 'prescan-')}
+                </div>
+              )}
             </div>
-            {prescanOpen && (
-              <div data-proposal-prescan-detail="true">
-                {prescan.orphans.map((orphan, index) => (
-                  <div key={`orphan-${index}`} style={detailStyle} data-proposal-orphan={orphan.name}>
-                    {orphan.name}（{orphan.type}，{t('proposal.orphanIncoming', { count: orphan.incoming })}）
-                  </div>
-                ))}
-                {prescan.findings.map((finding, index) => (
-                  <div key={`finding-${index}`} style={detailStyle} data-proposal-finding={finding.kind}>
-                    {finding.subject} — {finding.why}
-                  </div>
-                ))}
-                {renderEntityGroups(prescan.actions, 0, 'prescan-')}
-              </div>
-            )}
-          </div>
-        )}
-        {/* The model block: the diagnostician's semantic rows and link
+          )}
+          {/* The model block: the diagnostician's semantic rows and link
             suggestions, in the findings style the card always had. */}
-        {proposal.findings !== undefined && proposal.findings.length > 0 && (
-          <div data-proposal-findings="true">
-            <div style={sectionTitleStyle}>{t('proposal.modelFindings')}</div>
-            {proposal.findings.map((finding, index) => (
-              <div key={index} style={detailStyle} data-proposal-finding={finding.kind}>
-                {finding.subject} — {finding.why}
-              </div>
-            ))}
-          </div>
-        )}
-        {nothing && <div style={{ ...detailStyle, marginTop: 10 }}>{t('proposal.empty')}</div>}
-        {/* The model block's base is where its rows start in the canonical
+          {proposal.findings !== undefined && proposal.findings.length > 0 && (
+            <div data-proposal-findings="true">
+              <div style={sectionTitleStyle}>{t('proposal.modelFindings')}</div>
+              {proposal.findings.map((finding, index) => (
+                <div key={index} style={detailStyle} data-proposal-finding={finding.kind}>
+                  {finding.subject} — {finding.why}
+                </div>
+              ))}
+            </div>
+          )}
+          {nothing && <div style={{ ...detailStyle, marginTop: 10 }}>{t('proposal.empty')}</div>}
+          {/* The model block's base is where its rows start in the canonical
             tick order — prescan length under the disjoint contract, derived
             from the one concatenation rather than re-derived here. The
             validate card renders its actions grouped by target entity
             (2026-09-30 修订); the other gestures keep the kind-grouped face. */}
-        {prescan !== undefined
-          ? (
-            <>
-              {proposal.actions.length > 0 && <div style={sectionTitleStyle}>{t('proposal.suggestions')}</div>}
-              {renderEntityGroups(proposal.actions, allActions.length - proposal.actions.length, 'model-')}
-            </>
-          )
-          : renderGroups(proposal.actions, allActions.length - proposal.actions.length, 'model-')}
-        {props.onInstruction !== undefined && (
-          <div style={instructionStyle} data-validate-instruction="true">
-            <input
-              type="text"
-              style={inputStyle}
-              placeholder={t('proposal.instructionPlaceholder')}
-              data-validate-instruction-input="true"
-              disabled={sending || props.busy === true}
-              value={draft}
-              onChange={(event) => { setDraft(event.target.value) }}
-              onKeyDown={(event) => {
+          {prescan !== undefined
+            ? (
+              <>
+                {proposal.actions.length > 0 && <div style={sectionTitleStyle}>{t('proposal.suggestions')}</div>}
+                {renderEntityGroups(proposal.actions, allActions.length - proposal.actions.length, 'model-')}
+              </>
+            )
+            : renderGroups(proposal.actions, allActions.length - proposal.actions.length, 'model-')}
+          {props.onInstruction !== undefined && (
+            <div style={instructionStyle} data-validate-instruction="true">
+              <input
+                type="text"
+                style={inputStyle}
+                placeholder={t('proposal.instructionPlaceholder')}
+                data-validate-instruction-input="true"
+                disabled={sending || props.busy === true}
+                value={draft}
+                onChange={(event) => { setDraft(event.target.value) }}
+                onKeyDown={(event) => {
                 // IME 组合中的回车（选字确认）不是发送指令。
-                if (event.nativeEvent.isComposing) return
-                if (event.key === 'Enter') { void sendInstruction() }
-              }}
-            />
-            <button
-              type="button"
-              style={ghostButtonStyle}
-              data-validate-instruction-send="true"
-              disabled={sending || props.busy === true || draft.trim() === ''}
-              onClick={() => { void sendInstruction() }}
-            >
-              {t('proposal.instructionSend')}
-            </button>
-          </div>
-        )}
+                  if (event.nativeEvent.isComposing) return
+                  if (event.key === 'Enter') { void sendInstruction() }
+                }}
+              />
+              <button
+                type="button"
+                style={ghostButtonStyle}
+                data-validate-instruction-send="true"
+                data-hover="true"
+                disabled={sending || props.busy === true || draft.trim() === ''}
+                onClick={() => { void sendInstruction() }}
+              >
+                {t('proposal.instructionSend')}
+              </button>
+            </div>
+          )}
+        </div>
         <div style={footerStyle}>
-          <button type="button" style={ghostButtonStyle} disabled={props.busy === true || nothing} onClick={all}>
+          <button type="button" style={ghostButtonStyle} data-hover="true" disabled={props.busy === true || nothing} onClick={all}>
             {t('proposal.acceptAll')}
           </button>
-          <button type="button" style={ghostButtonStyle} disabled={props.busy === true} onClick={none}>
+          <button type="button" style={ghostButtonStyle} data-hover="true" disabled={props.busy === true} onClick={none}>
             {t('proposal.ignoreAll')}
           </button>
           <span style={{ flex: 1 }} />
@@ -884,18 +906,20 @@ export function ProposalCard(props: {
               type="button"
               style={ghostButtonStyle}
               data-inbox-discard="true"
+              data-hover="true"
               disabled={props.busy === true}
               onClick={props.onDiscard}
             >
               {t('inbox.discard')}
             </button>
           ) : (
-            <button type="button" style={ghostButtonStyle} disabled={props.busy === true} onClick={() => { props.onDismiss?.() }}>
+            <button type="button" style={ghostButtonStyle} data-hover="true" disabled={props.busy === true} onClick={() => { props.onDismiss?.() }}>
               {t('common.cancel')}
             </button>
           )}
           <button
             type="button"
+            data-hover="primary"
             style={{
               ...primaryButtonStyle,
               ...(props.busy === true || count === 0 ? disabledOverlay : {}),

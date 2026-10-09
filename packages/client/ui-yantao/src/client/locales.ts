@@ -72,6 +72,8 @@ export const zh = {
   'workbench.questionAbort': '放弃本次提炼',
   'workbench.questionBusy': '正在继续提炼…',
   'workbench.entityNamePlaceholder': '{section}名称',
+  'workbench.retry': '重试',
+  'workbench.capabilityLoadFailed': '能力清单加载失败',
   'frame.closeNotice': '点击关闭',
 
   // 配置对话框（左下角「配置」按钮；v1 仅模型一节）
@@ -450,6 +452,8 @@ export const en = {
   'workbench.questionAbort': 'Abandon this refinement',
   'workbench.questionBusy': 'Continuing the refinement…',
   'workbench.entityNamePlaceholder': '{section} name',
+  'workbench.retry': 'Retry',
+  'workbench.capabilityLoadFailed': 'Failed to load capabilities',
   'frame.closeNotice': 'Click to close',
 
   // 配置对话框 (bottom-left 配置 button; v1 ships the models section only)

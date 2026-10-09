@@ -242,7 +242,18 @@ describe('IntakeRail', () => {
   it('surfaces a load failure', async () => {
     const failing = vi.fn(() => Promise.reject(new Error('知识库加载失败')))
     render(<IntakeRail {...railProps({ load: failing })} />)
-    expect(await screen.findByTitle('知识库加载失败')).toBeTruthy()
+    // 2026-10-09 评审 P2：错误不再是 title 兜底的裸"！"，而是可读、可重试
+    // 的错误行——断言正文在场且重试钮存在。
+    expect(await screen.findByText('知识库加载失败')).toBeTruthy()
+    expect(screen.getByText('重试')).toBeTruthy()
+  })
+
+  it('retries a failed rail load from the error row', async () => {
+    const failing = vi.fn(() => Promise.reject(new Error('知识库加载失败')))
+    render(<IntakeRail {...railProps({ load: failing })} />)
+    await screen.findByText('知识库加载失败')
+    fireEvent.click(screen.getByText('重试'))
+    expect(failing).toHaveBeenCalledTimes(2)
   })
 
   it('collapses to an expand icon column', () => {

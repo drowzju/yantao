@@ -26,6 +26,12 @@ export const YT_COLOR_TOKENS: { light: Record<string, string>; dark: Record<stri
     '--yt-accent-text': '#3a66b5',
     // 实心 accent 面（主按钮）：白字在其上 5.6:1。
     '--yt-accent-strong': '#3a66b5',
+    // 实心 accent 面上的文字/徽标（2026-10-09 评审 P1）：此前徽标硬编码
+    // #fff，暗色下压 #7ba3e0 只有 ≈2.6:1 踩穿 AA——文字随主题翻成墨色。
+    '--yt-on-accent': '#ffffff',
+    // 模态幕布（2026-10-09 评审 P1）：此前 rgba(28,26,22,.45) 裸值散在四处，
+    // 暗色下压不出层次——暗色换纯黑加深一档。
+    '--yt-scrim': 'rgba(28, 26, 22, 0.45)',
     '--yt-accent-bg': '#eef3ff',
     '--yt-accent-border': '#c7d7ff',
     '--yt-success': '#4f9d5d',
@@ -49,6 +55,10 @@ export const YT_COLOR_TOKENS: { light: Record<string, string>; dark: Record<stri
     '--yt-accent': '#7ba3e0',
     '--yt-accent-text': '#7ba3e0',
     '--yt-accent-strong': '#7ba3e0',
+    // 暗色的 strong 就是亮 accent，白字只有 2.6:1——accent 面上的文字翻墨色
+    // （CenterPane 徽标、主按钮），对 #7ba3e0 过 7:1。
+    '--yt-on-accent': '#1b1916',
+    '--yt-scrim': 'rgba(0, 0, 0, 0.55)',
     '--yt-accent-bg': '#232c3d',
     '--yt-accent-border': '#3a4d75',
     '--yt-success': '#6fb87d',

@@ -58,7 +58,9 @@ const frameStyle = {
   flex: 1,
   minHeight: 0,
   border: 0,
-  backgroundColor: '#ffffff',
+  // 随主题取 raised 面（2026-10-09 评审 P1）：硬编码 #ffffff 在暗色下是一块
+  // 亮斑；PDF 阅读器自带白底不受影响，HTML/eml 正文自带背景色也不受影响。
+  backgroundColor: 'var(--yt-surface-raised)',
 } as const
 
 const headGridStyle = {

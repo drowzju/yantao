@@ -36,6 +36,13 @@ const FOCUS_STYLE_ID = 'yt-focus-ring'
  *   `margin-right`) was observed live on `body` (detected 2026-10-05);
  *   layout transitions jitter every frame, so the presenter forbids them at
  *   the one element it owns outright.
+ * - the hover/active feedback layer (2026-10-09 评审 P1) — every clickable
+ *   element in the workbench is an inline style object, so a stylesheet
+ *   `:hover` background loses to the inline `background` and the whole UI
+ *   answered nothing to the pointer. The rules below hook the `data-hover`
+ *   attribute components stamp themselves with and win the cascade with
+ *   `!important` — the same carve-out the placeholder ink already took. The
+ *   motion ban above is untouched: hover answers instantly, no transition.
  */
 const FOCUS_RING_CSS = `
 :focus-visible {
@@ -51,6 +58,46 @@ const FOCUS_RING_CSS = `
 }
 body {
   transition: none !important;
+}
+button[data-hover]:hover {
+  background: var(--yt-surface-secondary) !important;
+}
+button[data-hover]:active {
+  background: var(--yt-border-subtle) !important;
+}
+/* A selected row is already accented — hover deepens nothing, press keeps
+   the selection colour instead of flashing neutral. */
+button[data-hover][data-selected]:hover {
+  background: var(--yt-accent-bg) !important;
+}
+button[data-hover][data-selected]:active {
+  background: var(--yt-accent-bg) !important;
+}
+/* The solid accent face brightens/darkens with the scheme instead of
+   trading its accent for a neutral surface. */
+button[data-hover="primary"]:hover {
+  filter: brightness(0.94);
+}
+body[data-ds-dark-theme] button[data-hover="primary"]:hover {
+  filter: brightness(1.1);
+}
+button[data-hover="primary"]:active {
+  filter: brightness(0.88);
+}
+button[data-hover="close"]:hover {
+  background: transparent !important;
+  color: var(--yt-text-primary) !important;
+}
+/* The row menu's items carry no attribute of their own — the menu root's
+   data-row-menu addresses them all. */
+[data-row-menu] button:hover {
+  background: var(--yt-surface-secondary) !important;
+}
+[data-row-menu] button:active {
+  background: var(--yt-border-subtle) !important;
+}
+[data-inbox-pane] [role="button"]:hover {
+  background: var(--yt-surface-secondary) !important;
 }
 `
 
