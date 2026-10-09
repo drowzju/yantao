@@ -1733,6 +1733,9 @@ importers:
 
   packages/api/yantao-kb-controller:
     dependencies:
+      '@deepseek-ai/dsh-atomic-write':
+        specifier: workspace:^
+        version: link:../../util/atomic-write
       chokidar:
         specifier: ^5.0.0
         version: 5.0.0

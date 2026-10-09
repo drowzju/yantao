@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
@@ -75,7 +75,11 @@ describe('Typert-backed Cordis catalog', () => {
         [...model.events].filter(e => EVENT_SCOPE_PAGE[e.scope] === page),
         CORDIS_CATALOG_POLICY,
       )
-      for (const side of [page, page.replace(/\.md$/, '.zh.md')]) {
+      // Mirror the generator: the zh side is optional — the pairing gate owns
+      // pair completeness for governed pages, and yantao.md is single-language
+      // (ADR-0027).
+      for (const side of [page, page.replace(/\.md$/, '.zh.md')]
+        .filter((side, index) => index === 0 || existsSync(join(workspaceRoot, 'docs/subsystems', side)))) {
         const rel = `docs/subsystems/${side}`
         const committed = expected(rel)
         const begin = committed.indexOf(REGION_BEGIN)

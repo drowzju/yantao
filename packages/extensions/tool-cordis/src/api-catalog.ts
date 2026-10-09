@@ -4022,38 +4022,50 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the full list as stored after the resolve.',
       },
       {
-        signature: '@Remote(\'capabilityRun\') async capabilityRun(args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<KbCapabilityRunResult>',
-        description: 'Run one capability\'s host entry (ADR-0021) — the human channel\'s execution seam, the mail connector\'s and the extractor\'s subprocess pattern generalized. The capability is resolved through `ctx.skills` (the skill-filesystem provider discovers the directories; this controller only consumes the winner), its `yantao.json` declaration (legacy `metadata.yantao` frontmatter accepted) picks the entry script, and the run is one Python subprocess with a JSON stdin/stdout contract (`capability/run.ts`).\n\nThe controller, not the script, owns every write: artifacts land under `.dsh/yantao/capabilities/<name>/` at paths the script cannot choose, and the returned state is persisted under `capabilities.<name>.state` in the KB\'s `.dsh/yantao/state.json` (ADR-0024) — machine state inside the KB, which stays markdown for humans. The agent has its own channel into the same seam: `kb_run_capability` (ADR-0023), gated per capability by the sidecar\'s `invocation` declaration.',
-        parameters: [{ name: 'args', description: 'the capability\'s skill name and the caller\'s input, handed to the entry script verbatim.' }, { name: 'signal', description: 'the human channel\'s cancel line (ADR-0031): an abort kills the entry script\'s subprocess and rejects with the `cancelled` kind. The agent channel has no cancel — its runs answer or time out.' }],
+        signature: '@Remote(\'skillRewriteApply\') async skillRewriteApply(args: KbSkillRewriteApplyArgs): Promise<KbSkillRewriteApplyResult>',
+        description: 'Write one approved skill rewrite back (ADR-0054 决定 3/4): the human channel\'s verdict on a `skill-rewrite` proposal row, landing as bytes. The writeback re-resolves the route, refuses a stale diff, backs the pre-write content up, and clamps SKILL.md\'s `metadata.yantao.version` to the original\'s — the whole procedure lives in ./capability/rewrite.ts and this RPC only guards the KB root and dresses the failure.',
+        parameters: [{ name: 'args', description: 'the approved rewrite\'s envelope.' }],
+        returns: 'what was written and where the backup sits.',
+      },
+      {
+        signature: '@Remote(\'mailRun\') async mailRun(args: KbCapabilityRunArgs, signal?: AbortSignal): Promise<KbCapabilityRunResult>',
+        description: 'The mail capability\'s dedicated RPC (ADR-0052 决定 5) — the one survivor of the execution unification. The mail panel\'s verbs (取数/删除/归档/ 附件下载) run the builtin envelope script through the host-side subprocess machinery (`capability/run.ts`), on the human channel only: the privileged verbs check the envelope\'s `channel`, which the host injects and the caller cannot forge (ADR-0034 决定 5). It occupies no slot in the generic capability execution chain — the route entry only records mail\'s reachability.\n\nThe controller, not the script, owns every write: artifacts land under `.dsh/yantao/capabilities/mail/` at paths the script cannot choose, and the returned state is persisted under `capabilities.mail.state` in the KB\'s `.dsh/yantao/state.json` (ADR-0024).',
+        parameters: [{ name: 'args', description: 'the caller\'s input, handed to the entry script verbatim (`verb` picks the behavior; the default is 取数).' }, { name: 'signal', description: 'the human channel\'s cancel line (ADR-0031): an abort kills the entry script\'s subprocess and rejects with the `cancelled` kind.' }],
         returns: 'what the run answered, when it ran, and which artifact paths were written.',
       },
       {
-        signature: '@Remote(\'capabilityDeclaration\') async capabilityDeclaration(args: KbCapabilityDeclarationArgs): Promise<KbCapabilityDeclarationResult>',
-        description: 'One capability\'s declaration, parsed and resolved (ADR-0043 决定 7): both declaration channels answered in data — the directory\'s own sidecar (raw text included, legacy frontmatter accepted) and the central routing file — plus the same dual-gate agent-invocability the run paths apply. A registration problem (missing sidecar, unregistered route, missing entry file, broken routing file) is stated in the answer, never thrown: the 能力 tab renders it, and an agent troubleshooting a refused call reads the very same resolution the run would have applied. Only an unconfigured KB throws — then nothing could resolve anyway.',
-        parameters: [{ name: 'args', description: 'the capability\'s skill name.' }],
-        returns: 'the parsed declaration, both channels, and the gate\'s answer.',
+        signature: '@Remote(\'capabilityRouteUpdate\') async capabilityRouteUpdate(args: KbCapabilityRouteUpdateArgs): Promise<KbCapabilityRouteUpdateResult>',
+        description: 'Rewrite one registered capability\'s reachability (ADR-0053 决定 2 — the 运维开关\'s write path): the three toggles collapse onto the route entry\'s `invocation` and `appliesTo`, the `path` is never touched. Pure configuration: one read-modify-write over the central routing file.',
+        parameters: [{ name: 'args', description: 'the capability\'s name and the reach to write.' }],
+        returns: 'the KB-relative path of the routing file.',
+      },
+      {
+        signature: '@Remote(\'capabilityUnregister\') async capabilityUnregister(args: KbCapabilityUnregisterArgs): Promise<KbCapabilityUnregisterResult>',
+        description: 'Unregister one capability (ADR-0053 决定 2): delete its entry from the central routing file. The skill directory is untouched — the human\'s files are never destroyed by an ops gesture; a later re-registration is one click. Removing an unregistered name answers success anyway: the confirm box already told the human what was about to happen, and the end state is what matters.',
+        parameters: [{ name: 'args', description: 'the capability\'s name.' }],
+        returns: 'the KB-relative path of the routing file.',
       },
       {
         signature: '@Remote(\'capabilityList\') async capabilityList(): Promise<KbCapabilityListResult>',
-        description: 'The capabilities the workbench\'s 能力 tab shows (ADR-0021 决定 8): every skill under the KB\'s own `.dsh/skills/` (ADR-0024 决定 4) that declares a capability manifest (`yantao.json` sidecar, legacy `metadata.yantao` frontmatter accepted) — plain skills without one are not capabilities and are skipped, not errors. Shipped capabilities are seeded first, so a fresh KB answers with 邮件 on its very first open.\n\nEach row merges the skill\'s declaration with the persisted record (`capabilities.<name>` in the KB\'s `.dsh/yantao/state.json`, ADR-0024): when it last ran and the state that run left behind, so the panel can show a real 断点 without running anything.\n\nThe answer also carries the 未注册 group (ADR-0025 决定 1): skills discovered outside the KB that adoption could copy in — directory bundles, name-sorted, after the registered list — and skills living inside the KB\'s own `.dsh/skills/` whose declaration is missing or invalid, greyed rows carrying the reason; registration (ADR-0025 决定 1) writes their sidecar in place. Bundled skills (dsh\'s own) are not third-party finds and never appear.',
+        description: 'The capabilities the workbench\'s 能力 tab shows (ADR-0021 决定 8, ADR-0052 决定 1): exactly the entries of the central routing file `.dsh/skills/yantao.json` — the only capability configuration there is. Shipped capabilities are seeded first, so a fresh KB answers with 邮件 on its very first open. A route whose target lost its SKILL.md is stale and skipped.\n\nEach row merges the route with the persisted record (`capabilities.<name>` in the KB\'s `.dsh/yantao/state.json`, ADR-0024): when it last ran, how many times, when it last failed, and the state that run left behind, so the panel can show real usage semantics (ADR-0053 决定 4) without running anything.\n\nThe answer also carries the 未注册 group (ADR-0025 决定 1): skills discovered outside the KB that adoption could copy in — directory bundles, name-sorted, after the registered list — and skills living inside the KB\'s own `.dsh/skills/` that no route claims yet, greyed rows registration can promote in place. Bundled skills (dsh\'s own) are not third-party finds and never appear.',
         parameters: [],
         returns: 'both groups.',
       },
       {
         signature: '@Remote(\'capabilityCreate\') async capabilityCreate(args: KbCapabilityCreateArgs): Promise<KbCapabilityCreateResult>',
-        description: 'Scaffold a new capability directory (ADR-0021 决定 8\'s 「新建能力」): `<kbRoot>/.dsh/skills/<name>/` with a clean SKILL.md, a `yantao.json` sidecar that declares the host entry, and an entry script that speaks the run protocol and echoes its input — a working capability on the first run, for the human to grow into theirs.',
+        description: 'Scaffold a new capability directory (ADR-0021 决定 8\'s 「新建能力」, ADR-0052 决定 1): `<kbRoot>/.dsh/skills/<name>/` with a clean SKILL.md — an instruction capability from birth — plus one central-route entry that opens it to the human. A working capability on the first run, for the human to grow into theirs; script steps, if any ever arise, go through the agent\'s `kb_exec_capability_script` per the instructions themselves.',
         parameters: [{ name: 'args', description: 'the capability\'s name (kebab-case; it becomes the skill name).' }],
         returns: 'the KB-relative path of the scaffolded directory.',
       },
       {
         signature: '@Remote(\'capabilityAdopt\') async capabilityAdopt(args: KbCapabilityAdoptArgs): Promise<KbCapabilityAdoptResult>',
-        description: 'Adopt one unregistered skill (ADR-0025 决定 1): copy its directory into `<kbRoot>/.dsh/skills/<name>/` and declare it in the central routing file (`invocation: [\'human\']`, no `entry` — an instruction capability; ADR-0025 落地注记二). The copy, never a move: the source directory is shared with every other dsh usage, and moving would steal it. Any `yantao.json` sidecar the source carried is removed from the copy — outside declarations never take effect silently; the confirm box showed them before this call existed.\n\nGuards: the name must be a single safe path segment, the target must not exist (a collision with a builtin or an adopted capability is refused, never overwritten), and the skill must be a directory bundle that its frontmatter has not marked `user-invocable: false`.',
+        description: 'Adopt one unregistered skill (ADR-0025 决定 1): copy its directory into `<kbRoot>/.dsh/skills/<name>/` and declare it in the central routing file (`invocation: [\'human\']` — an instruction capability; ADR-0052 决定 1). The copy, never a move: the source directory is shared with every other dsh usage, and moving would steal it. Any `yantao.json` sidecar the source carried comes along inert — sidecars are no longer a declaration channel (ADR-0052), so nothing reads it.\n\nGuards: the name must be a single safe path segment, the target must not exist (a collision with a builtin or an adopted capability is refused, never overwritten), and the skill must be a directory bundle that its frontmatter has not marked `user-invocable: false`.',
         parameters: [{ name: 'args', description: 'the unregistered skill\'s name.' }],
         returns: 'the adopted directory\'s KB-relative path.',
       },
       {
         signature: '@Remote(\'capabilityRegister\') async capabilityRegister(args: KbCapabilityRegisterArgs): Promise<KbCapabilityRegisterResult>',
-        description: 'Register one in-KB skill as a capability (ADR-0025 决定 1) by writing a route entry into the central routing file `.dsh/skills/yantao.json` (ADR-0025 落地注记二) — pure configuration: no copy, no move, no rename, the skill directory stays byte-identical. Registration always writes an *instruction capability* (no `entry`, ADR-0023 决定 6): a third-party skill\'s essence is its SKILL.md instructions, and nothing in the drop speaks the run protocol, so the type is never a question the human answers. The three boolean args are the reach of the capability: `agentInvoke` widens `invocation` to `[\'human\', \'agent\']`, `resourceMenu` writes `appliesTo.resource: true` (every resource\'s right-click menu), `selectionMenu` writes `appliesTo.selection: true` (the middle-pane right-click menu).\n\nA dropped **plugin repository** (no top-level `SKILL.md`, but nested `skills/<name>/SKILL.md` bundles) registers as one route entry per nested child, `path` pointing at `<repo>/skills/<child>` — any depth works, because instruction capabilities run entirely controller-side and never need the scanner to see the directory. The repository tree is never touched, so updating it is a plain re-drop, and un-registering is deleting the entry.\n\nGuards: the name must be a single safe path segment; a plain skill must be a directory bundle inside the KB\'s own `.dsh/skills/` whose frontmatter does not mark it `user-invocable: false`; a valid declaration (sidecar or frontmatter) is never silently overwritten; and a directory carrying an *invalid* `yantao.json` refuses too — delete or fix that file first, a central route must not quietly shadow a declaration the human left in place.',
+        description: 'Register one in-KB skill as a capability (ADR-0025 决定 1) by writing a route entry into the central routing file `.dsh/skills/yantao.json` (ADR-0052 决定 1: the only capability configuration) — pure configuration: no copy, no move, no rename, the skill directory stays byte-identical. Registration always writes an *instruction capability*: a third-party skill\'s essence is its SKILL.md instructions, consumed via `kb_run_capability`; script steps, if any, go through `kb_exec_capability_script` per those instructions. The three boolean args are the reach of the capability: `agentInvoke` widens `invocation` to `[\'human\', \'agent\']`, `resourceMenu` writes `appliesTo.resource: true` (every resource\'s right-click menu), `selectionMenu` writes `appliesTo.selection: true` (the middle-pane right-click menu).\n\nA dropped **plugin repository** (no top-level `SKILL.md`, but nested `skills/<name>/SKILL.md` bundles) registers as one route entry per nested child, `path` pointing at `<repo>/skills/<child>` — any depth works, because instruction consumption is entirely controller-side and never needs the scanner to see the directory. The repository tree is never touched, so updating it is a plain re-drop, and un-registering is deleting the entry.\n\nGuards: the name must be a single safe path segment; a plain skill must be a directory bundle inside the KB\'s own `.dsh/skills/` whose frontmatter does not mark it `user-invocable: false`; and a name the routing file already claims refuses — flip its reach toggles in the panel instead of re-registering.',
         parameters: [{ name: 'args', description: 'the in-KB skill\'s name and the capability\'s reach.' }],
         returns: 'the KB-relative path of the central routing file.',
       },
@@ -5986,14 +5998,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbCapabilityCreateResult {\n    readonly path: string;\n}',
   },
   {
-    name: 'KbCapabilityDeclarationArgs',
-    declaration: 'export interface KbCapabilityDeclarationArgs {\n    readonly name: string;\n}',
-  },
-  {
-    name: 'KbCapabilityDeclarationResult',
-    declaration: 'export interface KbCapabilityDeclarationResult {\n    readonly name: string;\n    readonly directory?: string;\n    readonly sidecar: KbCapabilitySidecarAnswer;\n    readonly route: KbCapabilityRouteAnswer;\n    readonly agentInvocable: boolean;\n}',
-  },
-  {
     name: 'KbCapabilityExec',
     declaration: 'export interface KbCapabilityExec {\n    readonly command: string;\n    readonly exitCode: number | null;\n    readonly durationMs: number;\n    readonly stdoutTail: string;\n    readonly stderrTail: string;\n}',
   },
@@ -6010,28 +6014,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbCapabilityRegisterResult {\n    readonly path: string;\n}',
   },
   {
-    name: 'KbCapabilityResolvedDeclaration',
-    declaration: 'export interface KbCapabilityResolvedDeclaration {\n    readonly kind: \'instruction\' | \'script\';\n    readonly entry?: string;\n    readonly runtime?: string;\n    readonly version?: string;\n    readonly invocation: readonly string[];\n    readonly appliesTo?: KbCapabilityAppliesTo;\n    readonly entryCandidates?: readonly string[];\n    readonly entryPath?: string;\n}',
+    name: 'KbCapabilityRouteUpdateArgs',
+    declaration: 'export interface KbCapabilityRouteUpdateArgs {\n    readonly name: string;\n    readonly invocation?: readonly (\'human\' | \'agent\')[];\n    readonly appliesTo?: KbCapabilityAppliesTo;\n}',
   },
   {
-    name: 'KbCapabilityRouteAnswer',
-    declaration: 'export interface KbCapabilityRouteAnswer {\n    readonly registered: boolean;\n    readonly path?: string;\n    readonly invocation?: readonly string[];\n    readonly appliesTo?: KbCapabilityAppliesTo;\n    readonly problem?: string;\n}',
+    name: 'KbCapabilityRouteUpdateResult',
+    declaration: 'export interface KbCapabilityRouteUpdateResult {\n    readonly path: string;\n}',
   },
   {
     name: 'KbCapabilityRunArgs',
-    declaration: 'export interface KbCapabilityRunArgs {\n    readonly name: string;\n    readonly input?: JsonValue;\n}',
+    declaration: 'export interface KbCapabilityRunArgs {\n    readonly input?: JsonValue;\n}',
   },
   {
     name: 'KbCapabilityRunResult',
     declaration: 'export interface KbCapabilityRunResult {\n    readonly name: string;\n    readonly runAt: string;\n    readonly result?: JsonValue;\n    readonly content?: string;\n    readonly memory?: string;\n    readonly artifacts: readonly string[];\n    readonly exec?: KbCapabilityExec;\n}',
   },
   {
-    name: 'KbCapabilitySidecarAnswer',
-    declaration: 'export interface KbCapabilitySidecarAnswer {\n    readonly present: boolean;\n    readonly source?: \'sidecar\' | \'frontmatter\';\n    readonly raw?: string;\n    readonly resolved?: KbCapabilityResolvedDeclaration;\n    readonly problem?: string;\n}',
+    name: 'KbCapabilitySummary',
+    declaration: 'export interface KbCapabilitySummary {\n    readonly name: string;\n    readonly description: string;\n    readonly source: string;\n    readonly directory?: string;\n    readonly routePath?: string;\n    readonly invocation: readonly string[];\n    readonly appliesTo?: KbCapabilityAppliesTo;\n    readonly lastRunAt?: string;\n    readonly runCount?: number;\n    readonly lastFailAt?: string;\n    readonly state?: JsonValue;\n}',
   },
   {
-    name: 'KbCapabilitySummary',
-    declaration: 'export interface KbCapabilitySummary {\n    readonly name: string;\n    readonly description: string;\n    readonly source: string;\n    readonly directory?: string;\n    readonly entry?: string;\n    readonly runtime?: string;\n    readonly invocation: readonly string[];\n    readonly appliesTo?: KbCapabilityAppliesTo;\n    readonly lastRunAt?: string;\n    readonly state?: JsonValue;\n}',
+    name: 'KbCapabilityUnregisterArgs',
+    declaration: 'export interface KbCapabilityUnregisterArgs {\n    readonly name: string;\n}',
+  },
+  {
+    name: 'KbCapabilityUnregisterResult',
+    declaration: 'export interface KbCapabilityUnregisterResult {\n    readonly path: string;\n}',
   },
   {
     name: 'KbCreatableEntityType',
@@ -6246,6 +6254,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbSetRootResult {\n    readonly root: string;\n    readonly configured: boolean;\n    readonly created: readonly string[];\n    readonly existing: readonly string[];\n}',
   },
   {
+    name: 'KbSkillRewriteApplyArgs',
+    declaration: 'export interface KbSkillRewriteApplyArgs {\n    readonly name: string;\n    readonly file: string;\n    readonly original: string;\n    readonly new: string;\n}',
+  },
+  {
+    name: 'KbSkillRewriteApplyResult',
+    declaration: 'export interface KbSkillRewriteApplyResult {\n    readonly file: string;\n    readonly backupPath?: string;\n}',
+  },
+  {
     name: 'KbTodoItem',
     declaration: 'export interface KbTodoItem {\n    readonly done: boolean;\n    readonly title: string;\n    readonly due?: string;\n    readonly doneOn?: string;\n    readonly body: string;\n    readonly extra: readonly string[];\n}',
   },
@@ -6271,7 +6287,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbUnregisteredSkill',
-    declaration: 'export interface KbUnregisteredSkill {\n    readonly name: string;\n    readonly description: string;\n    readonly source: string;\n    readonly directory?: string;\n    readonly userInvocable: boolean;\n    readonly flat: boolean;\n    readonly inKb?: boolean;\n    readonly reason?: string;\n    readonly plugin?: boolean;\n    readonly pluginSkills?: readonly string[];\n    readonly sidecar?: JsonValue;\n}',
+    declaration: 'export interface KbUnregisteredSkill {\n    readonly name: string;\n    readonly description: string;\n    readonly source: string;\n    readonly directory?: string;\n    readonly userInvocable: boolean;\n    readonly flat: boolean;\n    readonly inKb?: boolean;\n    readonly reason?: string;\n    readonly plugin?: boolean;\n    readonly pluginSkills?: readonly string[];\n}',
   },
   {
     name: 'KbWireGraphEdge',
