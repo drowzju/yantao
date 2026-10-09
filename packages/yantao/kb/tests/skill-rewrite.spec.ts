@@ -101,6 +101,15 @@ describe('proposeSkillRewrite', () => {
     await expect(proposeSkillRewrite(kbRoot, nomination({ file: 'state/cursor.txt' }))).rejects.toMatchObject({ code: 'bad-skill-file' })
   })
 
+  it('运行产物目录黑名单大小写不敏感——大写变体同样拒，普通大写路径不背锅', async () => {
+    await expect(proposeSkillRewrite(kbRoot, nomination({ file: 'STATE/cursor.txt' })))
+      .rejects.toMatchObject({ code: 'bad-skill-file' })
+    await expect(proposeSkillRewrite(kbRoot, nomination({ file: 'Reports/x.md' })))
+      .rejects.toMatchObject({ code: 'bad-skill-file' })
+    await expect(proposeSkillRewrite(kbRoot, nomination({ file: 'Notes/pointer.md' })))
+      .rejects.toMatchObject({ code: 'skill-file-not-found' })
+  })
+
   it('不存在的文件拒绝（skill-file-not-found）——只提名已有文件', async () => {
     await expect(proposeSkillRewrite(kbRoot, nomination({ file: 'absent.md' }))).rejects.toMatchObject({ code: 'skill-file-not-found' })
   })
@@ -143,13 +152,20 @@ describe('proposeSkillRewrite', () => {
     await expect(proposeSkillRewrite(kbRoot, nomination({ new: '' }))).rejects.toMatchObject({ code: 'bad-skill-file' })
   })
 
-  it('框架字段超限拒绝（name/file/why 有界，错误直说怎么修）', async () => {
+  it('框架字段超限拒绝（name/拼装标题/why 有界，错误直说怎么修）', async () => {
     await expect(proposeSkillRewrite(kbRoot, nomination({ name: 'x'.repeat(65) })))
       .rejects.toMatchObject({ code: 'bad-skill-file' })
-    await expect(proposeSkillRewrite(kbRoot, nomination({ file: `a/${'b'.repeat(120)}` })))
+    // 标题按拼装结果计：`改写能力「mail-reader」的 ${file}` 超 200 字才拒。
+    await expect(proposeSkillRewrite(kbRoot, nomination({ file: `${'b'.repeat(190)}.md` })))
       .rejects.toMatchObject({ code: 'bad-skill-file' })
     await expect(proposeSkillRewrite(kbRoot, nomination({ why: '很'.repeat(501) })))
       .rejects.toMatchObject({ code: 'bad-skill-file' })
+  })
+
+  it('拼装标题恰好压线 200 字不拒——走到文件存在性检查才算数', async () => {
+    // 19 字框 + 181 字 file = 200，不超限。
+    await expect(proposeSkillRewrite(kbRoot, nomination({ file: `${'b'.repeat(178)}.md` })))
+      .rejects.toMatchObject({ code: 'skill-file-not-found' })
   })
 
   it('单边超 20 万字拒绝（skill-file-too-large）', async () => {

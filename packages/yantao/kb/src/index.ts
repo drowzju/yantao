@@ -22,6 +22,7 @@ import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { readCitedEntries } from './cited.ts'
+import { CAPABILITY_ARTIFACT_DIRS } from './capability-file.ts'
 import { appendLog, createEntity, editSection, initKb, listEntities, readEntity, readResource, registerResource, writeResource, writeState } from './core.ts'
 import { kbMentions, renderKbMentions } from './mentions.ts'
 import { appendMemoryProposal, PROPOSAL_PENDING_SOFT_CAP } from './proposals.ts'
@@ -586,7 +587,7 @@ export function apply(ctx: Context, config: Config): void {
       + '提名不立即生效：带着 original + new 的 diff 信封进入提议队列，人批准后由工作台写回；'
       + '批准即刻生效（下一次调用就读到新说明书），无需重启。'
       + 'SKILL.md frontmatter 里的 metadata.yantao.version 不归你管——批准时会自动还原为原值，改了也白改。'
-      + '运行产物目录（state/、downloads/、reports/、out/、__pycache__/）与二进制文件不接受提名。'
+      + `运行产物目录（${[...CAPABILITY_ARTIFACT_DIRS].map(dir => `${dir}/`).join('、')}）与二进制文件不接受提名。`
       + 'original 必须是你最近一次实际读到的内容：文件已被改动时提名会被拒绝，重读后再提。'
       + `队列未决策提议最多 ${INBOX_PENDING_SOFT_CAP} 条，满了会拒绝。`,
     parameters: {

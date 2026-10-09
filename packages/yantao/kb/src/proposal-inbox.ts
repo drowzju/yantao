@@ -64,8 +64,10 @@ const INBOX_TOTAL_CAP = INBOX_PENDING_SOFT_CAP * 4
 
 /** Length caps for the framing fields; the payload is capped by the parser upstream. */
 const SOURCE_MAX = 128
-const SOURCE_NAME_MAX = 64
-const TITLE_MAX = 200
+/** Cap on an entry's `sourceName` — producers pre-validate against it so a rejection names the fix. */
+export const SOURCE_NAME_MAX = 64
+/** Cap on an entry's `title` — producers pre-validate against it so a rejection names the fix. */
+export const TITLE_MAX = 200
 const NOTE_MAX = 500
 
 /** Where the store sits on disk. */

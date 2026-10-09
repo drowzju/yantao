@@ -52,6 +52,20 @@ interface FrontmatterProbe {
   readonly hasMetadataKey: boolean
   /** Whether a `metadata.yantao` key exists at all, whatever its value type. */
   readonly hasYantaoKey: boolean
+  /** How the parser attributes `metadata`'s value — splicing children into a non-mapping corrupts the file. */
+  readonly metadataShape: FrontmatterValueShape
+  /** How the parser attributes `metadata.yantao`'s value. */
+  readonly yantaoShape: FrontmatterValueShape
+}
+
+/** The shape of a key's parsed value: only mappings (and empty/absent slots) tolerate a splice-in. */
+type FrontmatterValueShape = 'absent' | 'mapping' | 'empty' | 'other'
+
+function shapeOf(value: unknown): FrontmatterValueShape {
+  if (value === undefined) return 'absent'
+  if (value === null) return 'empty'
+  if (typeof value === 'object' && !Array.isArray(value)) return 'mapping'
+  return 'other'
 }
 
 /**
@@ -61,18 +75,22 @@ interface FrontmatterProbe {
 function probeFrontmatter(raw: string, displayPath: string): FrontmatterProbe {
   const frontmatter = parseFrontmatter(raw, displayPath)
   const metadata = frontmatter.data.metadata
-  if (typeof metadata !== 'object' || metadata === null) {
-    return { hasMetadataKey: metadata !== undefined, hasYantaoKey: false }
+  const metadataShape = shapeOf(metadata)
+  if (metadataShape !== 'mapping') {
+    return { hasMetadataKey: metadata !== undefined, hasYantaoKey: false, metadataShape, yantaoShape: 'absent' }
   }
   const yantao = (metadata as { yantao?: unknown }).yantao
-  if (typeof yantao !== 'object' || yantao === null) {
-    return { hasMetadataKey: true, hasYantaoKey: yantao !== undefined }
+  const yantaoShape = shapeOf(yantao)
+  if (yantaoShape !== 'mapping') {
+    return { hasMetadataKey: true, hasYantaoKey: yantao !== undefined, metadataShape, yantaoShape }
   }
   const version = (yantao as { version?: unknown }).version
   return {
     ...(typeof version === 'number' && Number.isInteger(version) && version >= 0 ? { version } : {}),
     hasMetadataKey: true,
     hasYantaoKey: true,
+    metadataShape,
+    yantaoShape,
   }
 }
 
@@ -113,7 +131,7 @@ export function stripVersionChange(originalRaw: string, newRaw: string): string 
     try {
       return probeFrontmatter(originalRaw, 'SKILL.md')
     } catch {
-      return { hasMetadataKey: false, hasYantaoKey: false }
+      return { hasMetadataKey: false, hasYantaoKey: false, metadataShape: 'absent', yantaoShape: 'absent' }
     }
   })()
   const originalVersion = originalProbe.version
@@ -152,14 +170,31 @@ export function stripVersionChange(originalRaw: string, newRaw: string): string 
     if (newProbe.hasYantaoKey) {
       throw refuse('YAML 里的 yantao 键不在 metadata 之下的标准两空格位置')
     }
+    if (newProbe.metadataShape === 'other') {
+      // A block-style sequence under `metadata:` passes the parser without
+      // error and leaves hasYantaoKey false — splicing mapping lines into a
+      // sequence value would produce invalid YAML. Refuse loudly instead.
+      throw refuse('YAML 里的 metadata 不是映射，拒绝往里拼接 yantao 嵌套')
+    }
     const inserted = ['  yantao:', `    version: ${originalVersion}`]
     lines.splice(metadataAt + 1, 0, ...inserted)
     return lines.join('\n')
   }
-  const versionAt = lines.findIndex((line, at) => at > yantaoAt && at < close && /^    version:\s*/.test(line))
+  // The four-space region under yantao ends where the next two-space sibling
+  // (or the envelope close) begins — a later sibling's own `version:` child
+  // must never be mistaken for ours.
+  const regionEnd = (() => {
+    const sibling = lines.findIndex((line, at) => at > yantaoAt && at < close && /^ {2}\S/.test(line))
+    return sibling === -1 ? close : sibling
+  })()
+  const isVersionLine = (line: string): boolean => /^    version:\s*/.test(line)
+  const versionAt = lines.findIndex((line, at) => at > yantaoAt && at < regionEnd && isVersionLine(line))
   if (versionAt === -1) {
     if (newVersion !== undefined) {
       throw refuse('YAML 里看得到版本值，但它不在 yantao 之下的标准四空格位置')
+    }
+    if (newProbe.yantaoShape === 'other') {
+      throw refuse('YAML 里的 yantao 不是映射，拒绝往里拼接 version 行')
     }
     lines.splice(yantaoAt + 1, 0, `    version: ${originalVersion}`)
     return lines.join('\n')
@@ -170,17 +205,14 @@ export function stripVersionChange(originalRaw: string, newRaw: string): string 
     // foreign key.
     throw refuse('文本层的 version 行不属于 YAML 里的 metadata.yantao')
   }
-  const versionLexemes = lines.filter(
-    (line, at) => at > yantaoAt && at < close && /^    version:\s*/.test(line),
-  ).length
-  if (versionLexemes > 1) {
+  if (lines.filter((line, at) => at > yantaoAt && at < regionEnd && isVersionLine(line)).length > 1) {
     throw refuse('yantao 之下出现了多行 version')
   }
   if (originalVersion === undefined) {
     // Strip the version line; when the yantao (or even metadata) nest held
     // nothing but that line, the shell goes with it — the clamp restores the
     // original bytes, not an emptied husk the original never declared.
-    const yantaoChildren = lines.filter((line, at) => at > yantaoAt && at < close && /^ {4}\S/.test(line))
+    const yantaoChildren = lines.filter((line, at) => at > yantaoAt && at < regionEnd && /^ {4}\S/.test(line))
     const doomed = [versionAt]
     if (yantaoChildren.length === 1) doomed.push(yantaoAt)
     if (doomed.length === 2) {
@@ -191,6 +223,14 @@ export function stripVersionChange(originalRaw: string, newRaw: string): string 
     }
     for (const at of doomed.sort((a, b) => b - a)) lines.splice(at, 1)
     return lines.join('\n')
+  }
+  // Value agreement closes the last parser/lexer divergence: a duplicate
+  // `yantao:` key or an alias can make the parser read a different number
+  // than the line found here — rewriting then tramples a foreign key and
+  // leaves the real yantao.version unclamped.
+  const declared = (lines[versionAt] ?? '').replace(/^    version:[ \t]*/, '').replace(/\s+#.*$/, '').trim()
+  if (Number(declared) !== newVersion) {
+    throw refuse('文本层 version 行的值与 YAML 解析出的 metadata.yantao.version 不一致')
   }
   lines[versionAt] = `    version: ${originalVersion}`
   return lines.join('\n')

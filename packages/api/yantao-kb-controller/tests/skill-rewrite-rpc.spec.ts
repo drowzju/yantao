@@ -177,7 +177,7 @@ describe('stripVersionChange（版本钳制单元）', () => {
     expect(() => stripVersionChange(original, next)).toThrow(/标准四空格位置/)
   })
 
-  it('四空格 version 行其实挂在别的父键下——拒绝踩踏外语键', () => {
+  it('四空格 version 行其实挂在别的父键下——外语键原样保留，只在空的 yantao 槽位补回版本', () => {
     const original = skillMd(3)
     const next = [
       '---',
@@ -191,7 +191,107 @@ describe('stripVersionChange（版本钳制单元）', () => {
       '',
       '按批次读。',
     ].join('\n')
-    expect(() => stripVersionChange(original, next)).toThrow(/不属于 YAML 里的 metadata\.yantao/)
+    // The lexer scopes the yantao region to its own children — the foreign
+    // `other.version` is never mistaken for ours, so the clamp restores the
+    // original's version into the empty yantao slot instead of refusing.
+    const clamped = stripVersionChange(original, next)
+    expect(clamped).toContain('  yantao:\n    version: 3')
+    expect(clamped).toContain('  other:\n    version: 9')
+  })
+
+  it('yantao 与后续兄弟各有 version——扫描止于下一个两空格兄弟，只钳 yantao 区段', () => {
+    const original = skillMd(3)
+    const next = [
+      '---',
+      'name: mail-reader',
+      'description: 读邮件',
+      'metadata:',
+      '  yantao:',
+      '    version: 5',
+      '  other:',
+      '    version: 9',
+      '---',
+      '',
+      '按批次读。',
+    ].join('\n')
+    expect(stripVersionChange(original, next)).toBe([
+      '---',
+      'name: mail-reader',
+      'description: 读邮件',
+      'metadata:',
+      '  yantao:',
+      '    version: 3',
+      '  other:',
+      '    version: 9',
+      '---',
+      '',
+      '按批次读。',
+    ].join('\n'))
+  })
+
+  it('文本层 version 行的值与 parser 归因不一致（折叠标量）——拒绝盲写', () => {
+    const original = skillMd(3)
+    const next = [
+      '---',
+      'name: mail-reader',
+      'description: 读邮件',
+      'metadata:',
+      '  yantao:',
+      '    version:',
+      '      9',
+      '---',
+      '',
+      '按批次读。',
+    ].join('\n')
+    expect(() => stripVersionChange(original, next)).toThrow(/不一致/)
+  })
+
+  it('metadata 是块序列——拒绝往序列里拼映射（防损坏）', () => {
+    const original = skillMd(3)
+    const next = [
+      '---',
+      'name: mail-reader',
+      'metadata:',
+      '  - a',
+      '  - b',
+      '---',
+      '',
+      '按批次读。',
+    ].join('\n')
+    expect(() => stripVersionChange(original, next)).toThrow(/metadata 不是映射/)
+  })
+
+  it('yantao 是块序列——拒绝往序列里拼 version 行（防损坏）', () => {
+    const original = skillMd(3)
+    const next = [
+      '---',
+      'name: mail-reader',
+      'description: 读邮件',
+      'metadata:',
+      '  yantao:',
+      '    - a',
+      '---',
+      '',
+      '按批次读。',
+    ].join('\n')
+    expect(() => stripVersionChange(original, next)).toThrow(/yantao 不是映射/)
+  })
+
+  it('裸 metadata:（null 值）仍走修复路径补回嵌套——不被形状守卫误杀', () => {
+    const original = skillMd(3)
+    const next = [
+      '---',
+      'name: mail-reader',
+      'description: 读邮件',
+      'metadata:',
+      '---',
+      '',
+      '# 读邮件',
+      '',
+      '按批次读。',
+      '',
+    ].join('\n')
+    expect(stripVersionChange(original, next)).toBe(original)
   })
 
   it('diff 把 frontmatter 整个剥掉了——不再静默放过（M6 吸收）', () => {

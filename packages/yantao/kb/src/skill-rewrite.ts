@@ -19,7 +19,7 @@
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import { CapabilityFileError, confineCapabilityFile, readCapabilityTextFile } from './capability-file.ts'
-import { enqueueProposal } from './proposal-inbox.ts'
+import { enqueueProposal, SOURCE_NAME_MAX, TITLE_MAX } from './proposal-inbox.ts'
 import { KbError } from './types.ts'
 
 /** The inbox `source` prefix a nomination carries: `<kind>:<capability>`. */
@@ -27,6 +27,13 @@ export const SKILL_REWRITE_SOURCE = 'skill-rewrite'
 
 /** Per-side character cap on the envelope — a nomination is a diff, not a dump. */
 const SIDE_CHARS_CAP = 200_000
+
+/**
+ * Cap on `why` — a product decision ("一句话说服人"), not the inbox store's
+ * NOTE_MAX: the why travels inside the opaque proposal payload, which the
+ * store does not length-check, so this bound is ours to own.
+ */
+const WHY_MAX = 500
 
 /** The nomination's shape, as the tool's parameters hand it in. */
 export interface SkillRewriteNomination {
@@ -106,12 +113,17 @@ export async function proposeSkillRewrite(kbRoot: string, args: SkillRewriteNomi
   const why = args.why.trim()
   if (name === '') throw new KbError('bad-skill-file', 'name 不能为空')
   if (why === '') throw new KbError('bad-skill-file', 'why 不能为空——人要看理由才能裁决')
-  // Pre-limit the framing fields to what the inbox store will accept
-  // (SOURCE_NAME_MAX/TITLE_MAX/NOTE_MAX) — a rejection here names the fix,
-  // where the store's normalizer would only say "第 N 条提议格式不对".
-  if (name.length > 64) throw new KbError('bad-skill-file', `name 超过 64 字（现 ${name.length} 字）——先核对能力名`)
-  if (args.file.length > 120) throw new KbError('bad-skill-file', `file 路径超过 120 字（现 ${args.file.length} 字），不像技能目录里的文件`)
-  if (why.length > 500) throw new KbError('bad-skill-file', `why 超过 500 字（现 ${why.length} 字）——一句话说服人，写短些`)
+  // Pre-limit the framing fields to what the inbox store will accept — a
+  // rejection here names the fix, where the store's normalizer would only say
+  // "第 N 条提议格式不对". SOURCE_NAME_MAX/TITLE_MAX are imported from the
+  // store so the two sides cannot drift; the title is checked as composed
+  // (the raw args.file is never shorter than the normalized one, so this is
+  // the conservative side).
+  if (name.length > SOURCE_NAME_MAX) throw new KbError('bad-skill-file', `name 超过 ${SOURCE_NAME_MAX} 字（现 ${name.length} 字）——先核对能力名`)
+  if (`改写能力「${name}」的 ${args.file}`.length > TITLE_MAX) {
+    throw new KbError('bad-skill-file', `name+file 拼出的标题超过 ${TITLE_MAX} 字，换个短些的能力名或路径`)
+  }
+  if (why.length > WHY_MAX) throw new KbError('bad-skill-file', `why 超过 ${WHY_MAX} 字（现 ${why.length} 字）——一句话说服人，写短些`)
   for (const [side, text] of [['original', args.original], ['new', args.new]] as const) {
     if (typeof text !== 'string' || text === '') throw new KbError('bad-skill-file', `${side} 不能为空——无 diff 不成卡`)
     if (text.length > SIDE_CHARS_CAP) {

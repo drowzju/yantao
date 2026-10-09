@@ -29,9 +29,9 @@ export class CapabilityFileError extends Error {
  * capability directory. Lexical checks are the gate; the containment
  * double-check against the real path arithmetic catches what slips past.
  * @returns the normalized relative path, forward slashes.
- * @throws CapabilityFileError with reason `illegal` (absolute, empty, `..`),
- *   `artifact` (blacklisted run-artifact directory), or `escapes` (resolves
- *   outside the directory).
+ * @throws CapabilityFileError with reason `illegal` (absolute, empty,
+ *   trailing slash), `artifact` (blacklisted run-artifact directory), or
+ *   `escapes` (a `..` segment, or resolving outside the directory).
  */
 export function confineCapabilityFile(directory: string, file: string): string {
   const slashed = file.replaceAll('\\', '/')
@@ -65,6 +65,12 @@ export function confineCapabilityFile(directory: string, file: string): string {
  * symlink: the drift guard and the writeback must never chase a link out of
  * the capability directory. Callers keep the errno mapping for ENOENT and
  * friends — only the symlink case is dressed here.
+ *
+ * Best-effort by construction: the lstat→read window can in principle be
+ * raced, and a symlinked *ancestor* inside the capability directory would
+ * still be chased by readFile — the guard checks the leaf only. In this
+ * single-user KB the agent has no link-making channel, so the residual
+ * exposure is a human's accidental link, not an attack surface.
  * @throws CapabilityFileError with reason `symlink` when the target is a link.
  */
 export async function readCapabilityTextFile(directory: string, file: string): Promise<string> {
@@ -75,5 +81,11 @@ export async function readCapabilityTextFile(directory: string, file: string): P
   if (info.isSymbolicLink()) {
     throw new CapabilityFileError('symlink', target)
   }
-  return readFile(target, 'utf8')
+  const text = await readFile(target, 'utf8')
+  // Narrow the lstat→read swap window: if the leaf became a link mid-read,
+  // refuse the borrowed content outright.
+  if ((await lstat(target)).isSymbolicLink()) {
+    throw new CapabilityFileError('symlink', target)
+  }
+  return text
 }
