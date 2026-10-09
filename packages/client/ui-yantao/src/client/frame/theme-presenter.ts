@@ -59,10 +59,10 @@ const FOCUS_RING_CSS = `
 body {
   transition: none !important;
 }
-button[data-hover]:hover {
+button[data-hover]:not([data-hover="primary"]):not([data-hover="close"]):hover {
   background: var(--yt-surface-secondary) !important;
 }
-button[data-hover]:active {
+button[data-hover]:not([data-hover="primary"]):not([data-hover="close"]):active {
   background: var(--yt-border-subtle) !important;
 }
 /* A selected row is already accented — hover deepens nothing, press keeps
@@ -88,14 +88,9 @@ button[data-hover="close"]:hover {
   background: transparent !important;
   color: var(--yt-text-primary) !important;
 }
-/* The row menu's items carry no attribute of their own — the menu root's
-   data-row-menu addresses them all. */
-[data-row-menu] button:hover {
-  background: var(--yt-surface-secondary) !important;
-}
-[data-row-menu] button:active {
-  background: var(--yt-border-subtle) !important;
-}
+/* 2026-10-09 第二轮评审 P1-A：hover 覆盖由 tests/hover-gate.client.spec.ts
+   门禁保证（每个 <button> 必须携带 data-hover），此前的 [data-row-menu]
+   作用域规则与之重复，随门禁一并退役。 */
 [data-inbox-pane] [role="button"]:hover {
   background: var(--yt-surface-secondary) !important;
 }

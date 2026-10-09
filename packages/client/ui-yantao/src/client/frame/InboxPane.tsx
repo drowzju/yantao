@@ -140,7 +140,7 @@ const plainInnerStyle = {
   borderRadius: 10,
   padding: 16,
   width: 'min(480px, 92vw)',
-  boxShadow: '0 12px 32px rgba(28, 26, 22, 0.25)',
+  boxShadow: 'var(--yt-shadow-overlay)',
 } as const
 
 /** Format one ISO stamp for the rows' metadata lines (SchedulePane's recipe). */
@@ -240,10 +240,10 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, t }: InboxPan
               这条提议的内容无法在本工作台解析（可能来自旧版本），只能丢弃。
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button type="button" style={discardButtonStyle} onClick={() => { setOpenId(null) }}>
+              <button data-hover="true" type="button" style={discardButtonStyle} onClick={() => { setOpenId(null) }}>
                 关闭
               </button>
-              <button
+              <button data-hover="true"
                 type="button"
                 style={discardButtonStyle}
                 disabled={busyId === openEntry.id}

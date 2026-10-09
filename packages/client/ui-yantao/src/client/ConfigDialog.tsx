@@ -37,7 +37,7 @@ const cardStyle = {
   width: 'min(520px, 92vw)',
   maxHeight: '80vh',
   overflow: 'auto',
-  boxShadow: '0 12px 32px rgba(28, 26, 22, 0.25)',
+  boxShadow: 'var(--yt-shadow-overlay)',
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
@@ -199,7 +199,7 @@ export function ConfigDialog(props: ConfigDialogProps): ReactElement {
       <div style={cardStyle} role="dialog" aria-modal="true" aria-label={t('config.title')} tabIndex={-1} ref={cardRef} onClick={(event) => { event.stopPropagation() }}>
         <header style={headerStyle}>
           <span style={titleStyle}>{t('config.title')}</span>
-          <button style={ghostStyle} onClick={onClose}>{t('config.close')}</button>
+          <button data-hover="true" style={ghostStyle} onClick={onClose}>{t('config.close')}</button>
         </header>
         <h3 style={sectionStyle}>{t('config.section.models')}</h3>
         {error !== null ? <p style={errorStyle} role="alert">{error}</p> : null}
@@ -239,11 +239,11 @@ export function ConfigDialog(props: ConfigDialogProps): ReactElement {
                     onChange={(event) => { setRows(rows.map((candidate, at) => at === index
                       ? { ...candidate, name: event.target.value }
                       : candidate)) }} />
-                  <button style={ghostStyle} disabled={busy} aria-label={t('config.modelRemove')}
+                  <button data-hover="true" style={ghostStyle} disabled={busy} aria-label={t('config.modelRemove')}
                     onClick={() => { setRows(rows.filter((_, at) => at !== index)) }}>{t('config.modelRemove')}</button>
                 </div>
               ))}
-              <button style={ghostStyle} disabled={busy}
+              <button data-hover="true" style={ghostStyle} disabled={busy}
                 onClick={() => { setRows([...rows, { id: '', name: '' }]) }}>{t('config.modelAdd')}</button>
             </fieldset>
             <label style={fieldStyle}>

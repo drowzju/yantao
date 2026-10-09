@@ -233,7 +233,7 @@ function TrendCard({ steps, feed, t }: { steps: readonly TrendStep[]; feed: read
         <p style={cardTitleStyle}>{t('insights.trend.title')}</p>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
           {(['step', 'turn'] as const).map(candidate => (
-            <button
+            <button data-hover="true"
               key={candidate}
               type="button"
               style={{
@@ -351,7 +351,7 @@ function FeedCard({ feed, t }: { feed: readonly FeedItem[]; t: WorkbenchT }): Re
         <p style={cardTitleStyle}>{t('insights.feed.title')}</p>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
           {FEED_FILTERS.map(candidate => (
-            <button
+            <button data-hover="true"
               key={candidate}
               type="button"
               style={{

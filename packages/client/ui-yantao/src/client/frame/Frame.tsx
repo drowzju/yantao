@@ -315,7 +315,7 @@ const noticeStyle = {
   borderStyle: 'solid',
   borderColor: 'var(--yt-border-subtle)',
   borderRadius: 6,
-  boxShadow: '0 4px 12px rgba(28, 26, 22, 0.15)',
+  boxShadow: 'var(--yt-shadow-menu)',
   fontSize: 12,
   zIndex: 45,
 } as const
@@ -2113,7 +2113,7 @@ export function Frame({
               the countdown beside the label makes the expiry legible instead
               of silent. */}
           {capabilityNotice.action !== undefined && (
-            <button
+            <button data-hover="true"
               type="button"
               style={{
                 marginLeft: 10,
@@ -2140,7 +2140,7 @@ export function Frame({
           {/* A running refine is cancellable right where it announces itself
               (ADR-0031): the chip stops the run and drops the queue. */}
           {(refineActive || validateActive) && (
-            <button
+            <button data-hover="true"
               type="button"
               style={{
                 marginLeft: 10,

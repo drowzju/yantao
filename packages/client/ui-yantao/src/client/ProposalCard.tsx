@@ -42,7 +42,7 @@ const cardStyle = {
   display: 'flex',
   flexDirection: 'column',
   overflow: 'hidden',
-  boxShadow: '0 12px 32px rgba(28, 26, 22, 0.25)',
+  boxShadow: 'var(--yt-shadow-overlay)',
   // 卡自身接收初始焦点（tabIndex=-1）；轮廓交给卡内的真控件去画。
   outline: 'none',
 } as const
@@ -263,7 +263,7 @@ function targetOfLink(link: string): string {
 const diffBoxStyle = {
   margin: '4px 0 2px',
   padding: '6px 8px',
-  background: 'var(--yt-surface)',
+  background: 'var(--yt-surface-secondary)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 6,
   fontFamily: 'monospace',
@@ -312,7 +312,7 @@ function SkillDiffBlock(props: { readonly original: string; readonly next: strin
   )
   return (
     <div data-proposal-diff="true">
-      <button
+      <button data-hover="true"
         type="button"
         style={toggleStyle}
         data-proposal-diff-toggle="true"
@@ -776,7 +776,7 @@ export function ProposalCard(props: {
                 <span style={summaryTextStyle} data-proposal-digest-count="true">
                   {t('proposal.digestSummary', { count: proposal.digest.length })}
                 </span>
-                <button
+                <button data-hover="true"
                   type="button"
                   style={toggleStyle}
                   data-proposal-digest-toggle="true"
@@ -809,7 +809,7 @@ export function ProposalCard(props: {
                     fixes: prescan.actions.length,
                   })}
                 </span>
-                <button
+                <button data-hover="true"
                   type="button"
                   style={toggleStyle}
                   data-proposal-prescan-toggle="true"

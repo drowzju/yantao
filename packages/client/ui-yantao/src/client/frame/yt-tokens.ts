@@ -32,6 +32,11 @@ export const YT_COLOR_TOKENS: { light: Record<string, string>; dark: Record<stri
     // 模态幕布（2026-10-09 评审 P1）：此前 rgba(28,26,22,.45) 裸值散在四处，
     // 暗色下压不出层次——暗色换纯黑加深一档。
     '--yt-scrim': 'rgba(28, 26, 22, 0.45)',
+    // 投影两档（2026-10-09 第二轮评审 P2-B）：此前裸 rgba 散在九处，暗色下
+    // 暖棕阴影要么过重要么不存在。menu 供浮层（行菜单/选中菜单/通知条/
+    // 代码块），overlay 供模态卡与会话抽屉。
+    '--yt-shadow-menu': '0 2px 8px rgba(28, 26, 22, 0.12)',
+    '--yt-shadow-overlay': '0 12px 32px rgba(28, 26, 22, 0.25)',
     '--yt-accent-bg': '#eef3ff',
     '--yt-accent-border': '#c7d7ff',
     '--yt-success': '#4f9d5d',
@@ -59,6 +64,9 @@ export const YT_COLOR_TOKENS: { light: Record<string, string>; dark: Record<stri
     // （CenterPane 徽标、主按钮），对 #7ba3e0 过 7:1。
     '--yt-on-accent': '#1b1916',
     '--yt-scrim': 'rgba(0, 0, 0, 0.55)',
+    // 暗色表面本身就深，投影改纯黑并加大 α 才读得出层次。
+    '--yt-shadow-menu': '0 2px 8px rgba(0, 0, 0, 0.45)',
+    '--yt-shadow-overlay': '0 12px 32px rgba(0, 0, 0, 0.55)',
     '--yt-accent-bg': '#232c3d',
     '--yt-accent-border': '#3a4d75',
     '--yt-success': '#6fb87d',

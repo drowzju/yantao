@@ -184,7 +184,7 @@ function CapabilityRow({
   onSelect: (name: string) => void
 }): ReactElement {
   return (
-    <button type="button" style={rowStyle} onClick={() => { onSelect(name) }} title={name}>
+    <button data-hover="true" type="button" style={rowStyle} onClick={() => { onSelect(name) }} title={name}>
       <span style={nameStyle}>{name}</span>
       {description !== '' && <div style={clampedMutedStyle} title={description}>{description}</div>}
     </button>
@@ -378,8 +378,8 @@ function ShortcutSection({
         onChange={(event) => { setText(event.target.value) }}
       />
       <div style={confirmButtonRowStyle}>
-        <button type="button" style={buttonStyle} onClick={() => { void submitEdit() }}>{t('shortcut.save')}</button>
-        <button type="button" style={buttonStyle} onClick={() => { setEditing(null) }}>{t('common.cancel')}</button>
+        <button data-hover="true" type="button" style={buttonStyle} onClick={() => { void submitEdit() }}>{t('shortcut.save')}</button>
+        <button data-hover="true" type="button" style={buttonStyle} onClick={() => { setEditing(null) }}>{t('common.cancel')}</button>
       </div>
     </div>
   )
@@ -389,7 +389,7 @@ function ShortcutSection({
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <div style={titleStyle}>{t('shortcut.heading')}</div>
         {editing === null && (
-          <button type="button" style={{ ...buttonStyle, marginLeft: 'auto' }} onClick={openAdd}>
+          <button data-hover="true" type="button" style={{ ...buttonStyle, marginLeft: 'auto' }} onClick={openAdd}>
             {t('shortcut.add')}
           </button>
         )}
@@ -401,7 +401,7 @@ function ShortcutSection({
       {shortcuts?.map((shortcut, index) => (
         editing === index ? form : (
           <div key={shortcut.alias} style={shortcutRowStyle} data-shortcut-row={shortcut.alias}>
-            <button
+            <button data-hover="true"
               type="button"
               style={shortcutMainStyle}
               title={`${t('shortcut.clickHint')}\n${shortcut.text}`}
@@ -417,16 +417,16 @@ function ShortcutSection({
               <span style={nameStyle}>/{shortcut.alias}</span>
               <div style={mutedStyle}>{shortcutTextOf(shortcut.text)}</div>
             </button>
-            <button type="button" style={shortcutToolStyle} disabled={index === 0} title={t('shortcut.up')}
+            <button data-hover="true" type="button" style={shortcutToolStyle} disabled={index === 0} title={t('shortcut.up')}
               onClick={() => { void move(index, -1) }}
             >↑</button>
-            <button type="button" style={shortcutToolStyle} disabled={index === shortcuts.length - 1} title={t('shortcut.down')}
+            <button data-hover="true" type="button" style={shortcutToolStyle} disabled={index === shortcuts.length - 1} title={t('shortcut.down')}
               onClick={() => { void move(index, 1) }}
             >↓</button>
-            <button type="button" style={shortcutToolStyle} title={t('shortcut.edit')}
+            <button data-hover="true" type="button" style={shortcutToolStyle} title={t('shortcut.edit')}
               onClick={() => { openEdit(index) }}
             >{t('shortcut.edit')}</button>
-            <button type="button" style={shortcutToolStyle} title={t('shortcut.delete')}
+            <button data-hover="true" type="button" style={shortcutToolStyle} title={t('shortcut.delete')}
               onClick={() => { void remove(index) }}
             >{t('shortcut.delete')}</button>
           </div>
@@ -553,7 +553,7 @@ function ReachSection({
         {t('capability.reachSelection')}
       </label>
       {!confirmingUnregister ? (
-        <button
+        <button data-hover="true"
           type="button"
           style={{ ...buttonStyle, marginTop: 6 }}
           disabled={busy}
@@ -566,10 +566,10 @@ function ReachSection({
         <div style={confirmStyle} data-capability-unregister-confirm="true">
           <div style={mutedStyle}>{t('capability.unregisterConfirm', { name: capability.name })}</div>
           <div style={confirmButtonRowStyle}>
-            <button type="button" style={buttonStyle} disabled={busy} onClick={() => { void doUnregister() }}>
+            <button data-hover="true" type="button" style={buttonStyle} disabled={busy} onClick={() => { void doUnregister() }}>
               {t('capability.unregister')}
             </button>
-            <button type="button" style={buttonStyle} disabled={busy} onClick={() => { setConfirmingUnregister(false) }}>
+            <button data-hover="true" type="button" style={buttonStyle} disabled={busy} onClick={() => { setConfirmingUnregister(false) }}>
               {t('common.cancel')}
             </button>
           </div>
@@ -739,7 +739,7 @@ export function CapabilityPanel({
               {unregistered.map((skill) => {
                 const reason = greyReasonOf(skill)
                 return (
-                  <button
+                  <button data-hover="true"
                     key={skill.name}
                     type="button"
                     style={rowStyle}
@@ -772,8 +772,8 @@ export function CapabilityPanel({
                 <span style={codeStyle}>{JSON.stringify({ path: confirming.name, invocation: ['human'] })}</span>
               </div>
               <div style={confirmButtonRowStyle}>
-                <button type="button" style={buttonStyle} onClick={() => { void adoptSkill(confirming.name) }}>{t('capability.adoptConfirm')}</button>
-                <button type="button" style={buttonStyle} onClick={() => { setConfirming(null) }}>{t('common.cancel')}</button>
+                <button data-hover="true" type="button" style={buttonStyle} onClick={() => { void adoptSkill(confirming.name) }}>{t('capability.adoptConfirm')}</button>
+                <button data-hover="true" type="button" style={buttonStyle} onClick={() => { setConfirming(null) }}>{t('common.cancel')}</button>
               </div>
             </div>
           )}
@@ -820,8 +820,8 @@ export function CapabilityPanel({
                 {t('capability.routePreview')}<span style={codeStyle}>{registerPreview(registering, registerReach)}</span>
               </div>
               <div style={confirmButtonRowStyle}>
-                <button type="button" style={buttonStyle} onClick={() => { void registerSkill(registering) }}>{t('capability.registerConfirm')}</button>
-                <button type="button" style={buttonStyle} onClick={() => { setRegistering(null) }}>{t('common.cancel')}</button>
+                <button data-hover="true" type="button" style={buttonStyle} onClick={() => { void registerSkill(registering) }}>{t('capability.registerConfirm')}</button>
+                <button data-hover="true" type="button" style={buttonStyle} onClick={() => { setRegistering(null) }}>{t('common.cancel')}</button>
               </div>
             </div>
           )}
@@ -835,7 +835,7 @@ export function CapabilityPanel({
       )}
       {current !== undefined && (
         <>
-          <button type="button" style={buttonStyle} onClick={() => { setSelected(null) }}>{t('capability.backToList')}</button>
+          <button data-hover="true" type="button" style={buttonStyle} onClick={() => { setSelected(null) }}>{t('capability.backToList')}</button>
           <div style={titleStyle}>{current.name}</div>
           <div>{current.description}</div>
           {/* ADR-0052 决定 8: the detail page is exactly the 使用语义 — reach

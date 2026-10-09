@@ -44,7 +44,7 @@ const panelStyle: CSSProperties = {
   background: 'var(--yt-surface-primary)',
   border: '1px solid var(--yt-border-strong)',
   borderRadius: 8,
-  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.25)',
+  boxShadow: 'var(--yt-shadow-overlay)',
   minWidth: 0,
   overflow: 'hidden',
   // 面板自身接收初始焦点（tabIndex=-1）；轮廓交给面板内的真控件去画。
@@ -272,7 +272,7 @@ export function SessionDetailDrawer(props: {
     const digest = item.args.length > 60 ? `${item.args.slice(0, 60)}…` : item.args
     rendered.push(
       <div key={item.seq}>
-        <button
+        <button data-hover="true"
           type="button"
           style={toolHeaderStyle}
           onClick={() => { toggleTool(item.seq) }}
@@ -305,7 +305,7 @@ export function SessionDetailDrawer(props: {
       <div style={panelStyle} role="dialog" aria-modal="true" aria-label={row.title} tabIndex={-1} ref={cardRef} data-task-detail-panel="true">
         <div style={headerStyle}>
           <span style={titleStyle}>{`${row.title} · 会话详情`}</span>
-          <button type="button" style={closeButtonStyle} onClick={onClose} aria-label="关闭">✕</button>
+          <button data-hover="true" type="button" style={closeButtonStyle} onClick={onClose} aria-label="关闭">✕</button>
         </div>
         <div style={bodyStyle}>
           {usage !== null && (

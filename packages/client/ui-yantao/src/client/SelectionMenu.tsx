@@ -21,7 +21,7 @@ const menuStyle = {
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
-  boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+  boxShadow: 'var(--yt-shadow-menu)',
   fontFamily: FONT,
   fontSize: 'var(--yt-type-body)',
 } as const
@@ -71,7 +71,7 @@ export function SelectionMenu(props: {  /** The selected text, as the user marke
   return (
     <div ref={ref} role="menu" style={{ ...menuStyle, left: position.left, top: position.top }} data-selection-menu="true">
       <div style={noteStyle}>{t('selection.title')}</div>
-      <button
+      <button data-hover="true"
         type="button"
         role="menuitem"
         style={itemStyle}
@@ -82,7 +82,7 @@ export function SelectionMenu(props: {  /** The selected text, as the user marke
       </button>
       {props.capabilities.length > 0 && <div style={noteStyle}>{t('selection.capability')}</div>}
       {props.capabilities.map(capability => (
-        <button
+        <button data-hover="true"
           key={capability.name}
           type="button"
           role="menuitem"
@@ -125,7 +125,7 @@ export function CapabilityMenu(props: {
     <div ref={ref} role="menu" style={{ ...menuStyle, left: position.left, top: position.top }} data-capability-menu="true">
       <div style={noteStyle}>{t('selection.runOnFile')}</div>
       {props.capabilities.map(capability => (
-        <button
+        <button data-hover="true"
           key={capability.name}
           type="button"
           role="menuitem"

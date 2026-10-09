@@ -84,7 +84,7 @@ export function NewEntityRow({ t, label, placeholder, submit, choice, trailing }
     <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         {!editing && (
-          <button type="button" style={{ padding: '2px 6px' }} onClick={() => { setEditing(true) }} disabled={busy}>
+          <button data-hover="true" type="button" style={{ padding: '2px 6px' }} onClick={() => { setEditing(true) }} disabled={busy}>
             {label}
           </button>
         )}
@@ -128,7 +128,7 @@ export function NewEntityRow({ t, label, placeholder, submit, choice, trailing }
                 ))}
               </select>
             )}
-            <button type="button" style={{ padding: '2px 6px' }} disabled={busy} onClick={close}>{t('common.cancel')}</button>
+            <button data-hover="true" type="button" style={{ padding: '2px 6px' }} disabled={busy} onClick={close}>{t('common.cancel')}</button>
           </div>
         )}
         {error !== null && <div style={errorStyle} role="alert">{error}</div>}

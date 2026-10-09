@@ -235,7 +235,7 @@ function HeatmapCard({ cells, activeDay, onPick, t }: {
         {cells.flat().map((cell) => {
           const active = cell.day === activeDay
           return (
-            <button
+            <button data-hover="true"
               key={cell.day}
               type="button"
               disabled={cell.future}
@@ -327,7 +327,7 @@ function SessionCard({ row, fetchTotals, onOpen, onInsights, t }: {
         <span style={{ fontVariantNumeric: 'tabular-nums' }}>
           {totals === undefined ? t('insights.overview.card.noUsage') : formatTokens(grandTotalOf(totals))}
         </span>
-        <button
+        <button data-hover="true"
           type="button"
           style={{ ...pillButtonStyle, marginLeft: 'auto', borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
           onClick={(event) => {
@@ -536,7 +536,7 @@ export function SessionOverview({
         <p style={{ ...cardTitleStyle, fontSize: 'var(--yt-type-body)', margin: 0 }}>
           {t('insights.overview.title')}
         </p>
-        <button
+        <button data-hover="true"
           type="button"
           style={slimActionButtonStyle}
           onClick={() => {
@@ -567,7 +567,7 @@ export function SessionOverview({
         <p style={{ ...cardTitleStyle, fontSize: 'var(--yt-type-body)' }}>{t('insights.overview.title')}</p>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
           {result !== null && RANGE_OPTIONS.map(candidate => (
-            <button
+            <button data-hover="true"
               key={candidate}
               type="button"
               style={{
@@ -581,7 +581,7 @@ export function SessionOverview({
             </button>
           ))}
           {result !== null && (
-            <button
+            <button data-hover="true"
               type="button"
               style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
               onClick={load}
@@ -589,7 +589,7 @@ export function SessionOverview({
               {t('insights.overview.refresh')}
             </button>
           )}
-          <button
+          <button data-hover="true"
             type="button"
             style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
             onClick={() => { setCollapsed(true) }}
@@ -601,7 +601,7 @@ export function SessionOverview({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {phase === 'idle' ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
+            <button data-hover="true"
               type="button"
               style={{ ...slimActionButtonStyle, marginLeft: 0 }}
               onClick={load}
@@ -612,7 +612,7 @@ export function SessionOverview({
         ) : phase === 'failed' ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.loadFailed')}</p>
-            <button
+            <button data-hover="true"
               type="button"
               style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
               onClick={load}
@@ -623,7 +623,7 @@ export function SessionOverview({
         ) : phase !== 'ok' && result === null ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.loading')}</p>
-            <button
+            <button data-hover="true"
               type="button"
               style={{ ...pillButtonStyle, borderColor: 'var(--yt-border-subtle)', background: 'transparent' }}
               onClick={cancel}

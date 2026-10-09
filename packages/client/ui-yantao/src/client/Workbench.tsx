@@ -487,7 +487,7 @@ function ResourceTree({
       // full path stays on data-resource-dir for the menu and the tests.
       const segment = child.dir.slice(child.dir.lastIndexOf('/') + 1)
       rows.push(
-        <button
+        <button data-hover="true"
           key={`dir:${child.dir}`}
           type="button"
           style={{ ...rowStyle, paddingLeft: 8 + depth * 14, color: 'var(--yt-text-secondary)' }}
@@ -548,7 +548,7 @@ const menuStyle = {
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
-  boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+  boxShadow: 'var(--yt-shadow-menu)',
   fontFamily: FONT,
   fontSize: 13,
 } as const
@@ -567,6 +567,10 @@ const menuItemStyle = {
 } as const
 
 const menuNoteStyle = { color: 'var(--yt-text-secondary)', padding: '2px 8px 4px' } as const
+
+/** 2026-10-09 第二轮评审 P2-C：关系/能力/手势/删除区之间的分隔线，替代
+ * 此前只靠小字注头的分组方式——武装后的删除项不再与「拷贝链接」浑然一体。 */
+const menuDividerStyle = { borderTop: '1px solid var(--yt-border-subtle)' } as const
 
 /** One relation the row menu offers. */
 interface RelationOption {
@@ -646,6 +650,9 @@ function RowMenu(props: {
   const ref = useRef<HTMLDivElement | null>(null)
   const [deleteArmed, setDeleteArmed] = useState(false)
   const position = useFloatingMenu(ref, onClose, target)
+  // 提炼手势区之前是否有可见分组——分隔线只画在组与组之间，不落在菜单顶边。
+  const hasLeadingGroup = relations !== undefined
+    || (capabilities !== undefined && capabilities.length > 0 && onRunCapability !== undefined)
 
   return (
     <div ref={ref} role="menu" style={{ ...menuStyle, left: position.left, top: position.top }} data-row-menu={target.path}>
@@ -654,7 +661,7 @@ function RowMenu(props: {
           <div style={menuNoteStyle}>{t('relation.label')}</div>
           {relations.length === 0 && <div style={menuNoteStyle}>{t('relation.ownerFixed')}</div>}
           {relations.map(option => (
-            <button
+            <button data-hover="true"
               key={option.value}
               type="button"
               role="menuitem"
@@ -670,10 +677,10 @@ function RowMenu(props: {
         </div>
       )}
       {capabilities !== undefined && capabilities.length > 0 && onRunCapability !== undefined && (
-        <div data-row-capabilities="true">
+        <div data-row-capabilities="true" style={relations !== undefined ? menuDividerStyle : undefined}>
           <div style={menuNoteStyle}>{t('workbench.capabilityLabel')}</div>
           {capabilities.map(capability => (
-            <button
+            <button data-hover="true"
               key={capability.name}
               type="button"
               role="menuitem"
@@ -689,10 +696,10 @@ function RowMenu(props: {
         </div>
       )}
       {onRefine !== undefined && (
-        <button
+        <button data-hover="true"
           type="button"
           role="menuitem"
-          style={menuItemStyle}
+          style={hasLeadingGroup ? { ...menuItemStyle, ...menuDividerStyle } : menuItemStyle}
           disabled={busy}
           data-row-refine="true"
           onClick={() => { onClose(); onRefine(target.path, target.name) }}
@@ -701,7 +708,7 @@ function RowMenu(props: {
         </button>
       )}
       {onDistill !== undefined && (
-        <button
+        <button data-hover="true"
           type="button"
           role="menuitem"
           style={menuItemStyle}
@@ -712,7 +719,7 @@ function RowMenu(props: {
           {t('workbench.distill')}
         </button>
       )}
-      <button
+      <button data-hover="true"
         type="button"
         style={menuItemStyle}
         data-row-copy-link="true"
@@ -724,7 +731,7 @@ function RowMenu(props: {
         {t('workbench.copyLink')}
       </button>
       {onArchive !== undefined && (
-        <button
+        <button data-hover="true"
           type="button"
           role="menuitem"
           style={menuItemStyle}
@@ -736,10 +743,10 @@ function RowMenu(props: {
         </button>
       )}
       {onDelete !== undefined && (
-        <button
+        <button data-hover="true"
           type="button"
           role="menuitem"
-          style={menuItemStyle}
+          style={{ ...menuItemStyle, ...menuDividerStyle, ...(deleteArmed ? { color: 'var(--yt-error)' } : {}) }}
           disabled={busy}
           data-row-delete="true"
           data-armed={deleteArmed || undefined}
@@ -779,7 +786,7 @@ function DirMenu(props: {
   const position = useFloatingMenu(ref, onClose, target)
   return (
     <div ref={ref} role="menu" style={{ ...menuStyle, left: position.left, top: position.top }} data-dir-menu={target.dir}>
-      <button
+      <button data-hover="true"
         type="button"
         role="menuitem"
         style={menuItemStyle}
@@ -1525,7 +1532,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
               setActionError(failure instanceof Error ? failure.message : String(failure))
             })}
             trailing={(
-              <button
+              <button data-hover="true"
                 type="button"
                 style={{ padding: '2px 6px', marginTop: 4 }}
                 onClick={() => { onValidate(tab === 'people' ? 'person' : 'project') }}

@@ -281,9 +281,9 @@ export function FileEditor({
       {status === 'conflict' && serverCopy !== null && (
         <div style={barStyle} data-conflict="true">
           <span>{t('editor.conflictNote')}</span>
-          <button type="button" onClick={overwrite}>{t('editor.overwrite')}</button>
-          <button type="button" onClick={discard}>{t('editor.discardMine')}</button>
-          <button type="button" onClick={() => { setShowDiff(open => !open) }}>
+          <button data-hover="true" type="button" onClick={overwrite}>{t('editor.overwrite')}</button>
+          <button data-hover="true" type="button" onClick={discard}>{t('editor.discardMine')}</button>
+          <button data-hover="true" type="button" onClick={() => { setShowDiff(open => !open) }}>
             {showDiff ? t('editor.hideDiff') : t('editor.showDiff')}
           </button>
         </div>

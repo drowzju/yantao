@@ -87,7 +87,7 @@ export function Onboarding({ setRoot, pickDirectory, onConfigured, t }: Onboardi
           {t('onboarding.description')}
         </div>
         {error !== null && <div style={errorStyle}>{error}</div>}
-        <button type="button" style={{ padding: '6px 12px' }} disabled={busy} onClick={choose}>
+        <button data-hover="true" type="button" style={{ padding: '6px 12px' }} disabled={busy} onClick={choose}>
           {busy ? t('onboarding.busy') : t('onboarding.choose')}
         </button>
       </div>

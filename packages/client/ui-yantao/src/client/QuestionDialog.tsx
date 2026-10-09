@@ -42,7 +42,7 @@ const cardStyle = {
   width: 'min(560px, 92vw)',
   maxHeight: '80vh',
   overflow: 'auto',
-  boxShadow: '0 12px 32px rgba(28, 26, 22, 0.25)',
+  boxShadow: 'var(--yt-shadow-overlay)',
   fontFamily: 'var(--yt-font-ui)',
   fontSize: 'var(--yt-type-body)',
   // 卡自身接收初始焦点（tabIndex=-1）；轮廓交给卡内的真控件去画。
@@ -118,7 +118,7 @@ export function QuestionDialog(props: {
           </div>
         ))}
         <div style={footerStyle}>
-          <button type="button" style={buttonStyle} disabled={settled} onClick={onAbort}>
+          <button data-hover="true" type="button" style={buttonStyle} disabled={settled} onClick={onAbort}>
             {t('workbench.questionAbort')}
           </button>
           <span style={{ flex: 1 }} />

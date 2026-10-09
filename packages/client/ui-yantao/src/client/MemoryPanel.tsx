@@ -169,7 +169,7 @@ function ProposalRow(props: {
         <div style={proposalMetaStyle}>{meta}</div>
       </div>
       <div style={proposalActionsStyle}>
-        <button
+        <button data-hover="true"
           type="button"
           style={verdictStyle}
           disabled={busy}
@@ -178,7 +178,7 @@ function ProposalRow(props: {
         >
           {t('memory.proposal.approve')}
         </button>
-        <button
+        <button data-hover="true"
           type="button"
           style={verdictStyle}
           disabled={busy}
@@ -414,7 +414,7 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
           </div>
         </div>
       ) : (
-        <button
+        <button data-hover="true"
           type="button"
           style={addOpenStyle}
           disabled={busy}
@@ -442,7 +442,7 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
                 {entry.text}
                 {entry.date !== undefined && <div style={dateStyle}>{entry.date}</div>}
               </div>
-              <button
+              <button data-hover="true"
                 type="button"
                 style={armedDeleteId === entry.id ? armedDeleteStyle : deleteStyle}
                 disabled={busy}

@@ -304,7 +304,7 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
       <div style={listColStyle}>
         <div style={listHeadStyle}>
           <span>调度定义</span>
-          <button type="button" style={buttonStyle} onClick={openNew}>+ 新建</button>
+          <button data-hover="true" type="button" style={buttonStyle} onClick={openNew}>+ 新建</button>
         </div>
         <div style={listBodyStyle}>
           {schedules.length === 0 && (
@@ -371,7 +371,7 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
                 <option value="">选择惯用提示词…</option>
                 {shortcuts.map(shortcut => <option key={shortcut.alias} value={shortcut.alias}>/{shortcut.alias}</option>)}
               </select>
-              <button type="button" style={buttonStyle} disabled={shortcutAlias === ''} onClick={fillShortcut}>
+              <button data-hover="true" type="button" style={buttonStyle} disabled={shortcutAlias === ''} onClick={fillShortcut}>
                 从惯用提示词填入
               </button>
             </div>
@@ -465,11 +465,11 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
               <button type="button" style={primaryButtonStyle} data-hover="primary" disabled={busy || draft.name.trim() === '' || draft.prompt.trim() === ''} onClick={() => { void saveDraft() }}>
                 {draft.id === null ? '创建' : '保存'}
               </button>
-              <button type="button" style={buttonStyle} disabled={busy} onClick={() => { setDraft(null); setSelectedId(null); setDeleteArmed(false) }}>
+              <button data-hover="true" type="button" style={buttonStyle} disabled={busy} onClick={() => { setDraft(null); setSelectedId(null); setDeleteArmed(false) }}>
                 取消
               </button>
               {draft.id !== null && (
-                <button
+                <button data-hover="true"
                   type="button"
                   style={ghostDangerStyle}
                   disabled={busy}

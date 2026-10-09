@@ -110,7 +110,7 @@ const outlineStyle = {
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
   padding: '4px 6px',
-  boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+  boxShadow: 'var(--yt-shadow-menu)',
   maxWidth: 220,
 } as const
 
@@ -346,7 +346,7 @@ export function MarkdownView({
       {(split.hasFrontmatter || outline.length > 1 || (links?.incoming.length ?? 0) > 0) && (
         <div style={barStyle}>
           {split.hasFrontmatter && (
-            <button
+            <button data-hover="true"
               type="button"
               style={toggleStyle}
               aria-expanded={open}
@@ -361,7 +361,7 @@ export function MarkdownView({
             </span>
           )}
           {outline.length > 1 && (
-            <button
+            <button data-hover="true"
               type="button"
               style={{ ...toggleStyle, marginLeft: split.hasFrontmatter ? undefined : 'auto' }}
               aria-expanded={outlineOpen}
@@ -371,7 +371,7 @@ export function MarkdownView({
             </button>
           )}
           {(links?.incoming.length ?? 0) > 0 && (
-            <button
+            <button data-hover="true"
               type="button"
               style={{ ...toggleStyle, marginLeft: 'auto' }}
               aria-expanded={backlinksOpen}
@@ -398,7 +398,7 @@ export function MarkdownView({
         {backlinksOpen && (links?.incoming.length ?? 0) > 0 && (
           <div style={{ ...outlineStyle, left: 8, right: 'auto' }} data-backlinks="true">
             {links?.incoming.map(entry => (
-              <button
+              <button data-hover="true"
                 key={`${entry.from}-${entry.target}`}
                 type="button"
                 style={outlineItemStyle}
@@ -413,7 +413,7 @@ export function MarkdownView({
         {outlineOpen && outline.length > 1 && (
           <div style={outlineStyle} data-outline="true">
             {outline.map((entry, index) => (
-              <button
+              <button data-hover="true"
                 key={`${entry.text}-${index}`}
                 type="button"
                 style={{ ...outlineItemStyle, paddingLeft: (entry.level - 1) * 10 }}

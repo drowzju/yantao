@@ -213,8 +213,8 @@ function TodoRow(props: {
         </span>
       )}
       <span className={css.actions}>
-        <button type="button" className={css.action} title={props.t('todo.edit')} disabled={props.disabled} onClick={props.onEdit}>…</button>
-        <button type="button" className={css.action} title={props.t('todo.delete')} disabled={props.disabled} onClick={props.onRemove}>×</button>
+        <button data-hover="true" type="button" className={css.action} title={props.t('todo.edit')} disabled={props.disabled} onClick={props.onEdit}>…</button>
+        <button data-hover="true" type="button" className={css.action} title={props.t('todo.delete')} disabled={props.disabled} onClick={props.onRemove}>×</button>
       </span>
     </div>
   )
@@ -259,8 +259,8 @@ function TodoEditor(props: {
         onChange={(event) => { props.onDraft({ ...draft, body: event.target.value }) }}
       />
       <div style={{ display: 'flex', gap: 4 }}>
-        <button type="button" style={buttonStyle} onClick={props.onSave}>{t('todo.save')}</button>
-        <button type="button" style={buttonStyle} onClick={props.onCancel}>{t('common.cancel')}</button>
+        <button data-hover="true" type="button" style={buttonStyle} onClick={props.onSave}>{t('todo.save')}</button>
+        <button data-hover="true" type="button" style={buttonStyle} onClick={props.onCancel}>{t('common.cancel')}</button>
       </div>
     </div>
   )
@@ -406,7 +406,7 @@ export function TodoBoard({ t, load, write, refreshKey, onOpenFile }: TodoBoardP
             <span>{t('todo.todoColumn')}</span>
             {/* The add gesture lives in the block's title row (design.md §5):
                 a lone bordered button on its own line read as a leftover. */}
-            <button type="button" style={addStyle} title={t('todo.addTitle')} disabled={busy} onClick={add}>+</button>
+            <button data-hover="true" type="button" style={addStyle} title={t('todo.addTitle')} disabled={busy} onClick={add}>+</button>
           </div>
           <div data-todo-pane="todo">
             {todo.length === 0 && <div style={mutedStyle}>{t('common.empty')}</div>}
@@ -417,7 +417,7 @@ export function TodoBoard({ t, load, write, refreshKey, onOpenFile }: TodoBoardP
             {done.length === 0 && <div style={mutedStyle}>{t('common.empty')}</div>}
             {done.map(renderRow)}
           </div>
-          <button
+          <button data-hover="true"
             type="button"
             style={{ ...addStyle, marginTop: 6 }}
             onClick={() => { onOpenFile(board.path) }}
