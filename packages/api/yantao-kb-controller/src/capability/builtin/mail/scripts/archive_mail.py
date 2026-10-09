@@ -1,31 +1,41 @@
 # -*- coding: utf-8 -*-
 """
-邮件归档动词的核心（ADR-0037）：把高价值邮件存成自包含的 .eml 原件，并维护
-月度索引。与 read_outlook.py 同一脾气——挂在当前已登录的经典 Outlook profile
-上（pywin32/COM），单封失败不拖垮整批。
+邮件保存动词的核心（ADR-0037 建立「归档」，2026-10-09 三提名合一后即「保存」）：
+把高价值邮件整封存进知识库——.eml 原件与其全部附件一起落 `resources/mails/`，
+并只记一行月度索引。与 read_outlook.py 同一脾气——挂在当前已登录的经典
+Outlook profile 上（pywin32/COM），单封失败不拖垮整批。
 
-归档路径（ADR-0037 决定 1）：`MailItem.SaveAs` 导出 .msg（COM 不支持直接导出
-RFC822），再在本模块内重组为 MIME .eml；重组失败的个别邮件降级保存 .msg 原
-件，索引里备注「msg 兜底」。重组依赖 extract_msg（pip install extract-msg），
-缺库时整批降级为 .msg——归档永不因转换器缺席而失败。头字段优先取 .msg 内嵌
-的传输头（收信时的线上真相），缺项才退 COM 值；正文过一道 Latin-1→GBK 乱码
-反演（extract_msg 会把 GBK 正文流误解成 Latin-1，勘误 2026-10-03）。
-
-存储布局（决定 4）：原件落 `<kbRoot>/resources/mails/YYYY/MM/`，索引落
+保存路径（ADR-0037 决定 1）：原件落 `<kbRoot>/resources/mails/YYYY/MM/`，索引落
 `<kbRoot>/resources/mail-index/mailsYYYYMM.md`。索引由本脚本读-改-写维护，
 不给 kb_write_resource 开「可覆盖」口子；这是能力（人批准）通道行为，不是
 工具通道（决定 3）。
 
+.eml 重组：MailItem.SaveAs 导出 .msg（COM 不支持直接导出
+RFC822），再在本模块内重组为 MIME .eml；重组失败的个别邮件降级保存 .msg 原
+件，索引里备注「msg 兜底」。重组依赖 extract_msg（pip install extract-msg），
+缺库时整批降级为 .msg——保存永不因转换器缺席而失败。头字段优先取 .msg 内嵌
+的传输头（收信时的线上真相），缺项才退 COM 值；正文过一道 Latin-1→GBK 乱码
+反演（extract_msg 会把 GBK 正文流误解成 Latin-1，勘误 2026-10-03）。
+
+附件（2026-10-09 并入）：原件落盘后，把该封的全部附件逐个 SaveAsFile 到
+原件旁边的同前缀文件（`<原件名去扩展>_<附件名>`），附件名来自邮件本身、
+不可信——先取 basename 掐掉路径分量，再过一遍禁字符净化，杜绝路径穿越。
+同名的旧附件按已存过静默跳过（保守幂等）；单个附件落盘失败记入 warnings，
+不拖垮这封的其余部分。
+
+索引（决定 8）：一封邮件一行八列，「保存路径」列放 .eml 与本次新落附件的
+相对路径（多个用「；」相连）——一张账本管一封信的全部落盘物。
+
 幂等与撞名（决定 5/6）：文件名 = 收件本地时间_净化主题_发件人显示名；同名
 已存在时先验明正身——解析既有 .eml 的头字段与本封比对，同一封即整封跳过
-（第二次批准等于无害空操作），确属另一封才追加 mail_id 前 8 位短哈希；
-.msg 兜底件无法廉价验身，一律按「已归档」跳过（保守的幂等）。
+（第二次批准等于无害空操作，附件也不再摸），确属另一封才追加 mail_id 前 8
+位短哈希；.msg 兜底件无法廉价验身，一律按「已保存」跳过（保守的幂等）。
 
-一致性（决定 7）：逐封串行——.eml 落盘成功立刻追加索引行，再做下一封；
+一致性（决定 7）：逐封串行——.eml 与附件落盘成功立刻追加索引行，再做下一封；
 中途崩溃留下的每一对（文件＋索引行）都自洽。
 
-上限（决定 9）：.eml 序列化后超过 25MB 的邮件拒绝落盘，索引里记一行
-「过大未存」（只有元信息、没有文件）。
+上限（决定 9）：.eml 序列化后超过 25MB 的邮件拒绝落盘原件，附件照存，索引里
+记一行「过大未存」（备注列如实标注）。
 
 隐私边界（决定 8）：收件人完整列表（主送＋抄送）只在本动词里读取、只落进
 经人逐封批准的归档索引——这是对 ADR-0019 取数通道纪律的显式例外，不是疏忽。
@@ -72,6 +82,23 @@ def sanitized(text, cap):
     if len(cleaned) > cap:
         cleaned = cleaned[:cap].strip(". ")
     return cleaned or "无主题"
+
+
+# 附件名在文件名里的最大字符数（比主题短：一行的前缀已经占了地方）。
+ATTACHMENT_NAME_CAP = 80
+
+
+def attachment_filename_of(att):
+    """
+    附件的落地文件名：只取 basename（附件名理论上是纯文件名，但它是邮件
+    自带的、不可信——掐掉路径分量再净化，杜绝路径穿越），保住扩展名。
+    """
+    raw = str(getattr(att, "FileName", "") or "").replace("\\", "/")
+    base = raw.rsplit("/", 1)[-1].strip(". ")
+    cleaned = INVALID_CHARS.sub("_", base)
+    if len(cleaned) > ATTACHMENT_NAME_CAP:
+        cleaned = cleaned[:ATTACHMENT_NAME_CAP].strip(". ")
+    return cleaned or "附件"
 
 
 def flatten(text):
@@ -361,8 +388,31 @@ def same_mail(existing, mail):
             and (minute == "" or minute == mail["received"].strftime("%Y%m%d%H%M")))
 
 
+def save_attachments(item, month_dir, prefix, kb_root, subject, outcome, entry_id):
+    """
+    把一封邮件的全部附件落进 month_dir（与 .eml 原件同目录、同文件名前缀），
+    返回本次新落盘附件的相对路径列表（相对 `resources/`）。
+    同名已存在的附件按已存过静默跳过（保守幂等，重复批准等于无害空操作）；
+    单个附件落盘失败记入 warnings——原件已在手，附件缺一件是降级，不是这封
+    的失败，不该把整行拖进 failed 桶。
+    """
+    saved = []
+    for att in list(getattr(item, "Attachments", None) or []):
+        name = attachment_filename_of(att)
+        target = os.path.join(month_dir, f"{prefix}_{name}")
+        if os.path.exists(target):
+            continue
+        try:
+            att.SaveAsFile(os.path.abspath(target))
+        except Exception as error:
+            outcome["warnings"].append(f"{subject or '（无主题）'}：附件 {name} 落盘失败：{error}")
+            continue
+        saved.append(os.path.relpath(target, os.path.join(kb_root, RESOURCES)).replace(os.sep, "/"))
+    return saved
+
+
 def archive_one(ns, kb_root, entry_id, summary, outcome, warned):
-    """归档一封：读属性 → 导出 .msg → 重组 .eml → 落盘 → 追加索引行。"""
+    """保存一封：读属性 → 导出 .msg → 重组 .eml → 原件与附件落盘 → 追加一行索引。"""
     try:
         item = ns.GetItemFromID(entry_id)
     except Exception:
@@ -416,9 +466,13 @@ def archive_one(ns, kb_root, entry_id, summary, outcome, warned):
             month_stamp = local.strftime("%Y%m")
             index_path = index_path_for(kb_root, month_stamp)
             ensure_index(index_path, month_stamp)
+            month_dir = os.path.join(kb_root, RESOURCES, "mails", local.strftime("%Y"), local.strftime("%m"))
+            os.makedirs(month_dir, exist_ok=True)
+            # 原件超限拒落盘（决定 9），附件照存——附件往往才是真正要留的材料。
+            saved_atts = save_attachments(item, month_dir, local.strftime('%Y-%m-%d_%H%M'), kb_root, subject, outcome, entry_id)
             append_index_row(index_path, index_row([
                 subject, mail["sender"][0], recipients_cell(to_pairs + cc_pairs),
-                local.strftime("%Y-%m-%d %H:%M"), "—", summary,
+                local.strftime("%Y-%m-%d %H:%M"), "；".join(saved_atts) if saved_atts else "—", summary,
                 conversation_topic, "过大未存",
             ]))
             outcome["oversized"].append({"id": identity, "entryId": entry_id, "title": subject or "（无主题）"})
@@ -429,30 +483,36 @@ def archive_one(ns, kb_root, entry_id, summary, outcome, warned):
         os.makedirs(month_dir, exist_ok=True)
         target = os.path.join(month_dir, base + extension)
         if os.path.exists(target):
-            # 同名先验明正身（ADR-0037 决定 5/6）：同一封即幂等跳过，确属
-            # 另一封才追加短哈希。.msg 兜底件验不了身，按已归档保守处理。
+            # 同名先验明正身（ADR-0037 决定 5/6）：同一封即幂等跳过（附件也
+            # 不再摸，整封早已在手），确属另一封才追加短哈希。.msg 兜底件验
+            # 不了身，按已保存保守处理。
             is_same = fmt == "msg" or same_mail(existing_identity(target), mail)
             if is_same:
-                outcome["skipped"].append({"id": entry_id, "reason": "已归档过（同名同信），跳过"})
+                outcome["skipped"].append({"id": entry_id, "reason": "已保存过（同名同信），跳过"})
                 return
             target = os.path.join(month_dir, f"{base}-{identity[:8]}{extension}")
             if os.path.exists(target):
-                outcome["skipped"].append({"id": entry_id, "reason": "已归档过（短哈希同名），跳过"})
+                outcome["skipped"].append({"id": entry_id, "reason": "已保存过（短哈希同名），跳过"})
                 return
         with open(target, "wb") as handle:
             handle.write(eml_bytes)
 
-        # 落盘成功立刻追加索引行（决定 7）：这对（文件＋行）从此自洽。
+        # 原件落盘成功，接着附件，然后立刻追加索引行（决定 7）：这对
+        # （全部文件＋一行）从此自洽。
         relative = os.path.relpath(target, os.path.join(kb_root, RESOURCES)).replace(os.sep, "/")
+        saved_atts = save_attachments(item, month_dir, base, kb_root, subject, outcome, entry_id)
         month_stamp = local.strftime("%Y%m")
         index_path = index_path_for(kb_root, month_stamp)
         ensure_index(index_path, month_stamp)
         append_index_row(index_path, index_row([
             subject, mail["sender"][0], recipients_cell(to_pairs + cc_pairs),
-            local.strftime("%Y-%m-%d %H:%M"), relative, summary,
+            local.strftime("%Y-%m-%d %H:%M"), "；".join([relative] + saved_atts), summary,
             conversation_topic, remark,
         ]))
-        outcome["saved"].append({"id": identity, "entryId": entry_id, "path": relative, "format": fmt, "remark": remark})
+        outcome["saved"].append({
+            "id": identity, "entryId": entry_id, "path": relative, "format": fmt, "remark": remark,
+            "attachments": saved_atts,
+        })
     finally:
         try:
             import shutil
@@ -463,11 +523,12 @@ def archive_one(ns, kb_root, entry_id, summary, outcome, warned):
 
 def archive_messages(kb_root, mails):
     """
-    归档一批：逐封串行，单封失败不拖垮整批（ADR-0037 决定 7）。
+    保存一批：逐封串行，单封失败不拖垮整批（ADR-0037 决定 7）。
     `mails` 每项 {entryId, summary}——entryId 定位 Outlook 里的原件，
-    summary 是分析阶段的摘要，落索引「摘要」列。返回分桶结果：
-    saved/oversized/skipped 各带明细，missing 是 EntryID 列表，failed 是
-    {id, message}，warnings 是给人看的整批提示。
+    summary 是分析阶段的摘要，落索引「摘要」列。每封落 .eml 原件＋全部附件，
+    只记一行索引。返回分桶结果：saved/oversized/skipped 各带明细（saved 的
+    `attachments` 是本次新落的附件相对路径），missing 是 EntryID 列表，
+    failed 是 {id, message}，warnings 是给人看的整批提示。
     """
     if not kb_root:
         raise OutlookError("other", "知识库根目录未设置：请先在工作台里选定 KB 根目录。")

@@ -23,7 +23,7 @@ import type {
   ScheduleLister, ScheduleMarker,
   ScheduleSaver, ProposalInboxLister, ProposalInboxResolver, ShortcutFiller,
   RootLoader, RootSetter,
-  Archiver, AttachmentDownloader, SkillRewriteApplier,
+  Archiver, SkillRewriteApplier,
   SessionPrompter, TodoLoader, TodoWriter,
 } from '../remote.ts'
 import type { AnalysisStage, MailAnalyser } from '../mail-analysis.ts'
@@ -119,17 +119,11 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
    */
   readonly mailDelete?: MailDeleter
   /**
-   * Arm the mail archive (ADR-0037 决定 2); optional for the same reason as
-   * `mailDelete` — embedders without the face still render the card, whose
-   * archive-mails rows then skip honestly.
+   * Arm the mail save (ADR-0037 决定 2, 2026-10-09 三提名合一); optional for
+   * the same reason as `mailDelete` — embedders without the face still render
+   * the card, whose archive-mails rows then skip honestly.
    */
   readonly mailArchive?: Archiver
-  /**
-   * Download nominated mails' attachments to `resources/mail-attachments/`
-   * (2026-10-08); optional for the same reason as `mailDelete` and
-   * `mailArchive` — embedders without the face simply don't offer the button.
-   */
-  readonly mailDownloadAttachments?: AttachmentDownloader
   /**
    * Write one approved skill rewrite back (ADR-0054); optional for the same
    * reason as the mail verbs — embedders without the face render the card,
@@ -489,7 +483,7 @@ export function Frame({
   registerResource, deleteResource, capabilityList, capabilityCreate, capabilityAdopt,
   capabilityRegister, capabilityRouteUpdate, capabilityUnregister,
   promptSession, memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
-  sessionDetail, onKbRootChanged, mailDelete, mailArchive, mailDownloadAttachments, skillRewriteApply,
+  sessionDetail, onKbRootChanged, mailDelete, mailArchive, skillRewriteApply,
   promptShortcutList, promptShortcutSave, fillShortcut,
   scheduleList, scheduleSave, scheduleMark, runSchedule,
   proposalInboxList, proposalInboxResolve, relationGraph,
@@ -664,12 +658,11 @@ export function Frame({
           createEntity, read, write, todos, writeTodos, memoryAdd, archiveEntity, memoryDelete, deleteResource,
           ...(mailDelete !== undefined ? { deleteMails: mailDelete } : {}),
           ...(mailArchive !== undefined ? { archiveMails: mailArchive } : {}),
-          ...(mailDownloadAttachments !== undefined ? { downloadAttachments: mailDownloadAttachments } : {}),
           ...(skillRewriteApply !== undefined ? { skillRewrite: skillRewriteApply } : {}),
         },
       }),
     [createEntity, read, write, todos, writeTodos, memoryAdd, archiveEntity, memoryDelete, deleteResource,
-      mailDelete, mailArchive, mailDownloadAttachments, skillRewriteApply],
+      mailDelete, mailArchive, skillRewriteApply],
   )
 
   // The one confirm path every proposal card shares (capability runs'
@@ -704,6 +697,11 @@ export function Frame({
   const taskEnd = useCallback((id: string, status: TaskStatus, stage: string): void => {
     taskPatch(id, { status, stage, endedAt: Date.now() })
   }, [taskPatch])
+  /** Erase one row outright — for runs that turn out to be no-ops (a mail
+      read that came back empty leaves nothing worth a line in the ledger). */
+  const taskDrop = useCallback((id: string): void => {
+    setTaskRows(rows => rows.filter(row => row.id !== id))
+  }, [])
 
   // ADR-0021 决定 7 + ADR-0052 决定 3: a row menu's capability click is
   // always the gesture now — the client sends the plain user message
@@ -1423,7 +1421,10 @@ export function Frame({
     mailFetchAbort.current = aborter
     try {
       const result = await mailFetch(args, aborter.signal)
-      taskEnd(taskId, 'done', `已读 ${result.messages.length} 封`)
+      // An empty read is a no-op (the watermark already covers the range) —
+      // it leaves no row behind instead of a done-line that says nothing.
+      if (result.messages.length === 0) taskDrop(taskId)
+      else taskEnd(taskId, 'done', `已读 ${result.messages.length} 封`)
       return result
     } catch (failure: unknown) {
       if (aborter.signal.aborted) taskEnd(taskId, 'cancelled', '已取消')
@@ -1433,7 +1434,7 @@ export function Frame({
       mailFetchTaskId.current = null
       mailFetchAbort.current = null
     }
-  }, [mailFetch, taskBegin, taskEnd])
+  }, [mailFetch, taskBegin, taskEnd, taskDrop])
 
   // ADR-0033: the 任务 row's 「详情」 — a read-only drawer over the run's
   // session log. The row anchors to a session only when its run made one
@@ -1753,7 +1754,6 @@ export function Frame({
           mailMarkRead={mailMarkRead}
           {...(mailDelete !== undefined ? { mailDelete } : {})}
           {...(mailArchive !== undefined ? { mailArchive } : {})}
-          {...(mailDownloadAttachments !== undefined ? { mailDownloadAttachments } : {})}
           analyseMail={analyseMail}
           registerResource={registerResource}
           deleteResource={removeResource}
@@ -1941,7 +1941,6 @@ export function Frame({
           mailMarkRead={mailMarkRead}
           {...(mailDelete !== undefined ? { mailDelete } : {})}
           {...(mailArchive !== undefined ? { mailArchive } : {})}
-          {...(mailDownloadAttachments !== undefined ? { mailDownloadAttachments } : {})}
           analyseMail={analyseMail}
           registerResource={registerResource}
           capabilityList={capabilityList}

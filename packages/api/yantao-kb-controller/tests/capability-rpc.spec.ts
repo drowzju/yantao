@@ -469,6 +469,47 @@ describe('capabilityList 未注册 group (ADR-0025, ADR-0052 决定 1)', () => {
     expect(unregistered).toEqual([])
   })
 
+  it('skips skills under the owner home skill roots — deliberate installs, not adoption finds', async () => {
+    // The suite mocks homedir() to read `state.home` at call time; pointing it
+    // somewhere other than the KB root lets fixtures sit under a fake
+    // `~/.dsh/skills` / `~/.agents/skills` without touching the real home.
+    const ownerHome = join(home, 'owner-home')
+    state.home = ownerHome
+    const dshRoot = join(ownerHome, '.dsh', 'skills')
+    const agentsRoot = join(ownerHome, '.agents', 'skills')
+    const impeccable = outside({
+      name: 'impeccable',
+      resourceBase: { kind: 'directory', path: join(dshRoot, 'impeccable') },
+      path: join(dshRoot, 'impeccable', 'SKILL.md'),
+    })
+    const agentsFixture = outside({
+      name: 'agents-fixture',
+      resourceBase: { kind: 'directory', path: join(agentsRoot, 'agents-fixture') },
+      path: join(agentsRoot, 'agents-fixture', 'SKILL.md'),
+    })
+    // A flat single-file skill's resourceBase is the shared root itself —
+    // the equality branch of the filter is what catches it.
+    const flat = outside({
+      name: 'flat-home',
+      resourceBase: { kind: 'directory', path: dshRoot },
+      path: join(dshRoot, 'flat-home.md'),
+    })
+    const control = outside({ name: 'adopt-me' })
+    skillList.mockResolvedValue([
+      // The list summary carries resourceBase — the path filter reads it off
+      // the summary, not the definition.
+      { name: 'impeccable', description: 'i', source: 'user-dsh', resourceBase: { kind: 'directory', path: join(dshRoot, 'impeccable') }, invocation: { modelInvocable: true, userInvocable: true } },
+      { name: 'agents-fixture', description: 'a', source: 'user-agents', resourceBase: { kind: 'directory', path: join(agentsRoot, 'agents-fixture') }, invocation: { modelInvocable: true, userInvocable: true } },
+      { name: 'flat-home', description: 'f', source: 'user-dsh', resourceBase: { kind: 'directory', path: dshRoot }, invocation: { modelInvocable: true, userInvocable: true } },
+      { name: 'adopt-me', description: 'c', source: 'user', resourceBase: { kind: 'directory', path: join(home, 'user-skills', 'adopt-me') }, invocation: { modelInvocable: true, userInvocable: true } },
+    ])
+    skillGet.mockImplementation(async (name: string) =>
+      name === 'impeccable' ? impeccable : name === 'agents-fixture' ? agentsFixture : name === 'flat-home' ? flat : control)
+    const { unregistered } = await ctx.yantaoKbController.capabilityList()
+    expect(unregistered.map(skill => skill.name)).toEqual(['adopt-me'])
+    state.home = home
+  })
+
   it('surfaces an in-KB skill without a route as a greyed inKb row', async () => {
     const directory = join(home, '.dsh', 'skills', 'notes-helper')
     skillList.mockResolvedValue([

@@ -110,7 +110,7 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     workspace: loader(workspace),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
-    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [], attachments: [] } }),
+    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], memories: [], newProjects: [], meetings: [], deletions: [], saves: [] } }),
     registerResource: () => Promise.resolve('resources/新资源.pdf'),
     deleteResource: () => Promise.resolve({ path: '' }),
     memoryList: () => Promise.resolve({ groups: [] }),
@@ -989,11 +989,12 @@ function capabilityProps(overrides: Partial<Parameters<typeof CapabilityPanel>[0
 }
 
 /**
- * Unfold the capability inventory (ADR-0040: the 能力 tab's first screen is
- * the 惯用提示词 list; the inventory sits behind this toggle by default).
+ * Wait for the capability inventory (2026-10-09: the fold toggle went away —
+ * the list always shows beneath the 惯用提示词 first screen, so this only
+ * awaits its heading).
  */
 async function unfoldInventory(): Promise<void> {
-  fireEvent.click(await screen.findByRole('button', { name: /能力清单/ }))
+  await screen.findByText('能力清单')
 }
 
 describe('CapabilityPanel', () => {
@@ -1095,7 +1096,7 @@ describe('CapabilityPanel', () => {
     ]
     render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }) })} />)
     await unfoldInventory()
-    expect(await screen.findByText('未注册技能（ADR-0025）')).toBeTruthy()
+    expect(await screen.findByText('未注册技能')).toBeTruthy()
     expect(screen.getByText('notes-helper')).toBeTruthy()
     expect(screen.getByText('扁平单文件技能不支持采纳')).toBeTruthy()
     expect(screen.getByText('SKILL.md 已标记 user-invocable: false')).toBeTruthy()
@@ -1178,7 +1179,7 @@ describe('CapabilityPanel', () => {
     const rows = [flatUnregistered('quick', { inKb: true, reason: '能力「quick」没有能力声明。' })]
     render(<CapabilityPanel {...capabilityProps({ load: () => Promise.resolve({ capabilities: [], unregistered: rows }) })} />)
     await unfoldInventory()
-    await screen.findByText('未注册技能（ADR-0025）')
+    await screen.findByText('未注册技能')
     expect(screen.getByText('扁平单文件技能没有自己的目录，无法注册为能力')).toBeTruthy()
     fireEvent.click(screen.getByText('quick'))
     expect(screen.queryByText(/注册「quick」为能力/)).toBeNull()
@@ -1284,7 +1285,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     relationGraph: () => Promise.resolve({ nodes: [], edges: [] }),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
     mailMarkRead: () => Promise.resolve({ lastReadAt: '' }),
-    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [], attachments: [] } }),
+    analyseMail: () => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], memories: [], newProjects: [], meetings: [], deletions: [], saves: [] } }),
     refine: () => Promise.resolve({ sessionId: '', title: '', relevant: true, reason: '' }),
     deleteResource: () => Promise.resolve({ path: '' }),
     memoryProposalList: () => Promise.resolve({ groups: [] }),
@@ -1549,7 +1550,7 @@ describe('Frame', () => {
         writeTodos={kb.writeTodos}
         mailFetch={() => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] })}
         mailMarkRead={() => Promise.resolve({ lastReadAt: '' })}
-        analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], resources: [], memories: [], newProjects: [], meetings: [], deletions: [], archives: [], attachments: [] } })}
+        analyseMail={() => Promise.resolve({ sessionId: '', title: '', analysis: { verdicts: [], people: [], todos: [], projects: [], memories: [], newProjects: [], meetings: [], deletions: [], saves: [] } })}
         refine={() => Promise.resolve({ sessionId: '', title: '', relevant: true, reason: '' })}
         validate={() => Promise.resolve({
           sessionId: '', title: '', reason: '',
@@ -1769,6 +1770,30 @@ describe('Frame', () => {
     expect((mailFetch.mock.calls[0]?.[1] as AbortSignal).aborted).toBe(true)
   })
 
+  it('drops the mail fetch row when the read comes back empty (2026-10-09: no no-op ledger lines)', async () => {
+    render(renderFrame({
+      capabilityList: () => Promise.resolve({
+        capabilities: [{
+          name: 'mail', description: '读 Outlook 邮件', source: 'project',
+          entry: 'scripts/entry.py', runtime: 'python', invocation: ['human', 'agent'],
+        }],
+        unregistered: [],
+      }),
+      mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
+    }))
+    fireEvent.click(screen.getByText('能力'))
+    await unfoldInventory()
+    fireEvent.click(await screen.findByText('mail'))
+    fireEvent.click(await screen.findByText('往后 →'))
+    // The read answered 0 封 — a no-op. The 任务 tab keeps no row for it.
+    fireEvent.click(screen.getByText('任务'))
+    await waitFor(() => {
+      const rows = Array.from(document.querySelectorAll('[data-task-row]'))
+        .filter(row => row.textContent?.includes('读取邮件'))
+      expect(rows).toHaveLength(0)
+    })
+  })
+
   it('carries the mail analysis row from 待确认 through the write to 已写入 (ADR-0031 落地注记二)', async () => {
     render(renderFrame({
       capabilityList: () => Promise.resolve({
@@ -1794,13 +1819,11 @@ describe('Frame', () => {
           people: [{ name: '张三', relation: 'peer', reason: '一起做汇报' }],
           todos: [{ title: '发汇报', due: '2026-09-12', body: '' }],
           projects: [{ name: '飞书迁移', note: '对方确认了时间' }],
-          resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
           memories: [],
           newProjects: [],
           meetings: [],
           deletions: [],
-          archives: [],
-          attachments: [],
+          saves: [],
         },
       }),
     }))
@@ -1827,9 +1850,9 @@ describe('Frame', () => {
     // …and confirming the writes must carry the SAME row on to 已写入 —
     // not strand it at 待确认 (the regression this test pins).
     fireEvent.click(screen.getByText('全部接受'))
-    fireEvent.click(screen.getByText('确认写入（4）'))
+    fireEvent.click(screen.getByText('确认写入（3）'))
     await waitFor(() => { expect(line.getAttribute('data-task-status')).toBe('done') })
-    expect(line.textContent).toContain('已写入 4 项')
+    expect(line.textContent).toContain('已写入 3 项')
   })
 
   it('runs the 提炼 gesture into a proposal card and applies the confirmed writes (ADR-0029)', async () => {

@@ -5,9 +5,10 @@
 `{ok: false, kind, message, hint}` 出。按 `input.verb` 分派：缺省是取数
 （本体在 `read_outlook.py` 的 `fetch_messages`，可独立命令行运行），`delete`
 是把勾选邮件移入已删除文件夹的删除刀（ADR-0034 决定 5，仅人通道），`archive`
-是把勾选邮件存成 .eml 原件并维护月度索引的归档动词（ADR-0037，仅人通道，
-本体在 `archive_mail.py`）。本脚本只做翻译与分发：把 input/state 翻译成取数
-窗口、删除清单或归档清单、调用核心、把结果与失败分类翻成能力协议。
+是把勾选邮件整封保存（.eml 原件＋附件＋一行月度索引）的保存动词（ADR-0037
+建立，2026-10-09 三提名合一，仅人通道，本体在 `archive_mail.py`）。本脚本只做
+翻译与分发：把 input/state 翻译成取数窗口、删除清单或保存清单、调用核心、
+把结果与失败分类翻成能力协议。
 
 断点（state.lastReadAt）由工作台持久化，本脚本只读：推进水印发生在人批准
 写库之后，是另一个动作，不是取数的一部分。
@@ -18,7 +19,6 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 import archive_mail
-import download_attachments
 import read_outlook
 from read_outlook import OutlookError, delete_messages, fetch_messages
 
@@ -143,9 +143,11 @@ def run_delete(caller_input, channel):
 
 def run_archive(caller_input, channel, kb_root):
     """
-    归档动词（ADR-0037）：把勾选的高价值邮件存成自包含 .eml 原件并维护月度
-    索引。与删除刀同一闸——只对人通道开放：提案卡上人勾选批准后才执行，
-    agent 通道（kb_run_capability）在此被拒；input 是调用方自报的，不作数。
+    保存动词（ADR-0037；2026-10-09 三提名合一后承接原「归档＋附件下载」）：
+    把勾选的高价值邮件整封存进知识库——.eml 原件与其全部附件一起落
+    `resources/mails/`，只记一行月度索引。与删除刀同一闸——只对人通道开放：
+    提案卡上人勾选批准后才执行，agent 通道（kb_run_capability）在此被拒；
+    input 是调用方自报的，不作数。
     """
     if channel != "human":
         emit({
@@ -171,48 +173,6 @@ def run_archive(caller_input, channel, kb_root):
         return
     try:
         outcome = archive_mail.archive_messages(str(kb_root or ""), mails)
-    except OutlookError as error:
-        emit({
-            "ok": False,
-            "kind": error.kind,
-            "message": error.message,
-            "hint": HINTS.get(error.kind, HINTS["other"]),
-        })
-        return
-    emit({"ok": True, "result": outcome})
-
-
-def run_download_attachments(caller_input, channel, kb_root):
-    """
-    下载附件动词（2026-10-08）：把邮件的附件存进知识库资源区
-    （本体在 `download_attachments.py`）。与删除刀、归档同一闸——只对人
-    通道开放：这是人在邮件面板上点一下的便利动作，agent 通道
-    （kb_run_capability）在此被拒；input 是调用方自报的，不作数。
-    """
-    if channel != "human":
-        emit({
-            "ok": False,
-            "kind": "not-invocable",
-            "message": "下载附件只对人通道开放：请在工作台的邮件面板上操作。",
-            "hint": "这是有意的设计：附件落盘是人点的便利动作，agent 没有自主下载权。",
-        })
-        return
-    raw_mails = caller_input.get("mails")
-    mails = []
-    if isinstance(raw_mails, list):
-        for entry in raw_mails:
-            if isinstance(entry, dict) and str(entry.get("entryId") or ""):
-                mails.append({"entryId": str(entry.get("entryId"))})
-    if not mails:
-        emit({
-            "ok": False,
-            "kind": "other",
-            "message": "下载附件动词需要非空的 mails（{entryId} 列表）。",
-            "hint": HINTS["other"],
-        })
-        return
-    try:
-        outcome = download_attachments.download_attachments(str(kb_root or ""), mails)
     except OutlookError as error:
         emit({
             "ok": False,
@@ -251,9 +211,6 @@ def main():
         return
     if verb == "archive":
         run_archive(caller_input, channel, request.get("kbRoot"))
-        return
-    if verb == "download-attachments":
-        run_download_attachments(caller_input, channel, request.get("kbRoot"))
         return
     run_fetch(caller_input, state)
 

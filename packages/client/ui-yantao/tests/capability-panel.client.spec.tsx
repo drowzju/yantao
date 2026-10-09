@@ -41,19 +41,18 @@ function props(listed: KbCapabilityListResult = LISTED): CapabilityPanelProps {
   }
 }
 
-/** Open the inventory fold, then the detail view of the named capability. */
+/** Open the detail view of the named capability — the inventory is always shown. */
 async function openDetail(name = 'mail'): Promise<void> {
-  fireEvent.click(await screen.findByText(/能力清单/))
   fireEvent.click(await screen.findByText(name))
 }
 
 describe('CapabilityPanel 清单 (ADR-0052 决定 8)', () => {
-  it('folds the inventory under the shortcuts, lists rows, and opens a detail on click', async () => {
+  it('lists the inventory under the shortcuts and opens a detail on click', async () => {
     const panel = props()
     render(<CapabilityPanel {...panel} />)
     expect(await screen.findByText(/惯用提示词/)).toBeTruthy()
-    // The inventory starts folded.
-    expect(screen.queryByText('mail')).toBeNull()
+    // The inventory is unfolded from the start.
+    expect(await screen.findByText('mail')).toBeTruthy()
     await openDetail()
     expect(panel.load).toHaveBeenCalledTimes(1)
     // The detail view replaced the list.
@@ -74,8 +73,7 @@ describe('CapabilityPanel 清单 (ADR-0052 决定 8)', () => {
     const demo: KbUnregisteredSkill = { name: 'demo', description: '外面', source: 'user', userInvocable: true, flat: false }
     const panel = props({ capabilities: [], unregistered: [notesHelper, demo] })
     const { container } = render(<CapabilityPanel {...panel} />)
-    fireEvent.click(await screen.findByText(/能力清单/))
-    expect(await screen.findByText('未注册技能（ADR-0025）')).toBeTruthy()
+    expect(await screen.findByText('未注册技能')).toBeTruthy()
     // The in-KB row carries its reason.
     expect(screen.getByText('尚未注册：中央路由 .dsh/skills/yantao.json 里没有这个名字')).toBeTruthy()
     // The out-of-KB row opens the adoption confirm; adopting calls the RPC.
@@ -99,7 +97,6 @@ describe('CapabilityPanel 清单 (ADR-0052 决定 8)', () => {
     }
     const panel = props({ capabilities: [], unregistered: [notesHelper] })
     const { container } = render(<CapabilityPanel {...panel} />)
-    fireEvent.click(await screen.findByText(/能力清单/))
     fireEvent.click(await screen.findByText('notes-helper'))
     // The guided registration previews the route entry it will write.
     expect(await screen.findByText(/注册「notes-helper」为能力/)).toBeTruthy()
@@ -129,7 +126,6 @@ describe('CapabilityPanel 清单 (ADR-0052 决定 8)', () => {
     }
     const panel = props({ capabilities: [], unregistered: [repo] })
     const { container } = render(<CapabilityPanel {...panel} />)
-    fireEvent.click(await screen.findByText(/能力清单/))
     fireEvent.click(await screen.findByText('repo'))
     expect(await screen.findByText(/这是插件仓库/)).toBeTruthy()
     expect(container.querySelector('[data-capability-register]')?.textContent).toContain('{"path":"repo/skills/child-a","invocation":["human"]}')
@@ -144,7 +140,6 @@ describe('CapabilityPanel 清单 (ADR-0052 决定 8)', () => {
     }
     const panel = props({ capabilities: [], unregistered: [flat] })
     render(<CapabilityPanel {...panel} />)
-    fireEvent.click(await screen.findByText(/能力清单/))
     fireEvent.click(await screen.findByText('flat-one'))
     // Nothing happened: no confirm, no register dialog, still on the list.
     expect(screen.queryByText(/注册「flat-one」为能力/)).toBeNull()
@@ -154,7 +149,6 @@ describe('CapabilityPanel 清单 (ADR-0052 决定 8)', () => {
   it('scaffolds a new capability through the inline 新建 row', async () => {
     const panel = props()
     render(<CapabilityPanel {...panel} />)
-    fireEvent.click(await screen.findByText(/能力清单/))
     fireEvent.click(screen.getByText('+ 新建能力'))
     const input = await screen.findByPlaceholderText('能力名称（如 paper-digest）')
     fireEvent.change(input, { target: { value: 'paper-digest' } })

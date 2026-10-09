@@ -17,7 +17,7 @@ import type {
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceDeleter, ResourceRegistrar, ShortcutFiller,
-  TodoLoader, TodoWriter, Archiver, AttachmentDownloader,
+  TodoLoader, TodoWriter, Archiver,
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
 import { useFloatingMenu } from './menu-behavior.ts'
@@ -135,16 +135,23 @@ function relationsFor(t: WorkbenchT, relation: string | undefined): readonly Rel
 
 const FONT = 'var(--yt-font-ui)'
 
-/** The expanded rail: it fills the column the frame hands it. */
+/** The expanded rail: it fills the column the frame hands it. A flex column —
+    the tab strip stays pinned while only the content beneath it scrolls
+    (2026-10-09: the whole rail used to scroll, sweeping the tabs away). */
 const railStyle = {
   width: '100%',
   height: '100%',
   padding: 12,
   boxSizing: 'border-box',
-  overflowY: 'auto',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
   fontFamily: FONT,
   fontSize: 13,
 } as const
+
+/** The rail's scrollable body: everything beneath the tab strip. */
+const railScrollStyle = { flex: 1, minHeight: 0, overflowY: 'auto' } as const
 
 /** The collapsed rail: a centered icon column. */
 const compactStyle = {
@@ -977,12 +984,6 @@ export interface RailProps {
    * without the face.
    */
   readonly mailArchive?: Archiver
-  /**
-   * Download nominated mails' attachments to `resources/mail-attachments/`
-   * (2026-10-08) — optional, same honest-skip contract as mailDelete for
-   * embedders without the face.
-   */
-  readonly mailDownloadAttachments?: AttachmentDownloader
   /** Run one mail analysis in a dsh session (ADR-0019). */
   readonly analyseMail: MailAnalyser
   /** Copy one dropped file into `resources/` — both rails' entity rows accept OS drops (ADR-0029 决定 2). */
@@ -1136,7 +1137,6 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   } = props
   const mailDelete = props.mailDelete
   const mailArchive = props.mailArchive
-  const mailDownloadAttachments = props.mailDownloadAttachments
   const { sections, error, refresh } = useRail(load, refreshKey)
   const capabilities = useCapabilities(capabilityList, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId | 'connector' | 'memory'>('resources')
@@ -1205,7 +1205,6 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     createEntity, read, write, todos: loadTodos, writeTodos, memoryAdd,
     ...(mailDelete !== undefined ? { deleteMails: mailDelete } : {}),
     ...(mailArchive !== undefined ? { archiveMails: mailArchive } : {}),
-    ...(mailDownloadAttachments !== undefined ? { downloadAttachments: mailDownloadAttachments } : {}),
   }
 
   // ADR-0020: dropping files onto the rail registers them — a pure copy into
@@ -1278,102 +1277,104 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
         ))}
       </div>
       {actionError !== null && <div style={errorStyle} role="alert">{actionError}</div>}
-      {tab === 'todos' && (
-        <TodoBoard
-          t={t}
-          load={loadTodos}
-          write={writeTodos}
-          refreshKey={refreshKey}
-          onOpenFile={(path) => { onOpenFile(path, 'edit') }}
-        />
-      )}
-      {tab === 'connector' && (
-        <CapabilityPanel
-          t={t}
-          load={capabilityList}
-          create={capabilityCreate}
-          adopt={capabilityAdopt}
-          register={capabilityRegister}
-          updateRoute={capabilityRouteUpdate}
-          unregister={capabilityUnregister}
-          reveal={props.revealConnector}
-          loadShortcuts={promptShortcutList}
-          saveShortcuts={promptShortcutSave}
-          fillShortcut={fillShortcut}
-          mail={state => (
-            <MailPanel
-              t={t}
-              fetch={mailFetch}
-              mark={mailMarkRead}
-              analyse={analyseMail}
-              target={mailTarget}
-              entities={async () => entitiesOfTree(await workspace())}
-              processed={mailRangeOf(state)}
-              store={mailRun}
-              memoryAdd={memoryAdd}
-            />
-          )}
-        />
-      )}
-      {tab === 'memory' && (
-        <MemoryPanel
-          t={t}
-          list={memoryList}
-          add={memoryAdd}
-          remove={memoryDelete}
-          listProposals={memoryProposalList}
-          approveProposal={memoryProposalApprove}
-          discardProposal={memoryProposalDiscard}
-        />
-      )}
-      {tab === 'resources' && (
-        <ResourceTree
-          t={t}
-          section={sections?.find(entry => entry.id === 'resources')}
-          selection={selection}
-          // An original opens read-only; a `.md` note is ours to edit.
-          onSelect={(path) => { onOpenFile(path, path.endsWith('.md') ? 'edit' : 'read') }}
-          onMenu={rowMenu.open}
-          // ADR-0030: a directory row's right-click opens the directory menu.
-          onDirMenu={(dir, x, y) => { setDirMenu({ dir, x, y }) }}
-          // ADR-0029 决定 2: a resource row is a drag source — dropping it on
-          // an entity row starts the 归入 gesture.
-          drag={(file, event) => { event.dataTransfer.setData(RESOURCE_DRAG_TYPE, file.path) }}
-        />
-      )}
-      {rowMenu.menu !== null && (
-        <RowMenu
-          key={rowMenu.menu.path}
-          t={t}
-          target={rowMenu.menu}
-          busy={rowMenu.busy || dropping}
-          capabilities={tab === 'resources'
-            ? matchCapabilities(capabilities, { kind: 'resource', path: rowMenu.menu.path })
-            : undefined}
-          onRunCapability={onRunCapability}
-          onDistill={tab === 'resources'
-            ? (path) => { onRefine({ mode: 'distill', resource: { path, name: path.split('/').pop() ?? path } }) }
-            : undefined}
-          kbRoot={kbRoot}
-          // ADR-0041 决定 2/8: a resource row is not an entity — no archive
-          // gesture. Its own gesture is the delete (ADR-0020): resources are
-          // dumb material, and the armed two-click item only shows on the
-          // 资源 tab.
-          onDelete={tab === 'resources' && rowMenu.remove !== undefined
-            ? (path) => { void rowMenu.remove?.(path) }
-            : undefined}
-          onClose={rowMenu.close}
-        />
-      )}
-      {dirMenu !== null && (
-        <DirMenu
-          t={t}
-          target={dirMenu}
-          busy={dropping}
-          onDistill={distillDir}
-          onClose={() => { setDirMenu(null) }}
-        />
-      )}
+      <div style={railScrollStyle}>
+        {tab === 'todos' && (
+          <TodoBoard
+            t={t}
+            load={loadTodos}
+            write={writeTodos}
+            refreshKey={refreshKey}
+            onOpenFile={(path) => { onOpenFile(path, 'edit') }}
+          />
+        )}
+        {tab === 'connector' && (
+          <CapabilityPanel
+            t={t}
+            load={capabilityList}
+            create={capabilityCreate}
+            adopt={capabilityAdopt}
+            register={capabilityRegister}
+            updateRoute={capabilityRouteUpdate}
+            unregister={capabilityUnregister}
+            reveal={props.revealConnector}
+            loadShortcuts={promptShortcutList}
+            saveShortcuts={promptShortcutSave}
+            fillShortcut={fillShortcut}
+            mail={state => (
+              <MailPanel
+                t={t}
+                fetch={mailFetch}
+                mark={mailMarkRead}
+                analyse={analyseMail}
+                target={mailTarget}
+                entities={async () => entitiesOfTree(await workspace())}
+                processed={mailRangeOf(state)}
+                store={mailRun}
+                memoryAdd={memoryAdd}
+              />
+            )}
+          />
+        )}
+        {tab === 'memory' && (
+          <MemoryPanel
+            t={t}
+            list={memoryList}
+            add={memoryAdd}
+            remove={memoryDelete}
+            listProposals={memoryProposalList}
+            approveProposal={memoryProposalApprove}
+            discardProposal={memoryProposalDiscard}
+          />
+        )}
+        {tab === 'resources' && (
+          <ResourceTree
+            t={t}
+            section={sections?.find(entry => entry.id === 'resources')}
+            selection={selection}
+            // An original opens read-only; a `.md` note is ours to edit.
+            onSelect={(path) => { onOpenFile(path, path.endsWith('.md') ? 'edit' : 'read') }}
+            onMenu={rowMenu.open}
+            // ADR-0030: a directory row's right-click opens the directory menu.
+            onDirMenu={(dir, x, y) => { setDirMenu({ dir, x, y }) }}
+            // ADR-0029 决定 2: a resource row is a drag source — dropping it on
+            // an entity row starts the 归入 gesture.
+            drag={(file, event) => { event.dataTransfer.setData(RESOURCE_DRAG_TYPE, file.path) }}
+          />
+        )}
+        {rowMenu.menu !== null && (
+          <RowMenu
+            key={rowMenu.menu.path}
+            t={t}
+            target={rowMenu.menu}
+            busy={rowMenu.busy || dropping}
+            capabilities={tab === 'resources'
+              ? matchCapabilities(capabilities, { kind: 'resource', path: rowMenu.menu.path })
+              : undefined}
+            onRunCapability={onRunCapability}
+            onDistill={tab === 'resources'
+              ? (path) => { onRefine({ mode: 'distill', resource: { path, name: path.split('/').pop() ?? path } }) }
+              : undefined}
+            kbRoot={kbRoot}
+            // ADR-0041 决定 2/8: a resource row is not an entity — no archive
+            // gesture. Its own gesture is the delete (ADR-0020): resources are
+            // dumb material, and the armed two-click item only shows on the
+            // 资源 tab.
+            onDelete={tab === 'resources' && rowMenu.remove !== undefined
+              ? (path) => { void rowMenu.remove?.(path) }
+              : undefined}
+            onClose={rowMenu.close}
+          />
+        )}
+        {dirMenu !== null && (
+          <DirMenu
+            t={t}
+            target={dirMenu}
+            busy={dropping}
+            onDistill={distillDir}
+            onClose={() => { setDirMenu(null) }}
+          />
+        )}
+      </div>
     </div>
   )
 }
@@ -1448,83 +1449,85 @@ export function WorkspaceRail(props: RailProps): ReactElement {
         ))}
       </div>
       {actionError !== null && <div style={errorStyle} role="alert">{actionError}</div>}
-      {/* ADR-0035, 2026-09-29 修订: the validate entry lives in the two tabs
+      <div style={railScrollStyle}>
+        {/* ADR-0035, 2026-09-29 修订: the validate entry lives in the two tabs
           it scopes — 人物 / 项目. It rides NewEntityRow's trailing slot, so
           新建 and 校验 hug each other instead of splitting to opposite ends
           of the row (design.md §5). */}
-      {(tab === 'people' || tab === 'projects') && onValidate !== undefined && (
-        <NewEntityRow
+        {(tab === 'people' || tab === 'projects') && onValidate !== undefined && (
+          <NewEntityRow
+            t={t}
+            label={t('workbench.newButton')}
+            placeholder={t('workbench.entityNamePlaceholder', { section: t(SECTION_KEYS[tab]) })}
+            choice={tab === 'people' ? {
+              options: relationOptions(t),
+              value: relation,
+              onChange: (value) => { setRelation(value as KbPersonRelation) },
+            } : undefined}
+            submit={name => create(name).catch((failure: unknown) => {
+              setActionError(failure instanceof Error ? failure.message : String(failure))
+            })}
+            trailing={(
+              <button
+                type="button"
+                style={{ padding: '2px 6px', marginTop: 4 }}
+                onClick={() => { onValidate(tab === 'people' ? 'person' : 'project') }}
+              >
+                {t('workbench.validateButton')}
+              </button>
+            )}
+          />
+        )}
+        {!(onValidate !== undefined && (tab === 'people' || tab === 'projects')) && (
+          <NewEntityRow
+            t={t}
+            label={t('workbench.newButton')}
+            placeholder={t('workbench.entityNamePlaceholder', { section: t(SECTION_KEYS[tab]) })}
+            choice={tab === 'people' ? {
+              options: relationOptions(t),
+              value: relation,
+              onChange: (value) => { setRelation(value as KbPersonRelation) },
+            } : undefined}
+            submit={name => create(name).catch((failure: unknown) => {
+              setActionError(failure instanceof Error ? failure.message : String(failure))
+            })}
+          />
+        )}
+        <Section
           t={t}
-          label={t('workbench.newButton')}
-          placeholder={t('workbench.entityNamePlaceholder', { section: t(SECTION_KEYS[tab]) })}
-          choice={tab === 'people' ? {
-            options: relationOptions(t),
-            value: relation,
-            onChange: (value) => { setRelation(value as KbPersonRelation) },
-          } : undefined}
-          submit={name => create(name).catch((failure: unknown) => {
-            setActionError(failure instanceof Error ? failure.message : String(failure))
-          })}
-          trailing={(
-            <button
-              type="button"
-              style={{ padding: '2px 6px', marginTop: 4 }}
-              onClick={() => { onValidate(tab === 'people' ? 'person' : 'project') }}
-            >
-              {t('workbench.validateButton')}
-            </button>
-          )}
+          id={tab}
+          section={sections?.find(entry => entry.id === tab)}
+          selection={selection}
+          onSelect={(path) => { onOpenFile(path, 'edit') }}
+          onMenu={rowMenu.open}
+          showHeading={false}
+          // ADR-0029 决定 2: every workspace entity row is a drop target — a
+          // resource (library drag or OS drop) starts the 归入 gesture.
+          drop={kind === undefined ? undefined : (file, event) => {
+            void dropOnEntity({ event, entity: file, entityType: kind, registerResource, onRefine, onError: setActionError })
+          }}
         />
-      )}
-      {!(onValidate !== undefined && (tab === 'people' || tab === 'projects')) && (
-        <NewEntityRow
-          t={t}
-          label={t('workbench.newButton')}
-          placeholder={t('workbench.entityNamePlaceholder', { section: t(SECTION_KEYS[tab]) })}
-          choice={tab === 'people' ? {
-            options: relationOptions(t),
-            value: relation,
-            onChange: (value) => { setRelation(value as KbPersonRelation) },
-          } : undefined}
-          submit={name => create(name).catch((failure: unknown) => {
-            setActionError(failure instanceof Error ? failure.message : String(failure))
-          })}
-        />
-      )}
-      <Section
-        t={t}
-        id={tab}
-        section={sections?.find(entry => entry.id === tab)}
-        selection={selection}
-        onSelect={(path) => { onOpenFile(path, 'edit') }}
-        onMenu={rowMenu.open}
-        showHeading={false}
-        // ADR-0029 决定 2: every workspace entity row is a drop target — a
-        // resource (library drag or OS drop) starts the 归入 gesture.
-        drop={kind === undefined ? undefined : (file, event) => {
-          void dropOnEntity({ event, entity: file, entityType: kind, registerResource, onRefine, onError: setActionError })
-        }}
-      />
-      {rowMenu.menu !== null && (
-        <RowMenu
-          key={rowMenu.menu.path}
-          t={t}
-          target={rowMenu.menu}
-          busy={rowMenu.busy}
-          relations={tab === 'people' ? relationsFor(t, rowMenu.menu.relation) : undefined}
-          onRelate={rowMenu.relate}
-          capabilities={kind === undefined
-            ? undefined
-            : matchCapabilities(capabilities, { kind: 'entity', path: rowMenu.menu.path, entityType: kind })}
-          onRunCapability={onRunCapability}
-          onRefine={kind === undefined
-            ? undefined
-            : (path, name) => { onRefine({ mode: 'refine', entityPath: path, entityName: name, entityType: kind }) }}
-          kbRoot={kbRoot}
-          onArchive={(path, archived) => { void rowMenu.archive(path, archived) }}
-          onClose={rowMenu.close}
-        />
-      )}
+        {rowMenu.menu !== null && (
+          <RowMenu
+            key={rowMenu.menu.path}
+            t={t}
+            target={rowMenu.menu}
+            busy={rowMenu.busy}
+            relations={tab === 'people' ? relationsFor(t, rowMenu.menu.relation) : undefined}
+            onRelate={rowMenu.relate}
+            capabilities={kind === undefined
+              ? undefined
+              : matchCapabilities(capabilities, { kind: 'entity', path: rowMenu.menu.path, entityType: kind })}
+            onRunCapability={onRunCapability}
+            onRefine={kind === undefined
+              ? undefined
+              : (path, name) => { onRefine({ mode: 'refine', entityPath: path, entityName: name, entityType: kind }) }}
+            kbRoot={kbRoot}
+            onArchive={(path, archived) => { void rowMenu.archive(path, archived) }}
+            onClose={rowMenu.close}
+          />
+        )}
+      </div>
     </div>
   )
 }

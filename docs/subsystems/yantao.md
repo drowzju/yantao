@@ -540,9 +540,8 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
  * channel's verdict on a `skill-rewrite` proposal row, landing as bytes.
  * The writeback re-resolves the route, refuses a stale diff, backs the
  * pre-write content up, and clamps SKILL.md's `metadata.yantao.version` to
- * the original's — the whole procedure lives in
- * {@link ./capability/rewrite.ts} and this RPC only guards the KB root and
- * dresses the failure.
+ * the original's — the whole procedure lives in `capability/rewrite.ts`,
+ * and this RPC only guards the KB root and dresses the failure.
  * @param args - the approved rewrite's envelope.
  * @returns what was written and where the backup sits.
  */
@@ -550,13 +549,13 @@ UI-direct KB operations over the `yantaoKb` Remote namespace.
 
 /**
  * The mail capability's dedicated RPC (ADR-0052 决定 5) — the one survivor
- * of the execution unification. The mail panel's verbs (取数/删除/归档/
- * 附件下载) run the builtin envelope script through the host-side
- * subprocess machinery (`capability/run.ts`), on the human channel only:
- * the privileged verbs check the envelope's `channel`, which the host
- * injects and the caller cannot forge (ADR-0034 决定 5). It occupies no
- * slot in the generic capability execution chain — the route entry only
- * records mail's reachability.
+ * of the execution unification. The mail panel's verbs
+ * (取数/删除/归档/附件下载) run the builtin envelope script through the
+ * host-side subprocess machinery (`capability/run.ts`), on the human
+ * channel only: the privileged verbs check the envelope's `channel`, which
+ * the host injects and the caller cannot forge (ADR-0034 决定 5). It
+ * occupies no slot in the generic capability execution chain — the route
+ * entry only records mail's reachability.
  *
  * The controller, not the script, owns every write: artifacts land under
  * `.dsh/yantao/capabilities/mail/` at paths the script cannot choose, and

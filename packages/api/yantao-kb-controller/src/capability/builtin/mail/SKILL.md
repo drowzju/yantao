@@ -4,7 +4,7 @@ description: 读取本地 Outlook 桌面客户端的邮件，按断点增量拉�
 disable-model-invocation: true
 metadata:
   yantao:
-    version: 11
+    version: 12
 ---
 
 # 邮件能力
@@ -19,8 +19,7 @@ yantao 工作台的邮件能力（ADR-0019 建立，ADR-0021 迁移为能力目�
 入口是 `scripts/entry.py`，由工作台以子进程调用：stdin 收一个 JSON 对象
 `{name, kbRoot, input, state, channel}`，stdout 回一个 JSON 对象。按
 `input.verb` 分派，缺省是取数；`channel` 由宿主按真实调用方注入（人的确认
-卡是 `human`，agent 通道是 `agent`），删除、归档、附件下载
-三个特权动词只认前者。
+卡是 `human`，agent 通道是 `agent`），删除、保存两个特权动词只认前者。
 
 ### 取数（缺省动词）
 
@@ -50,58 +49,41 @@ yantao 工作台的邮件能力（ADR-0019 建立，ADR-0021 迁移为能力目�
   EntryID 列表，`failed` 是 `{id, message}`；单封失败不影响其余。
 - 失败：与取数同词表（python-missing / outlook-unavailable / other）。
 
-### 归档（`verb: 'archive'`，仅人通道，ADR-0037）
+### 保存（`verb: 'archive'`，仅人通道；ADR-0037 建立「归档」，2026-10-09 三提名合一后即「保存」）
 
-- `input`：`{verb: 'archive', mails: [{entryId, summary}, …]}`——要归档的
+- `input`：`{verb: 'archive', mails: [{entryId, summary}, …]}`——要保存的
   邮件的 Outlook EntryID（定位原件）与分析摘要（落索引「摘要」列），来自
-  提案卡上人勾选的归档提案。本体在 `scripts/archive_mail.py`。
-- `channel` 必须是人通道，同删除刀（ADR-0037 决定 2：agent 无自主归档权）。
+  提案卡上人勾选的保存提案。本体在 `scripts/archive_mail.py`。
+- `channel` 必须是人通道，同删除刀（agent 只有提名权，没有执行权）。
 - 每封的处理：COM `SaveAs` 导出 .msg → 重组为自包含 .eml（正文、头字段、
   内嵌图片、附件全在一个文件里；头字段优先取 .msg 内嵌传输头、缺项退 COM
   值，正文过 Latin-1→GBK 乱码反演——extract_msg 会把 GBK 正文流误解成
   Latin-1；依赖 `pip install extract-msg`，缺库或重组
   失败时降级存 .msg，索引备注「msg 兜底」）→ 落
   `<kbRoot>/resources/mails/YYYY/MM/YYYY-MM-DD_HHMM_主题_发件人.eml` →
-  立刻往 `<kbRoot>/resources/mail-index/mailsYYYYMM.md` 追加一行八列索引
-  （标题｜发件人｜收件人｜时间｜保存路径｜摘要｜线程｜备注）。逐封串行，
-  单封失败不拖垮整批（决定 7）。
-- 幂等与撞名（决定 5/6）：同名同信（解析既有 .eml 头字段验身）整封跳过；
-  确属另一封才追加 mail_id 前 8 位短哈希；.msg 兜底件一律按已归档跳过。
-- 上限（决定 9）：.eml 序列化后超 25MB 拒绝落盘，索引记一行「过大未存」。
+  该封的全部附件逐个 `Attachment.SaveAsFile` 落原件旁边
+  （`<原件名去扩展>_<附件名>`；附件名只取 basename 防路径穿越并清洗非法
+  字符；同名旧附件静默跳过，单个附件失败记 warnings 不拖垮这封）→
+  立刻往 `<kbRoot>/resources/mail-index/mailsYYYYMM.md` 追加**一行**八列索引
+  （标题｜发件人｜收件人｜时间｜保存路径｜摘要｜线程｜备注）——「保存路径」
+  列放 .eml 与本次新落附件的相对路径（多个用「；」相连）。一封信一行账。
+  逐封串行，单封失败不拖垮整批（决定 7）。
+- 幂等与撞名（决定 5/6）：同名同信（解析既有 .eml 头字段验身）整封跳过，
+  附件也不再摸；确属另一封才追加 mail_id 前 8 位短哈希；.msg 兜底件一律按
+  已保存跳过。
+- 上限（决定 9）：.eml 序列化后超 25MB 拒绝落盘原件，附件照存，索引记一行
+  「过大未存」。
 - 收件人完整列表（主送＋抄送）只在此动词读取、只落入经人批准的索引——
   对 ADR-0019 取数通道纪律的显式例外（决定 8）。
 - 成功：`{ok: true, result: {saved, oversized, skipped, missing, failed,
-  warnings}}`——`saved` 每项 `{id, entryId, path, format, remark}`（path 相对
-  `resources/`），`oversized`/`skipped` 带明细，`missing` 是 EntryID 列表，
+  warnings}}`——`saved` 每项 `{id, entryId, path, format, remark, attachments}`
+  （path 相对 `resources/`；`attachments` 是本次新落附件的相对路径列表），
+  `oversized`/`skipped` 带明细，`missing` 是 EntryID 列表，
   `failed` 是 `{id, message}`，`warnings` 是整批提示。
 - 失败：与取数同词表，外加 KB 根未设置的 other。
 
 两类动词共用的失败：`{ok: false, kind, message, hint}`，kind ∈
 python-missing / outlook-unavailable / folder-missing / not-invocable / other。
-
-### 附件下载（`verb: 'download-attachments'`，仅人通道，2026-10-08 提案驱动修订）
-
-- `input`：`{verb: 'download-attachments', mails: [{entryId, summary?}, …]}`——
-  要抓附件的邮件的 Outlook EntryID 列表；`summary`（分析提名的理由）落索引
-  「摘要」列。本体在 `scripts/download_attachments.py`。
-- `channel` 必须是人通道，同删除刀与归档刀——这是邮件能力的第三把刀：
-  agent 只能在分析里提名（答复 JSON 的 `attachments` 块 → 提案卡的
-  「下载附件」组），人的勾选才是落盘的扳机，agent 通道在此被拒
-  （`not-invocable`）。
-- 每封的处理：COM `GetItemFromID` 定位 → 非 MailItem 跳过 → 逐个
-  `Attachment.SaveAsFile` 落与归档原件同目录的
-  `<kbRoot>/resources/mails/YYYY/MM/YYYY-MM-DD_HHMM_主题≤40字_附件名`。
-  附件名只取 basename（防路径穿越）并清洗非法字符；逐封串行，单封失败不拖垮整批。
-- 索引：有新附件落地的当月，往 `<kbRoot>/resources/mail-index/mailsYYYYMM.md`
-  追加一行八列（与归档同表，复用其索引函数）——「保存路径」列放本次新落的
-  附件路径（多个用「；」相连），「摘要」列放 `summary`，「备注」列记
-  「附件下载」。全是同名跳过的封不追行，不重复记账。
-- 幂等：目标路径同名已存在就保守跳过（不比对内容，宁多跳不覆盖）。
-- 成功：`{ok: true, result: {saved, skipped, missing, failed, warnings}}`——
-  `saved` 每项 `{id, entryId, path, filename}`（path 相对 `resources/`），
-  `skipped` 带 `{id, reason}`（无附件 / 同名已存在），`missing` 是 EntryID
-  列表，`failed` 是 `{id, message}`，`warnings` 是整批提示。
-- 失败：与其他动词同词表。
 
 ## 前提
 

@@ -1,16 +1,16 @@
 /**
- * The mail analysis (ADR-0019): one real dsh session reads a batch of mails
- * in small chunks and answers a JSON verdict per chunk, which the human then
- * confirms block by block.
+ * The mail analysis (ADR-0019): short-lived dsh sessions read a batch of
+ * mails in small chunks and answer a JSON verdict per chunk, which the human
+ * then confirms block by block.
  *
- * The session is created, named and driven from the browser through the
- * session Remote — the first time the workbench asks the agent to work without
- * a human typing. It is kept (and named 「邮件分析 YYYY-MM-DD」) precisely so a
- * judgement can be re-read later, which is the point: these are decisions
- * about what enters a knowledge base that outlives the mail. It reports the
- * stage it has reached *and*, once a chunk has been judged, each mail's
- * classification — because the only thing worse than a slow judgement is a
- * silent one.
+ * The chunks run in independent sessions (see {@link runMailAnalysis}), named
+ * and driven from the browser through the session Remote — the first time the
+ * workbench asks the agent to work without a human typing. They are kept
+ * (and named 「邮件分析 YYYY-MM-DD·k/n」) precisely so a judgement can be
+ * re-read later, which is the point: these are decisions about what enters a
+ * knowledge base that outlives the mail. It reports the stage it has reached
+ * *and*, once a chunk has been judged, each mail's classification — because
+ * the only thing worse than a slow judgement is a silent one.
  *
  * Nothing here writes to the KB. The analysis only proposes; {@link MailPanel}
  * is what applies, and only after the human has ticked the rows.
@@ -23,12 +23,20 @@ import { jsonRound } from './turn-answer.ts'
 
 /**
  * How many mails one analysis turn sees; the batch is walked in these chunks.
- * Five, not ten: the chunk prompts ride in one accumulating session, and a
- * 2026-09-30 run died at chunk 5 with CONTEXT_WINDOW_EXCEEDED — ten 12000-char
- * bodies alone can nearly fill GLM5.1's declared 131072 window before the
- * earlier chunks' answers are even counted.
+ * Five: one chunk's prompt carries up to 5 × 4000 chars of bodies plus the
+ * standing instructions, and a 2026-09-30 run died with
+ * CONTEXT_WINDOW_EXCEEDED back when the chunks rode one accumulating session.
+ * Chunks are now independent sessions (see {@link runMailAnalysis}), so the
+ * window budget is per-chunk — five keeps each turn snappy all the same.
  */
 const CHUNK_SIZE = 5
+
+/**
+ * How many chunks may be in flight at once. Chunks share no state — each
+ * prompt is self-contained — so lanes only contend on the model gateway;
+ * three keeps a batch moving without hammering it.
+ */
+const CHUNK_CONCURRENCY = 3
 
 /**
  * The body a judgement actually sees. Judging importance needs the gist, not
@@ -121,40 +129,21 @@ export interface MailDeletion {
   readonly reason: string
 }
 
-/** A mail worth keeping as a resource. */
-export interface MailResource {
-  /** The resource's title; becomes `resources/<name>.md`. */
-  readonly name: string
-  /** A two-or-three-sentence summary. */
-  readonly summary: string
-  /** The mail it came from, as the 1-based number the prompt gave it. */
-  readonly mail?: number
-}
-
 /**
- * A mail the analysis nominates for full-fidelity archiving (ADR-0037 决定 2):
- * the original lands as a self-contained `.eml` plus a monthly index row. The
- * model picks the mail and writes the index's 摘要 — everything else (headers,
- * recipients, attachments) the archive script re-reads from Outlook itself.
+ * A mail the analysis nominates for saving (2026-10-09 三提名合一): the whole
+ * mail — the self-contained `.eml` original *and* its attachments — lands in
+ * `resources/mails/` with one monthly index row, after the human ticks the row
+ * on the proposal card. The model picks the mail and writes the index's 摘要 —
+ * everything else (headers, recipients, attachments) the save script re-reads
+ * from Outlook itself. Formerly three separate nominations (resources 笔记 /
+ * archives 原件 / attachments 附件下载) that produced up to two index rows and
+ * a stray note file for one mail; now one verdict, one ledger.
  */
-export interface MailArchive {
+export interface MailSave {
   /** The nominated mail's 1-based number within the batch. */
   readonly mail: number
-  /** One line for the archive index's 摘要 column. */
+  /** One line for the mail index's 摘要 column. */
   readonly summary: string
-}
-
-/**
- * A mail whose attachments the analysis nominates for download (2026-10-08):
- * like the delete/archive knives, a nomination only — the attachments land in
- * `resources/mails/` beside the archived originals, with an index row, after
- * the human ticks the row on the proposal card.
- */
-export interface MailAttachment {
-  /** The nominated mail's 1-based number within the batch. */
-  readonly mail: number
-  /** One line of why the attachments are worth keeping. */
-  readonly why: string
 }
 
 /**
@@ -192,9 +181,7 @@ export interface MailAnalysis {
   readonly newProjects: readonly MailNewProject[]
   readonly meetings: readonly MailMeeting[]
   readonly deletions: readonly MailDeletion[]
-  readonly resources: readonly MailResource[]
-  readonly archives: readonly MailArchive[]
-  readonly attachments: readonly MailAttachment[]
+  readonly saves: readonly MailSave[]
   readonly memories: readonly MailMemory[]
 }
 
@@ -259,8 +246,8 @@ export interface KnownEntities {
 
 /** An empty verdict: what a parse returns when the model found nothing. */
 const EMPTY: MailAnalysis = {
-  verdicts: [], people: [], todos: [], projects: [], newProjects: [], meetings: [], deletions: [], resources: [],
-  archives: [], attachments: [], memories: [],
+  verdicts: [], people: [], todos: [], projects: [], newProjects: [], meetings: [], deletions: [], saves: [],
+  memories: [],
 }
 
 /** Today as a YYYY-MM-DD stamp, in the human's own timezone. */
@@ -365,9 +352,7 @@ export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities
     '  "newProjects": [{ "name": "建议新建的项目名", "why": "为什么值得立项（一句话）", "areas": ["建议关联的领域名"] 或 null, "mail": 来自哪封邮件的编号或 null }],',
     '  "meetings": [{ "name": "会议名（已有的用列表里的名字）", "new": false, "decision": "邮件里记录的会议决议（一句话）或 null", "todo": "邮件里布置的一件事（一句话）或 null", "why": "为什么值得记录", "mail": 来自哪封邮件的编号或 null }],',
     '  "deletions": [{ "mail": 1, "reason": "为什么建议删除（一句话）" }],',
-    '  "resources": [{ "name": "值得留存的材料标题", "summary": "两三句话的摘要", "mail": 来自哪封邮件的编号或 null }],',
-    '  "archives": [{ "mail": 1, "summary": "归档索引里的一句话摘要" }],',
-    '  "attachments": [{ "mail": 1, "why": "为什么值得留下这封的附件（一句话）" }],',
+    '  "saves": [{ "mail": 1, "summary": "给邮件索引的一句话摘要" }],',
     '  "memories": [{ "text": "要记住的纠正或偏好（一句话）", "why": "为什么值得记" }]',
     '}',
     '```',
@@ -389,9 +374,7 @@ export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities
     '- `people[].email` 只在这批邮件里能拿到该人地址时填，否则填 null。',
     '- `people[].relation` 四选一：superior＝我的上级或领导，peer＝同事或平级协作者，subordinate＝我的下属，external＝公司外部的人；拿不准就填 null。',
     '- 拿不准的不要输出：宁可少，不可错。',
-    '- 邮件本身默认不是资源，只有确实值得长期留存的材料才进 `resources`，并注明来自哪封邮件。',
-    '- `archives` 是原件归档提名（完整 .eml 存档）：只提名值得永久保真的邮件（合同、决议、重要承诺等），宁缺勿滥；`summary` 是给归档索引的一句话摘要，不是 `resources` 的替代。同一封邮件可同时进 `resources`（要点笔记）与 `archives`（原件），但不必都进。',
-    '- `attachments` 是附件下载提名：只提名附件里有长期留存价值的邮件（合同附件、报告、数据表、设计稿等），正文已说清的不必提名；`why` 一句话说附件里是什么。下载与否由人决定。',
+    '- `saves` 是保存提名（2026-10-09 三提名合一）：整封保存——.eml 原件与其全部附件一起落 `resources/mails/`，记入邮件索引。只提名值得长期留存的邮件（合同、决议、重要承诺、附件里有长期价值的报告/数据表/设计稿等），宁缺勿滥；`summary` 是给索引的一句话摘要，说清这封邮件（连同附件）是什么。保存与否由人决定；正文已说清、无需留痕的不必提名。',
     '- `people`/`todos`/`projects`/`newProjects`/`meetings` 各行的 `mail` 填这条内容出自哪封邮件的编号；确实说不清才填 null。',
     '- `verdicts[].why` 一句话不超过 20 字；`digest` 类的理由尤其要短（例如「例行邮催」「安全告警」），不要铺陈。',
     '- `meetings[].decision` 与 `meetings[].todo` 必须写决议/待办本身的具体内容，不许复述 `why`；邮件里没有就填 null，不要编。',
@@ -544,21 +527,10 @@ export function parseAnalysis(text: string): MailAnalysis {
     if (mail === undefined) return undefined
     return { mail, reason: field(row, 'reason') }
   })
-  const resources = rows(value.resources).map((row): MailResource | undefined => {
-    const name = field(row, 'name')
-    if (name === '') return undefined
-    const mail = mailNumber((row as Record<string, unknown> | null)?.mail)
-    return { name, summary: field(row, 'summary'), ...mail !== undefined ? { mail } : {} }
-  })
-  const archives = rows(value.archives).map((row): MailArchive | undefined => {
+  const saves = rows(value.saves).map((row): MailSave | undefined => {
     const mail = mailNumber((row as Record<string, unknown> | null)?.mail)
     if (mail === undefined) return undefined
     return { mail, summary: field(row, 'summary') }
-  })
-  const attachments = rows(value.attachments).map((row): MailAttachment | undefined => {
-    const mail = mailNumber((row as Record<string, unknown> | null)?.mail)
-    if (mail === undefined) return undefined
-    return { mail, why: field(row, 'why') }
   })
   const memories = rows(value.memories).map((row): MailMemory | undefined => {
     const text = field(row, 'text')
@@ -573,9 +545,7 @@ export function parseAnalysis(text: string): MailAnalysis {
     newProjects: newProjects.filter((row): row is MailNewProject => row !== undefined),
     meetings: meetings.filter((row): row is MailMeeting => row !== undefined),
     deletions: deletions.filter((row): row is MailDeletion => row !== undefined),
-    resources: resources.filter((row): row is MailResource => row !== undefined),
-    archives: archives.filter((row): row is MailArchive => row !== undefined),
-    attachments: attachments.filter((row): row is MailAttachment => row !== undefined),
+    saves: saves.filter((row): row is MailSave => row !== undefined),
     memories: memories.filter((row): row is MailMemory => row !== undefined),
   }
 }
@@ -591,7 +561,7 @@ export interface AnalysisRun {
 }
 
 /** The re-ask when the first answer is not readable JSON: JSON alone, nothing else. */
-const REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 verdicts/people/todos/projects/newProjects/meetings/deletions/resources/archives/attachments/memories 字段），不要输出任何其它文字。'
+const REASK = '你上一条回答无法解析为 JSON。请只输出一个 JSON 对象（含 verdicts/people/todos/projects/newProjects/meetings/deletions/saves/memories 字段），不要输出任何其它文字。'
 
 /**
  * One chunk of the batch through the already-created session, waited out to
@@ -620,17 +590,22 @@ async function analyseChunk(options: {
 }
 
 /**
- * Run one analysis: create a session, name it, and walk the batch in chunks
- * of {@link CHUNK_SIZE}, one waited-out turn per chunk. Each chunk's verdicts
- * are reported as they land, so the panel lights up mail by mail instead of
- * after one long silence.
+ * Run one analysis: walk the batch in chunks of {@link CHUNK_SIZE}, each
+ * chunk in its own short-lived session, up to {@link CHUNK_CONCURRENCY}
+ * chunks in flight. Each chunk's prompt is self-contained — the KB's known
+ * entities ride in every prompt — so a shared accumulating session bought
+ * nothing except quadratic re-prefill (every turn re-reading every earlier
+ * chunk's prompt and answer) and, eventually, one CONTEXT_WINDOW_EXCEEDED.
+ * Independent sessions remove both, and let chunks overlap.
  *
- * The session is created in the KB root's directory when one is given, so it
- * lands in the session list the KB-scoped views already read (an unnamed
- * directory would inherit the host process's cwd instead).
+ * Every session is named with its place in the batch
+ * (「邮件分析 YYYY-MM-DD·k/n」) so a judgement can still be found again
+ * (ADR-0033); the first one created anchors the task row's 「详情」 entry.
+ * Chunks land out of order under concurrency: verdicts are reported sorted
+ * by mail number, and the merged verdict is assembled in batch order.
  * @param options - the context, the batch, what the KB already holds, and the
  *   progress callback.
- * @returns the session id and the merged verdict.
+ * @returns the anchoring session id and the merged verdict.
  */
 export async function runMailAnalysis(options: {
   readonly ctx: Context
@@ -645,67 +620,110 @@ export async function runMailAnalysis(options: {
   const session = sessionRemoteOf(ctx)
   if (session === undefined) throw new Error('没有挂载 session Remote 命名空间')
 
+  const chunkCount = Math.ceil(mails.length / CHUNK_SIZE)
+  const runTitle = `邮件分析 ${stamp()}`
+
   onProgress?.({ stage: 'session' })
-  const created = await session.create(cwd === undefined ? {} : { cwd })
-  if (!created.ok) throw created.error
-  const sessionId = created.value.sessionId
 
-  // Named up front: the point of keeping the session is being able to find
-  // it again, and an untitled session is unfindable.
-  // Domain data, not UI copy: the session's name lives in the KB's own
-  // language, so it stays Chinese regardless of the workbench locale.
-  const sessionName = `邮件分析 ${stamp()}`
-  const named = await session.rename({ sessionId, title: sessionName })
-  if (!named.ok) throw named.error
+  // One short-lived session per chunk. A cancelled run must not leave the
+  // server rounding on (ADR-0031): the signal already tears down the local
+  // wait, and each session registers its own turn-ending cancel line.
+  const analyses: (MailAnalysis | undefined)[] = new Array(chunkCount)
+  let anchorSessionId: string | undefined
+  let doneMails = 0
+  let failure: unknown = undefined
 
-  // A cancelled run must not leave the server rounding on (ADR-0031): the
-  // signal already tears down the local wait; this ends the turn itself.
-  if (options.signal !== undefined) cancelSessionTurnOnAbort(options.signal, session, sessionId)
-
-  onProgress?.({ stage: 'prompt', sessionId })
-  const verdicts: MailVerdict[] = []
-  const people: MailPerson[] = []
-  const todos: MailTodo[] = []
-  const projects: MailProjectNote[] = []
-  const newProjects: MailNewProject[] = []
-  const meetings: MailMeeting[] = []
-  const deletions: MailDeletion[] = []
-  const resources: MailResource[] = []
-  const archives: MailArchive[] = []
-  const attachments: MailAttachment[] = []
-  const memories: MailMemory[] = []
-  for (let start = 0; start < mails.length; start += CHUNK_SIZE) {
+  const runChunk = async (index: number): Promise<void> => {
+    const start = index * CHUNK_SIZE
     const chunk = mails.slice(start, start + CHUNK_SIZE)
+    const created = await session.create(cwd === undefined ? {} : { cwd })
+    if (!created.ok) throw created.error
+    const chunkSessionId = created.value.sessionId
+
+    // Named with its place in the batch: the point of keeping the sessions
+    // is being able to find the judgements again, and k/n says which slice
+    // of the batch this one judged. Domain data, not UI copy: the name lives
+    // in the KB's own language, so it stays Chinese regardless of locale.
+    const named = await session.rename({ sessionId: chunkSessionId, title: `${runTitle}·${index + 1}/${chunkCount}` })
+    if (!named.ok) throw named.error
+    if (options.signal !== undefined) cancelSessionTurnOnAbort(options.signal, session, chunkSessionId)
+
+    // The first session created backs the task row's detail anchor
+    // (ADR-0033); the rest are equally findable by name. The check and the
+    // set are synchronous, so concurrent chunks cannot both claim it.
+    if (anchorSessionId === undefined) {
+      anchorSessionId = chunkSessionId
+      onProgress?.({ stage: 'prompt', sessionId: chunkSessionId })
+    }
+
     const analysis = await analyseChunk({
       session,
-      sessionId,
+      sessionId: chunkSessionId,
       mails: chunk,
       known,
       offset: start,
       ...options.signal !== undefined ? { signal: options.signal } : {},
       ...options.memory !== undefined ? { memory: options.memory } : {},
     })
-    verdicts.push(...analysis.verdicts)
-    people.push(...analysis.people)
-    todos.push(...analysis.todos)
-    projects.push(...analysis.projects)
-    newProjects.push(...analysis.newProjects)
-    meetings.push(...analysis.meetings)
-    deletions.push(...analysis.deletions)
-    resources.push(...analysis.resources)
-    archives.push(...analysis.archives)
-    attachments.push(...analysis.attachments)
-    memories.push(...analysis.memories)
-    onProgress?.({
-      stage: 'answer',
-      done: Math.min(start + CHUNK_SIZE, mails.length),
-      total: mails.length,
-      verdicts: [...verdicts],
-    })
+    analyses[index] = analysis
+    doneMails += chunk.length
+    // Chunks land out of order under concurrency; the panel lights up mail
+    // by mail, so the verdicts ride sorted by their mail number.
+    const verdicts = analyses
+      .flatMap(entry => entry?.verdicts ?? [])
+      .slice()
+      .sort((left, right) => left.mail - right.mail)
+    onProgress?.({ stage: 'answer', done: doneMails, total: mails.length, verdicts })
+  }
+
+  // A worker pool: each lane takes the next chunk index until the batch is
+  // done, the signal aborts, or a chunk fails — the first failure stops new
+  // chunks from starting, the in-flight ones settle, and the error surfaces.
+  let nextChunk = 0
+  const worker = async (): Promise<void> => {
+    while (failure === undefined && options.signal?.aborted !== true) {
+      const index = nextChunk++
+      if (index >= chunkCount) return
+      try {
+        await runChunk(index)
+      } catch (error) {
+        if (failure === undefined) failure = error
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, chunkCount) }, worker))
+
+  if (failure !== undefined) throw failure
+  // An abort between chunks leaves no thrown failure — the run must still
+  // reject, so the store can tell cancellation from success (ADR-0031).
+  if (options.signal?.aborted) throw new Error('邮件分析已取消。')
+
+  const merged = {
+    verdicts: [] as MailVerdict[],
+    people: [] as MailPerson[],
+    todos: [] as MailTodo[],
+    projects: [] as MailProjectNote[],
+    newProjects: [] as MailNewProject[],
+    meetings: [] as MailMeeting[],
+    deletions: [] as MailDeletion[],
+    saves: [] as MailSave[],
+    memories: [] as MailMemory[],
+  }
+  for (const analysis of analyses) {
+    if (analysis === undefined) continue
+    merged.verdicts.push(...analysis.verdicts)
+    merged.people.push(...analysis.people)
+    merged.todos.push(...analysis.todos)
+    merged.projects.push(...analysis.projects)
+    merged.newProjects.push(...analysis.newProjects)
+    merged.meetings.push(...analysis.meetings)
+    merged.deletions.push(...analysis.deletions)
+    merged.saves.push(...analysis.saves)
+    merged.memories.push(...analysis.memories)
   }
   return {
-    sessionId,
-    title: sessionName,
-    analysis: { verdicts, people, todos, projects, newProjects, meetings, deletions, resources, archives, attachments, memories },
+    sessionId: anchorSessionId ?? '',
+    title: runTitle,
+    analysis: merged,
   }
 }

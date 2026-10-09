@@ -1,6 +1,10 @@
 # yantao 工作台
 
-yantao 是一个**个人知识工作台**:以纯 Markdown 存放 PARA+P 知识库,并让 agent 写入知识库的唯一通道是一小组可审计的工具。
+yantao 的定位是**个人认知工作台(Personal Cognitive Workbench)**:实现人机共同进化,最终目的是不断提升个人的认知——知识管理只是手段。
+
+它的工作方式是一个闭环:**实体记录「状态」与「流水」,尽量贴近人与 agent 共同达成一致的事实**;agent 基于事实梳理、消化、给出提议;人确认决策、给出方向;然后共同行动;行动带来新的事实,回到起点。下面的一切机制——信任边界、提议队列、人类通道——都是这个闭环的落地。
+
+作为软件,它目前是一个**个人知识工作台**:以纯 Markdown 存放 PARA+P 知识库,并让 agent 写入知识库的唯一通道是一小组可审计的工具。
 
 它构建在 **DeepSeek Harness(`dsh`)** 之上——本仓库**就是** `deepseek-harness`(上游:github.com/deepseek-ai/deepseek-harness),我们把本地分支 `main` 对齐到上游 `master@5badb15009`(发布版 `0.2.1-alpha.1`,ADR-0002),并**刻意钉住**上游。我们把 dsh 当作**引擎与后端**;yantao 的一切都是增量添加的。日常开发(构建、运行、停止、测试、门禁、坑)见 [development.md](development.md)。
 

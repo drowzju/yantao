@@ -189,33 +189,21 @@ export type ProposalAction =
   }
   | {
     /**
-     * Archive one nominated mail as a self-contained `.eml` original plus a
-     * monthly index row (ADR-0037). Like the delete knife, the agent only
+     * Save one nominated mail whole (kind id kept as `archive-mails` — stored
+     * inbox payloads from before the 2026-10-09 three-nomination merge keep
+     * validating): the self-contained `.eml` original *and* its attachments
+     * land in `resources/mails/YYYY/MM/`, with one eight-column monthly index
+     * row (the model's summary in 摘要). Like the delete knife, the agent only
      * nominates: the applier routes it through the optional `archiveMails`
-     * seam, driving the human-channel-only `verb: 'archive'`. The summary
-     * the model wrote lands in the index's 摘要 column; headers, recipients
-     * and attachments are re-read from Outlook by the archive script itself.
+     * seam, driving the human-channel-only `verb: 'archive'`. Headers,
+     * recipients and attachments are re-read from Outlook by the save script
+     * itself. Absent seam ⇒ the row is honestly skipped.
      */
     readonly kind: 'archive-mails'
     readonly entryId: string
     readonly sender: string
     readonly subject: string
     readonly summary: string
-    readonly reason: string
-  }
-  | {
-    /**
-     * Download one nominated mail's attachments into `resources/mails/`
-     * beside the archived originals, with an index row (2026-10-08). Like
-     * the delete and archive knives, the agent only nominates: the applier
-     * routes it through the optional `downloadAttachments` seam, driving the
-     * human-channel-only `verb: 'download-attachments'`. Absent seam ⇒ the
-     * row is honestly skipped.
-     */
-    readonly kind: 'download-attachments'
-    readonly entryId: string
-    readonly sender: string
-    readonly subject: string
     readonly reason: string
   }
   | {
@@ -380,8 +368,7 @@ export const GROUP_KEYS: Record<ProposalAction['kind'], WorkbenchLocaleKey> = {
   'append-section': 'group.appendSection',
   'add-memory': 'group.memory',
   'delete-mails': 'group.deleteMails',
-  'archive-mails': 'group.archiveMails',
-  'download-attachments': 'group.downloadAttachments',
+  'archive-mails': 'group.saveMails',
   'skill-rewrite': 'group.skillRewrite',
 }
 
@@ -391,48 +378,6 @@ export function stamp(): string {
   const month = `${now.getMonth() + 1}`.padStart(2, '0')
   const date = `${now.getDate()}`.padStart(2, '0')
   return `${now.getFullYear()}-${month}-${date}`
-}
-
-/** Characters a file name may not carry on Windows; a mail subject has all of them. */
-export function safeName(name: string): string {
-  return name.replace(/[\\/:*?"<>|]/g, '-').trim().replace(/^\.+/, '')
-}
-
-/**
- * One resource note: the distilled points up front (what a reader skims), the
- * mail's raw body below them (what a reader verifies against), and the dated
- * provenance line last. The raw body is kept because a summary alone cannot
- * answer "它到底说了什么" — the mail is the evidence, the 要点 are the index.
- * @param name - the resource's title.
- * @param summary - the model's summary.
- * @param mail - the mail the note keeps, when the analysis named one.
- * @returns the note's content.
- */
-export function resourceNote(name: string, summary: string, mail?: KbMailMessage): string {
-  const body = mail === undefined || mail.body.trim() === ''
-    ? '（无正文）'
-    : `${mail.body}${mail.truncated ? '\n\n（正文过长，此处截断）' : ''}`
-  return [
-    '---',
-    'type: resource',
-    'source: mail',
-    `created: ${stamp()}`,
-    'tags: []',
-    '---',
-    '',
-    '## 要点',
-    '',
-    summary,
-    '',
-    '## 原文',
-    '',
-    body,
-    '',
-    '## 提炼记录',
-    '',
-    `- ${stamp()} 由邮件分析留存：${name}`,
-    '',
-  ].join('\n')
 }
 
 /**
@@ -554,14 +499,6 @@ export function analysisToProposal(
       })
     }
   }
-  for (const resource of analysis.resources) {
-    actions.push({
-      kind: 'save-resource',
-      path: `resources/${safeName(resource.name)}.md`,
-      content: resourceNote(resource.name, resource.summary, resource.mail !== undefined ? mails[resource.mail - 1] : undefined),
-      reason: resource.summary,
-    })
-  }
   // ADR-0032 批次③: the model proposes only text and why; the scope is
   // pinned here to `mail` — the analysis's own surface — so a rule it
   // misjudges stays out of every other task.
@@ -571,6 +508,26 @@ export function analysisToProposal(
       scope: 'mail',
       text: memory.text,
       reason: memory.why,
+    })
+  }
+  // 2026-10-09 三提名合一: save nominees become tickable archive-mails
+  // actions — the model picks the mail and writes the index summary; the
+  // human's tick arms the save (原件＋附件＋一行索引) through the
+  // human-channel-only archive verb. A nominee whose mail is not in the batch
+  // is unattributable (no entryId) and dropped; the model may nominate the
+  // same mail twice — keep the first, drop the rest.
+  const savedIds = new Set<string>()
+  for (const save of analysis.saves) {
+    const source = mails[save.mail - 1]
+    if (source === undefined || savedIds.has(source.entryId)) continue
+    savedIds.add(source.entryId)
+    actions.push({
+      kind: 'archive-mails',
+      entryId: source.entryId,
+      sender: source.senderName,
+      subject: source.subject || '（无主题）',
+      summary: save.summary,
+      reason: save.summary,
     })
   }
   const highlightOf = (mail: number): ProposalHighlight | undefined => {
@@ -630,41 +587,6 @@ export function analysisToProposal(
       sender: source.senderName,
       subject: source.subject || '（无主题）',
       reason: deletion.reason,
-    })
-  }
-  // ADR-0037 决定 2: archive nominees become tickable archive-mails actions —
-  // the model picks the mail and writes the index summary; the human's tick
-  // arms the archive through the human-channel-only archive verb. A nominee
-  // whose mail is not in the batch is unattributable (no entryId) and dropped;
-  // the model may nominate the same mail twice — keep the first, drop the rest.
-  const archivedIds = new Set<string>()
-  for (const archive of analysis.archives) {
-    const source = mails[archive.mail - 1]
-    if (source === undefined || archivedIds.has(source.entryId)) continue
-    archivedIds.add(source.entryId)
-    actions.push({
-      kind: 'archive-mails',
-      entryId: source.entryId,
-      sender: source.senderName,
-      subject: source.subject || '（无主题）',
-      summary: archive.summary,
-      reason: archive.summary,
-    })
-  }
-  // 附件下载提名（2026-10-08）：与归档同一模式——模型挑邮件，人的勾选才是
-  // 落盘的扳机。批次外的提名无从定位（没有 entryId），丢弃；同一封重复提名
-  // 只留第一条。
-  const attachedIds = new Set<string>()
-  for (const attachment of analysis.attachments) {
-    const source = mails[attachment.mail - 1]
-    if (source === undefined || attachedIds.has(source.entryId)) continue
-    attachedIds.add(source.entryId)
-    actions.push({
-      kind: 'download-attachments',
-      entryId: source.entryId,
-      sender: source.senderName,
-      subject: source.subject || '（无主题）',
-      reason: attachment.why,
     })
   }
   return {

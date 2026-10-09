@@ -57,7 +57,7 @@ export function matchCapabilities(
 const KINDS: readonly ProposalAction['kind'][] = [
   'create-entity', 'create-project', 'append-log', 'write-state', 'save-resource', 'create-link',
   'add-todo', 'edit-section', 'append-section', 'add-memory', 'delete-mails', 'archive-mails',
-  'download-attachments', 'skill-rewrite',
+  'skill-rewrite',
 ]
 
 /** The payload fields each kind needs as non-empty strings; an action missing any is not one —
@@ -78,7 +78,6 @@ const REQUIRED_FIELDS: Partial<Record<ProposalAction['kind'], readonly string[]>
   'add-memory': ['scope', 'text'],
   'delete-mails': ['entryId', 'sender', 'subject'],
   'archive-mails': ['entryId', 'sender', 'subject'],
-  'download-attachments': ['entryId', 'sender', 'subject'],
   'skill-rewrite': ['name', 'file', 'original', 'new', 'why'],
 }
 

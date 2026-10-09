@@ -3,7 +3,7 @@
  * first screen is now the 惯用提示词 list: the human's saved `/alias`
  * favorites — click a row to fill the conversation's composer with the token
  * without sending, add/edit rows inline, reorder with 上移/下移. The
- * capability inventory folds beneath it: the list names every registered
+ * capability inventory shows beneath it, unfolded: the list names every registered
  * capability — the built-in mail one plus anything the
  * human copied into `.dsh/skills/` or scaffolded through 「新建能力」. Under it
  * sits the 未注册 group (ADR-0025 决定 1): skills that are not capabilities
@@ -92,6 +92,9 @@ const reachLabelStyle = { ...mutedStyle, display: 'block', margin: '2px 0' } as 
 const errorStyle = { color: 'var(--yt-error)', fontSize: 'var(--yt-type-label)' } as const
 
 const titleStyle = { margin: '4px 0 2px', fontSize: 'var(--yt-type-body)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
+
+/** The 能力清单 heading: a wider top margin separates it from the 惯用提示词 section above. */
+const inventoryHeadingStyle = { ...titleStyle, marginTop: 14 } as const
 
 const greyedNameStyle = { fontWeight: 600, color: 'var(--yt-text-muted)' } as const
 
@@ -647,8 +650,8 @@ export function CapabilityPanel({
     if (reveal !== undefined && reveal.nonce > 0 && reveal.capability !== null) setSelected(reveal.capability)
   }, [reveal])
   // ADR-0040 决定 6: the first screen is the 惯用提示词 list; the capability
-  // inventory folds beneath it. Session-only fold state.
-  const [inventoryOpen, setInventoryOpen] = useState(false)
+  // inventory shows beneath it, unfolded (2026-10-09: the fold toggle went
+  // away — the list is short enough to live in plain sight).
   // The loader is a fresh closure on every render (inject face), so the
   // effect reads it through a ref instead of taking it as a dependency.
   const latest = useRef({ load, create, adopt, register })
@@ -716,128 +719,118 @@ export function CapabilityPanel({
       {current === undefined && (
         <>
           <ShortcutSection t={t} load={loadShortcuts} save={saveShortcuts} fill={fillShortcut} />
-          <button
-            type="button"
-            style={{ ...buttonStyle, marginTop: 8 }}
-            data-capability-inventory-toggle="true"
-            aria-expanded={inventoryOpen}
-            onClick={() => { setInventoryOpen(open => !open) }}
-          >
-            {inventoryOpen ? '▾ ' : '▸ '}{t('capability.inventoryHeading')}
-          </button>
-          {inventoryOpen && (
+          <div style={inventoryHeadingStyle} data-capability-inventory-heading="true">
+            {t('capability.inventoryHeading')}
+          </div>
+          {capabilities !== null && capabilities.length === 0 && (
+            <div style={mutedStyle}>{t('capability.empty')}</div>
+          )}
+          {capabilities?.map(capability => (
+            <CapabilityRow
+              key={capability.name}
+              name={capability.name}
+              description={capability.description}
+              onSelect={setSelected}
+            />
+          ))}
+          {unregistered.length > 0 && (
             <>
-              {capabilities !== null && capabilities.length === 0 && (
-                <div style={mutedStyle}>{t('capability.empty')}</div>
-              )}
-              {capabilities?.map(capability => (
-                <CapabilityRow
-                  key={capability.name}
-                  name={capability.name}
-                  description={capability.description}
-                  onSelect={setSelected}
-                />
-              ))}
-              {unregistered.length > 0 && (
-                <>
-                  <div style={titleStyle}>{t('capability.unregisteredHeading')}</div>
-                  {unregistered.map((skill) => {
-                    const reason = greyReasonOf(skill)
-                    return (
-                      <button
-                        key={skill.name}
-                        type="button"
-                        style={rowStyle}
-                        onClick={() => {
-                          if (reason !== undefined) return
-                          if (skill.inKb === true) openRegister(skill)
-                          else setConfirming(skill)
-                        }}
-                        title={reason ?? skill.directory}
-                      >
-                        <span style={reason === undefined ? nameStyle : greyedNameStyle}>{skill.name}</span>
-                        {skill.description !== '' && <div style={clampedMutedStyle} title={skill.description}>{skill.description}</div>}
-                        {skill.inKb === true && skill.reason !== undefined && (
-                          <div style={mutedStyle}>{skill.reason}</div>
-                        )}
-                        {reason !== undefined && <div style={mutedStyle}>{reason}</div>}
-                      </button>
-                    )
-                  })}
-                </>
-              )}
-              {confirming !== null && (
-                <div style={confirmStyle} data-capability-confirm="true">
-                  <div style={nameStyle}>{t('capability.adoptTitle', { name: confirming.name })}</div>
-                  <div style={mutedStyle}>
-                    {t('capability.adoptCopyTo', { path: `.dsh/skills/${confirming.name}/` })}
-                  </div>
-                  <div style={mutedStyle}>
-                    {t('capability.adoptRouteTo', { path: '.dsh/skills/yantao.json' })}
-                    <span style={codeStyle}>{JSON.stringify({ path: confirming.name, invocation: ['human'] })}</span>
-                  </div>
-                  <div style={confirmButtonRowStyle}>
-                    <button type="button" style={buttonStyle} onClick={() => { void adoptSkill(confirming.name) }}>{t('capability.adoptConfirm')}</button>
-                    <button type="button" style={buttonStyle} onClick={() => { setConfirming(null) }}>{t('common.cancel')}</button>
-                  </div>
-                </div>
-              )}
-              {registering !== null && (
-                <div style={confirmStyle} data-capability-register="true">
-                  <div style={nameStyle}>{t('capability.registerTitle', { name: registering.name })}</div>
-                  {registering.plugin === true ? (
-                    <div style={mutedStyle}>
-                      {t('capability.registerRepoNote', {
-                        path: '.dsh/skills/yantao.json',
-                        names: registering.pluginSkills?.join('、') ?? '',
-                      })}
-                    </div>
-                  ) : (
-                    <div style={mutedStyle}>
-                      {t('capability.registerSimpleNote', { path: '.dsh/skills/yantao.json' })}
-                    </div>
-                  )}
-                  <label style={reachLabelStyle}>
-                    <input
-                      type="checkbox"
-                      checked={registerReach.agentInvoke}
-                      onChange={(event) => { setRegisterReach(reach => ({ ...reach, agentInvoke: event.target.checked })) }}
-                    />{' '}
-                    {t('capability.reachAgent')}
-                  </label>
-                  <label style={reachLabelStyle}>
-                    <input
-                      type="checkbox"
-                      checked={registerReach.resourceMenu}
-                      onChange={(event) => { setRegisterReach(reach => ({ ...reach, resourceMenu: event.target.checked })) }}
-                    />{' '}
-                    {t('capability.reachAllResources')}
-                  </label>
-                  <label style={reachLabelStyle}>
-                    <input
-                      type="checkbox"
-                      checked={registerReach.selectionMenu}
-                      onChange={(event) => { setRegisterReach(reach => ({ ...reach, selectionMenu: event.target.checked })) }}
-                    />{' '}
-                    {t('capability.reachSelection')}
-                  </label>
-                  <div style={mutedStyle}>
-                    {t('capability.routePreview')}<span style={codeStyle}>{registerPreview(registering, registerReach)}</span>
-                  </div>
-                  <div style={confirmButtonRowStyle}>
-                    <button type="button" style={buttonStyle} onClick={() => { void registerSkill(registering) }}>{t('capability.registerConfirm')}</button>
-                    <button type="button" style={buttonStyle} onClick={() => { setRegistering(null) }}>{t('common.cancel')}</button>
-                  </div>
-                </div>
-              )}
-              <NewEntityRow
-                t={t}
-                label={t('capability.newButton')}
-                placeholder={t('capability.namePlaceholder')}
-                submit={name => scaffold(name)}
-              />
+              <div style={titleStyle}>{t('capability.unregisteredHeading')}</div>
+              {unregistered.map((skill) => {
+                const reason = greyReasonOf(skill)
+                return (
+                  <button
+                    key={skill.name}
+                    type="button"
+                    style={rowStyle}
+                    onClick={() => {
+                      if (reason !== undefined) return
+                      if (skill.inKb === true) openRegister(skill)
+                      else setConfirming(skill)
+                    }}
+                    title={reason ?? skill.directory}
+                  >
+                    <span style={reason === undefined ? nameStyle : greyedNameStyle}>{skill.name}</span>
+                    {skill.description !== '' && <div style={clampedMutedStyle} title={skill.description}>{skill.description}</div>}
+                    {skill.inKb === true && skill.reason !== undefined && (
+                      <div style={mutedStyle}>{skill.reason}</div>
+                    )}
+                    {reason !== undefined && <div style={mutedStyle}>{reason}</div>}
+                  </button>
+                )
+              })}
             </>
           )}
+          {confirming !== null && (
+            <div style={confirmStyle} data-capability-confirm="true">
+              <div style={nameStyle}>{t('capability.adoptTitle', { name: confirming.name })}</div>
+              <div style={mutedStyle}>
+                {t('capability.adoptCopyTo', { path: `.dsh/skills/${confirming.name}/` })}
+              </div>
+              <div style={mutedStyle}>
+                {t('capability.adoptRouteTo', { path: '.dsh/skills/yantao.json' })}
+                <span style={codeStyle}>{JSON.stringify({ path: confirming.name, invocation: ['human'] })}</span>
+              </div>
+              <div style={confirmButtonRowStyle}>
+                <button type="button" style={buttonStyle} onClick={() => { void adoptSkill(confirming.name) }}>{t('capability.adoptConfirm')}</button>
+                <button type="button" style={buttonStyle} onClick={() => { setConfirming(null) }}>{t('common.cancel')}</button>
+              </div>
+            </div>
+          )}
+          {registering !== null && (
+            <div style={confirmStyle} data-capability-register="true">
+              <div style={nameStyle}>{t('capability.registerTitle', { name: registering.name })}</div>
+              {registering.plugin === true ? (
+                <div style={mutedStyle}>
+                  {t('capability.registerRepoNote', {
+                    path: '.dsh/skills/yantao.json',
+                    names: registering.pluginSkills?.join('、') ?? '',
+                  })}
+                </div>
+              ) : (
+                <div style={mutedStyle}>
+                  {t('capability.registerSimpleNote', { path: '.dsh/skills/yantao.json' })}
+                </div>
+              )}
+              <label style={reachLabelStyle}>
+                <input
+                  type="checkbox"
+                  checked={registerReach.agentInvoke}
+                  onChange={(event) => { setRegisterReach(reach => ({ ...reach, agentInvoke: event.target.checked })) }}
+                />{' '}
+                {t('capability.reachAgent')}
+              </label>
+              <label style={reachLabelStyle}>
+                <input
+                  type="checkbox"
+                  checked={registerReach.resourceMenu}
+                  onChange={(event) => { setRegisterReach(reach => ({ ...reach, resourceMenu: event.target.checked })) }}
+                />{' '}
+                {t('capability.reachAllResources')}
+              </label>
+              <label style={reachLabelStyle}>
+                <input
+                  type="checkbox"
+                  checked={registerReach.selectionMenu}
+                  onChange={(event) => { setRegisterReach(reach => ({ ...reach, selectionMenu: event.target.checked })) }}
+                />{' '}
+                {t('capability.reachSelection')}
+              </label>
+              <div style={mutedStyle}>
+                {t('capability.routePreview')}<span style={codeStyle}>{registerPreview(registering, registerReach)}</span>
+              </div>
+              <div style={confirmButtonRowStyle}>
+                <button type="button" style={buttonStyle} onClick={() => { void registerSkill(registering) }}>{t('capability.registerConfirm')}</button>
+                <button type="button" style={buttonStyle} onClick={() => { setRegistering(null) }}>{t('common.cancel')}</button>
+              </div>
+            </div>
+          )}
+          <NewEntityRow
+            t={t}
+            label={t('capability.newButton')}
+            placeholder={t('capability.namePlaceholder')}
+            submit={name => scaffold(name)}
+          />
         </>
       )}
       {current !== undefined && (

@@ -69,7 +69,7 @@ import { MemoryProposalCard } from './MemoryProposalCard.tsx'
 import {
   addMemory, adoptCapability, applySkillRewriteRpc, approveMemoryProposal, archiveEntity, archiveMails, createCapability,
   createEntity,
-  deleteMemory, deleteMails, deleteResource, downloadMailAttachments,
+  deleteMemory, deleteMails, deleteResource,
   discardMemoryProposal, fetchMail, fillComposerWithShortcut, listMemory, listMemoryProposals,
   loadCapabilities, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
   loadRevision, loadRoot, loadTodos,
@@ -309,10 +309,9 @@ export function apply(ctx: Context): void {
       mailFetch: (args: KbMailFetchArgs) => fetchMail(ctx, args),
       mailMarkRead: (args: KbMailMarkReadArgs) => markMailRead(ctx, args),
       mailDelete: (ids: readonly string[]) => deleteMails(ctx, ids),
-      // ADR-0037: the archive arm — same human channel as the delete knife.
+      // ADR-0037: the save arm — same human channel as the delete knife;
+      // 2026-10-09 三提名合一, attachments ride with the .eml original.
       mailArchive: (mails: readonly { entryId: string; summary?: string }[]) => archiveMails(ctx, mails),
-      // 附件下载 — same human channel, the third knife of the mail capability.
-      mailDownloadAttachments: (mails: readonly { entryId: string; summary?: string }[]) => downloadMailAttachments(ctx, mails),
       // ADR-0054: the skill-rewrite writeback — backup + version clamp +
       // atomic write live in the controller; the tick on the card arms it.
       skillRewriteApply: (args: KbSkillRewriteApplyArgs) => applySkillRewriteRpc(ctx, args),

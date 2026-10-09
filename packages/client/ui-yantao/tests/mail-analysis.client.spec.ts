@@ -25,34 +25,47 @@ function mail(overrides: Partial<KbMailMessage> = {}): KbMailMessage {
   }
 }
 
-/** A session namespace that answers `answer` and records every prompt it was asked. */
-function fakeSession(answer: string | ((turn: number) => string)): {
+/**
+ * A session namespace that answers `answer` and records every prompt it was
+ * asked. Each `create` hands out a fresh session id, because chunks now run
+ * in independent sessions; the answer function receives the turn count and
+ * the prompt text, since concurrent chunks make turn order meaningless.
+ */
+function fakeSession(answer: string | ((turn: number, prompt: string) => string)): {
   session: SessionRemote
-  asked: { titles: readonly string[]; prompts: readonly string[]; cancels: readonly string[] }
+  asked: { titles: readonly string[]; prompts: readonly string[]; cancels: readonly string[]; sessions: readonly string[] }
 } {
   const prompts: string[] = []
   const cancels: string[] = []
   const titles: string[] = []
+  const sessions: string[] = []
+  const pending: { turn: number; prompt: string }[] = []
   let turn = 0
   const session = {
-    create: async () => ({ ok: true, value: { sessionId: SESSION } }),
+    create: async () => {
+      const sessionId = `session-${sessions.length + 1}`
+      sessions.push(sessionId)
+      return { ok: true, value: { sessionId } }
+    },
     rename: async (args: { title: string }) => {
       titles.push(args.title)
       return { ok: true, value: { title: args.title, seq: 1 } }
     },
     prompt: async (args: { content: readonly { text?: string }[] }) => {
-      prompts.push(args.content.map(part => part.text ?? '').join(''))
-      turn += 1
+      const prompt = args.content.map(part => part.text ?? '').join('')
+      prompts.push(prompt)
+      pending.push({ turn: ++turn, prompt })
       return { ok: true, value: { accepted: true } }
     },
     follow: () => (async function* () {
+      const entry = pending.shift()
       yield {
         type: 'event',
         event: {
           type: 'assistant/message',
           seq: 1,
           time: 0,
-          data: { message: { content: [{ type: 'text', text: typeof answer === 'function' ? answer(turn) : answer }] } },
+          data: { message: { content: [{ type: 'text', text: typeof answer === 'function' ? answer(entry?.turn ?? 0, entry?.prompt ?? '') : answer }] } },
         },
       }
       yield {
@@ -65,7 +78,13 @@ function fakeSession(answer: string | ((turn: number) => string)): {
       return { ok: true as const, value: { accepted: true } }
     },
   }
-  return { session: session as unknown as SessionRemote, asked: { titles, prompts, cancels } }
+  return { session: session as unknown as SessionRemote, asked: { titles, prompts, cancels, sessions } }
+}
+
+/** The local-time day stamp, computed the same way mail-analysis.ts stamps it. */
+function todayStamp(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${`${now.getMonth() + 1}`.padStart(2, '0')}-${`${now.getDate()}`.padStart(2, '0')}`
 }
 
 /** A context carrying just the session namespace. */
@@ -119,9 +138,9 @@ describe('mailPrompt', () => {
 
   it('asks each proposal row to cite its source mail, and keeps digest whys short (ADR-0038)', () => {
     const text = mailPrompt([mail()], KNOWN)
-    // Six slots carry the citation: people, todos, projects, newProjects,
-    // meetings — plus resources, which always had it.
-    expect(text.match(/"mail": 来自哪封邮件的编号或 null/g)).toHaveLength(6)
+    // Five slots carry the citation: people, todos, projects, newProjects,
+    // meetings. `saves` rows are themselves mail citations ({ mail, summary }).
+    expect(text.match(/"mail": 来自哪封邮件的编号或 null/g)).toHaveLength(5)
     expect(text).toContain('出自哪封邮件的编号')
     expect(text).toContain('不超过 20 字')
     expect(text).toContain('不许复述')
@@ -209,7 +228,7 @@ describe('parseAnalysis', () => {
     ],
     todos: [{ title: '发汇报', due: '2026-09-12', body: '给张三' }, { title: '没期限的', due: null, body: '' }],
     projects: [{ name: '飞书迁移', note: '对方确认了时间' }],
-    resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
+    saves: [{ mail: 1, summary: '两句话' }],
     memories: [{ text: '汇报先发给直属上级', why: '上级主送' }, { text: '', why: '空行丢弃' }, 'not an object'],
   })
 
@@ -226,7 +245,7 @@ describe('parseAnalysis', () => {
     expect(analysis.todos[0]?.due).toBe('2026-09-12')
     expect(analysis.todos[1]?.due).toBeUndefined()
     expect(analysis.projects[0]?.name).toBe('飞书迁移')
-    expect(analysis.resources).toEqual([{ name: '汇报模板', summary: '两句话', mail: 1 }])
+    expect(analysis.saves).toEqual([{ mail: 1, summary: '两句话' }])
     expect(analysis.memories).toEqual([{ text: '汇报先发给直属上级', why: '上级主送' }])
   })
 
@@ -240,7 +259,7 @@ describe('parseAnalysis', () => {
       people: [{ name: '' }, 'not an object', { name: '王五' }],
       todos: [{ body: '没有标题' }],
       projects: 'not an array',
-      resources: [],
+      saves: [],
     }))
     expect(analysis.verdicts).toEqual([{ mail: 1, importance: 'focus', why: '' }])
     expect(analysis.people.map((person: MailPerson) => person.name)).toEqual(['王五'])
@@ -305,7 +324,7 @@ describe('runMailAnalysis', () => {
     todos: [{ title: `待办 ${mail}`, due: null, body: '' }],
     people: [],
     projects: [],
-    resources: [],
+    saves: [],
   })
 
   it('names the session after the day, so it can be found again', async () => {
@@ -331,11 +350,13 @@ describe('runMailAnalysis', () => {
 
   it('rides the scope\'s behavior memory into every chunk\'s prompt (ADR-0032 批次④)', async () => {
     const mails = Array.from({ length: 7 }, (_value, index) => mail({ id: `m${index}`, subject: `第 ${index + 1} 封` }))
-    const { session, asked } = fakeSession((turn) => {
-      const first = turn === 1 ? 1 : 6
+    const { session, asked } = fakeSession((_turn, prompt) => {
+      const match = /编号 (\d+) 到 (\d+)/.exec(prompt)
+      const first = Number(match?.[1])
+      const count = Number(match?.[2]) - first + 1
       return JSON.stringify({
-        verdicts: Array.from({ length: turn === 1 ? 5 : 2 }, (_v, i) => ({ mail: first + i, importance: 'normal', why: '' })),
-        people: [], todos: [], projects: [], resources: [], memories: [],
+        verdicts: Array.from({ length: count }, (_v, i) => ({ mail: first + i, importance: 'normal', why: '' })),
+        people: [], todos: [], projects: [], saves: [], memories: [],
       })
     })
     await runMailAnalysis({
@@ -347,28 +368,57 @@ describe('runMailAnalysis', () => {
     expect(asked.prompts[1]).toContain('汇报先发给直属上级')
   })
 
-  it('walks the batch in chunks of five, numbering mails globally', async () => {
-    const mails = Array.from({ length: 12 }, (_value, index) => mail({ id: `m${index}`, subject: `第 ${index + 1} 封` }))
-    const { session, asked } = fakeSession((turn) => {
-      const first = turn === 1 ? 1 : turn === 2 ? 6 : 11
-      const count = turn === 3 ? 2 : 5
+  it('gives each chunk its own session, named with its place in the batch', async () => {
+    const mails = Array.from({ length: 7 }, (_value, index) => mail({ id: `m${index}`, subject: `第 ${index + 1} 封` }))
+    const { session, asked } = fakeSession((_turn, prompt) => {
+      const match = /编号 (\d+) 到 (\d+)/.exec(prompt)
+      const first = Number(match?.[1])
+      const count = Number(match?.[2]) - first + 1
       return JSON.stringify({
         verdicts: Array.from({ length: count }, (_v, i) => ({ mail: first + i, importance: 'normal', why: '' })),
-        people: [], todos: [], projects: [], resources: [],
+        people: [], todos: [], projects: [], saves: [],
+      })
+    })
+    const run = await runMailAnalysis({ ctx: ctxWith(session), mails, known: KNOWN })
+    // One short-lived session per chunk — no shared accumulator, so no chunk
+    // ever re-reads an earlier chunk's prompt or answer.
+    expect(asked.sessions).toHaveLength(2)
+    const day = todayStamp()
+    expect([...asked.titles].sort()).toEqual([`邮件分析 ${day}·1/2`, `邮件分析 ${day}·2/2`].sort())
+    // The run's own title stays unsuffixed (the proposal card bears it), and
+    // the anchor session is the first one created.
+    expect(run.title).toBe(`邮件分析 ${day}`)
+    expect(run.sessionId).toBe('session-1')
+  })
+
+  it('walks the batch in chunks of five, numbering mails globally', async () => {
+    const mails = Array.from({ length: 12 }, (_value, index) => mail({ id: `m${index}`, subject: `第 ${index + 1} 封` }))
+    const { session, asked } = fakeSession((_turn, prompt) => {
+      const match = /编号 (\d+) 到 (\d+)/.exec(prompt)
+      const first = Number(match?.[1])
+      const count = Number(match?.[2]) - first + 1
+      return JSON.stringify({
+        verdicts: Array.from({ length: count }, (_v, i) => ({ mail: first + i, importance: 'normal', why: '' })),
+        people: [], todos: [], projects: [], saves: [],
       })
     })
     const progress: AnalysisProgress[] = []
     const run = await runMailAnalysis({ ctx: ctxWith(session), mails, known: KNOWN, onProgress: p => progress.push(p) })
     expect(asked.prompts).toHaveLength(3)
-    expect(asked.prompts[0]).toContain('编号 1 到 5')
-    expect(asked.prompts[1]).toContain('编号 6 到 10')
-    expect(asked.prompts[2]).toContain('编号 11 到 12')
+    // Chunks may complete out of order under concurrency; the covered ranges
+    // are what matters, not the prompt order.
+    const ranges = asked.prompts.map((prompt) => {
+      const match = /编号 (\d+) 到 (\d+)/.exec(prompt)
+      return `${match?.[1]}-${match?.[2]}`
+    }).sort()
+    expect(ranges).toEqual(['1-5', '11-12', '6-10'])
+    // The merge is in batch order regardless of completion order.
     expect(run.analysis.verdicts).toHaveLength(12)
     expect(run.analysis.verdicts[10]?.mail).toBe(11)
     const answer = progress.filter(entry => entry.stage === 'answer')
-    expect(answer.map(entry => entry.done)).toEqual([5, 10, 12])
-    expect(answer[2]?.total).toBe(12)
-    expect(answer[2]?.verdicts).toHaveLength(12)
+    expect([...answer.map(entry => entry.done ?? 0)].sort((left, right) => left - right)).toEqual([5, 10, 12])
+    expect(answer.at(-1)?.total).toBe(12)
+    expect(answer.at(-1)?.verdicts).toHaveLength(12)
   })
 
   it('reports the host\'s refusal to create a session', async () => {
@@ -433,17 +483,15 @@ describe('analysisToProposal', () => {
     newProjects: [],
     meetings: [],
     deletions: [],
-    resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
-    archives: [],
-    attachments: [],
+    saves: [],
     memories: [],
   }
 
-  it('maps the four blocks into one flat action list, in a fixed order', () => {
+  it('maps the blocks into one flat action list, in a fixed order', () => {
     const proposal = analysisToProposal(ANALYSIS, ENTITIES, '邮件分析 2026-09-10', MAILS)
     expect(proposal.title).toBe('邮件分析 2026-09-10')
     expect(proposal.actions.map(action => action.kind))
-      .toEqual(['create-entity', 'add-todo', 'append-log', 'append-log', 'save-resource'])
+      .toEqual(['create-entity', 'add-todo', 'append-log', 'append-log'])
   })
 
   it('maps newProjects into create-project, keeping only areas the KB holds (ADR-0034)', () => {
@@ -497,11 +545,11 @@ describe('analysisToProposal', () => {
     ])
   })
 
-  it('deduplicates archive nominees pointing at the same mail (评审 2026-09-30)', () => {
+  it('deduplicates save nominees pointing at the same mail, dropping unattributable ones (2026-10-09 三提名合一)', () => {
     const proposal = analysisToProposal(
       {
         ...ANALYSIS,
-        archives: [
+        saves: [
           { mail: 1, summary: '有价值' },
           { mail: 1, summary: '模型提了两遍' },
           { mail: 99, summary: '不在批次里' },
@@ -511,23 +559,6 @@ describe('analysisToProposal', () => {
     )
     expect(proposal.actions.filter(action => action.kind === 'archive-mails')).toEqual([
       { kind: 'archive-mails', entryId: 'entry', sender: '老板', subject: '周报截止', summary: '有价值', reason: '有价值' },
-    ])
-  })
-
-  it('maps attachment nominees into tickable download-attachments actions, dropping unattributable ones (2026-10-08)', () => {
-    const proposal = analysisToProposal(
-      {
-        ...ANALYSIS,
-        attachments: [
-          { mail: 1, why: '附件里有合同扫描件' },
-          { mail: 1, why: '模型提了两遍' },
-          { mail: 99, why: '不在批次里' },
-        ],
-      },
-      ENTITIES, 't', MAILS,
-    )
-    expect(proposal.actions.filter(action => action.kind === 'download-attachments')).toEqual([
-      { kind: 'download-attachments', entryId: 'entry', sender: '老板', subject: '周报截止', reason: '附件里有合同扫描件' },
     ])
   })
 
@@ -553,28 +584,6 @@ describe('analysisToProposal', () => {
       kind: 'append-log', entityPath: 'entities/projects/飞书迁移.md', entityName: '飞书迁移', text: '对方确认了时间',
     })
     expect(proposal.actions[3]).toMatchObject({ kind: 'append-log', entityPath: '', entityName: '不存在的项目' })
-  })
-
-  it('keeps the mail\'s raw body below the distilled points in the resource note', () => {
-    const proposal = analysisToProposal(ANALYSIS, ENTITIES, 't', MAILS)
-    const action = proposal.actions[4]
-    if (action?.kind !== 'save-resource') throw new Error('expected a save-resource action')
-    const content = action.content
-    expect(content.indexOf('## 要点')).toBeGreaterThan(-1)
-    expect(content.indexOf('## 要点')).toBeLessThan(content.indexOf('## 原文'))
-    expect(content).toContain('这是正文')
-    expect(content).toContain('两句话')
-  })
-
-  it('keeps a truncated body with a truncation note', () => {
-    const proposal = analysisToProposal(
-      { ...ANALYSIS, resources: [{ name: '长文', summary: 's', mail: 1 }] },
-      ENTITIES, 't',
-      [mail({ body: '长', truncated: true })],
-    )
-    const action = proposal.actions.find(entry => entry.kind === 'save-resource')
-    const content = action?.kind === 'save-resource' ? action.content : ''
-    expect(content).toContain('（正文过长，此处截断）')
   })
 
   it('turns the verdicts into the 重点提醒 and 汇总类 blocks', () => {
@@ -697,7 +706,7 @@ describe('runMailAnalysis cancellation', () => {
     const controller = new AbortController()
     const { session, asked } = fakeSession(JSON.stringify({
       verdicts: [{ mail: 1, importance: 'normal', why: '' }],
-      people: [], todos: [], projects: [], resources: [],
+      people: [], todos: [], projects: [], saves: [],
     }))
     // The fake prompt hangs until the signal fires, so the abort lands while
     // the first chunk's round is genuinely in flight.

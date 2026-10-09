@@ -20,13 +20,12 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/proposal-apply
  */
 import type {
-  KbMailArchiveResult, KbMailDeleteResult, KbMailDownloadAttachmentsResult, KbSkillRewriteApplyResult, KbTodoItem,
+  KbMailArchiveResult, KbMailDeleteResult, KbSkillRewriteApplyResult, KbTodoItem,
   KbTodosResult, KbWriteTodosResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import {
   isDuplicateMemory,
   type Archiver,
-  type AttachmentDownloader,
   type EntityArchiver,
   type EntityCreator,
   type FileReader,
@@ -64,20 +63,13 @@ export interface ProposalTarget {
    */
   readonly deleteMails?: MailDeleter
   /**
-   * Archive nominated mails as `.eml` originals plus monthly index rows
+   * Save nominated mails (2026-10-09 三提名合一): the `.eml` original plus
+   * all attachments land in `resources/mails/` with one monthly index row
    * (ADR-0037 决定 2) — optional, same reason as `deleteMails`: only the
-   * human channel carries the archive; a caller without it (the refine
+   * human channel carries the knife; a caller without it (the refine
    * loop's target) skips archive-mails rows honestly.
    */
   readonly archiveMails?: Archiver
-  /**
-   * Download nominated mails' attachments into `resources/mails/` with an
-   * index row (2026-10-08) — optional, same reason as `deleteMails` and
-   * `archiveMails`: only the human channel carries this knife; a caller
-   * without it (the refine loop's target) skips download-attachments rows
-   * honestly.
-   */
-  readonly downloadAttachments?: AttachmentDownloader
   /**
    * Write one approved skill rewrite back (ADR-0054) — optional, same reason
    * as the mail verbs: only the human channel carries the writeback (backup,
@@ -253,8 +245,7 @@ function writtenLine(action: ProposalAction): string {
     case 'append-section': return `章节 ${action.section}（${action.path !== '' ? action.path : action.afterCreate ?? ''}）`
     case 'add-memory': return `记忆（${action.scope}）${action.text}`
     case 'delete-mails': return `删除邮件 ${action.subject}`
-    case 'archive-mails': return `归档邮件 ${action.subject}`
-    case 'download-attachments': return `下载附件 ${action.subject}`
+    case 'archive-mails': return `保存邮件 ${action.subject}`
     case 'skill-rewrite': return `技能改写 ${action.name}/${action.file}`
   }
 }
@@ -458,26 +449,29 @@ export async function applyProposal(options: {
         continue
       }
       if (action.kind === 'archive-mails') {
-        // ADR-0037 决定 2: the agent nominated, the human ticked; the archive
-        // itself is the controller's human-channel-only archive verb. One
-        // mail per call keeps the report per-row, same as the delete knife.
+        // ADR-0037 决定 2 + 2026-10-09 三提名合一: the agent nominated, the
+        // human ticked; the save itself is the controller's human-channel-only
+        // archive verb — .eml 原件与全部附件一起落盘，一行索引。One mail per
+        // call keeps the report per-row, same as the delete knife.
         const archiver = target.archiveMails
         if (archiver === undefined) {
-          skipped.push(`${writtenLine(action)}：这条通道没有挂归档动词`)
+          skipped.push(`${writtenLine(action)}：这条通道没有挂保存动词`)
           continue
         }
         const outcome: KbMailArchiveResult = await archiver([{ entryId: action.entryId, summary: action.summary }])
         const saved = outcome.saved.find(entry => entry.entryId === action.entryId)
         if (saved !== undefined) {
+          const parts = [saved.path, ...saved.attachments]
           const suffix = saved.remark !== '' ? `（${saved.remark}）` : ''
-          written.push(`${writtenLine(action)} → ${saved.path}${suffix}`)
-          // Same honesty as delete-mails: the archive box is not ours to
+          written.push(`${writtenLine(action)} → ${parts.join('；')}${suffix}`)
+          // Same honesty as delete-mails: the save box is not ours to
           // reach back into within an undo window.
           irreversible.push(writtenLine(action))
         } else if (outcome.oversized.some(entry => entry.entryId === action.entryId)) {
-          // Over the 25 MB cap: refused on disk, but the index row was
-          // written (决定 9) — the human asked for a record, and got one.
-          written.push(`${writtenLine(action)}：过大未存（已记入索引）`)
+          // Over the 25 MB cap: the original was refused, but the index row
+          // was written (决定 9) and the attachments still landed — the
+          // human asked for a record, and got one.
+          written.push(`${writtenLine(action)}：原件过大未存（已记入索引，附件照存）`)
         } else if (outcome.missing.includes(action.entryId)) {
           skipped.push(`${writtenLine(action)}：邮箱里找不到这封邮件（可能已被移走）`)
         } else {
@@ -487,36 +481,6 @@ export async function applyProposal(options: {
         }
         // 降级/环境类提示（缺转换器、单封降级）是给人看的批级信息，此前落
         // 在结果里无人消费；并入报告且去重，避免同一条提示随行重复刷屏。
-        for (const warning of outcome.warnings) {
-          if (!reportedWarnings.has(warning)) {
-            reportedWarnings.add(warning)
-            skipped.push(warning)
-          }
-        }
-        continue
-      }
-      if (action.kind === 'download-attachments') {
-        // 附件下载（2026-10-08）：与删除、归档同一把刀的三号——agent 提名，
-        // 人的勾选落盘；动词本身仅人通道。一封一调保持逐行汇报，同删除刀。
-        const downloader = target.downloadAttachments
-        if (downloader === undefined) {
-          skipped.push(`${writtenLine(action)}：这条通道没有挂附件下载动词`)
-          continue
-        }
-        const outcome: KbMailDownloadAttachmentsResult = await downloader([{ entryId: action.entryId, summary: action.reason }])
-        if (outcome.saved.some(entry => entry.entryId === action.entryId)) {
-          const paths = outcome.saved.filter(entry => entry.entryId === action.entryId).map(entry => entry.path)
-          written.push(`${writtenLine(action)} → ${paths.join('、')}`)
-          // 文件已落 resources/，撤销窗口够不着磁盘上的它们——与归档同一
-          // 诚实口径。
-          irreversible.push(writtenLine(action))
-        } else if (outcome.missing.includes(action.entryId)) {
-          skipped.push(`${writtenLine(action)}：邮箱里找不到这封邮件（可能已被移走）`)
-        } else {
-          const skip = outcome.skipped.find(entry => entry.id === action.entryId)
-          const failure = outcome.failed.find(entry => entry.id === action.entryId)
-          skipped.push(`${writtenLine(action)}：${skip?.reason ?? failure?.message ?? '未知原因'}`)
-        }
         for (const warning of outcome.warnings) {
           if (!reportedWarnings.has(warning)) {
             reportedWarnings.add(warning)

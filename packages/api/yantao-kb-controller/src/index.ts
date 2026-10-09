@@ -31,6 +31,7 @@
  * @module @deepseek-ai/dsh-api-yantao-kb-controller
  */
 
+import { homedir } from 'node:os'
 import { mkdir, readdir, readFile, rm, stat, writeFile, cp } from 'node:fs/promises'
 import { existsSync, type Dirent } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
@@ -2208,8 +2209,20 @@ export class YantaoKbController extends TypertRemoteService {
       // Outside the KB: an adoption candidate (ADR-0025 决定 1), unless it is
       // dsh's own bundled skill — that one is not a third-party find. A name
       // the central routing file already claims is not offered either: the
-      // routed capability answers, adoption would only collide.
+      // routed capability answers, adoption would only collide. A skill under
+      // the home skill roots (`~/.dsh/skills`, `~/.agents/skills`) is skipped
+      // too: those are the owner's own deliberate installs, available to every
+      // session on the machine — listing them as 未注册 noise conflated the
+      // workbench's KB-scoped capability plane with the machine-wide skill
+      // stock (2026-10-09). Path-judged, not source-judged: the source label
+      // is a provider detail a rename would silently break.
       if (summary.source === 'bundled' || routes[summary.name] !== undefined) continue
+      const candidateBase = summary.resourceBase
+      if (candidateBase?.kind === 'directory') {
+        const directory = resolve(candidateBase.path)
+        const homeRoots = [join(homedir(), '.dsh', 'skills'), join(homedir(), '.agents', 'skills')]
+        if (homeRoots.some(root => directory === resolve(root) || directory.startsWith(resolve(root) + sep))) continue
+      }
       const directory = definition.resourceBase?.kind === 'directory' ? definition.resourceBase.path : undefined
       // A flat `xxx.md` skill's resourceBase is the shared skills root, not
       // a per-skill directory; the SKILL.md basename is what tells the two

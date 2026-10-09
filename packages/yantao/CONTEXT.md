@@ -38,7 +38,7 @@ _Avoid_: 归档目录（ADR-0041 否决了「移动到 resources/归档/」路�
 
 ### 信任边界
 
-**State（状态）**: Entity 文件中的区段，**人与 agent 都可编辑**（agent 经 `kb_write_state` 写入）。ADR-0010 取消了 ADR-0004 的「人类专属」：边界仍在工具层——agent 只能走 `kb_*` 工具写文件。
+**State（状态）**: Entity 文件中的区段，**人与 agent 都可编辑**（agent 经 `kb_write_state` 写入）。ADR-0010 取消了 ADR-0004 的「人类专属」：边界仍在工具层——agent 只能走 `kb_*` 工具写文件。状态与流水合起来是实体的事实面：尽量贴近人与 agent 共同达成一致的认知，agent 消化事实、人裁决方向（见 docs/yantao/README.md 开头的定位）。
 
 _Avoid_: Status、状态段
 

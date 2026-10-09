@@ -474,22 +474,38 @@ export interface KbMailArchiveItem {
   readonly summary?: string
 }
 
-/** Input of the mail capability's archive verb (ADR-0037). Human-channel-only, like the delete knife. */
+/**
+ * Input of the mail capability's save verb (`verb: 'archive'`; ADR-0037
+ * established it as 归档, the 2026-10-09 three-nomination merge made it
+ * 保存). Human-channel-only, like the delete knife.
+ */
 export interface KbMailArchiveArgs {
   /** The mail capability's verb selector. */
   readonly verb: 'archive'
-  /** The mails to archive, each located by EntryID. */
+  /** The mails to save, each located by EntryID. */
   readonly mails: readonly KbMailArchiveItem[]
 }
 
-/** Result of the mail capability's archive verb (ADR-0037 决定 7): per-mail outcomes, serial semantics. */
+/** Result of the mail capability's save verb (ADR-0037 决定 7): per-mail outcomes, serial semantics. */
 export interface KbMailArchiveResult {
-  /** The mails that landed, each with its `resources/`-relative path and the format it took (`eml` or the `msg` fallback). */
-  readonly saved: readonly { readonly id: string; readonly entryId: string; readonly path: string; readonly format: 'eml' | 'msg'; readonly remark: string }[]
-  /** The mails over the 25 MB cap: refused on disk, recorded in the index as 过大未存 (决定 9). */
+  /**
+   * The mails that landed, each with its `resources/`-relative path, the
+   * format it took (`eml` or the `msg` fallback), and the `resources/`-relative
+   * paths of the attachments that landed beside it (2026-10-09 三提名合一:
+   * one mail, one index row, all its files).
+   */
+  readonly saved: readonly {
+    readonly id: string
+    readonly entryId: string
+    readonly path: string
+    readonly format: 'eml' | 'msg'
+    readonly remark: string
+    readonly attachments: readonly string[]
+  }[]
+  /** The mails over the 25 MB cap: the original refused on disk (attachments still land), recorded in the index as 过大未存 (决定 9). */
   readonly oversized: readonly { readonly id: string; readonly entryId: string; readonly title: string }[]
   /**
-   * The mails skipped without a write (already archived, not a mail item, no receivable time), each with the reason.
+   * The mails skipped without a write (already saved, not a mail item, no receivable time), each with the reason.
    * Note the `id` caliber differs per bucket: skipped/failed carry the raw Outlook EntryID, while
    * saved/oversized carry the stable mail_id hash (with the raw EntryID alongside in `entryId`);
    * `missing` is a bare EntryID array (评审 2026-09-30 注记).
@@ -497,37 +513,9 @@ export interface KbMailArchiveResult {
   readonly skipped: readonly { readonly id: string; readonly reason: string }[]
   /** The EntryIDs Outlook could not resolve (already gone, store rebuilt). */
   readonly missing: readonly string[]
-  /** The EntryIDs whose archive failed, each with the reason. */
+  /** The EntryIDs whose save failed, each with the reason. */
   readonly failed: readonly { readonly id: string; readonly message: string }[]
-  /** Batch-level hints for the human (converter missing, per-mail degradations). */
-  readonly warnings: readonly string[]
-}
-
-/**
- * Input of the mail capability's download-attachments verb: pull the
- * attachments of nominated mails to `resources/mail-attachments/` through
- * Outlook's `SaveAsFile`. Human-channel-only, like the delete and archive
- * knives — the entry script refuses it unless the host injected
- * `channel: 'human'`.
- */
-export interface KbMailDownloadAttachmentsArgs {
-  /** The mail capability's verb selector. */
-  readonly verb: 'download-attachments'
-  /** The mails whose attachments to save, each located by EntryID, with an optional one-line summary for the index's 摘要 column. */
-  readonly mails: readonly { readonly entryId: string; readonly summary?: string }[]
-}
-
-/** Result of the mail capability's download-attachments verb: per-mail outcomes, serial semantics. */
-export interface KbMailDownloadAttachmentsResult {
-  /** The attachments that landed: the owning mail's ids, each with its `resources/`-relative path and the attachment's own filename. */
-  readonly saved: readonly { readonly id: string; readonly entryId: string; readonly path: string; readonly filename: string }[]
-  /** Per-mail skips with the reason (no attachments,同名已存在 — conservative idempotency). */
-  readonly skipped: readonly { readonly id: string; readonly reason: string }[]
-  /** The EntryIDs Outlook could not resolve (already gone, store rebuilt). */
-  readonly missing: readonly string[]
-  /** The mails whose download failed, each with the reason. */
-  readonly failed: readonly { readonly id: string; readonly message: string }[]
-  /** Batch-level hints for the human. */
+  /** Batch-level hints for the human (converter missing, per-mail degradations, attachment failures). */
   readonly warnings: readonly string[]
 }
 
@@ -694,7 +682,10 @@ export interface KbCapabilityListResult {
  * One skill in `capabilityList`'s 未注册 group (ADR-0025 决定 1): either a
  * skill `ctx.skills` discovered outside the KB's own `.dsh/skills/` that
  * adoption can copy into it, or an in-KB skill no central route claims that
- * registration can route in place.
+ * registration can route in place. Home-directory discoveries
+ * (`~/.dsh/skills`, `~/.agents/skills`) are excluded — the workbench's
+ * capability plane is KB-scoped, and the owner's own installs are not
+ * third-party finds (2026-10-09).
  */
 export interface KbUnregisteredSkill {
   /** The skill's frontmatter name. */

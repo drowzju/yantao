@@ -37,7 +37,7 @@ import type {
   KbCapabilityRunArgs, KbCapabilityRunResult, KbCapabilityUnregisterArgs, KbCapabilityUnregisterResult,
   KbCreatableEntityType, KbCreateEntityArgs, KbCreateEntityResult,
   KbDeleteResourceResult, KbFileContent, KbGraphResult, KbLinksResult,
-  KbMailDeleteArgs, KbMailDeleteResult, KbMailDownloadAttachmentsArgs, KbMailDownloadAttachmentsResult,
+  KbMailDeleteArgs, KbMailDeleteResult,
   KbMailFetchArgs, KbMailFetchResult, KbMailMarkReadArgs, KbMailMarkReadResult, KbMailMessage,
   KbMemoryAddArgs, KbMemoryAddResult, KbMemoryDeleteArgs, KbMemoryDeleteResult, KbMemoryListResult,
   KbMemoryProposalApproveArgs, KbMemoryProposalApproveResult, KbMemoryProposalDiscardArgs,
@@ -270,14 +270,6 @@ export type ArchiveMail = { readonly entryId: string; readonly summary?: string 
  * human's tick on the proposal card is what arms it, same as the delete knife.
  */
 export type Archiver = (mails: readonly ArchiveMail[]) => Promise<KbMailArchiveResult>
-
-/**
- * Pull the attachments of nominated mails to `resources/mail-attachments/`
- * (2026-10-08): the mail capability's human-channel-only
- * `verb: 'download-attachments'`, same knife family as delete and archive —
- * the human clicks, the script saves, the agent never carries the blade.
- */
-export type AttachmentDownloader = (mails: readonly { entryId: string; summary?: string }[]) => Promise<KbMailDownloadAttachmentsResult>
 
 /**
  * Write one approved skill rewrite back (ADR-0054): the controller re-checks
@@ -740,40 +732,23 @@ export async function deleteMails(ctx: Context, ids: readonly string[], signal?:
 }
 
 /**
- * Keep nominated mails as `.eml` originals plus monthly index rows (ADR-0037),
- * through the `mail` capability's archive verb. The dedicated `mailRun` RPC
- * hardcodes the human invoker, and the controller testifies that channel in
- * the request envelope — the entry script refuses the verb to anyone else.
+ * Save nominated mails (2026-10-09 三提名合一): the `.eml` original plus all
+ * attachments land in `resources/mails/YYYY/MM/` with one monthly index row
+ * (ADR-0037), through the `mail` capability's archive verb. The dedicated
+ * `mailRun` RPC hardcodes the human invoker, and the controller testifies
+ * that channel in the request envelope — the entry script refuses the verb
+ * to anyone else.
  * @param ctx - client root context.
  * @param mails - the nominated mails, each located by EntryID with the
  *   analysis's summary for the index.
  * @param signal - the human channel's cancel line (ADR-0031).
- * @returns the per-mail outcome buckets, or a rejected promise carrying the reason.
+ * @returns the per-mail outcome buckets (each saved row carries the
+ *   attachment paths), or a rejected promise carrying the reason.
  */
 export async function archiveMails(ctx: Context, mails: readonly ArchiveMail[], signal?: AbortSignal): Promise<KbMailArchiveResult> {
   const args: KbMailArchiveArgs = { verb: 'archive', mails }
   const run = await runMail(ctx, { input: args as unknown as JsonValue }, signal)
   return run.result as unknown as KbMailArchiveResult
-}
-
-/**
- * Pull the attachments of nominated mails to `resources/mails/YYYY/MM/`
- * (the archive originals' directory) through the `mail` capability's
- * download-attachments verb. Like delete and
- * archive, the knife is human-channel-only: the dedicated `mailRun` RPC
- * hardcodes the human invoker, and the entry script refuses the verb to
- * anyone else.
- * @param ctx - client root context.
- * @param mails - the nominated mails, each located by EntryID.
- * @param signal - the human channel's cancel line (ADR-0031).
- * @returns the per-mail outcome buckets, or a rejected promise carrying the reason.
- */
-export async function downloadMailAttachments(
-  ctx: Context, mails: readonly { entryId: string; summary?: string }[], signal?: AbortSignal,
-): Promise<KbMailDownloadAttachmentsResult> {
-  const args: KbMailDownloadAttachmentsArgs = { verb: 'download-attachments', mails }
-  const run = await runMail(ctx, { input: args as unknown as JsonValue }, signal)
-  return run.result as unknown as KbMailDownloadAttachmentsResult
 }
 
 /**

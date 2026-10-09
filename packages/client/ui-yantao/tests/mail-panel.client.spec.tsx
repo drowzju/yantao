@@ -45,9 +45,7 @@ const VERDICT: MailAnalysis = {
   newProjects: [],
   meetings: [],
   deletions: [],
-  resources: [{ name: '汇报模板', summary: '两句话', mail: 1 }],
-  archives: [],
-  attachments: [],
+  saves: [{ mail: 1, summary: '有存档价值' }],
   memories: [],
 }
 
@@ -65,6 +63,10 @@ function props(overrides: Partial<MailPanelProps> = {}): MailPanelProps {
       todos: async () => ({ path: TODOS_PATH, text: TEXT, items: [{ done: false, title: '已有的待办', body: '', extra: [] }] }),
       writeTodos: vi.fn(async () => ({ path: TODOS_PATH, text: TEXT })),
       memoryAdd: vi.fn(async (scope: string, text: string) => ({ path: `.dsh/yantao/memory/${scope}.md`, entry: { id: 'm1', text } })),
+      archiveMails: vi.fn(async () => ({
+        saved: [{ id: 'm1', entryId: 'a', path: 'mails/2026/09/x.eml', format: 'eml' as const, remark: '', attachments: [] }],
+        oversized: [], skipped: [], missing: [], failed: [], warnings: [],
+      })),
     },
     entities: async () => ENTITIES,
     ...overrides,
@@ -244,8 +246,10 @@ describe('MailPanel', () => {
     expect(projectPath).toBe('entities/projects/飞书迁移.md')
     expect(projectContent).toContain('- 2026-01-01 创建 飞书迁移')
     expect(projectContent).toContain('对方确认了时间')
-    // The chosen mail becomes a resource note.
-    expect(written[1]?.[0]).toBe('resources/汇报模板.md')
+    // The chosen mail is archived (保存) through the human-channel knife,
+    // not written as a note file.
+    const archiveCalls = (target.archiveMails as unknown as ReturnType<typeof vi.fn>).mock.calls
+    expect(archiveCalls[0]?.[0]).toEqual([{ entryId: 'a', summary: '有存档价值' }])
 
     const todoArgs = (target.writeTodos as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
       expectedText: string

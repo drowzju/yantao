@@ -436,20 +436,35 @@ describe('delete-mails actions (ADR-0034 决定 5)', () => {
   })
 })
 
-describe('archive-mails actions (ADR-0037 决定 2)', () => {
+describe('archive-mails actions (ADR-0037 决定 2 + 2026-10-09 三提名合一)', () => {
   const ACTION = {
     kind: 'archive-mails', entryId: 'e1', sender: '老板', subject: '周报截止', summary: '有存档价值', reason: '有存档价值',
   } as const
 
   it('lands the mail and reports the relative path, with the fallback remark', async () => {
     const archiveMails = vi.fn(async () => ({
-      saved: [{ id: 'm1', entryId: 'e1', path: 'mails/2026/09/x.eml', format: 'eml' as const, remark: '' }],
+      saved: [{ id: 'm1', entryId: 'e1', path: 'mails/2026/09/x.eml', format: 'eml' as const, remark: '', attachments: [] }],
       oversized: [], skipped: [], missing: [], failed: [], warnings: [],
     }))
     const t = target({ archiveMails })
     const result = await applyProposal({ proposal: { title: 't', actions: [ACTION] }, ticked: [0], target: t })
     expect(archiveMails).toHaveBeenCalledWith([{ entryId: 'e1', summary: '有存档价值' }])
-    expect(result.written).toEqual(['归档邮件 周报截止 → mails/2026/09/x.eml'])
+    expect(result.written).toEqual(['保存邮件 周报截止 → mails/2026/09/x.eml'])
+  })
+
+  it('reports the attachments that landed with the original, joined by ；', async () => {
+    const archiveMails = vi.fn(async () => ({
+      saved: [{
+        id: 'm1', entryId: 'e1', path: 'mails/2026/09/x.eml', format: 'eml' as const, remark: '',
+        attachments: ['mails/2026/09/x_合同.pdf', 'mails/2026/09/x_数据.xlsx'],
+      }],
+      oversized: [], skipped: [], missing: [], failed: [], warnings: [],
+    }))
+    const t = target({ archiveMails })
+    const result = await applyProposal({ proposal: { title: 't', actions: [ACTION] }, ticked: [0], target: t })
+    expect(result.written).toEqual([
+      '保存邮件 周报截止 → mails/2026/09/x.eml；mails/2026/09/x_合同.pdf；mails/2026/09/x_数据.xlsx',
+    ])
   })
 
   it('skips a mail the mailbox no longer holds (评审 2026-09-30)', async () => {
@@ -459,13 +474,13 @@ describe('archive-mails actions (ADR-0037 决定 2)', () => {
     const t = target({ archiveMails })
     const result = await applyProposal({ proposal: { title: 't', actions: [ACTION] }, ticked: [0], target: t })
     expect(result.written).toEqual([])
-    expect(result.skipped).toEqual(['归档邮件 周报截止：邮箱里找不到这封邮件（可能已被移走）'])
+    expect(result.skipped).toEqual(['保存邮件 周报截止：邮箱里找不到这封邮件（可能已被移走）'])
   })
 
   it('consumes the batch warnings into the report, deduplicated (评审 2026-09-30)', async () => {
     const warning = '缺少 extract_msg：pip install extract-msg 后可获得 .eml 归档；当前降级为 .msg。'
     const archiveMails = vi.fn(async () => ({
-      saved: [], oversized: [], skipped: [{ id: 'e1', reason: '已归档过（同名同信），跳过' }],
+      saved: [], oversized: [], skipped: [{ id: 'e1', reason: '已保存过（同名同信），跳过' }],
       missing: [], failed: [], warnings: [warning],
     }))
     const t = target({ archiveMails })
@@ -474,9 +489,9 @@ describe('archive-mails actions (ADR-0037 决定 2)', () => {
     expect(archiveMails).toHaveBeenCalledTimes(2)
     // Two rows, one warning: the second occurrence is swallowed, not repeated.
     expect(result.skipped).toEqual([
-      '归档邮件 周报截止：已归档过（同名同信），跳过',
+      '保存邮件 周报截止：已保存过（同名同信），跳过',
       warning,
-      '归档邮件 又一封：已归档过（同名同信），跳过',
+      '保存邮件 又一封：已保存过（同名同信），跳过',
     ])
   })
 })

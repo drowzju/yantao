@@ -110,7 +110,7 @@ export const zh = {
 
   // Capability panel
   'capability.empty': '还没有能力。把能力目录拷进 .dsh/skills/，或新建一个。',
-  'capability.unregisteredHeading': '未注册技能（ADR-0025）',
+  'capability.unregisteredHeading': '未注册技能',
   'capability.adoptTitle': '采纳「{name}」？',
   'capability.adoptCopyTo': '将整个目录复制到 {path}，原处保留。',
   'capability.adoptRouteTo': '并在中央路由 {path} 写入：',
@@ -385,8 +385,7 @@ export const zh = {
   'group.appendSection': '章节补充',
   'group.memory': '记忆',
   'group.deleteMails': '删除邮件（移入已删除）',
-  'group.archiveMails': '归档邮件（.eml 原件）',
-  'group.downloadAttachments': '下载附件（存入 mails 目录并记索引）',
+  'group.saveMails': '保存邮件（.eml 原件＋附件，记入邮件索引）',
   'group.skillRewrite': '技能改写（批准即生效）',
 
   // Proposal card: the skill-rewrite diff block (ADR-0054)
@@ -490,7 +489,7 @@ export const en = {
 
   // Capability panel
   'capability.empty': 'No capabilities yet. Copy a capability directory into .dsh/skills/, or create one.',
-  'capability.unregisteredHeading': 'Unregistered skills (ADR-0025)',
+  'capability.unregisteredHeading': 'Unregistered skills',
   'capability.adoptTitle': 'Adopt "{name}"?',
   'capability.adoptCopyTo': 'Copy the whole directory to {path}, keeping the original in place.',
   'capability.adoptRouteTo': 'And write into the central routing file {path}:',
@@ -765,8 +764,7 @@ export const en = {
   'group.appendSection': 'Section additions',
   'group.memory': 'Memories',
   'group.deleteMails': 'Mail deletions (move to Deleted)',
-  'group.archiveMails': 'Mail archives (.eml originals)',
-  'group.downloadAttachments': 'Attachment downloads (into the mails directory, indexed)',
+  'group.saveMails': 'Mail saves (.eml original + attachments, indexed)',
   'group.skillRewrite': 'Skill rewrites (effective on approval)',
 
   // Proposal card: the skill-rewrite diff block (ADR-0054)

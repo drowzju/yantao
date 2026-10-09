@@ -168,7 +168,7 @@ const footerStyle = {
 
 /** The kinds in the order the card lists their groups. */
 const GROUP_ORDER: readonly ProposalAction['kind'][] = [
-  'create-entity', 'create-project', 'add-todo', 'append-log', 'write-state', 'edit-section', 'append-section', 'create-link', 'save-resource', 'add-memory', 'delete-mails', 'archive-mails', 'download-attachments', 'skill-rewrite',
+  'create-entity', 'create-project', 'add-todo', 'append-log', 'write-state', 'edit-section', 'append-section', 'create-link', 'save-resource', 'add-memory', 'delete-mails', 'archive-mails', 'skill-rewrite',
 ]
 
 /** A person action's relation, as the row's detail names it (self is never proposed). */
@@ -194,7 +194,6 @@ function labelOf(action: ProposalAction): string {
     case 'add-memory': return action.text
     case 'delete-mails': return action.subject
     case 'archive-mails': return action.subject
-    case 'download-attachments': return action.subject
     case 'skill-rewrite': return action.file
   }
 }
@@ -224,7 +223,6 @@ function detailOf(action: ProposalAction, t: WorkbenchT, hasAreasControl = false
   }
   if (action.kind === 'delete-mails') return `${action.sender}：${action.reason}`
   if (action.kind === 'archive-mails') return `${action.sender}：${action.summary || action.reason}`
-  if (action.kind === 'download-attachments') return `${action.sender}：${action.reason}`
   if (action.kind === 'skill-rewrite') return `${action.name}：${action.why}`
   if (action.kind === 'create-project') {
     if (hasAreasControl) return action.reason
