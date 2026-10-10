@@ -20,6 +20,7 @@ import type {
   ScheduleSaver, SessionPrompter,
   ShortcutFiller, TodoLoader, TodoWriter,
   MemoryProposalLister, MemoryProposalApprover, MemoryProposalDiscarder,
+  WorkspaceLister, WorkspaceRunner, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
 } from '../src/client/remote.ts'
 import type { CapabilityDistiller } from '../src/client/capability-distill.ts'
 import type { ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from '../src/client/model-config.ts'
@@ -134,6 +135,11 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     promptShortcutList: () => Promise.resolve({ shortcuts: [] }),
     promptShortcutSave: () => Promise.resolve({ shortcuts: [], path: '.dsh/yantao/prompt-shortcuts.json' }),
     fillShortcut: () => {},
+    workspaceList: () => Promise.resolve({ workspaces: [], path: '.dsh/yantao/workspaces.json' }),
+    workspaceSave: args => Promise.resolve({ workspaces: args.workspaces, path: '.dsh/yantao/workspaces.json' }),
+    workspaceRun: () => Promise.resolve({ runId: 'run_x' }),
+    workspaceRunStop: () => Promise.resolve({ runs: [] }),
+    workspaceRunsList: () => Promise.resolve({ runs: [], path: '.dsh/yantao/workspace-runs.json' }),
     onRunCapability: () => {},
     onRefine: () => {},
     ...overrides,
@@ -1222,6 +1228,11 @@ interface FrameFaces {
   readonly promptShortcutList: PromptShortcutLister
   readonly promptShortcutSave: PromptShortcutSaver
   readonly fillShortcut: ShortcutFiller
+  readonly workspaceList: WorkspaceLister
+  readonly workspaceSave: WorkspaceSaver
+  readonly workspaceRun: WorkspaceRunner
+  readonly workspaceRunStop: WorkspaceRunStopper
+  readonly workspaceRunsList: WorkspaceRunsLister
   readonly scheduleList: ScheduleLister
   readonly scheduleSave: ScheduleSaver
   readonly scheduleMark: ScheduleMarker
@@ -1287,6 +1298,11 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     promptShortcutList: () => Promise.resolve({ shortcuts: [] }),
     promptShortcutSave: () => Promise.resolve({ shortcuts: [], path: '.dsh/yantao/prompt-shortcuts.json' }),
     fillShortcut: () => {},
+    workspaceList: () => Promise.resolve({ workspaces: [], path: '.dsh/yantao/workspaces.json' }),
+    workspaceSave: args => Promise.resolve({ workspaces: args.workspaces, path: '.dsh/yantao/workspaces.json' }),
+    workspaceRun: () => Promise.resolve({ runId: 'run_x' }),
+    workspaceRunStop: () => Promise.resolve({ runs: [] }),
+    workspaceRunsList: () => Promise.resolve({ runs: [], path: '.dsh/yantao/workspace-runs.json' }),
     scheduleList: () => Promise.resolve({ schedules: [] }),
     scheduleSave: () => Promise.resolve({ schedules: [], path: '.dsh/yantao/schedules.json' }),
     scheduleMark: () => Promise.resolve({ schedules: [], path: '.dsh/yantao/schedules.json' }),
@@ -1365,6 +1381,11 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       promptShortcutList={kb.promptShortcutList}
       promptShortcutSave={kb.promptShortcutSave}
       fillShortcut={kb.fillShortcut}
+      workspaceList={kb.workspaceList}
+      workspaceSave={kb.workspaceSave}
+      workspaceRun={kb.workspaceRun}
+      workspaceRunStop={kb.workspaceRunStop}
+      workspaceRunsList={kb.workspaceRunsList}
       shortcutCatalog={{ getSnapshot: () => [], subscribe: () => () => {} }}
       scheduleList={kb.scheduleList}
       scheduleSave={kb.scheduleSave}
@@ -1604,6 +1625,11 @@ describe('Frame', () => {
         promptShortcutList={kb.promptShortcutList}
         promptShortcutSave={kb.promptShortcutSave}
         fillShortcut={kb.fillShortcut}
+        workspaceList={kb.workspaceList}
+        workspaceSave={kb.workspaceSave}
+        workspaceRun={kb.workspaceRun}
+        workspaceRunStop={kb.workspaceRunStop}
+        workspaceRunsList={kb.workspaceRunsList}
         scheduleList={kb.scheduleList}
         scheduleSave={kb.scheduleSave}
         scheduleMark={kb.scheduleMark}

@@ -18,6 +18,7 @@ import type {
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceDeleter, ResourceRegistrar, ShortcutFiller,
   TodoLoader, TodoWriter, Archiver,
+  WorkspaceLister, WorkspaceRunner, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
 import { useFloatingMenu } from './menu-behavior.ts'
@@ -28,6 +29,7 @@ import { entitiesOfTree } from './mail-apply.ts'
 import { CapabilityPanel } from './CapabilityPanel.tsx'
 import { MailPanel, mailRangeOf } from './MailPanel.tsx'
 import { MemoryPanel } from './MemoryPanel.tsx'
+import { WorkspacePanel } from './WorkspacePanel.tsx'
 import { createMailRun, useMailRun, type MailRunStore } from './mail-run.ts'
 import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { remoteMessage } from './remote.ts'
@@ -40,9 +42,10 @@ import type { ValidateScope } from './validate.ts'
 /** Loads one rail's sections; rejects with a message the rail can render. */
 export type TreeLoader = () => Promise<readonly KbTreeSection[]>
 
-/** Left-rail tabs in display order; `connector` is the 能力 tab (ADR-0021), `memory` the 记忆 one (ADR-0032). */
-const INTAKE_PANEL_IDS: readonly (KbTreeSectionId | 'connector' | 'memory')[] = [
-  'resources', 'todos', 'memory', 'connector',
+/** Left-rail tabs in display order; `connector` is the 能力 tab (ADR-0021), `memory` the 记忆 one (ADR-0032),
+    `workspace` the 工作区 one (ADR-0056) — beside the 能力 tab, per the ADR's rail placement. */
+const INTAKE_PANEL_IDS: readonly (KbTreeSectionId | 'connector' | 'memory' | 'workspace')[] = [
+  'resources', 'todos', 'memory', 'workspace', 'connector',
 ]
 
 /** Right-rail tabs in display order. */
@@ -73,12 +76,13 @@ function sectionOf(
 }
 
 /** Panel and tab labels as dictionary keys — translated at render through the threaded `t`. */
-export const SECTION_KEYS: Record<KbTreeSectionId | 'connector' | 'memory', WorkbenchLocaleKey> = {
+export const SECTION_KEYS: Record<KbTreeSectionId | 'connector' | 'memory' | 'workspace', WorkbenchLocaleKey> = {
   resources: 'section.resource',
   todos: 'section.todo',
   meetings: 'section.meeting',
   connector: 'section.capability',
   memory: 'section.memory',
+  workspace: 'section.workspace',
   areas: 'section.domain',
   people: 'section.person',
   projects: 'section.project',
@@ -1090,6 +1094,16 @@ export interface IntakeRailProps extends RailProps {
   readonly promptShortcutSave: PromptShortcutSaver
   /** Fill the conversation's composer with `/alias ` without sending (ADR-0040 决定 5). */
   readonly fillShortcut: ShortcutFiller
+  /** List the workspaces (ADR-0056) — the 工作区 tab's read. */
+  readonly workspaceList: WorkspaceLister
+  /** Replace the whole workspace list (ADR-0056). */
+  readonly workspaceSave: WorkspaceSaver
+  /** Trigger one workspace instruction now (ADR-0056 决定 3). */
+  readonly workspaceRun: WorkspaceRunner
+  /** Kill one running chain (ADR-0056 决定 4). */
+  readonly workspaceRunStop: WorkspaceRunStopper
+  /** Read the run-history ring (ADR-0056 决定 6). */
+  readonly workspaceRunsList: WorkspaceRunsLister
 }
 
 /** A small ghost face for the error row's 重试 (matches the discard ghost). */
@@ -1189,12 +1203,13 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     onRunCapability, kbRoot = '',
     memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
     promptShortcutList, promptShortcutSave, fillShortcut,
+    workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList,
   } = props
   const mailDelete = props.mailDelete
   const mailArchive = props.mailArchive
   const { sections, error, refresh } = useRail(load, refreshKey)
   const { capabilities, error: capabilityError } = useCapabilities(capabilityList, refreshKey)
-  const [tab, setTab] = useState<KbTreeSectionId | 'connector' | 'memory'>('resources')
+  const [tab, setTab] = useState<KbTreeSectionId | 'connector' | 'memory' | 'workspace'>('resources')
   // The mail run outlives the panel: tab switches, capability switches and a
   // collapsed rail all unmount MailPanel, and an analysis (or the proposal
   // card waiting on the human) must still be there when they come back.
@@ -1388,6 +1403,16 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
             listProposals={memoryProposalList}
             approveProposal={memoryProposalApprove}
             discardProposal={memoryProposalDiscard}
+          />
+        )}
+        {tab === 'workspace' && (
+          <WorkspacePanel
+            t={t}
+            list={workspaceList}
+            save={workspaceSave}
+            run={workspaceRun}
+            stop={workspaceRunStop}
+            listRuns={workspaceRunsList}
           />
         )}
         {tab === 'resources' && (

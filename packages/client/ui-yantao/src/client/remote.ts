@@ -54,6 +54,9 @@ import type {
   KbRootResult, KbSetEntityArchivedResult, KbSetRelationArgs, KbSetRelationResult,
   KbSetRootResult, KbSkillRewriteApplyArgs, KbSkillRewriteApplyResult, KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
+  KbWorkspaceListResult, KbWorkspaceRunArgs,
+  KbWorkspaceRunResult, KbWorkspaceRunsListResult, KbWorkspaceRunStopArgs,
+  KbWorkspaceRunStopResult, KbWorkspaceSaveArgs, KbWorkspaceSaveResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 
 /** The yantaoKb namespace's callable surface, structurally satisfied by the mounted contribution. */
@@ -138,6 +141,16 @@ export interface KbRemote {
   scheduleSave(args: KbScheduleSaveArgs): Promise<RemoteResult<KbScheduleSaveResult>>
   /** Patch one row's scheduler-owned stamps (ADR-0045); `null` clears, an absent field is left alone. */
   scheduleMark(args: KbScheduleMarkArgs): Promise<RemoteResult<KbScheduleMarkResult>>
+  /** The workspace store's listing (ADR-0056), in stored order. */
+  workspaceList(): Promise<RemoteResult<KbWorkspaceListResult>>
+  /** Replace the whole workspace list (ADR-0056); cron/chain shape is validated, tick stamps preserved. */
+  workspaceSave(args: KbWorkspaceSaveArgs): Promise<RemoteResult<KbWorkspaceSaveResult>>
+  /** Trigger one instruction now (ADR-0056 决定 3); the controller spawns the chain. */
+  workspaceRun(args: KbWorkspaceRunArgs): Promise<RemoteResult<KbWorkspaceRunResult>>
+  /** Kill one running chain's process tree (ADR-0056 决定 4). */
+  workspaceRunStop(args: KbWorkspaceRunStopArgs): Promise<RemoteResult<KbWorkspaceRunStopResult>>
+  /** The run-history ring (ADR-0056 决定 6), newest first. */
+  workspaceRunsList(): Promise<RemoteResult<KbWorkspaceRunsListResult>>
   /** The proposal inbox's listing (ADR-0047), in enqueue order — pending and decided alike. */
   proposalInboxList(): Promise<RemoteResult<KbProposalInboxListResult>>
   /** Append one proposal to the inbox (ADR-0047); the store assigns id, stamp and pending status. */
@@ -310,6 +323,21 @@ export type ScheduleSaver = (args: KbScheduleSaveArgs) => Promise<KbScheduleSave
 
 /** Patch one row's scheduler-owned stamps (ADR-0045). */
 export type ScheduleMarker = (args: KbScheduleMarkArgs) => Promise<KbScheduleMarkResult>
+
+/** List the workspaces (ADR-0056). */
+export type WorkspaceLister = () => Promise<KbWorkspaceListResult>
+
+/** Replace the whole workspace list (ADR-0056); the host validates cron and chain shape. */
+export type WorkspaceSaver = (args: KbWorkspaceSaveArgs) => Promise<KbWorkspaceSaveResult>
+
+/** Trigger one workspace instruction now (ADR-0056 决定 3); resolves the new run's id. */
+export type WorkspaceRunner = (args: KbWorkspaceRunArgs) => Promise<KbWorkspaceRunResult>
+
+/** Kill one running chain's process tree (ADR-0056 决定 4); a ghost run rejects. */
+export type WorkspaceRunStopper = (runId: string) => Promise<KbWorkspaceRunStopResult>
+
+/** Read the run-history ring (ADR-0056 决定 6) — newest first. */
+export type WorkspaceRunsLister = () => Promise<KbWorkspaceRunsListResult>
 
 /** Read the proposal inbox (ADR-0047) — the 提议 tab's read. */
 export type ProposalInboxLister = () => Promise<KbProposalInboxListResult>
@@ -1062,6 +1090,73 @@ export async function markSchedule(ctx: Context, args: KbScheduleMarkArgs): Prom
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.scheduleMark(args))
+}
+
+/**
+ * List the workspaces (ADR-0056) — the 工作区 tab's definition list.
+ * @param ctx - client root context.
+ * @returns the workspaces in stored order, or a rejected promise carrying
+ *   the reason.
+ */
+export async function loadWorkspaces(ctx: Context): Promise<KbWorkspaceListResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.workspaceList())
+}
+
+/**
+ * Replace the whole workspace list (ADR-0056): the tab edits a handful of
+ * rows, so a full-list save keeps add, edit and delete one seam — the same
+ * recipe as the schedule store. The host validates cron and chain shape and
+ * preserves the tick-owned stamps the editor never authors.
+ * @param ctx - client root context.
+ * @param args - the complete new list, in display order.
+ * @returns the list as stored, or a rejected promise carrying the reason.
+ */
+export async function saveWorkspaces(ctx: Context, args: KbWorkspaceSaveArgs): Promise<KbWorkspaceSaveResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.workspaceSave(args))
+}
+
+/**
+ * Trigger one workspace instruction now (ADR-0056 决定 3): the controller
+ * spawns the chain's first `codebuddy` process in the workspace's directory
+ * and keeps it alive across UI reloads.
+ * @param ctx - client root context.
+ * @param args - the workspace and the instruction to run.
+ * @returns the new run's id, or a rejected promise carrying the reason.
+ */
+export async function runWorkspaceInstruction(ctx: Context, args: KbWorkspaceRunArgs): Promise<KbWorkspaceRunResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.workspaceRun(args))
+}
+
+/**
+ * Stop one running chain (ADR-0056 决定 4): the controller kills the child
+ * process tree and marks the run `stopped`. A run that already ended (or one
+ * from a previous controller lifetime) rejects — the caller refreshes.
+ * @param ctx - client root context.
+ * @param runId - the run to stop.
+ * @returns the full run history as stored after the stop.
+ */
+export async function stopWorkspaceRun(ctx: Context, runId: string): Promise<KbWorkspaceRunStopResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.workspaceRunStop({ runId }))
+}
+
+/**
+ * Read the run-history ring (ADR-0056 决定 6) — the 工作区 tab's 历史 zone,
+ * polled while any run is live.
+ * @param ctx - client root context.
+ * @returns the runs, newest first, or a rejected promise carrying the reason.
+ */
+export async function loadWorkspaceRuns(ctx: Context): Promise<KbWorkspaceRunsListResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.workspaceRunsList())
 }
 
 /**

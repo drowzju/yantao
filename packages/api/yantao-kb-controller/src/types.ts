@@ -1041,6 +1041,142 @@ export interface KbScheduleMarkResult {
   readonly path: string
 }
 
+/** One instruction inside a workspace (ADR-0056 决定 3): an optional cron plus a prompt chain. */
+export interface KbWorkspaceInstruction {
+  /** Stable identity, assigned at creation; edits keep it. */
+  readonly id: string
+  /** Display name, shown on cards and run rows. */
+  readonly name: string
+  /** Five-field cron (分 时 日 月 周); absent = manual trigger only. */
+  readonly cron?: string
+  /** Disabled instructions stay in the list but never fire. */
+  readonly enabled: boolean
+  /** The prompt chain — snapshots, not references; ≥1 step, ≤10. */
+  readonly steps: readonly string[]
+  /** ISO timestamp of the last cron fire; absent when never fired. Tick-owned, never authored by the editor. */
+  readonly lastFiredAt?: string
+  /** ISO timestamp of the most recent missed fire; a real fire clears it. Tick-owned. */
+  readonly lastMissedAt?: string
+}
+
+/** One workspace (ADR-0056 决定 2): a directory binding plus its instructions. */
+export interface KbWorkspace {
+  /** Stable identity, assigned at creation; edits keep it. */
+  readonly id: string
+  /** Display name. */
+  readonly name: string
+  /** The bound directory (absolute); the agent's cwd, and the human's grant of territory. */
+  readonly directory: string
+  /** The executor family; today only `codebuddy`. */
+  readonly agent: 'codebuddy'
+  /** Optional model selector, passed through as `--model`. */
+  readonly model?: string
+  /** The instructions this workspace carries. */
+  readonly instructions: readonly KbWorkspaceInstruction[]
+}
+
+/** One chain step's record inside a workspace run (ADR-0056 决定 6). */
+export interface KbWorkspaceRunStep {
+  /** Zero-based position in the chain. */
+  readonly index: number
+  /** The prompt as fired — a snapshot, not a reference. */
+  readonly promptSnapshot: string
+  /** ISO timestamp the step's process started; absent before it spawns. */
+  readonly startedAt?: string
+  /** ISO timestamp the step ended (any ending); absent while running. */
+  readonly finishedAt?: string
+  /** The process exit code; null when killed or never cleanly exited. */
+  readonly exitCode?: number | null
+  /** The agent session this step ran in — later steps resume it. */
+  readonly sessionId?: string
+  /** The final result text, trimmed to an excerpt for the history card. */
+  readonly resultExcerpt?: string
+  /** Why the step failed, when it did. */
+  readonly error?: string
+}
+
+/** One execution of one instruction (ADR-0056 决定 6). */
+export interface KbWorkspaceRun {
+  /** Stable identity, assigned at trigger time. */
+  readonly id: string
+  /** The owning workspace; dangling after a workspace deletion — rows are history, not references. */
+  readonly workspaceId: string
+  /** The instruction that produced this run. */
+  readonly instructionId: string
+  /** The instruction's name at trigger time (snapshots survive renames). */
+  readonly instructionName: string
+  /** What pulled the trigger. */
+  readonly trigger: 'manual' | 'cron'
+  /** Lifecycle: `running` until a terminal status replaces it. */
+  readonly status: 'running' | 'success' | 'failed' | 'stopped' | 'missed' | 'interrupted'
+  /** ISO timestamp the run was created. */
+  readonly startedAt: string
+  /** ISO timestamp the run reached a terminal status; absent while running. */
+  readonly finishedAt?: string
+  /** Zero-based index of the step that broke the chain, when one did. */
+  readonly failedStep?: number
+  /** The last successful step's result text, for the history card. */
+  readonly finalResult?: string
+  /** Per-step records, in chain order. A `missed` row has none. */
+  readonly steps: readonly KbWorkspaceRunStep[]
+}
+
+/** Result of `yantaoKb.workspaceList` (ADR-0056). */
+export interface KbWorkspaceListResult {
+  /** The workspaces in display (stored) order. */
+  readonly workspaces: readonly KbWorkspace[]
+  /** KB-relative path of the store, for the UI's error copy. */
+  readonly path: string
+}
+
+/** Parameters of `yantaoKb.workspaceSave` (ADR-0056): full-list replace. */
+export interface KbWorkspaceSaveArgs {
+  /** The complete new list, in display order; validation refuses bad crons/chains. */
+  readonly workspaces: readonly KbWorkspace[]
+}
+
+/** Result of `yantaoKb.workspaceSave` (ADR-0056). */
+export interface KbWorkspaceSaveResult {
+  /** The list as stored (normalized, tick stamps preserved). */
+  readonly workspaces: readonly KbWorkspace[]
+  /** KB-relative path of the store, for the UI's error copy. */
+  readonly path: string
+}
+
+/** Parameters of `yantaoKb.workspaceRun` (ADR-0056): manual trigger. */
+export interface KbWorkspaceRunArgs {
+  /** The workspace holding the instruction. */
+  readonly workspaceId: string
+  /** The instruction to run now. */
+  readonly instructionId: string
+}
+
+/** Result of `yantaoKb.workspaceRun` (ADR-0056). */
+export interface KbWorkspaceRunResult {
+  /** The new run's id — the row the 历史 list will show. */
+  readonly runId: string
+}
+
+/** Parameters of `yantaoKb.workspaceRunStop` (ADR-0056): kill the chain's process tree. */
+export interface KbWorkspaceRunStopArgs {
+  /** The run to stop. */
+  readonly runId: string
+}
+
+/** Result of `yantaoKb.workspaceRunStop` (ADR-0056). */
+export interface KbWorkspaceRunStopResult {
+  /** The full run history as stored after the stop patch. */
+  readonly runs: readonly KbWorkspaceRun[]
+}
+
+/** Result of `yantaoKb.workspaceRunsList` (ADR-0056): the run-history ring. */
+export interface KbWorkspaceRunsListResult {
+  /** The runs, newest first. */
+  readonly runs: readonly KbWorkspaceRun[]
+  /** KB-relative path of the store, for the UI's error copy. */
+  readonly path: string
+}
+
 /**
  * One queued proposal in the inbox (ADR-0047): a structured proposal produced
  * outside a human-initiated card flow — today, a schedule's background

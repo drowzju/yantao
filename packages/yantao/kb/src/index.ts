@@ -655,6 +655,18 @@ export {
   SCHEDULES_DISPLAY_PATH, SCHEDULES_SOFT_CAP, writeSchedules,
 } from './schedules.ts'
 export type { Schedule, ScheduleFile, ScheduleStampsPatch } from './schedules.ts'
+export { cronMatchesAt, cronNextAfter, parseCron } from './cron.ts'
+export type { CronSchedule } from './cron.ts'
+export {
+  markInstruction, newInstructionId, newWorkspaceId, normalizeWorkspaces, readWorkspaces,
+  WORKSPACES_DISPLAY_PATH, WORKSPACES_SOFT_CAP, writeWorkspaces,
+} from './workspaces.ts'
+export type { InstructionStampsPatch, WorkspaceDef, WorkspaceFile, WorkspaceInstruction } from './workspaces.ts'
+export {
+  appendWorkspaceRun, finalizeInterruptedRuns, newRunId, normalizeWorkspaceRuns, patchWorkspaceRun,
+  readWorkspaceRuns, RUN_HISTORY_CAP, WORKSPACE_RUNS_DISPLAY_PATH,
+} from './workspace-runs.ts'
+export type { WorkspaceRun, WorkspaceRunPatch, WorkspaceRunSeed, WorkspaceRunStep, WorkspaceRunsFile } from './workspace-runs.ts'
 export {
   enqueueProposal, INBOX_PENDING_SOFT_CAP, newProposalInboxId, normalizeInboxEntries,
   PROPOSAL_INBOX_DISPLAY_PATH, readProposalInbox, resolveProposalInboxEntry, writeProposalInbox,

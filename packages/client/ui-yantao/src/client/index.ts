@@ -48,6 +48,7 @@ import type {
   KbCapabilityRouteUpdateArgs, KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation,
   KbPromptShortcutSaveArgs, KbProposalInboxEnqueueArgs, KbProposalInboxResolveArgs,
   KbScheduleMarkArgs, KbScheduleSaveArgs, KbSkillRewriteApplyArgs, KbWriteTodosArgs,
+  KbWorkspaceRunArgs, KbWorkspaceSaveArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { UsageWireDailyArgs } from '@deepseek-ai/dsh-api-yantao-usage-controller/types'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
@@ -82,6 +83,7 @@ import {
   loadImageBinary,
   loadSchedules, markSchedule, savePromptShortcuts, saveSchedules, setKbRoot,
   enqueueInboxProposal, loadProposalInbox, loadRelationGraph, resolveInboxProposal,
+  loadWorkspaces, saveWorkspaces, runWorkspaceInstruction, stopWorkspaceRun, loadWorkspaceRuns,
   setRelation, unregisterCapability, updateCapabilityRoute, writeFile, writeTodos,
 } from './remote.ts'
 import type { CapabilityRegisterReach } from './remote.ts'
@@ -387,6 +389,14 @@ export function apply(ctx: Context): void {
       scheduleList: () => loadSchedules(ctx),
       scheduleSave: (args: KbScheduleSaveArgs) => saveSchedules(ctx, args),
       scheduleMark: (args: KbScheduleMarkArgs) => markSchedule(ctx, args),
+      // ADR-0056: the 工作区 surface — the tab's definition read/full-list
+      // save, the manual trigger, the stop and the run-history ring the
+      // panel polls while a chain is live.
+      workspaceList: () => loadWorkspaces(ctx),
+      workspaceSave: (args: KbWorkspaceSaveArgs) => saveWorkspaces(ctx, args),
+      workspaceRun: (args: KbWorkspaceRunArgs) => runWorkspaceInstruction(ctx, args),
+      workspaceRunStop: (runId: string) => stopWorkspaceRun(ctx, runId),
+      workspaceRunsList: () => loadWorkspaceRuns(ctx),
       // ADR-0047: the 提议 surface — the scheduler's enqueue after a fired
       // session's answer parsed into a proposal, the inbox tab's read and
       // the two verdicts.

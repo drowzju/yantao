@@ -57,8 +57,10 @@ import {
   readPromptShortcuts, writePromptShortcuts, PROMPT_SHORTCUTS_DISPLAY_PATH,
   readSchedules, writeSchedules, markSchedule, SCHEDULES_DISPLAY_PATH,
   enqueueProposal, readProposalInbox, resolveProposalInboxEntry, PROPOSAL_INBOX_DISPLAY_PATH,
+  readWorkspaces, writeWorkspaces, markInstruction, WORKSPACES_DISPLAY_PATH,
+  readWorkspaceRuns, appendWorkspaceRun, WORKSPACE_RUNS_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
-import type { EntityType } from '@deepseek-ai/dsh-yantao-kb'
+import type { EntityType, WorkspaceDef } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities, seedBuiltinRoutes } from './capability/builtin.ts'
 import { applySkillRewrite } from './capability/rewrite.ts'
 import { CAPABILITY_HINTS, CapabilityError, runCapability } from './capability/run.ts'
@@ -68,6 +70,8 @@ import { mailSpanNote, normalizeMailRange, partitionProposedActions } from './ca
 import { addRoutes, readRoutes, removeRoute, routedSkill, updateRoute, ROUTES_PATH } from './capability/routing.ts'
 import type { CapabilityRoute } from './capability/routing.ts'
 import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
+import { WorkspaceRuntime } from './workspace/runtime.ts'
+import { workspaceTickScan } from './workspace/tick.ts'
 import { KbRevision } from './watch.ts'
 import type {
   KbCapabilityAdoptArgs,
@@ -113,6 +117,14 @@ import type {
   KbScheduleMarkResult,
   KbScheduleSaveArgs,
   KbScheduleSaveResult,
+  KbWorkspaceListResult,
+  KbWorkspaceRunArgs,
+  KbWorkspaceRunResult,
+  KbWorkspaceRunsListResult,
+  KbWorkspaceRunStopArgs,
+  KbWorkspaceRunStopResult,
+  KbWorkspaceSaveArgs,
+  KbWorkspaceSaveResult,
   KbMemoryListResult,
   KbMemoryProposalApproveArgs,
   KbMemoryProposalApproveResult,
@@ -354,13 +366,44 @@ export class YantaoKbController extends TypertRemoteService {
    */
   static inject = ['yantaoKb', 'skills', 'tools']
 
+  /** The workspace cron tick's cadence — same rhythm as the frontend scheduler. */
+  private static readonly WORKSPACE_TICK_INTERVAL_MS = 30_000
+
+  /** How old a workspace cron fire may be and still count as live (covers the scan interval). */
+  private static readonly WORKSPACE_FIRE_TOLERANCE_MS = 300_000
+
   /** The KB's change counter (ADR-0017); pointed at the live root on each poll. */
   private readonly revisionWatch = new KbRevision()
 
+  /**
+   * The workspace runtime (ADR-0056 决定 4): spawn/stop/heal, owned by the
+   * controller. Public readonly so tests can inject a fake spawn before
+   * triggering.
+   */
+  readonly workspaceRuntime: WorkspaceRuntime
+
+  /** Guards against overlapping ticks piling duplicate scans. */
+  private workspaceTicking = false
+
   constructor(ctx: Context) {
     super(ctx, 'yantaoKbController', { namespace: 'yantaoKb' })
+    this.workspaceRuntime = new WorkspaceRuntime({ kbRoot: () => this.kbRoot })
     this.ctx.effect(() => () => {
       this.revisionWatch.close()
+    })
+    // The workspace runtime's lifecycle (ADR-0056 决定 4): runs survive the
+    // UI, so the controller owns them. On mount, heal the rows a dead
+    // predecessor left `running` (never re-runs); on teardown, kill the
+    // live trees and mark their rows interrupted. The cron tick is a
+    // controller-side interval — the frontend scheduler's twin, moved
+    // host-side because the fired work is a subprocess, not a UI action.
+    this.ctx.effect(() => () => this.workspaceRuntime.dispose())
+    this.ctx.effect(() => {
+      void this.workspaceRuntime.healOnBoot().catch((error: unknown) => {
+        console.warn('workspace run healing failed:', error)
+      })
+      const timer = setInterval(() => { void this.workspaceTick() }, YantaoKbController.WORKSPACE_TICK_INTERVAL_MS)
+      return () => { clearInterval(timer) }
     })
     // The agent-facing capability catalog (ADR-0023 决定 5): on a user-prompted
     // step, append one message listing the capabilities declared
@@ -1675,6 +1718,218 @@ export class YantaoKbController extends TypertRemoteService {
         'yantao-kb/rejected',
         '还没有选择知识库目录，调度无处存放。',
         { path: SCHEDULES_DISPLAY_PATH },
+      )
+    }
+  }
+
+  /**
+   * The workspace cron tick (ADR-0056 决定 5): scan every instruction, fire
+   * the fresh due ones, record the stale ones as missed — never caught up.
+   * The due/missed decision is the frontend scheduler's semantics, ported
+   * pure into `workspace/tick.ts` and pinned by the parity spec.
+   *
+   * One deliberate guard beyond the ADR's 「并发不设限」: a cron whose
+   * previous chain is STILL RUNNING does not stack a second chain — the
+   * window is consumed (marked fired) and nothing spawns. Without it a
+   * `* * * * *` instruction would pile a new codebuddy process every minute
+   * for as long as the first chain runs; the global no-limit ruling was
+   * about caps on distinct runs, not about one instruction re-entering
+   * itself. The consumed window stays visible via `lastFiredAt`.
+   */
+  private async workspaceTick(): Promise<void> {
+    if (this.workspaceTicking || !this.ctx.yantaoKb.configured) return
+    this.workspaceTicking = true
+    try {
+      const spaces = await readWorkspaces(this.kbRoot)
+      const now = new Date()
+      for (const space of spaces) {
+        for (const instruction of space.instructions) {
+          const action = workspaceTickScan(instruction, now, YantaoKbController.WORKSPACE_FIRE_TOLERANCE_MS)
+          if (action.kind === 'wait') continue
+          if (action.kind === 'missed') {
+            // 决定 5: record the miss, never catch up. The missed row is
+            // born terminal — history, not a queue.
+            await markInstruction(this.kbRoot, space.id, instruction.id, { lastMissedAt: now.toISOString() })
+            await appendWorkspaceRun(this.kbRoot, {
+              workspaceId: space.id,
+              instructionId: instruction.id,
+              instructionName: instruction.name,
+              trigger: 'cron',
+              steps: [],
+              missed: true,
+            }, now)
+            continue
+          }
+          if (this.workspaceRuntime.hasRunning(instruction.id)) {
+            await markInstruction(this.kbRoot, space.id, instruction.id, { lastFiredAt: now.toISOString() })
+            continue
+          }
+          await markInstruction(this.kbRoot, space.id, instruction.id, {
+            lastFiredAt: now.toISOString(),
+            lastMissedAt: null,
+          })
+          await this.workspaceRuntime.trigger(space, instruction, 'cron')
+        }
+      }
+    } catch (error: unknown) {
+      // The tick is a background loop: a broken store or a transient IO
+      // failure must not kill the interval — warn and retry next tick.
+      console.warn('workspace tick failed:', error)
+    } finally {
+      this.workspaceTicking = false
+    }
+  }
+
+  /**
+   * The workspace store's listing (ADR-0056): the human's directory+agent
+   * bindings with their instructions, in display order. The agent has no
+   * tool into this surface at all (决定 1: 纯人通道).
+   * @returns the workspaces as stored.
+   */
+  @Remote('workspaceList')
+  async workspaceList(): Promise<KbWorkspaceListResult> {
+    this.requireKbRootForWorkspaces(WORKSPACES_DISPLAY_PATH)
+    try {
+      return { workspaces: await readWorkspaces(this.kbRoot), path: WORKSPACES_DISPLAY_PATH }
+    } catch (error: unknown) {
+      throw this.workspaceError(error, WORKSPACES_DISPLAY_PATH)
+    }
+  }
+
+  /**
+   * Save the whole workspace list (ADR-0056): the UI edits a handful of
+   * rows, so a full-list replace keeps reorder and delete trivially correct.
+   * Human-channel only — creating the binding IS the authorization (决定 2).
+   * The tick-owned stamps (`lastFiredAt` / `lastMissedAt`) never travel
+   * through this save: an editor's stale snapshot must not rewind the
+   * bookkeeping, so matching instruction ids keep the stamps the store
+   * holds — the tick patches them through `markInstruction` instead.
+   * @param args - the complete new list, in display order.
+   * @returns the list as stored (normalized, stamps preserved).
+   */
+  @Remote('workspaceSave')
+  async workspaceSave(args: KbWorkspaceSaveArgs): Promise<KbWorkspaceSaveResult> {
+    this.requireKbRootForWorkspaces(WORKSPACES_DISPLAY_PATH)
+    try {
+      const current = await readWorkspaces(this.kbRoot)
+      const merged = args.workspaces.map((space) => {
+        const prevSpace = current.find(candidate => candidate.id === space.id)
+        if (prevSpace === undefined) return space
+        return {
+          ...space,
+          instructions: space.instructions.map((instruction) => {
+            const prev = prevSpace.instructions.find(candidate => candidate.id === instruction.id)
+            return prev === undefined ? instruction : {
+              ...instruction,
+              ...prev.lastFiredAt !== undefined ? { lastFiredAt: prev.lastFiredAt } : {},
+              ...prev.lastMissedAt !== undefined ? { lastMissedAt: prev.lastMissedAt } : {},
+            }
+          }),
+        }
+      })
+      await writeWorkspaces(this.kbRoot, merged as readonly WorkspaceDef[])
+      return { workspaces: await readWorkspaces(this.kbRoot), path: WORKSPACES_DISPLAY_PATH }
+    } catch (error: unknown) {
+      throw this.workspaceError(error, WORKSPACES_DISPLAY_PATH)
+    }
+  }
+
+  /**
+   * Trigger one instruction NOW (ADR-0056 决定 3/5): the manual gesture —
+   * an instruction without cron has no other way to run, and one with cron
+   * can be fired on demand too. The run row is appended before this answers;
+   * the chain itself proceeds in the background.
+   * @param args - the workspace and instruction to run.
+   * @returns the new run's id.
+   */
+  @Remote('workspaceRun')
+  async workspaceRun(args: KbWorkspaceRunArgs): Promise<KbWorkspaceRunResult> {
+    this.requireKbRootForWorkspaces(WORKSPACE_RUNS_DISPLAY_PATH)
+    const { space, instruction } = await this.locateInstruction(args.workspaceId, args.instructionId)
+    try {
+      const runId = await this.workspaceRuntime.trigger(space, instruction, 'manual')
+      return { runId }
+    } catch (error: unknown) {
+      throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)
+    }
+  }
+
+  /**
+   * Stop one running chain (ADR-0056 决定 4): kill the current step's
+   * process tree and mark the row `stopped`. A run that already settled —
+   * or belongs to a dead controller — refuses.
+   * @param args - the run to stop.
+   * @returns the full run history as stored after the stop patch.
+   */
+  @Remote('workspaceRunStop')
+  async workspaceRunStop(args: KbWorkspaceRunStopArgs): Promise<KbWorkspaceRunStopResult> {
+    this.requireKbRootForWorkspaces(WORKSPACE_RUNS_DISPLAY_PATH)
+    if (!this.workspaceRuntime.stop(args.runId)) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `运行 ${args.runId} 不在本进程运行中（已结束，或属于上次启动遗留的中断记录）。`,
+        { path: WORKSPACE_RUNS_DISPLAY_PATH },
+      )
+    }
+    try {
+      return { runs: (await readWorkspaceRuns(this.kbRoot)).slice().reverse() }
+    } catch (error: unknown) {
+      throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)
+    }
+  }
+
+  /**
+   * The run history (ADR-0056 决定 6): the ring of recent executions, newest
+   * first. A log, not a queue — nothing here waits for a decision.
+   * @returns the runs, newest first.
+   */
+  @Remote('workspaceRunsList')
+  async workspaceRunsList(): Promise<KbWorkspaceRunsListResult> {
+    this.requireKbRootForWorkspaces(WORKSPACE_RUNS_DISPLAY_PATH)
+    try {
+      return { runs: (await readWorkspaceRuns(this.kbRoot)).slice().reverse(), path: WORKSPACE_RUNS_DISPLAY_PATH }
+    } catch (error: unknown) {
+      throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)
+    }
+  }
+
+  /** Resolve one workspace instruction, refusing unknown ids with named prose. */
+  private async locateInstruction(workspaceId: string, instructionId: string): Promise<{
+    readonly space: WorkspaceDef
+    readonly instruction: WorkspaceDef['instructions'][number]
+  }> {
+    const spaces = await readWorkspaces(this.kbRoot)
+    const space = spaces.find(candidate => candidate.id === workspaceId)
+    if (space === undefined) {
+      throw new RemoteError('yantao-kb/rejected', `工作空间 ${workspaceId} 不存在。`, { path: WORKSPACES_DISPLAY_PATH })
+    }
+    const instruction = space.instructions.find(candidate => candidate.id === instructionId)
+    if (instruction === undefined) {
+      throw new RemoteError('yantao-kb/rejected', `指令 ${instructionId} 不存在于工作空间「${space.name}」。`, { path: WORKSPACES_DISPLAY_PATH })
+    }
+    return { space, instruction }
+  }
+
+  /** Map a kb-side workspace failure to a RemoteError the UI shows verbatim. */
+  private workspaceError(error: unknown, path: string): RemoteError {
+    if (error instanceof KbError) {
+      return new RemoteError('yantao-kb/rejected', error.message, { path }, { cause: error })
+    }
+    return new RemoteError(
+      'yantao-kb/rejected',
+      `工作空间操作失败：${(error as Error).message}`,
+      { path },
+      { cause: error instanceof Error ? error : undefined },
+    )
+  }
+
+  /** Refuse workspace calls before a KB root exists — the stores live beside it. */
+  private requireKbRootForWorkspaces(path: string): void {
+    if (!this.ctx.yantaoKb.configured) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        '还没有选择知识库目录，工作空间无处存放。',
+        { path },
       )
     }
   }

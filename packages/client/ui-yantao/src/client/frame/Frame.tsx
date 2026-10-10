@@ -22,6 +22,7 @@ import type {
   PromptShortcutSaver, RelationGraphLoader, RelationSetter, ResourceDeleter, ResourceRegistrar, RevisionLoader,
   ScheduleLister, ScheduleMarker,
   ScheduleSaver, ProposalInboxLister, ProposalInboxResolver, ShortcutFiller,
+  WorkspaceLister, WorkspaceRunner, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
   RootLoader, RootSetter,
   Archiver, SkillRewriteApplier,
   SessionPrompter, TodoLoader, TodoWriter,
@@ -187,6 +188,16 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly scheduleMark: ScheduleMarker
   /** Fire one schedule's prompt as a background session (ADR-0045 决定 2). */
   readonly runSchedule: ScheduleRunner
+  /** List the workspaces (ADR-0056) — the 工作区 tab's read. */
+  readonly workspaceList: WorkspaceLister
+  /** Replace the whole workspace list (ADR-0056). */
+  readonly workspaceSave: WorkspaceSaver
+  /** Trigger one workspace instruction now (ADR-0056 决定 3). */
+  readonly workspaceRun: WorkspaceRunner
+  /** Kill one running chain (ADR-0056 决定 4). */
+  readonly workspaceRunStop: WorkspaceRunStopper
+  /** Read the run-history ring (ADR-0056 决定 6). */
+  readonly workspaceRunsList: WorkspaceRunsLister
   /** Read the proposal inbox (ADR-0047) — the 提议 tab's read. */
   readonly proposalInboxList: ProposalInboxLister
   /** Record the human's decision on one pending inbox entry (ADR-0047). */
@@ -488,6 +499,7 @@ export function Frame({
   sessionDetail, onKbRootChanged, mailDelete, mailArchive, skillRewriteApply,
   promptShortcutList, promptShortcutSave, fillShortcut,
   scheduleList, scheduleSave, scheduleMark, runSchedule,
+  workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList,
   proposalInboxList, proposalInboxResolve, relationGraph,
   loadModelsConfig, saveModelsConfig, shortcutCatalog,
 }: FrameProps): ReactElement {
@@ -1824,6 +1836,11 @@ export function Frame({
           promptShortcutList={promptShortcutList}
           promptShortcutSave={promptShortcutSave}
           fillShortcut={fillShortcut}
+          workspaceList={workspaceList}
+          workspaceSave={workspaceSave}
+          workspaceRun={workspaceRun}
+          workspaceRunStop={workspaceRunStop}
+          workspaceRunsList={workspaceRunsList}
           onRunCapability={runRowCapability}
           onRefine={runRefineGesture}
           kbRoot={kbRoot}
