@@ -53,8 +53,11 @@ export function matchCapabilities(
  * the full unified vocabulary (ADR-0021 决定 4): the card renders whatever
  * fields each kind needs, and the applier degrades an unserviceable row
  * honestly (an absent seam skips it, never executes it elsewhere).
+ * Exported for the controller-side parity spec (ADR-0055): the
+ * `kb_propose_actions` tool validates against a deliberate twin of this
+ * table, and the spec pins the two together.
  */
-const KINDS: readonly ProposalAction['kind'][] = [
+export const KINDS: readonly ProposalAction['kind'][] = [
   'create-entity', 'create-project', 'append-log', 'write-state', 'save-resource', 'create-link',
   'add-todo', 'edit-section', 'append-section', 'add-memory', 'delete-mails', 'archive-mails',
   'skill-rewrite',
@@ -64,8 +67,8 @@ const KINDS: readonly ProposalAction['kind'][] = [
  * a near-miss envelope must not reach the card as a writable row (an `append-log` without
  * `text` would interpolate the literal "undefined" into the entity's 流水 as a success).
  * The list covers every field the card and the applier dereference as strings — labels,
- * details, and written lines interpolate them verbatim. */
-const REQUIRED_FIELDS: Partial<Record<ProposalAction['kind'], readonly string[]>> = {
+ * details, and written lines interpolate them verbatim. Exported for the parity spec (ADR-0055). */
+export const REQUIRED_FIELDS: Partial<Record<ProposalAction['kind'], readonly string[]>> = {
   'create-entity': ['entityType', 'name'],
   'create-project': ['name'],
   'append-log': ['entityPath', 'entityName', 'text'],
@@ -84,23 +87,38 @@ const REQUIRED_FIELDS: Partial<Record<ProposalAction['kind'], readonly string[]>
 /** Kind-scoped fields the applier reads as strings but tolerates as '' — an
  * entity path awaiting its after-create resolution (ADR-0030), or a todo
  * body the serializer treats as "no body"; the applier skips or writes them
- * cleanly either way. Every other required field must be non-empty. */
-const EMPTY_OK_FIELDS: ReadonlySet<string> = new Set([
+ * cleanly either way. Every other required field must be non-empty.
+ * Exported for the parity spec (ADR-0055). */
+export const EMPTY_OK_FIELDS: ReadonlySet<string> = new Set([
   'append-log:entityPath', 'write-state:entityPath', 'create-link:entityPath',
   'edit-section:path', 'append-section:path', 'add-todo:body',
 ])
 
+/**
+ * One action entry's acceptance verdict — the SINGLE truth table (ocr 评审
+ * #7, formerly duplicated between {@link actionsOf} and the rejection
+ * diagnostic): null when the applier accepts the row, otherwise the human-
+ * readable reason it rejected it. Both consumers walk the same
+ * KINDS/REQUIRED_FIELDS/EMPTY_OK_FIELDS tables, so a diagnostic can never
+ * disagree with the accept decision.
+ * @param entry - one envelope action, wire-shaped.
+ * @returns the rejection reason, or null when accepted.
+ */
+function actionVerdict(entry: unknown): string | null {
+  if (typeof entry !== 'object' || entry === null) return '（非对象的动作项）'
+  const bag = entry as Record<string, unknown>
+  const kind = typeof bag.kind === 'string' ? bag.kind : '（缺 kind）'
+  const required = REQUIRED_FIELDS[kind as ProposalAction['kind']]
+  if (required === undefined) return `「${kind}」不是已知的动作类别`
+  const missing = required.filter(field =>
+    typeof bag[field] !== 'string'
+    || (bag[field] === '' && !EMPTY_OK_FIELDS.has(`${kind}:${field}`)))
+  return missing.length > 0 ? `「${kind}」缺必填字段 ${missing.join('、')}` : null
+}
+
 /** Keep the entries whose `kind` the applier knows and whose required fields are strings; drop the rest silently. */
 function actionsOf(raw: readonly unknown[]): readonly ProposalAction[] {
-  return raw.filter((entry): entry is ProposalAction => {
-    if (typeof entry !== 'object' || entry === null) return false
-    const bag = entry as Record<string, unknown>
-    const kind = bag.kind as ProposalAction['kind']
-    if (!KINDS.includes(kind)) return false
-    return (REQUIRED_FIELDS[kind] ?? []).every(field =>
-      typeof bag[field] === 'string'
-      && (bag[field] !== '' || EMPTY_OK_FIELDS.has(`${kind}:${field}`)))
-  })
+  return raw.filter((entry): entry is ProposalAction => actionVerdict(entry) === null)
 }
 
 /**
@@ -173,6 +191,39 @@ export function proposalOfAnswer(answer: string, title: string): Proposal | null
     return { title, actions, ...(mails !== undefined ? { mails } : {}) }
   }
   return null
+}
+
+/**
+ * Why one answer's actions-envelope failed validation, when it did — the
+ * anti-silent-loss probe (2026-10-10 早晨事故): a schedule run's answer DID
+ * carry an envelope, but every action failed field validation, the parser
+ * returned null, and the lost proposal left no trace anywhere. This reads
+ * the same candidates {@link proposalOfAnswer} does and, when one parses to
+ * an object with a non-empty `actions` array that {@link actionsOf} wholly
+ * rejects, names each action's kind and its missing fields — the caller
+ * warns and asks the model for one repair turn instead of losing the
+ * nomination in silence.
+ * @param answer - the turn's final assistant text.
+ * @returns the diagnostic, or undefined when no candidate even looked like
+ *   an envelope (a plain prose answer is honest silence, not a rejection).
+ */
+export function envelopeRejectionOf(answer: string): string | undefined {
+  for (const candidate of jsonCandidatesOf(answer)) {
+    if (candidate === '') continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(candidate)
+    } catch {
+      continue
+    }
+    if (typeof parsed !== 'object' || parsed === null) continue
+    const raw = (parsed as Record<string, unknown>).actions
+    if (!Array.isArray(raw) || raw.length === 0) continue
+    if (actionsOf(raw).length > 0) return undefined
+    const details = raw.map(actionVerdict).filter((reason): reason is string => reason !== null)
+    return `信封动作全部未通过校验：${details.join('；')}`
+  }
+  return undefined
 }
 
 /**

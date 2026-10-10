@@ -43,7 +43,7 @@ import { ConfigDialog } from '../ConfigDialog.tsx'
 import type { ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from '../model-config.ts'
 import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage, type ResourceViewReader } from '../remote.ts'
-import { notifySchedule, scheduleScan, type ScheduleRunner } from '../scheduler.ts'
+import { notifySchedule, scheduleScan, formatRunStats, type ScheduleRunner } from '../scheduler.ts'
 import { SchedulePane } from '../SchedulePane.tsx'
 import type { KbCapabilitySummary, KbDeleteResourceResult, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbQueuedProposal, KbRelationGraphResult, KbSchedule, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
@@ -882,6 +882,20 @@ export function Frame({
     )
   }, [proposalInboxList])
 
+  // 2026-10-10 分流提示：提议卡里指向已注册能力的 add-memory 行要附一句
+  // 「考虑改提技能改写」——能力名清单挂载时读一次即可，读失败只是没提示。
+  const [capabilityScopes, setCapabilityScopes] = useState<readonly string[]>([])
+  useEffect(() => {
+    let gone = false
+    void capabilityList().then(
+      (result) => {
+        if (!gone) setCapabilityScopes(result.capabilities.map(row => row.name))
+      },
+      () => { /* 提示是装饰，读取失败不值得打扰 */ },
+    )
+    return () => { gone = true }
+  }, [capabilityList])
+
   useEffect(() => { loadInbox() }, [loadInbox])
 
   // ── the 图谱 tab and its relation graph (ADR-0049) ───────────────────────
@@ -1019,17 +1033,22 @@ export function Frame({
         id: schedule.id,
         name: schedule.name,
         prompt: schedule.prompt,
+        ...(schedule.capability !== undefined && schedule.capability !== '' ? { capability: schedule.capability } : {}),
         signal: controller.signal,
         onSession: (sessionId) => { taskPatch(taskId, { sessionId }) },
       }).then((result) => {
-        taskEnd(taskId, 'done', '已完成')
+        // 2026-10-10 性能统计：任务行与完成通知都带上这次运行的账——
+        // 用时/步数/重试等待/工具量/截断，晨间复盘不再需要手工开日志。
+        const statsLine = result.stats !== undefined ? formatRunStats(result.stats) : undefined
+        taskEnd(taskId, 'done', statsLine ?? '已完成')
         // ADR-0047: a run that filed a proposal points at the decision
         // surface instead of paraphrasing itself — the card is the answer.
+        const statsSuffix = statsLine !== undefined ? `（${statsLine}）` : ''
         notifySchedule({
           title: `调度「${schedule.name}」完成`,
           body: result.proposalId !== undefined
-            ? '产生了待决策的提议，去「提议」页处理'
-            : result.answer.replace(/\s+/g, ' ').trim().slice(0, 80) || '已完成',
+            ? `产生了待决策的提议，去「提议」页处理${statsSuffix}`
+            : [result.answer.replace(/\s+/g, ' ').trim().slice(0, 80), statsLine].filter(Boolean).join(' · ') || '已完成',
         })
         // The proposal is on the disk store the moment the run ends: pull it
         // into the pane now rather than waiting for the next scan.
@@ -1814,6 +1833,7 @@ export function Frame({
             schedules={schedules}
             onSave={commitSchedules}
             promptShortcutList={promptShortcutList}
+            capabilityNames={capabilityScopes}
           />
         )}
         inboxPane={!inboxLoaded ? (
@@ -1824,6 +1844,7 @@ export function Frame({
             busyId={inboxBusyId}
             onConfirm={confirmInboxEntry}
             onDiscard={discardInboxEntry}
+            capabilityScopes={capabilityScopes}
             t={t}
           />
         )}

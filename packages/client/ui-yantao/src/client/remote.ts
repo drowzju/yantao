@@ -32,6 +32,7 @@ import type {
 import type {
   KbMailArchiveArgs, KbMailArchiveResult, KbCapabilityAdoptArgs, KbCapabilityAdoptResult, KbCapabilityCreateArgs, KbCapabilityCreateResult,
   KbCapabilityListResult,
+  KbCapabilityInstructionsArgs, KbCapabilityInstructionsResult,
   KbCapabilityRegisterArgs, KbCapabilityRegisterResult,
   KbCapabilityRouteUpdateArgs, KbCapabilityRouteUpdateResult,
   KbCapabilityRunArgs, KbCapabilityRunResult, KbCapabilityUnregisterArgs, KbCapabilityUnregisterResult,
@@ -92,6 +93,8 @@ export interface KbRemote {
   mailMarkRead(args: KbMailMarkReadArgs): Promise<RemoteResult<KbMailMarkReadResult>>
   /** List the registered capabilities (ADR-0021). */
   capabilityList(): Promise<RemoteResult<KbCapabilityListResult>>
+  /** One capability's assembled instruction text (调度首跳直通) — human channel. */
+  capabilityInstructions(args: KbCapabilityInstructionsArgs): Promise<RemoteResult<KbCapabilityInstructionsResult>>
   /**
    * Run the `mail` capability's entry script — the one dedicated internal RPC
    * that survives ADR-0052 决定 3's execution unification (the 台账 #1
@@ -775,6 +778,20 @@ export async function loadCapabilities(ctx: Context): Promise<KbCapabilityListRe
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.capabilityList())
+}
+
+/**
+ * Fetch one capability's assembled instruction text (调度首跳直通): what
+ * `kb_run_capability` would hand the agent, fetched on the human channel so
+ * the scheduler can inline it ahead of a bound schedule's prompt.
+ * @param ctx - client root context.
+ * @param name - the capability's name, as the central route addresses it.
+ * @returns the assembled instruction text, or a rejected promise carrying the reason.
+ */
+export async function capabilityInstructions(ctx: Context, name: string): Promise<string> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.capabilityInstructions({ name })).instructions
 }
 
 /**

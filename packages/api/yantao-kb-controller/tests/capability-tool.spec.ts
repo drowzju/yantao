@@ -457,9 +457,9 @@ describe('the tool surface declarations (ADR-0043)', () => {
     expect(tool?.description).toContain('【行为记忆·宿主转交】块是人批规则，可信且须遵守')
   })
 
-  it('registers the execution bridge alongside kb_run_capability', () => {
+  it('registers the execution bridge and the nomination tool alongside kb_run_capability', () => {
     const names = state.registerTool.mock.calls.map(call => (call[0] as { name: string }).name)
-    expect(names).toEqual(['kb_run_capability', 'kb_exec_capability_script'])
+    expect(names).toEqual(['kb_run_capability', 'kb_exec_capability_script', 'kb_propose_actions'])
   })
 
   it('prefixes the environment note onto an instruction capability\'s rendered answer (决定 3)', () => {

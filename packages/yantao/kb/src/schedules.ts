@@ -36,6 +36,12 @@ export interface Schedule {
   readonly lastFiredAt?: string
   /** ISO timestamp of the most recent missed fire detected at startup; cleared on the next real fire. */
   readonly lastMissedAt?: string
+  /**
+   * An optional capability binding (首跳直通，ADR-0055)：when set, the fired
+   * session's prompt is prefixed with that capability's full instruction text,
+   * sparing the agent its first discovery hop. Empty/absent = no binding.
+   */
+  readonly capability?: string
 }
 
 /** The store's on-disk shape. */
@@ -142,6 +148,7 @@ export function normalizeSchedules(schedules: readonly unknown[]): Schedule[] {
       enabled?: unknown
       lastFiredAt?: unknown
       lastMissedAt?: unknown
+      capability?: unknown
     }
     if (typeof raw.id !== 'string' || raw.id.trim() === '') {
       throw new KbError('bad-schedule-id', `第 ${at + 1} 条调度缺少 id`)
@@ -181,6 +188,10 @@ export function normalizeSchedules(schedules: readonly unknown[]): Schedule[] {
         throw new KbError('bad-schedule-stamp', `调度「${name}」的时间戳不是合法日期`)
       }
     }
+    if (raw.capability !== undefined && typeof raw.capability !== 'string') {
+      throw new KbError('bad-schedule-capability', `调度「${name}」的能力绑定不是合法名称`)
+    }
+    const capability = typeof raw.capability === 'string' ? raw.capability.trim() : undefined
     return {
       id,
       name,
@@ -189,6 +200,7 @@ export function normalizeSchedules(schedules: readonly unknown[]): Schedule[] {
       enabled: raw.enabled === true,
       ...raw.lastFiredAt !== undefined ? { lastFiredAt: raw.lastFiredAt as string } : {},
       ...raw.lastMissedAt !== undefined ? { lastMissedAt: raw.lastMissedAt as string } : {},
+      ...capability !== undefined && capability !== '' ? { capability } : {},
     }
   })
 }
@@ -272,6 +284,7 @@ export async function markSchedule(kbRoot: string, id: string, patch: ScheduleSt
       prompt: row.prompt,
       cron: row.cron,
       enabled: row.enabled,
+      ...row.capability !== undefined ? { capability: row.capability } : {},
       ...fired !== null && fired !== undefined ? { lastFiredAt: fired } : {},
       ...missed !== null && missed !== undefined ? { lastMissedAt: missed } : {},
     }

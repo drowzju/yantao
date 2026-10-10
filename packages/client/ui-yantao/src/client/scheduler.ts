@@ -16,11 +16,14 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { KbSchedule } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
 import { cronNextAfter, parseCron } from './cron.ts'
-import { proposalOfAnswer } from './capability-match.ts'
-import { cancelSessionTurnOnAbort, enqueueInboxProposal, sessionRemoteOf } from './remote.ts'
+import { envelopeRejectionOf, proposalOfAnswer } from './capability-match.ts'
+import { cancelSessionTurnOnAbort, enqueueInboxProposal, capabilityInstructions, loadProposalInbox, sessionRemoteOf } from './remote.ts'
 import type { Proposal } from './proposal.ts'
 import { askTurn } from './turn-answer.ts'
+import { collectEvents, textOfContent } from './session-detail.ts'
+import { formatTokens } from './insights.ts'
 
 /** The schedule slice the scan needs — the full row in practice. */
 export type Scannable = Pick<KbSchedule, 'id' | 'cron' | 'enabled' | 'lastFiredAt' | 'lastMissedAt'>
@@ -98,32 +101,188 @@ export interface ScheduleRunResult {
    * (the plain notice is the fallback, the session keeps the answer).
    */
   readonly proposalId?: string
+  /**
+   * The run's performance accounting (2026-10-10 晨间事故的性能追问): folded
+   * from the session's durable event log after the final answer — wall-clock
+   * span, gateway retries and their accumulated waits, tool-call volume,
+   * model steps, token totals, and 64KB output truncations. Absent when the
+   * event log could not be read (statistics are garnish, never the dish).
+   */
+  readonly stats?: ScheduleRunStats
+}
+
+/** One fired schedule's performance accounting, folded from the durable events. */
+export interface ScheduleRunStats {
+  /** Wall-clock span from session creation to the final answer landing. */
+  readonly durationMs: number
+  /** Gateway/model retries the log recorded (`llm/retry` events). */
+  readonly retries: number
+  /** Summed backoff waits the retry events announced (`delayMs`). */
+  readonly retryDelayMs: number
+  /** Tool calls the model made (`tool/call` events). */
+  readonly toolCalls: number
+  /** Model steps that reported token usage (`assistant/message` with usage). */
+  readonly steps: number
+  /** Uncached prompt tokens summed across those steps. */
+  readonly inputTokens: number
+  /** Completion tokens summed across those steps. */
+  readonly outputTokens: number
+  /** Exec outputs the 64KB cap clipped (results carrying the truncation marker). */
+  readonly truncations: number
+}
+
+/** The exec bridge's 64KB truncation marker — the string it appends to a clipped stream.
+ * Exported for the controller-side parity spec: a wording drift between the
+ * two halves silently zeroes the truncations counter (ocr 评审 #8). */
+export const TRUNCATION_MARKER = '输出超过 64KB'
+
+/** The tool the ADR-0055 convention teaches (nomination probe + stats share the name). */
+const PROPOSE_TOOL = 'kb_propose_actions'
+
+/**
+ * Whether the durable log shows a `kb_propose_actions` call that SUCCEEDED —
+ * its `tool/result` landed without an `error`. The tool enqueues atomically
+ * (all rows validated or nothing written), so success means the inbox entry
+ * is on disk; a failed or never-answered call enqueued nothing and must NOT
+ * count as a nomination, or the model's valid prose envelope would be
+ * silently dropped (2026-10-10 ocr 评审 #4).
+ * @param events - the session's durable events, oldest first.
+ * @returns true when at least one nomination call resolved successfully.
+ */
+export function toolNominationSucceeded(events: readonly SessionWireEvent[]): boolean {
+  const resolved = new Map<string, boolean>()
+  for (const event of events) {
+    if (event.type === 'tool/call') {
+      const data = event.data as { callId?: unknown; name?: unknown }
+      if (data.name === PROPOSE_TOOL && typeof data.callId === 'string') resolved.set(data.callId, false)
+      continue
+    }
+    if (event.type === 'tool/result') {
+      // The canonical tool/result payload nests the call identity inside the
+      // tool message (`message.toolCallId` / `message.source.callId`); older
+      // producers and test harnesses put a top-level `callId` — accept all.
+      const data = event.data as {
+        callId?: unknown
+        error?: unknown
+        message?: { toolCallId?: unknown; source?: { callId?: unknown }; content?: unknown }
+      }
+      const id = data.callId ?? data.message?.toolCallId ?? data.message?.source?.callId
+      if (typeof id === 'string' && resolved.has(id)) {
+        // Rejection rides the TEXT, not the error field: the tool answers a
+        // failed validation with `Error: 提议未通过校验…（整单未入队）` as a
+        // plain result (observed in session a5000eab, twice). Count a result
+        // as success only when neither channel says failure.
+        const text = textOfContent(data.message?.content)
+        resolved.set(id, (data.error === undefined || data.error === null) && !text.startsWith('Error:'))
+      }
+    }
+  }
+  for (const ok of resolved.values()) if (ok) return true
+  return false
 }
 
 /**
- * The proposal-envelope convention (ADR-0047), appended by the scheduler to
- * every fired prompt — acceptance finding 2026-10-05: relying on the schedule
- * author to hand-write the convention meant no schedule actually carried it
- * (the mail run answered with a prose report and the inbox stayed empty).
- * The convention now rides the fire, not the author's memory: the suffix
- * teaches the model the one envelope schema the card's applier knows, tells
- * it to nominate rather than execute, and permits no-envelope silence (the
- * plain notice stays the honest fallback).
- * 2026-10-09 修订（capability-owned scoping）：信封约定只教能力无关的 KB 写入
- * 类别。邮件专属的 `delete-mails`/`archive-mails` 动作与 `mails` 水位字段的
- * 教学迁到了 mail 能力自己的 SKILL.md（builtin v13）——只有真正加载了邮件
- * 能力的会话才看得见它们，别的调度不再平白背上邮件机器（此前 DingTalk 周报
- * 调度每 fire 都收到一段用不上的邮件教学，且非邮件任务误报 mails 水位会把
- * 那批邮件永久计为已处理）。解析与应用两端（proposalOfAnswer / apply）不辨
- * 来源，照单全收——教学在哪，提名就从哪来。
+ * Fold one run's durable events into the performance accounting. The session
+ * is fresh per fire, so every event belongs to this run. Defensive — wire
+ * JSON throughout.
+ * @param events - the session's durable events, oldest first.
+ * @param durationMs - the measured wall-clock span.
+ * @returns the accounting.
+ */
+export function statsFromEvents(events: readonly SessionWireEvent[], durationMs: number): ScheduleRunStats {
+  let retries = 0
+  let retryDelayMs = 0
+  let toolCalls = 0
+  let truncations = 0
+  let steps = 0
+  let inputTokens = 0
+  let outputTokens = 0
+  for (const event of events) {
+    if (event.type === 'llm/retry') {
+      retries += 1
+      const delay = (event.data as { delayMs?: unknown } | null)?.delayMs
+      if (typeof delay === 'number' && Number.isFinite(delay)) retryDelayMs += delay
+      continue
+    }
+    if (event.type === 'tool/call') {
+      toolCalls += 1
+      continue
+    }
+    if (event.type === 'tool/result') {
+      // Probe the result's TEXT (the field the exec bridge appends the
+      // marker to), not a JSON.stringify of the whole event (ocr 评审 #8).
+      const data = event.data as { message?: { content?: unknown } } | null
+      if (textOfContent(data?.message?.content).includes(TRUNCATION_MARKER)) truncations += 1
+      continue
+    }
+    if (event.type !== 'assistant/message') continue
+    const usage = (event.data as { usage?: unknown } | null)?.usage
+    if (typeof usage !== 'object' || usage === null) continue
+    const input = (usage as { inputTokens?: unknown }).inputTokens
+    const output = (usage as { outputTokens?: unknown }).outputTokens
+    if (typeof input !== 'number' || typeof output !== 'number') continue
+    steps += 1
+    inputTokens += input
+    outputTokens += output
+  }
+  return { durationMs, retries, retryDelayMs, toolCalls, truncations, steps, inputTokens, outputTokens }
+}
+
+/**
+ * Render the accounting as one compact line for the 任务 row and the
+ * completion notice — the numbers the morning-after diagnosis actually
+ * wanted (总时长、重试与等待、工具量、截断), nothing more.
+ * @param stats - the folded accounting.
+ * @returns the line, e.g. `用时 8.5 分钟 · 12 步 · 网关重试 2 次（累计等待 8.4 分钟） · 工具 45 次 · 输出截断 4 次 · tokens 进 1.2M/出 35k`.
+ */
+export function formatRunStats(stats: ScheduleRunStats): string {
+  const minutes = stats.durationMs / 60_000
+  const span = minutes >= 10 ? `${Math.round(minutes)} 分钟` : `${Math.round(minutes * 10) / 10} 分钟`
+  const parts = [`用时 ${span}`, `${stats.steps} 步`]
+  if (stats.retries > 0) {
+    const waitMinutes = Math.round(stats.retryDelayMs / 6_000) / 10
+    parts.push(`网关重试 ${stats.retries} 次（累计等待 ${waitMinutes} 分钟）`)
+  }
+  parts.push(`工具 ${stats.toolCalls} 次`)
+  if (stats.truncations > 0) parts.push(`输出截断 ${stats.truncations} 次`)
+  if (stats.steps > 0) parts.push(`tokens 进 ${formatTokens(stats.inputTokens)}/出 ${formatTokens(stats.outputTokens)}`)
+  return parts.join(' · ')
+}
+
+/**
+ * The proposal convention (ADR-0047 决定 7, ADR-0055 修订), appended by the
+ * scheduler to every fired prompt. The 2026-10-10 morning incident retired
+ * the envelope-as-prose era: a hand-written JSON envelope was fragile
+ * (batch-merged actions, missing fields) and its loss surfaced only through
+ * a whole extra repair turn. The convention now teaches the
+ * `kb_propose_actions` tool — validation runs at the tool boundary and a
+ * bad row is repaired within the same turn — while keeping the vocabulary
+ * lesson (capability-agnostic kinds only; the mail machines live in the
+ * mail capability's SKILL.md) and the honest-silence allowance. The
+ * schedule's provenance rides the convention so the inbox entry keeps its
+ * `schedule:<id>` lineage; the tool defaults to `agent:*` without it.
+ *
+ * The prose-envelope parser (`proposalOfAnswer`) survives as a fallback for
+ * model inertia and stale prompt snapshots — the scheduler detects a
+ * SUCCESSFUL tool nomination first and skips the parse, so the two paths
+ * never double-enqueue.
  * @param prompt - the schedule's snapshot prompt.
+ * @param provenance - the schedule's identity, relayed through the tool's
+ *   `source`/`sourceName` params (the same trust strength as the envelope
+ *   era: the model authored all of it either way).
  * @returns the prompt with the convention appended.
  */
-export function withProposalEnvelope(prompt: string): string {
+export function withProposalConvention(
+  prompt: string,
+  provenance?: { readonly source: string; readonly sourceName: string },
+): string {
+  const provenanceLine = provenance === undefined
+    ? ''
+    : `\n本次调度的来源标识：调用本工具时传 source="${provenance.source}"、sourceName="${provenance.sourceName}"。`
   return `${prompt}
-【调度约定（ADR-0047）】任务完成后，若有值得人拍板的写入动作，请在回答的最末尾单独输出一个提议信封 JSON（可放在 \`\`\`json 围栏中），形如：
-{"title":"一句话概括这批动作","actions":[ … ]}
-actions 每项是一个待人工批准的写入动作，常用类别与字段：
+【调度约定（ADR-0047/0055）】任务完成后，若有值得人拍板的写入动作，请调用 kb_propose_actions 工具提交提议（本工具只入队，不执行任何动作）：
+- title：一句话概括这批动作。
+- actions：每项一个待人工批准的写入动作，常用类别与字段：
 - {"kind":"append-log","entityPath":"<实体文件路径>","entityName":"<实体名>","text":"<流水一行>","reason":"<缘由>"}
 - {"kind":"append-section","path":"<实体文件路径>","section":"决议|待办|…","text":"<内容>","why":"<缘由>"}
 - {"kind":"edit-section","path":"<路径>","section":"<节名>","before":"<现状>","after":"<改为>","why":"<缘由>"}
@@ -133,7 +292,31 @@ actions 每项是一个待人工批准的写入动作，常用类别与字段：
 - {"kind":"save-resource","path":"resources/<名>.md","content":"<全文>","reason":"<缘由>"}
 - {"kind":"add-todo","title":"<题目>","due":"YYYY-MM-DD 或省略","body":"<详情>","reason":"<缘由>"}
 - {"kind":"add-memory","scope":"<能力名>","text":"<规则一句话>","reason":"<缘由>"}
-规则：只把值得人批准的写入列进信封，不为凑数编造；没有值得提议的就完全不输出信封（纯文字汇报即可）。信封里的动作不要自行执行（不要经 kb_write_state / kb_edit_section / kb_append_log 等落库），留给人在「提议」卡上勾选批准后再写入。`
+规则：只把值得人批准的写入列进提议，不为凑数编造；没有值得提议的就完全不调用本工具（纯文字汇报即可）；入队成功后不要再在回答里重复输出提议 JSON。动作不要自行执行（不要经 kb_write_state / kb_edit_section / kb_append_log 等落库），留给人在「提议」卡上勾选批准后再写入。${provenanceLine}`
+}
+
+/**
+ * Inline a bound capability's instruction text ahead of the schedule's own
+ * prompt (调度首跳直通，2026-10-10 性能追问采纳项 4): the fired session
+ * starts already holding the SKILL.md body, sparing the agent its first
+ * `kb_run_capability` round-trip (one tool call, one model step, and — in
+ * the morning incident — a 64KB-class payload re-read). The instruction
+ * text leads, the task's own prompt follows beneath a separator; the
+ * proposal-envelope convention (withProposalConvention) still wraps the whole
+ * from outside.
+ * @param prompt - the schedule's snapshot prompt.
+ * @param capability - the bound capability's name, for the framing line.
+ * @param instructions - the assembled instruction text from `capabilityInstructions`.
+ * @returns the composed prompt.
+ */
+export function withInlineInstructions(prompt: string, capability: string, instructions: string): string {
+  return `${instructions}
+
+---
+
+以上是能力「${capability}」的完整指令正文（调度首跳直通，已随任务附带，无需再经 kb_run_capability 读取）。下面是本次调度任务本身的指示：
+
+${prompt}`
 }
 
 /**
@@ -164,6 +347,8 @@ export type ScheduleRunner = (args: {
   readonly name: string
   /** The snapshot prompt to run. */
   readonly prompt: string
+  /** An optional capability binding (首跳直通)：its instructions are inlined ahead of the prompt. */
+  readonly capability?: string
   /** The 任务 row's cancel line (ADR-0031). */
   readonly signal?: AbortSignal
   /** Called as soon as the session exists, so the task row can anchor 「详情」. */
@@ -178,7 +363,8 @@ export type ScheduleRunner = (args: {
  * ADR-0047), it lands in the proposal inbox for the human's decision; an
  * enqueue failure degrades to the plain notice — the run itself succeeded.
  * @param options - the context, the schedule's id, name and prompt, the
- *   session cwd, the cancel signal, and the session-anchor sink.
+ *   optional capability binding, the session cwd, the cancel signal, and the
+ *   session-anchor sink.
  * @returns the session id, the final answer text, and the inbox entry id
  *   when one was filed.
  */
@@ -187,13 +373,29 @@ export async function runScheduledTask(options: {
   readonly id: string
   readonly name: string
   readonly prompt: string
+  readonly capability?: string
   readonly cwd?: string
   readonly signal?: AbortSignal
   readonly onSession?: (sessionId: string) => void
 }): Promise<ScheduleRunResult> {
-  const { ctx, id, name, prompt, cwd, signal, onSession } = options
+  const { ctx, id, name, prompt, capability, cwd, signal, onSession } = options
   const session = sessionRemoteOf(ctx)
   if (session === undefined) throw new Error('没有挂载 session Remote 命名空间')
+  const startedAt = Date.now()
+
+  // 首跳直通 (2026-10-10 性能追问采纳项 4): a capability-bound schedule
+  // starts with the capability's instruction text already inlined, saving
+  // the agent its first `kb_run_capability` hop. A fetch failure degrades to
+  // the plain prompt — the agent's own tool call remains the fallback path.
+  let effectivePrompt = prompt
+  if (capability !== undefined && capability !== '') {
+    try {
+      const instructions = await capabilityInstructions(ctx, capability)
+      effectivePrompt = withInlineInstructions(prompt, capability, instructions)
+    } catch (reason: unknown) {
+      console.warn(`inline instructions for schedule ${id} (capability "${capability}") failed; firing with the plain prompt:`, reason)
+    }
+  }
 
   const created = await session.create(cwd === undefined ? {} : { cwd })
   if (!created.ok) throw created.error
@@ -210,17 +412,105 @@ export async function runScheduledTask(options: {
   const answer = await askTurn({
     session,
     sessionId,
-    // ADR-0047: the envelope convention rides every fire (see
-    // withProposalEnvelope) — the schedule author never hand-writes it.
-    prompt: withProposalEnvelope(prompt),
+    // ADR-0047 决定 7 / ADR-0055: the proposal convention rides every fire
+    // (see withProposalConvention) — the schedule author never hand-writes
+    // it, and since ADR-0055 it teaches the kb_propose_actions tool.
+    // 首跳直通 composes inside it: instructions lead, the convention wraps all.
+    prompt: withProposalConvention(effectivePrompt, { source: `schedule:${id}`, sourceName: name }),
     ...(signal !== undefined ? { signal } : {}),
   })
+
+  // The durable log is read once here and reused: the tool-nomination probe
+  // needs it before deciding the parse path, and the stats fold reuses the
+  // same events (a repair turn refetches — the rare path pays twice).
+  let events: readonly SessionWireEvent[] = []
+  let eventsRead = false
+  try {
+    events = await collectEvents(session, sessionId, signal)
+    eventsRead = true
+  } catch (reason: unknown) {
+    console.warn(`stats collection for schedule ${id} failed; continuing without:`, reason)
+  }
+
+  // ADR-0055: when the model nominated through kb_propose_actions and the
+  // call SUCCEEDED, the entry is already on disk — parsing the prose would
+  // risk a double enqueue, so the tool path skips the parse entirely and
+  // looks the entry up (bounded to this run) for the notice's 分流 instead.
+  // A FAILED tool call is not a nomination (nothing was enqueued): the prose
+  // fallback stays live (2026-10-10 ocr 评审 #4 — the old check keyed on the
+  // bare tool/call and silently dropped a valid prose envelope behind it).
+  let nominatedViaTool = toolNominationSucceeded(events)
+
+  // Anti-silent-loss (2026-10-10 早晨事故): an answer that clearly TRIED to
+  // close with an envelope but failed field validation used to vanish —
+  // proposalOfAnswer returned null, nothing warned, the nomination was gone.
+  // Now the rejection is diagnosed (which kind missed which fields), warned,
+  // and the model gets exactly one repair turn quoting the diagnostic; a
+  // prose answer without any envelope-shaped fragment stays honest silence.
+  // The whole prose path is the FALLBACK now (model inertia, stale prompt
+  // snapshots); a successful tool nomination skips it entirely.
+  let finalAnswer = answer
+  let proposal: ReturnType<typeof proposalOfAnswer> = null
+  let proposalId: string | undefined
+  if (!nominatedViaTool) {
+    proposal = proposalOfAnswer(finalAnswer, `调度「${name}」的提议`)
+    if (proposal === null) {
+      const rejection = envelopeRejectionOf(finalAnswer)
+      if (rejection !== undefined) {
+        console.warn(`proposal envelope for schedule ${id} rejected; asking for one repair turn: ${rejection}`)
+        finalAnswer = await askTurn({
+          session,
+          sessionId,
+          prompt: `你上一条回答末尾的提议信封未通过校验：${rejection}。请按报错修正动作的字段形态（保持原有的动作类别与意图，逐封展开所需字段，不要合并成批量数组），在回答最末尾重新输出完整的提议信封 JSON；若确实没有值得提议的动作，直接回复「无提议」即可。`,
+          ...(signal !== undefined ? { signal } : {}),
+        })
+        // The repair turn added events; refetch so the stats cover the
+        // whole run, repair included.
+        try {
+          events = await collectEvents(session, sessionId, signal)
+          eventsRead = true
+        } catch (reason: unknown) {
+          console.warn(`stats refetch for schedule ${id} failed; keeping the earlier read:`, reason)
+        }
+        // 修复轮重检 (2026-10-10 ocr 评审 #2): the repaired model may have
+        // switched to the kb_propose_actions tool instead of printing prose —
+        // re-check before parsing, or a tool enqueue PLUS a prose envelope
+        // would land the same proposal twice. A successful tool call wins;
+        // only a still-un-nominated answer falls back to the prose parse.
+        nominatedViaTool = toolNominationSucceeded(events)
+        if (!nominatedViaTool) proposal = proposalOfAnswer(finalAnswer, `调度「${name}」的提议`)
+      }
+    }
+  }
+
+  if (nominatedViaTool) {
+    // The successful tool enqueue is on disk; look this run's entry up for
+    // the notice's 分流. The createdAt lower bound (2026-10-10 ocr 评审 #3)
+    // keeps a validation failure from adopting a PREVIOUS fire's still-
+    // pending entry as this run's proposal. A lookup failure — or a miss —
+    // degrades to the plain notice; parsing prose here could double-enqueue,
+    // so it never falls back to that.
+    try {
+      const inbox = await loadProposalInbox(ctx)
+      const fresh = [...inbox.proposals].reverse()
+        .find(row => row.source === `schedule:${id}` && row.status === 'pending'
+          && Date.parse(row.createdAt) >= startedAt)
+      if (fresh !== undefined) proposalId = fresh.id
+    } catch (reason: unknown) {
+      console.warn(`inbox lookup for schedule ${id} failed; keeping the plain notice:`, reason)
+    }
+  }
+
+  // Performance accounting (2026-10-10 晨间事故的性能追问): fold the fresh
+  // session's durable log into one stats line — the diagnosis that took a
+  // manual zstd surgery this morning becomes a number the 任务 row always
+  // carries. Statistics are garnish: a read failure drops them, never the run.
+  const stats: ScheduleRunStats | undefined = eventsRead ? statsFromEvents(events, Date.now() - startedAt) : undefined
 
   // ADR-0047: an answer that closes with the actions-envelope JSON becomes
   // an inbox entry — the human decides from the 提议 tab, the session stays
   // the evidence. Enqueue trouble never fails the run: the plain completion
   // notice is the fallback, and the answer lives on in the session.
-  const proposal = proposalOfAnswer(answer, `调度「${name}」的提议`)
   if (proposal !== null) {
     try {
       const enqueued = await enqueueInboxProposal(ctx, {
@@ -230,15 +520,16 @@ export async function runScheduledTask(options: {
         note: inboxNoteOf(proposal),
         proposal: proposal as unknown as Parameters<typeof enqueueInboxProposal>[1]['proposal'],
       })
-      return { sessionId, answer, proposalId: enqueued.id }
+      return { sessionId, answer: finalAnswer, proposalId: enqueued.id, ...(stats !== undefined ? { stats } : {}) }
     } catch (reason: unknown) {
       // The plain completion notice stays the fallback, but the loss must
       // stay diagnosable — the 50-pending soft cap rejecting silently would
       // drop every later proposal with no trace anywhere.
       console.warn(`proposal enqueue for schedule ${id} failed; keeping the plain notice:`, reason)
+      proposalId = undefined
     }
   }
-  return { sessionId, answer }
+  return { sessionId, answer: finalAnswer, ...(proposalId !== undefined ? { proposalId } : {}), ...(stats !== undefined ? { stats } : {}) }
 }
 
 declare global {

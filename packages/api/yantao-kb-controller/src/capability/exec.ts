@@ -12,10 +12,16 @@
  * The envelope mirrors the mail dedicated RPC's (`run.ts`, the one surviving
  * spawn channel): `KB_ROOT`, `CAPABILITY_NAME`, and `CAPABILITY_CHANNEL=agent`
  * ride the environment, and one JSON object (`name`, `kbRoot`, `input`,
- * `channel`) is written to stdin before it closes — so a script can serve
- * both channels unchanged. Unlike `runCapability`, stdout is *not* a JSON
- * contract: it comes back verbatim, capped alongside stderr, and the exit
- * code — not parsed output — decides `ok`.
+ * `state`, `channel`) is written to stdin before it closes — so a script can
+ * serve both channels unchanged. Two envelope upgrades (2026-10-10, the mail
+ * run's detour lesson): an `input` whose text parses as a JSON object is
+ * delivered **parsed** — the dedicated RPC always hands scripts a dict, and a
+ * verbatim string forced entry.py to fall back to its default window; and
+ * `state` carries the capability's persisted checkpoint from the KB's
+ * `state.json` (fail-open to null) instead of a constant null. Unlike
+ * `runCapability`, stdout is *not* a JSON contract: it comes back verbatim,
+ * capped alongside stderr, and the exit code — not parsed output — decides
+ * `ok`.
  *
  * The environment note ({@link CAPABILITY_ENVIRONMENT_NOTE}) is the single
  * source every channel prefixes (ADR-0043 决定 3): instruction-capability
@@ -24,7 +30,8 @@
  * @module @deepseek-ai/dsh-api-yantao-kb-controller/capability/exec
  */
 import { spawn } from 'node:child_process'
-import { resolve, sep } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join, resolve, sep } from 'node:path'
 import type { SpawnLike } from '../open.ts'
 import { CapabilityError } from './run.ts'
 
@@ -38,10 +45,26 @@ import { CapabilityError } from './run.ts'
 export const CAPABILITY_ENVIRONMENT_NOTE =
   '【环境说明】\n'
   + '- 本工作台没有通用 shell；技能指令里「执行 python xxx」这类步骤，用 kb_exec_capability_script 在该能力的目录内执行（cwd 锁定该目录，命令不做内容审查——安装即授权）。\n'
-  + '- KB_ROOT（知识库根目录的绝对路径）已注入环境变量，且命令行里的 $KB_ROOT 与 %KB_ROOT% 占位符由工作台在执行前直接替换为真实路径——两种写法在任何平台都等价，无需引号包裹也无需关心平台 shell；stdin 也会送达同一个 JSON 信封。\n'
+  + '- KB_ROOT（知识库根目录的绝对路径）已注入环境变量，且命令行里的 $KB_ROOT 与 %KB_ROOT% 占位符由工作台在执行前直接替换为真实路径——两种写法在任何平台都等价，无需引号包裹也无需关心平台 shell；stdin 也会送达一个 JSON 信封：input 若写成 JSON 对象/数组会先解析成字典再送达（不是 JSON 就原样传字符串），state 字段是该能力已持久化的断点（没有则为 null）。\n'
   + '- Windows 上命令经 cmd.exe 执行，两个已知语义：命令串里的换行是命令分隔符（python -c 多行载荷会在首个换行处被静默截断，退出码还是 0——单行语句或 exec(\'…\') 内嵌，或干脆让能力自带 .py 文件）；路径段里的裸 & 会截断命令行（含 & 的目录名把该段用引号包裹或避开）。\n'
   + '- 未特别说明时，「资源」指知识库的 resources/ 目录；能力产出到 $KB_ROOT/resources/，过程临时文件到 resources/temp/（用完即弃，无人清理）。\n'
-  + '- 用毕自省：发现毛病出在技能自身（指令含糊、步骤失效、脚本坑、模板错）时，用 kb_propose_skill_rewrite 提名改写该能力的文件（附 original 与 new，人批准即生效）——不要把技能的缺陷沉淀成绕行记忆；技能管不了的经验与偏好，才走 kb_propose_memory。'
+  + '- 用毕自省，先做一个判定再选通道：改这个能力自己的文件（SKILL.md/脚本）能否单独消除该问题？能——哪怕毛病的诱因是宿主限制——就用 kb_propose_skill_rewrite 提名改写该能力的文件（附 original 与 new，人批准即生效），把修法固化进能力；只有技能文件改不掉的（跨能力的经验偏好、宿主策略取舍、人的习惯），才用 kb_propose_memory 沉淀为行为记忆——不要把技能能修的缺陷沉淀成绕行记忆。'
+
+/**
+ * Assemble one capability's instruction text (导语 + environment note +
+ * SKILL.md body + behavior memory) — the ONE template every handover face
+ * shares: the `kb_run_capability` tool's render and the scheduler-facing
+ * `capabilityInstructions` RPC both call this, so the two copies can never
+ * drift (2026-10-10 ocr 评审 #5).
+ * @param name - the capability's display name.
+ * @param content - the SKILL.md body (`runInstructions`' answer).
+ * @param memory - the behavior-memory block, when the capability has one.
+ * @returns the assembled instruction text.
+ */
+export function instructionTextOf(name: string, content: string, memory?: string): string {
+  return `能力「${name}」的指令正文如下，请照其行事：\n\n${CAPABILITY_ENVIRONMENT_NOTE}\n\n${content}`
+    + (memory !== undefined ? `\n\n${memory}` : '')
+}
 
 /** Options of {@link execCapabilityScript}. */
 export interface ExecCapabilityScriptOptions {
@@ -92,7 +115,58 @@ export const CAPABILITY_EXEC_TIMEOUT_MS = 120_000
 const MAX_EXEC_OUTPUT_BYTES = 64 * 1024
 
 /** The marker appended to a stream that outgrew its cap. */
-const TRUNCATION_MARKER = '\n…（输出超过 64KB，已截断）'
+/**
+ * The 64KB cap's truncation marker, appended to a clipped stdout/stderr.
+ * Exported for the parity spec: the client-side scheduler probes its runs'
+ * tool results for the SAME wording to count truncations — a wording change
+ * here silently zeroes that counter, and the parity test pins the two.
+ */
+export const TRUNCATION_MARKER = '\n…（输出超过 64KB，已截断）'
+
+/**
+ * The caller's `input` as the envelope's `input` field: a string that parses
+ * as a JSON object or array is delivered **parsed** — the dedicated RPC
+ * (`run.ts`) always hands scripts a dict, and the mail run's detour (the
+ * model passed `input` as a JSON-encoded string, entry.py saw no dict and
+ * fell back to its 30-day default window) is the lesson. Anything else —
+ * plain prose, a failed parse, a primitive — stays the verbatim string, so
+ * callers who genuinely want text lose nothing.
+ * @param input - the tool call's raw `input` string, when given.
+ */
+export function inputOf(input: string | undefined): unknown {
+  if (input === undefined) return null
+  const trimmed = input.trim()
+  if (trimmed.startsWith('{') && trimmed.endsWith('}') || trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed)
+      if (typeof parsed === 'object' && parsed !== null) return parsed
+    } catch {
+      // not JSON after all — the verbatim string is the honest delivery
+    }
+  }
+  return input
+}
+
+/**
+ * One capability's persisted checkpoint, read from the KB's `state.json`
+ * (`capabilities.<name>.state`) — the same ledger the dedicated RPC's state
+ * round-trip maintains. Strictly fail-open: an absent file, a corrupt one, a
+ * poisoned entry — any trouble reads as no state, never an error. The bridge
+ * must not turn a broken ledger into a broken bridge (the usage-ledger
+ * incident's discipline).
+ * @param kbRoot - the live KB root.
+ * @param name - the capability's kebab-case name.
+ */
+export async function persistedStateOf(kbRoot: string, name: string): Promise<unknown> {
+  try {
+    const raw = await readFile(join(resolve(kbRoot), '.dsh', 'yantao', 'state.json'), 'utf8')
+    const parsed = JSON.parse(raw) as { capabilities?: Record<string, { state?: unknown }> }
+    const state = parsed.capabilities?.[name]?.state
+    return state === undefined ? null : state
+  } catch {
+    return null
+  }
+}
 
 /**
  * Run one command inside an installed capability's directory (ADR-0043
@@ -151,8 +225,8 @@ export async function execCapabilityScript(
   const envelope = JSON.stringify({
     name: options.name,
     kbRoot: options.kbRoot,
-    input: options.input ?? null,
-    state: null,
+    input: inputOf(options.input),
+    state: await persistedStateOf(options.kbRoot, options.name),
     channel: 'agent',
   })
 

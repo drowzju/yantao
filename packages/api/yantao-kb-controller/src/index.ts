@@ -25,6 +25,9 @@
  * through the human channel; the proposal queue (ADR-0044) is
  * `memoryProposalList`/`memoryProposalApprove`/`memoryProposalDiscard` — the
  * holding pen an agent's `kb_propose_memory` fills and only a human drains.
+ * The proposal inbox (ADR-0047) gains the same shape for schedule
+ * nominations (ADR-0055): the agent's `kb_propose_actions` fills it, the
+ * human drains it from the 提议 tab.
  * The UI is the human
  * channel, so `write` is a full-file write; the ADR-0004 trust boundary
  * binds only the agent's kb_ tools, never this surface.
@@ -60,7 +63,8 @@ import { ensureBuiltinCapabilities, seedBuiltinRoutes } from './capability/built
 import { applySkillRewrite } from './capability/rewrite.ts'
 import { CAPABILITY_HINTS, CapabilityError, runCapability } from './capability/run.ts'
 import type { CapabilityInvoker } from './capability/run.ts'
-import { CAPABILITY_ENVIRONMENT_NOTE, execCapabilityScript } from './capability/exec.ts'
+import { CAPABILITY_ENVIRONMENT_NOTE, execCapabilityScript, instructionTextOf } from './capability/exec.ts'
+import { mailSpanNote, normalizeMailRange, validateProposedActions } from './capability/proposal-actions.ts'
 import { addRoutes, readRoutes, removeRoute, routedSkill, updateRoute, ROUTES_PATH } from './capability/routing.ts'
 import type { CapabilityRoute } from './capability/routing.ts'
 import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
@@ -83,6 +87,8 @@ import type {
   KbCapabilityRunArgs,
   KbCapabilityRunResult,
   KbCapabilitySummary,
+  KbCapabilityInstructionsArgs,
+  KbCapabilityInstructionsResult,
   KbFileContent,
   KbGraphResult,
   KbLinksResult,
@@ -428,8 +434,7 @@ export class YantaoKbController extends TypertRemoteService {
         },
         render: (_args, value) => [{
           type: 'text',
-          text: `能力「${value.name}」的指令正文如下，请照其行事：\n\n${CAPABILITY_ENVIRONMENT_NOTE}\n\n${value.content}`
-            + (value.memory !== undefined ? `\n\n${value.memory}` : ''),
+          text: instructionTextOf(value.name, value.content, value.memory),
         }],
       },
       execute: async ({ name }) => {
@@ -456,7 +461,8 @@ export class YantaoKbController extends TypertRemoteService {
         + '用途：技能指令里「执行 python xxx」这类中途步骤，或直接运行能力自带的命令行。'
         + 'cwd 锁定该能力的目录（<知识库>/.dsh/skills/<name>，越出即拒绝）；命令本身不做内容审查——安装即授权。'
         + 'KB_ROOT（知识库根目录）经环境变量送达，命令行里的 $KB_ROOT 与 %KB_ROOT% 占位符在执行前直接替换为真实路径——两种写法在任何平台都等价；'
-        + 'stdin 也会收到一个 JSON 信封。kb_run_capability 只返回技能的指令正文，脚本执行一律走本工具。',
+        + 'stdin 也会收到一个 JSON 信封：input 若是 JSON 对象/数组会先解析成字典再送达（否则原样传字符串），state 字段携带该能力已持久化的断点。'
+        + 'kb_run_capability 只返回技能的指令正文，脚本执行一律走本工具。',
       parameters: {
         name: { type: 'string', required: true, description: '能力名，取自注入的能力目录；必须对 agent 开放' },
         command: { type: 'string', required: true, description: '在该能力目录内经平台 shell 执行的命令行' },
@@ -502,6 +508,82 @@ export class YantaoKbController extends TypertRemoteService {
         } catch (error: unknown) {
           throw badManifestError(error)
         }
+      },
+    }))
+    // The nomination tool (ADR-0055, amending ADR-0047 决定 2): the agent's
+    // WRITE-ONLY channel into the proposal inbox. The envelope-as-prose era
+    // ended with the 2026-10-10 morning incident — a hand-written JSON
+    // envelope was fragile (batch-merged actions, missing fields) and its
+    // loss surfaced only through a whole extra repair turn. Here the
+    // validation runs at the tool boundary: a bad row is named back as the
+    // tool's failure and repaired within the same turn. The tool enqueues
+    // only — every action still waits for the human's 批准 on the 提议 card,
+    // so the trust anchor (the human's one decisive act) is unmoved.
+    this.ctx.tools.register(defineTool({
+      name: 'kb_propose_actions',
+      description:
+        '把值得人拍板的写入动作打包成一个提议，送进「提议」收件箱等人在提议页批准（ADR-0055）。'
+        + '本工具只入队不执行——动作由人批准后才落库，不要为了让动作生效而调用本工具。'
+        + 'actions 每项形如 {"kind":"append-log","entityPath":…,…}，kind 与必填字段在服务端校验，'
+        + '不合格会被整单拒绝并把每一项的问题点名返回，按报错修正后重新调用即可。'
+        + '没有值得提议的动作就不要调用本工具（纯文字汇报即可）；入队成功后不要再在回答里重复输出信封 JSON。',
+      parameters: {
+        title: { type: 'string', required: true, description: '一句话概括这批动作，作为提议卡标题' },
+        actions: {
+          type: 'array',
+          required: true,
+          description: '待人工批准的写入动作列表，每项一个对象',
+          items: { type: 'object', additionalProperties: true, description: '一个动作项：kind 加该类别的必填字段' },
+        },
+        note: { type: 'string', description: '给人的备注一行，显示在提议卡上；可省略' },
+        mails: {
+          type: 'object',
+          additionalProperties: false,
+          description: '邮件水位范围（仅邮件解析任务）：{"lastReadAt":"…","firstReadAt":"…"}，抄实际批次首尾的 receivedAt；人裁决时据此推进水位',
+          properties: {
+            lastReadAt: { type: 'string', description: '本批最后一封的 receivedAt（ISO 8601）' },
+            firstReadAt: { type: 'string', description: '本批最早一封的 receivedAt（ISO 8601），可省略' },
+          },
+        },
+        source: { type: 'string', description: '来源标识（调度约定会给出，如 schedule:sch_xxx）；交互会话省略' },
+        sourceName: { type: 'string', description: '来源显示名（调度约定会给出）；交互会话省略' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string', required: true },
+          },
+        },
+        // Validation failure THROWS (the execute below) — a rendered value is
+        // always an enqueued one; there is no ok:false face (ocr 评审 #6).
+        render: (_args, value) => [{
+          type: 'text',
+          text: `提议已入队（${value.id}），等人在「提议」页批准或丢弃。回答里不要再重复输出提议信封。`,
+        }],
+      },
+      execute: async ({ title, actions, note, mails, source, sourceName }) => {
+        this.requireKbRootForInbox()
+        const diagnostics = validateProposedActions(actions)
+        if (diagnostics.length > 0) {
+          throw new Error(`提议未通过校验，请修正后重新调用（整单未入队）：${diagnostics.join('；')}`)
+        }
+        const range = normalizeMailRange(mails)
+        const noteParts = [note, mailSpanNote(range)].filter((part): part is string => part !== undefined && part !== '')
+        const stored = await enqueueProposal(this.kbRoot, {
+          source: source === undefined || source.trim() === '' ? 'agent:kb_propose_actions' : source.trim(),
+          sourceName: sourceName === undefined || sourceName.trim() === '' ? '会话提议' : sourceName.trim(),
+          title,
+          ...(noteParts.length > 0 ? { note: noteParts.join(' · ') } : {}),
+          proposal: {
+            title,
+            actions,
+            ...(range !== undefined ? { mails: range } : {}),
+          },
+        })
+        const fresh = stored.at(-1)
+        return { id: fresh?.id ?? '' }
       },
     }))
   }
@@ -1513,6 +1595,29 @@ export class YantaoKbController extends TypertRemoteService {
       return { schedules: await readSchedules(this.kbRoot), path: SCHEDULES_DISPLAY_PATH }
     } catch (error: unknown) {
       throw this.scheduleError(error)
+    }
+  }
+
+  /**
+   * One capability's assembled instruction text (调度首跳直通): what the
+   * agent would receive from `kb_run_capability`, minus the tool round-trip.
+   * The scheduler inlines this ahead of a bound schedule's prompt at fire
+   * time, so the session starts already holding the SKILL.md body.
+   *
+   * Human channel only — the fired session is a human-preauthorized run
+   * (ADR-0045), so the route's `invocation` gate does not apply; resolution
+   * still goes through the central routing file (ADR-0052) and the run is
+   * accounted (ADR-0053 决定 3) exactly like a tool-mediated one.
+   * @param args - the capability's name.
+   * @returns the assembled instruction text (导语 + environment note +
+   *   SKILL.md body + behavior memory when present).
+   */
+  @Remote('capabilityInstructions')
+  async capabilityInstructions(args: KbCapabilityInstructionsArgs): Promise<KbCapabilityInstructionsResult> {
+    const answer = await this.runInstructions(args.name, 'human')
+    return {
+      name: answer.name,
+      instructions: instructionTextOf(answer.name, answer.content ?? '', answer.memory),
     }
   }
 

@@ -125,25 +125,32 @@ powershell -File scripts\sync-in.ps1 -Bundle <bundle 路径>
     缓存。另注意:合并/切分支后 pnpm verify-deps 判定 node_modules 失同步会 relink electron 包,`dist/` 随之蒸发
     (启动报找不到 electron),同样用上面的镜像重装即可,不必手工解 zip。
 
-## 调度与提议(ADR-0045 / ADR-0047)
+## 调度与提议(ADR-0045 / ADR-0047 / ADR-0055)
 
-调度到点的任务由前端(人类通道代码)直接起一次 run,不走 agent 工具面;run 结束后前端尝试从回答里解析出
-提议信封并入队。整条链路的约定:
+调度到点的任务由前端(人类通道代码)直接起一次 run,不走 agent 工具面;run 结束后按双路径收取提议
+(ADR-0055)。整条链路的约定:
 
-- **提示词约定**：调度器在每次 fire 时**自动**把提议信封约定拼到提示词末尾（`scheduler.ts` 的
-  `withProposalEnvelope`，ADR-0047 验收修正）——调度作者无需手写。模型被要求：值得人拍板的写入动作不自行执行，
-  以单个信封 JSON `{"title":"…","actions":[…]}` 收尾（裸 JSON、围栏包裹、正文夹带皆可，解析依次尝试：围栏块 →
-  全文 → 最外层花括号候选）；没有值得提议的就完全不输出信封，run 退化为纯通知，本身仍算成功。
-  2026-10-09 修订：统一约定只教**能力无关**的 KB 写入类别；邮件专属的 `delete-mails`/`archive-mails`
-  动作与 `mails` 水位字段的教学迁到了 mail 能力自己的 SKILL.md（builtin v13）——只有加载了邮件能力的
-  会话才看得见，别的调度不再背用不上的邮件机器。
+- **提名正门是工具 `kb_propose_actions`**(ADR-0055):调度器在每次 fire 时**自动**把工具约定拼到
+  提示词末尾(`scheduler.ts` 的 `withProposalConvention`)——教模型把值得人拍板的写入动作经
+  `kb_propose_actions` 送进收件箱(title + actions 逐项,kind 与必填字段服务端校验,不合格整单拒绝、
+  诊断当轮回给模型修),不自行执行、没有值得提议的就完全不调用、入队成功后不再重复输出信封。
+  2026-10-09 的能力归属原则延续:统一约定只教**能力无关**的 KB 写入类别;邮件专属的
+  `delete-mails`/`archive-mails` 动作与 `mails` 水位字段的教学在 mail 能力自己的 SKILL.md(builtin v16)。
+- **双路径互斥**:run 结束先扫事件日志,检出 `kb_propose_actions` 调用即走工具路径(跳过散文解析与
+  追问兜底,防双入队;proposalId 从收件箱按 `source=schedule:<id>` 回查,供通知分流);未检出才走
+  散文回退——旧约定(`withProposalEnvelope` 时代)的答案解析 `proposalOfAnswer` + 信封拒绝诊断 +
+  一轮修复保留原样,伺候模型惯性与旧 prompt 快照。
+- **动作词汇表孪生**:kinds/必填/可空字段表在 controller(`capability/proposal-actions.ts`)与客户端
+  (`capability-match.ts`)各持一份——controller 不能反向依赖客户端包(web bundle 纯度),漂移由
+  `proposal-tool.spec.ts` 的 parity 组钉住。改词汇表必须两边同步,parity 测试会拦漏改。
 - **提议队列**在 controller 侧持久化:`<kbRoot>/.dsh/yantao/proposal-inbox.json`,经 Remote 三方法
-  `proposalInboxList` / `proposalInboxEnqueue` / `proposalInboxResolve` 读写。生产者只有前端调度器;agent 没有任何
-  工具能碰到这张队列。载荷按不透明 JSON 存储,解释权在客户端插件的 `proposalOfPayload`。
+  `proposalInboxList` / `proposalInboxEnqueue` / `proposalInboxResolve` 读写。生产者是前端调度器与
+  `kb_propose_actions`(两者都只入队);agent 不读队列、不裁决、不能改撤已入队行。载荷按不透明
+  JSON 存储,解释权在客户端插件的 `proposalOfPayload`。
 - **决策面**是「提议」tab:复用共享 ProposalCard,**取消/Esc 即丢弃**(验收修正:卡一关必有裁决,不让人再点
   第二次);批准走 applyProposal 先写入、后 resolve;两步任一失败行都保持待决。细节取舍见 ADR-0047 台账。
-- **邮件水位联动**(验收修正 2):信封的可选 `mails` 范围字段(模型抄实际批次首尾的 `receivedAt`,教学在
-  mail 能力的 SKILL.md,见上);
+- **邮件水位联动**(验收修正 2):提议的可选 `mails` 范围字段(模型抄实际批次首尾的 `receivedAt`,教学在
+  mail 能力的 SKILL.md,见上;工具路径由服务端规范化为 ISO Z 戳防幻觉游标);
   人**批准或丢弃**提议时,Frame 经 `mailMarkRead` 把水位推过该范围——与手动面板 confirm/dismiss 的「看过即处理」
   同义,下次读邮件不再重推同批。范围同时显示在队列行的 note 上,隐式簿记变明面。
 

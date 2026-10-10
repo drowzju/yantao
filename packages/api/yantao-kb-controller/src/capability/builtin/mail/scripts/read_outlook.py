@@ -9,12 +9,17 @@
   列表，stdout 除这个数组外不输出任何其它内容。
 
 用法：
-  python read_outlook.py --since <ISO8601> [--until <ISO8601>] [--limit N] [--folder NAME] --json
+  python read_outlook.py --since <ISO8601> [--until <ISO8601>] [--limit N] [--folder NAME] [--slim] --json
     --since   只返回收件时间严格晚于该时刻的邮件（ISO 8601，例如 2026-08-11T00:00:00）
     --until   只返回收件时间严格早于该时刻的邮件（ISO 8601）；用于「往前读更早的一批」，
-              与 --since 合起来就是一个半开区间 [since, until)
+              与 --since 合起来是一个开区间 (since, until)，两端都不含——
+              since 取上一批末封的收件时间正好不会重读它
     --limit   最多返回几封（默认 50，取最新的 N 封；<=0 表示不限）
     --folder  按名称查找文件夹（含各 store 及其子文件夹），默认收件箱
+    --slim    元数据模式：每封只回 id/entryId/receivedAt/发件人/主题/toMe/线程
+              字段，不取正文。翻页与巡扫一律用它——正文是输出的体积大头，
+              带正文的大页会被工作台 64KB 输出截断，吞掉页底时间戳导致翻页
+              锚点丢失；需要读某封正文时再单独小页拉取
     --json    JSON 输出模式，目前是唯一支持的模式
   示例：
     python read_outlook.py --since 2026-08-11T00:00:00 --limit 50 --json
@@ -320,8 +325,12 @@ def find_folder(ns, name):
     return None
 
 
-def read_mails(folder, since, until, limit, me_name="", me_address="", superior_addresses=()):
-    """取 folder 里收件时间落在 [since, until) 的最新 limit 封邮件。"""
+def read_mails(folder, since, until, limit, me_name="", me_address="", superior_addresses=(), slim=False):
+    """
+    取 folder 里收件时间落在开区间 (since, until) 的最新 limit 封邮件（两端都不含）。
+    slim=True 时是元数据模式：跳过正文提取（输出的体积大头），其余字段照回——
+    翻页/巡扫用它，单页几十封也不会触碰工作台 64KB 输出截断。
+    """
     items = folder.Items
     items.Sort("[ReceivedTime]", True)
 
@@ -348,7 +357,7 @@ def read_mails(folder, since, until, limit, me_name="", me_address="", superior_
             sender_name = getattr(item, "SenderName", "") or ""
             sender_address = smtp_address(item, getattr(item, "SenderEmailAddress", "") or "")
             subject = getattr(item, "Subject", "") or ""
-            body, truncated = clip(plain_body(item))
+            body, truncated = ("", False) if slim else clip(plain_body(item))
             entry_id = str(getattr(item, "EntryID", "") or "")
             conversation_id, conversation_topic = thread_fields(item)
 
@@ -425,12 +434,12 @@ def delete_messages(entry_ids):
     return {"moved": moved, "missing": missing, "failed": failed}
 
 
-def fetch_messages(since_text, until_text, limit, folder_name, superior_addresses=()):
+def fetch_messages(since_text, until_text, limit, folder_name, superior_addresses=(), slim=False):
     """
-    取数核心：把 [since, until) 窗口里的最新 limit 封邮件取回来。
+    取数核心：把 (since, until) 开区间窗口里的最新 limit 封邮件取回来。
     供 entry.py 以函数方式调用；失败抛 OutlookError（kind/message 与命令行
     stderr 的 JSON 同词表）。superior_addresses 是上级的 SMTP 地址集合，只为
-    计算 superiorInvolved 旗标（ADR-0034 批次②）。
+    计算 superiorInvolved 旗标（ADR-0034 批次②）。slim=True 见 read_mails。
     """
     try:
         import win32com.client
@@ -478,7 +487,7 @@ def fetch_messages(since_text, until_text, limit, folder_name, superior_addresse
         raise OutlookError("folder-missing", f"打开邮件文件夹失败：{error}") from error
 
     try:
-        return read_mails(folder, since, until, limit, *current_user(ns), superior_addresses=superior_addresses)
+        return read_mails(folder, since, until, limit, *current_user(ns), superior_addresses=superior_addresses, slim=slim)
     except Exception as error:
         raise OutlookError("other", f"读取邮件失败：{error}") from error
 
@@ -489,11 +498,12 @@ def main():
     parser.add_argument("--until", default=None, help="只取收件时间早于该时刻的邮件（ISO 8601，与 --since 组成区间）")
     parser.add_argument("--limit", type=int, default=50, help="最多返回几封（默认 50，<=0 表示不限）")
     parser.add_argument("--folder", default=None, help="文件夹名称，默认收件箱")
+    parser.add_argument("--slim", action="store_true", help="元数据模式：不取正文，翻页/巡扫用，防 64KB 截断")
     parser.add_argument("--json", action="store_true", help="JSON 输出模式（唯一支持的模式）")
     args = parser.parse_args()
 
     try:
-        messages = fetch_messages(args.since, args.until, args.limit, args.folder)
+        messages = fetch_messages(args.since, args.until, args.limit, args.folder, slim=args.slim)
     except OutlookError as error:
         fail(error.message, error.kind, EXIT_BY_KIND.get(error.kind, EXIT_OTHER))
         return

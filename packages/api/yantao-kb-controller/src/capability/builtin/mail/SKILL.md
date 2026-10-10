@@ -4,7 +4,7 @@ description: 读取本地 Outlook 桌面客户端的邮件，按断点增量拉�
 disable-model-invocation: true
 metadata:
   yantao:
-    version: 13
+    version: 16
 ---
 
 # 邮件能力
@@ -24,10 +24,13 @@ yantao 工作台的邮件能力（ADR-0019 建立，ADR-0021 迁移为能力目�
 ### 取数（缺省动词）
 
 - `input`：`{since?, until?, limit?, folder?, superiorAddresses?}`——`since`/`until`
-  是显式翻页边界（半开区间 `[since, until)`）；都不给时用 `state.lastReadAt`，
-  再没有就用 30 天前。`superiorAddresses` 是知识库里关系为 superior 的人物的
-  SMTP 地址集合，只为给每封邮件算 `superiorInvolved` 旗标（ADR-0034 批次②），
-  不给时旗标恒为 false。
+  是显式翻页边界（**开区间 `(since, until)`，两端都不含**：`since` 取上批末封的
+  receivedAt 正好不会重读它，`until` 同理排除）。都不给时用 `state.lastReadAt`，
+  再没有就用 30 天前。`superiorAddresses` 是上级人物的 SMTP 地址集合，只为给每封
+  邮件算 `superiorInvolved` 旗标（ADR-0034 批次②），不给时旗标恒为 false。
+  **agent 场景直接省略这个参数**：知识库的人物实体不保存邮箱地址，构造不出可靠的
+  集合；上级关联改为在分析时按发件人身份（对照人物实体的关系标注）判断，
+  不要为凑这个参数去读实体。
 - `state`：`{lastReadAt?}`——上次读到的水印，由工作台持久化，脚本只读不写
   （推进水印是批准后的另一个动作）。
 - 成功：`{ok: true, result: {since, until?, lastReadAt?, stale, messages, hasMore}}`，
@@ -37,6 +40,20 @@ yantao 工作台的邮件能力（ADR-0019 建立，ADR-0021 迁移为能力目�
   批次②）——两者都只回关系或旗标，不含其他收件人的名字或地址；`conversationId`/`conversationTopic`
   是 Outlook 的会话键与会话主题（Outlook 2010+），读不到时为空串，客户端据此前提
   归并线程、缺失时回退按主题剥 RE/FW 前缀分组。
+
+### 翻页与巡扫纪律（2026-10-10 立）
+
+- **巡扫/翻页一律用 `--slim`**（CLI）或不带正文的方式：正文是输出的体积大头，
+  带正文的大页会撞上工作台 64KB 输出截断，页底（时间最早）那封的
+  id/receivedAt 被裁掉，翻页锚点就丢了。
+- **已知事实，不必再探测**：`--slim` 输出按收件时间**新→旧**排序（页底=最早），
+  单封约 0.7KB——`--limit 40` 的一页约 28KB，远离截断线。巡扫直接从断点起
+  `--slim --json --limit 40` 一页扫到底：返回封数少于 limit 即触底，无需先用
+  小页探序。
+- 翻页锚定协议：区间两端都不含（见上），下一页 `--until` 取当前页底时间
+  **+1 秒**（越过开区间下界的同秒兄弟信才不丢），重叠出现的邮件按 `id` 去重；
+  返回单封且与上页重复即证明区间触底。
+- 需要读某封正文做分析时，再单独小页（limit 1-3）拉取那一封。
 
 ### 删除（`verb: 'delete'`，仅人通道，ADR-0034 决定 5）
 
@@ -85,12 +102,13 @@ yantao 工作台的邮件能力（ADR-0019 建立，ADR-0021 迁移为能力目�
 两类动词共用的失败：`{ok: false, kind, message, hint}`，kind ∈
 python-missing / outlook-unavailable / folder-missing / not-invocable / other。
 
-## 提议信封的邮件扩展（ADR-0047）
+## 提议的邮件扩展（ADR-0047/0055）
 
-调度任务的提示词末尾带有统一的「调度约定」，教一个提议信封（`{"title":…,
-"actions":[…]}`，只提名值得人批准的写入、不自行执行、没有提议就沉默）。
-那个统一约定只教能力无关的 KB 写入类别；**邮件专属的信封扩展只在本能力里
-教**——也就是说，只有真正加载了本能力、实际读取过邮件的任务才可使用：
+调度任务的提示词末尾带有统一的「调度约定」，教用 `kb_propose_actions`
+工具提交提议（`title` + `actions` 列表，只提名值得人批准的写入、不自行
+执行、没有提议就不调用）。那个统一约定只教能力无关的 KB 写入类别；
+**邮件专属的动作扩展只在本能力里教**——也就是说，只有真正加载了本能力、
+实际读取过邮件的任务才可使用：
 
 - `{"kind":"delete-mails","entryId":"<邮件 EntryID>","sender":"<发件人>",
   "subject":"<主题>","reason":"<缘由>"}` ← 删除提名：只对广告、失效通知这类
@@ -101,10 +119,14 @@ python-missing / outlook-unavailable / folder-missing / not-invocable / other。
   .eml 原件与其全部附件一起落入 `resources/mails/` 并记入邮件索引（即上面的
   人通道 `archive` 动词）。只提名值得长期留存的邮件，宁缺勿滥。
 
-若本任务读取或处理过邮件，信封再加一个 `"mails"` 水位字段，抄自实际取到的
-批次首尾：`"mails":{"lastReadAt":"<最新一封的 receivedAt>","firstReadAt":
+**每封邮件一条动作**，逐封展开 `entryId`/`sender`/`subject`——不要把多封合并成
+一个批量动作（如 `mailIds` 数组或 `targets` 列表）：服务端校验器只认逐封字段，
+批量形态整单被拒（2026-10-10 早晨事故）。
+
+若本任务读取或处理过邮件，调用时再加一个 `mails` 水位参数，抄自实际取到的
+批次首尾：`mails:{"lastReadAt":"<最新一封的 receivedAt>","firstReadAt":
 "<最早一封的 receivedAt>"}`——人裁决提议后，这批邮件就计为已处理，不再重推。
-没读过邮件就不要带这个字段：水位随人批准的提议推进，误报的范围会把那批邮件
+没读过邮件就不要带这个参数：水位随人批准的提议推进，误报的范围会把那批邮件
 永久计为已处理。
 
 ## 前提
@@ -113,5 +135,5 @@ python-missing / outlook-unavailable / folder-missing / not-invocable / other。
 2. Python 位数与 Office 一致（64 位 Office 配 64 位 Python）。
 3. `pip install pywin32`。
 
-`scripts/read_outlook.py` 也可以单独在命令行跑（`--since/--until/--limit/--folder --json`），
+`scripts/read_outlook.py` 也可以单独在命令行跑（`--since/--until/--limit/--folder/--slim --json`），
 便于脱离工作台排查。

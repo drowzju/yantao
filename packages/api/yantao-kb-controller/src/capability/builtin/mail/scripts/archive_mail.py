@@ -27,9 +27,12 @@ RFC822），再在本模块内重组为 MIME .eml；重组失败的个别邮件�
 相对路径（多个用「；」相连）——一张账本管一封信的全部落盘物。
 
 幂等与撞名（决定 5/6）：文件名 = 收件本地时间_净化主题_发件人显示名；同名
-已存在时先验明正身——解析既有 .eml 的头字段与本封比对，同一封即整封跳过
-（第二次批准等于无害空操作，附件也不再摸），确属另一封才追加 mail_id 前 8
-位短哈希；.msg 兜底件无法廉价验身，一律按「已保存」跳过（保守的幂等）。
+已存在时先验明正身——两封的 Message-ID 都在手时仅凭它判同（强标识，投递
+延迟与时区都不掺和），缺 Message-ID 才退到主题＋发件地址比对，同一封即整
+封跳过（第二次批准等于无害空操作，附件也不再摸），确属另一封才追加 mail_id
+前 8 位短哈希；.msg 兜底件无法廉价验身，一律按「已保存」跳过（保守的幂等）。
+「过大未存」没有落盘原件可比对，幂等锚点放在索引本身：标题＋发件人＋收件
+时间都已登记过的行视为同一封，重复批准不再追加索引行。
 
 一致性（决定 7）：逐封串行——.eml 与附件落盘成功立刻追加索引行，再做下一封；
 中途崩溃留下的每一对（文件＋索引行）都自洽。
@@ -49,7 +52,7 @@ from datetime import timezone
 from email import policy
 from email.message import EmailMessage
 from email.parser import BytesParser
-from email.utils import format_datetime, formataddr, parsedate_to_datetime
+from email.utils import format_datetime, formataddr
 
 import read_outlook
 from read_outlook import (
@@ -97,11 +100,7 @@ def attachment_filename_of(att):
     base = raw.rsplit("/", 1)[-1].strip(". ")
     cleaned = INVALID_CHARS.sub("_", base)
     if len(cleaned) > ATTACHMENT_NAME_CAP:
-        # 截长保住扩展名（评审 2026-10-09）：扩展名住在尾巴上，从头截正好把它
-        # 切掉；只保留护 stem，扩展名比上限还长时才退回普通头截。
-        stem, ext = os.path.splitext(cleaned)
-        cut = ATTACHMENT_NAME_CAP - len(ext)
-        cleaned = (stem[:cut] + ext if ext and cut > 0 else cleaned[:ATTACHMENT_NAME_CAP]).strip(". ")
+        cleaned = cleaned[:ATTACHMENT_NAME_CAP].strip(". ")
     return cleaned or "附件"
 
 
@@ -355,41 +354,53 @@ def msg_to_eml_bytes(msg_path, mail):
 
 def existing_identity(path):
     """
-    既有 .eml 的验身三元组的可比较形状：(主题, 发件地址, 收件分钟戳)。
+    既有 .eml 的验身信息的可比较形状：(主题, 发件地址, Message-ID)。
     解析不了（损坏、截断）返回 None——调用方按「同一封」保守处理。
     """
     try:
         with open(path, "rb") as handle:
             head = handle.read(65536)
         parsed = BytesParser(policy=policy.default).parsebytes(head, headersonly=True)
-        date_value = parsed.get("Date")
-        # Date 头是 RFC 2822 形状（如 "Tue, 30 Sep 2026 10:30:00 +0800"），
-        # 不是我们自己写的 ISO 形状——得用 parsedate_to_datetime 解析，
-        # 否则这里的防撞比对永远解析失败、恒走「不同一封」误判分支。
-        try:
-            moment = parsedate_to_datetime(str(date_value)) if date_value else None
-        except (TypeError, ValueError):
-            moment = None
         address = ""
         from_value = parsed.get("From") or ""
         match = re.search(r"<([^>]+@[^>]+)>", str(from_value))
         if match:
             address = match.group(1).lower()
-        return (str(parsed.get("Subject") or ""), address, moment.strftime("%Y%m%d%H%M") if moment else "")
+        return (str(parsed.get("Subject") or ""), address,
+                str(parsed.get("Message-ID") or ""))
     except Exception:
         return None
 
 
 def same_mail(existing, mail):
-    """既有件与本封是不是同一封：主题、发件地址、收件分钟戳三者皆同才算。
+    """既有件与本封是不是同一封：两封的 Message-ID 都在手时仅凭它判同——
+    强标识不掺投递延迟与时区；缺 Message-ID 才退到主题＋发件地址比对。
+    旧的「收件分钟戳」比对拿已存件的发送方 Date 头（发件方时区的发送时刻）
+    与本封的本地到达时间比，时钟基准不同几乎必不等，只会造成重复落盘，
+    已废弃（评审 2026-10-09）。
     主题比较压缩空白——.eml 主题现取自传输头，与 COM 值可能差折叠空白。"""
     if existing is None:
         return True
-    subject, address, minute = existing
+    subject, address, message_id = existing
+    if message_id and mail["messageId"]:
+        return message_id.casefold() == str(mail["messageId"]).casefold()
     squash = lambda value: re.sub(r"\s+", "", str(value or ""))
     return (squash(subject) == squash(mail["subject"])
-            and (address == "" or address == mail["sender"][1].lower())
-            and (minute == "" or minute == mail["received"].strftime("%Y%m%d%H%M")))
+            and (address == "" or address == mail["sender"][1].lower()))
+
+
+def index_has_entry(index_path, subject, sender_display, stamp):
+    """「过大未存」没有落盘原件可比对，幂等锚点放在索引本身：标题＋发件人
+    相邻两列与收件时间都已存在的行视为同一封已登记过（决定 5/6 的幂等承诺
+    延伸到无原件路径）。"""
+    if not os.path.exists(index_path):
+        return False
+    head_needle = f"| {flatten(subject)} | {flatten(sender_display)} |"
+    with open(index_path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            if head_needle in line and stamp in line:
+                return True
+    return False
 
 
 def save_attachments(item, month_dir, prefix, kb_root, subject, outcome):
@@ -401,24 +412,15 @@ def save_attachments(item, month_dir, prefix, kb_root, subject, outcome):
     的失败，不该把整行拖进 failed 桶。
     """
     saved = []
-    # 枚举与逐个取名都在保护圈内（评审 2026-10-09）：COM 读属性同样会炸，
-    # 一处异常只能降级成一条 warning，不能把这封拖进 failed 桶——.eml 已经
-    # 落了盘，索引行却不会写，重试又被同名同信跳过，这一行就永远补不回来。
-    try:
-        attachments = list(getattr(item, "Attachments", None) or [])
-    except Exception as error:
-        outcome["warnings"].append(f"{subject or '（无主题）'}：附件枚举失败：{error}")
-        return saved
-    for att in attachments:
-        name = None
+    for att in list(getattr(item, "Attachments", None) or []):
+        name = attachment_filename_of(att)
+        target = os.path.join(month_dir, f"{prefix}_{name}")
+        if os.path.exists(target):
+            continue
         try:
-            name = attachment_filename_of(att)
-            target = os.path.join(month_dir, f"{prefix}_{name}")
-            if os.path.exists(target):
-                continue
             att.SaveAsFile(os.path.abspath(target))
         except Exception as error:
-            outcome["warnings"].append(f"{subject or '（无主题）'}：附件{name or ''}落盘失败：{error}")
+            outcome["warnings"].append(f"{subject or '（无主题）'}：附件 {name} 落盘失败：{error}")
             continue
         saved.append(os.path.relpath(target, os.path.join(kb_root, RESOURCES)).replace(os.sep, "/"))
     return saved
@@ -479,13 +481,20 @@ def archive_one(ns, kb_root, entry_id, summary, outcome, warned):
             month_stamp = local.strftime("%Y%m")
             index_path = index_path_for(kb_root, month_stamp)
             ensure_index(index_path, month_stamp)
+            # 过大未存无原件可比对，先查索引防重复登记（决定 5/6）。
+            if index_has_entry(index_path, subject, mail["sender"][0],
+                               local.strftime("%Y-%m-%d %H:%M")):
+                outcome["skipped"].append({"id": entry_id, "reason": "已登记过（过大未存），跳过"})
+                return
             month_dir = os.path.join(kb_root, RESOURCES, "mails", local.strftime("%Y"), local.strftime("%m"))
             os.makedirs(month_dir, exist_ok=True)
             # 原件超限拒落盘（决定 9），附件照存——附件往往才是真正要留的材料。
-            # 前缀带上主题与短哈希（评审 2026-10-09）：这里没有 .eml 可验身，
-            # 裸时间戳前缀会让同分钟两封过大邮件的同名附件互相顶掉。
-            att_prefix = f"{local.strftime('%Y-%m-%d_%H%M')}_{sanitized(subject, SUBJECT_CAP)}-{identity[:8]}"
-            saved_atts = save_attachments(item, month_dir, att_prefix, kb_root, subject, outcome)
+            # 前缀对齐正常分支（时间戳_净化主题_发件人）：只留分钟级时间戳的话，
+            # 同一分钟内两封过大邮件的同名附件会被 os.path.exists 当成已存过
+            # 静默吞掉（评审 2026-10-09）。
+            oversize_base = (f"{local.strftime('%Y-%m-%d_%H%M')}_"
+                             f"{sanitized(subject, SUBJECT_CAP)}_{sanitized(mail['sender'][0], 80)}")
+            saved_atts = save_attachments(item, month_dir, oversize_base, kb_root, subject, outcome)
             append_index_row(index_path, index_row([
                 subject, mail["sender"][0], recipients_cell(to_pairs + cc_pairs),
                 local.strftime("%Y-%m-%d %H:%M"), "；".join(saved_atts) if saved_atts else "—", summary,
@@ -516,11 +525,7 @@ def archive_one(ns, kb_root, entry_id, summary, outcome, warned):
         # 原件落盘成功，接着附件，然后立刻追加索引行（决定 7）：这对
         # （全部文件＋一行）从此自洽。
         relative = os.path.relpath(target, os.path.join(kb_root, RESOURCES)).replace(os.sep, "/")
-        # 附件前缀跟 .eml 的实际落地名走（评审 2026-10-09）：撞名走了短哈希
-        # 分支时 target 已带后缀，仍用裸 base 会把附件写进别的信的名下、或被
-        # exists 幂等检查静默吞掉。
-        prefix = os.path.splitext(os.path.basename(target))[0]
-        saved_atts = save_attachments(item, month_dir, prefix, kb_root, subject, outcome)
+        saved_atts = save_attachments(item, month_dir, base, kb_root, subject, outcome)
         month_stamp = local.strftime("%Y%m")
         index_path = index_path_for(kb_root, month_stamp)
         ensure_index(index_path, month_stamp)

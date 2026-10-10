@@ -975,6 +975,13 @@ export interface KbSchedule {
   readonly lastFiredAt?: string
   /** ISO timestamp of the most recent missed fire detected at startup. */
   readonly lastMissedAt?: string
+  /**
+   * An optional capability binding (首跳直通)：when set, the fired session's
+   * prompt is prefixed with that capability's full instruction text (fetched
+   * through `capabilityInstructions` on the human channel), sparing the
+   * agent its first `kb_run_capability` hop. Empty/absent = no binding.
+   */
+  readonly capability?: string
 }
 
 /** Result of `yantaoKb.scheduleList` (ADR-0045). */
@@ -995,6 +1002,25 @@ export interface KbScheduleSaveResult {
   readonly schedules: readonly KbSchedule[]
   /** KB-relative path of the store, for the UI's error copy. */
   readonly path: string
+}
+
+/** Parameters of `yantaoKb.capabilityInstructions` (调度首跳直通). */
+export interface KbCapabilityInstructionsArgs {
+  /** The capability's skill name, as registered in the central routing file. */
+  readonly name: string
+}
+
+/**
+ * Result of `yantaoKb.capabilityInstructions` (调度首跳直通): the assembled
+ * instruction text exactly as the agent would receive it from
+ * `kb_run_capability` — 导语 + environment note + SKILL.md body + behavior
+ * memory — so the scheduler can inline it ahead of the prompt.
+ */
+export interface KbCapabilityInstructionsResult {
+  /** The capability that was resolved. */
+  readonly name: string
+  /** The fully assembled instruction text, ready to inline. */
+  readonly instructions: string
 }
 
 /** Parameters of `yantaoKb.scheduleMark` (ADR-0045): patch one row's scheduler-owned stamps. */

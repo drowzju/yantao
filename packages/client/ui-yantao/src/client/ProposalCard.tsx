@@ -387,6 +387,13 @@ export function ProposalCard(props: {
   readonly onInstruction?: (text: string) => Promise<void>
   /** The explicit 丢弃 verdict (ADR-0047) — renders the ghost beside the primary confirm. */
   readonly onDiscard?: () => void
+  /**
+   * The registered capabilities' names (2026-10-10 分流提示): an add-memory
+   * row scoped to one of them carries the rewrite-or-remember hint — the
+   * morning accident taught that a behavior rule aimed at a capability's own
+   * files usually belongs in a skill-rewrite, not in memory.
+   */
+  readonly capabilityScopes?: readonly string[]
   readonly busy?: boolean
   readonly t: WorkbenchT
 }): ReactElement {
@@ -718,6 +725,15 @@ export function ProposalCard(props: {
                         <div style={{ minWidth: 0 }}>
                           <div>{label}</div>
                           {detail !== '' && <div style={detailStyle}>{detail}</div>}
+                          {/* 2026-10-10 分流提示：指向已注册能力的 add-memory 行
+                            附一句改道建议——记忆是行为的兜底，能力自身文件的病
+                            该由 skill-rewrite 治（当日晨间事故的教训）。 */}
+                          {action.kind === 'add-memory'
+                            && props.capabilityScopes?.includes(action.scope) === true && (
+                            <div style={detailStyle} data-proposal-memory-hint={index}>
+                              {t('proposal.memoryRewriteHint')}
+                            </div>
+                          )}
                           {/* ADR-0054: the skill-rewrite row's folded diff — the
                             无 diff 不成卡 envelope rendered where the human judges it. */}
                           {action.kind === 'skill-rewrite' && (

@@ -18,7 +18,7 @@ import { cronNextFire } from './cron.ts'
 import { primaryButtonStyle } from './buttons.ts'
 import type { PromptShortcutLister } from './remote.ts'
 
-/** The pane's props: the store's rows, the save seam, and the shortcut source. */
+/** The pane's props: the store's rows, the save seam, the shortcut source, and the capability roster. */
 export interface SchedulePaneProps {
   /** The store's definitions in display order. */
   readonly schedules: readonly KbSchedule[]
@@ -26,6 +26,8 @@ export interface SchedulePaneProps {
   readonly onSave: (next: readonly KbSchedule[]) => Promise<boolean>
   /** The 惯用提示词 loader — the editor's 填入 source (ADR-0040). */
   readonly promptShortcutList: PromptShortcutLister
+  /** The registered capabilities' names — the editor's 绑定能力 menu. */
+  readonly capabilityNames: readonly string[]
 }
 
 /** The editor's trigger-rule draft; the stored cron is always derived. */
@@ -72,6 +74,8 @@ interface EditorDraft {
   prompt: string
   rule: RuleDraft
   enabled: boolean
+  /** The optional capability binding (首跳直通)；'' = 不绑定. */
+  capability: string
 }
 
 /** A fresh schedule id — the browser twin of the kb store's `newScheduleId`. */
@@ -216,7 +220,7 @@ const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五
  * Render the 调度 tab: definition list + editor.
  * @param props - see {@link SchedulePaneProps}.
  */
-export function SchedulePane({ schedules, onSave, promptShortcutList }: SchedulePaneProps): ReactElement {
+export function SchedulePane({ schedules, onSave, promptShortcutList, capabilityNames }: SchedulePaneProps): ReactElement {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<EditorDraft | null>(null)
   const [busy, setBusy] = useState(false)
@@ -239,13 +243,20 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
   const openEditor = (schedule: KbSchedule): void => {
     setSelectedId(schedule.id)
     setDeleteArmed(false)
-    setDraft({ id: schedule.id, name: schedule.name, prompt: schedule.prompt, rule: ruleOfCron(schedule.cron), enabled: schedule.enabled })
+    setDraft({
+      id: schedule.id,
+      name: schedule.name,
+      prompt: schedule.prompt,
+      rule: ruleOfCron(schedule.cron),
+      enabled: schedule.enabled,
+      capability: schedule.capability ?? '',
+    })
   }
 
   const openNew = (): void => {
     setSelectedId(null)
     setDeleteArmed(false)
-    setDraft({ id: null, name: '', prompt: '', rule: { mode: 'daily', time: '09:00' }, enabled: true })
+    setDraft({ id: null, name: '', prompt: '', rule: { mode: 'daily', time: '09:00' }, enabled: true, capability: '' })
   }
 
   const fillShortcut = (): void => {
@@ -261,14 +272,33 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
     try {
       const cron = cronOfRule(draft.rule)
       if (draft.id === null) {
-        const created: KbSchedule = { id: newScheduleId(), name: draft.name, prompt: draft.prompt, cron, enabled: draft.enabled }
+        const created: KbSchedule = {
+          id: newScheduleId(),
+          name: draft.name,
+          prompt: draft.prompt,
+          cron,
+          enabled: draft.enabled,
+          ...(draft.capability !== '' ? { capability: draft.capability } : {}),
+        }
         if (await onSave([...schedules, created])) {
           setSelectedId(created.id)
           setDraft({ ...draft, id: created.id })
         }
       } else {
+        // Rebuilt field-by-field rather than spread over the old row: an
+        // editor cleared back to 不绑定 must actually drop the stored
+        // binding, which a `{ ...row }` spread would silently keep.
         const next = schedules.map(row => row.id === draft.id
-          ? { ...row, name: draft.name, prompt: draft.prompt, cron, enabled: draft.enabled }
+          ? {
+            id: row.id,
+            name: draft.name,
+            prompt: draft.prompt,
+            cron,
+            enabled: draft.enabled,
+            ...(row.lastFiredAt !== undefined ? { lastFiredAt: row.lastFiredAt } : {}),
+            ...(row.lastMissedAt !== undefined ? { lastMissedAt: row.lastMissedAt } : {}),
+            ...(draft.capability !== '' ? { capability: draft.capability } : {}),
+          }
           : row)
         if (await onSave(next)) setDraft({ ...draft })
       }
@@ -333,6 +363,9 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
                   <span style={{ fontWeight: 500 }}>{schedule.name}</span>
                 </div>
                 <div style={{ ...metaLineStyle, fontFamily: CODE_FONT }}>{schedule.cron}</div>
+                {schedule.capability !== undefined && schedule.capability !== '' && (
+                  <div style={metaLineStyle}>绑定能力 {schedule.capability}</div>
+                )}
                 <div style={metaLineStyle}>{next !== null ? `下次触发 ${formatStamp(next.toISOString())}` : '永不触发'}</div>
                 {schedule.lastFiredAt !== undefined && <div style={metaLineStyle}>上次触发 {formatStamp(schedule.lastFiredAt)}</div>}
                 {schedule.lastMissedAt !== undefined && (
@@ -376,6 +409,18 @@ export function SchedulePane({ schedules, onSave, promptShortcutList }: Schedule
               </button>
             </div>
             <div style={metaLineStyle}>填入是拷贝快照：之后改惯用提示词不影响本条调度。</div>
+            <label style={fieldLabelStyle}>
+              绑定能力（可选）
+              <select
+                style={inputStyle}
+                value={draft.capability}
+                onChange={(event) => { setDraft({ ...draft, capability: event.target.value }) }}
+              >
+                <option value="">不绑定</option>
+                {capabilityNames.map(name => <option key={name} value={name}>{name}</option>)}
+              </select>
+              <div style={metaLineStyle}>绑定后触发时会把该能力的指令正文直接附在提示词前（首跳直通），agent 不必再花一轮读取能力。</div>
+            </label>
             <div style={fieldLabelStyle}>
               触发规则
               <div style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center', flexWrap: 'wrap' }}>

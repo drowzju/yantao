@@ -193,6 +193,77 @@ describe('kb_exec_capability_script (ADR-0043 决定 2)', () => {
     expect(runCount).toBe(1)
   })
 
+  it('delivers a JSON-object input parsed, and a non-JSON input verbatim (2026-10-10 envelope upgrade)', async () => {
+    await routeProbe(['human', 'agent'])
+    await writeFile(join(skillDir, 'probe.js'), PROBE_JS, 'utf8')
+    // A JSON-encoded object string must reach the script as a dict — the
+    // mail run's detour (entry.py saw a verbatim string, fell back to its
+    // 30-day default window) is what this prevents.
+    const parsed = await registeredTool('kb_exec_capability_script')
+      ?.execute({ name: 'probe', command: 'node probe.js', input: '{"since":"2026-10-08T20:34:30Z","limit":5}' }) as ExecResult
+    const parsedProbe = JSON.parse(parsed.stdout) as { envelope: { input: unknown } }
+    expect(parsedProbe.envelope.input).toEqual({ since: '2026-10-08T20:34:30Z', limit: 5 })
+    // Plain prose stays a string — callers who want text lose nothing.
+    const prose = await registeredTool('kb_exec_capability_script')
+      ?.execute({ name: 'probe', command: 'node probe.js', input: '你好' }) as ExecResult
+    const proseProbe = JSON.parse(prose.stdout) as { envelope: { input: unknown } }
+    expect(proseProbe.envelope.input).toBe('你好')
+    // Broken JSON also stays verbatim — fail-open to the old behavior.
+    const broken = await registeredTool('kb_exec_capability_script')
+      ?.execute({ name: 'probe', command: 'node probe.js', input: '{oops' }) as ExecResult
+    const brokenProbe = JSON.parse(broken.stdout) as { envelope: { input: unknown } }
+    expect(brokenProbe.envelope.input).toBe('{oops')
+  })
+
+  it('injects the capability’s persisted state into the envelope, failing open to null (2026-10-10)', async () => {
+    await routeProbe(['human', 'agent'])
+    await writeFile(join(skillDir, 'probe.js'), PROBE_JS, 'utf8')
+    // No state file yet → null, and the run still succeeds.
+    const bare = await registeredTool('kb_exec_capability_script')
+      ?.execute({ name: 'probe', command: 'node probe.js' }) as ExecResult
+    const bareProbe = JSON.parse(bare.stdout) as { envelope: { state: unknown } }
+    expect(bareProbe.envelope.state).toBeNull()
+    // The bare run's fire-and-forget ledger write (ADR-0053) may still be in
+    // flight; let it land before overwriting the file, or it wipes ours.
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try {
+        const ledger = JSON.parse(await readFile(join(home, '.dsh', 'yantao', 'state.json'), 'utf8')) as { capabilities?: Record<string, { runCount?: number }> }
+        if (ledger.capabilities?.probe?.runCount !== undefined) break
+      } catch {
+        // the write has not landed yet
+      }
+      await new Promise(resolveSleep => setTimeout(resolveSleep, 20))
+    }
+    // A persisted checkpoint rides the envelope.
+    await mkdir(join(home, '.dsh', 'yantao'), { recursive: true })
+    await writeFile(join(home, '.dsh', 'yantao', 'state.json'), JSON.stringify({
+      capabilities: { probe: { state: { lastReadAt: '2026-10-08T20:34:30.867000+00:00' }, runCount: 7 } },
+    }), 'utf8')
+    const stamped = await registeredTool('kb_exec_capability_script')
+      ?.execute({ name: 'probe', command: 'node probe.js' }) as ExecResult
+    const stampedProbe = JSON.parse(stamped.stdout) as { envelope: { state: unknown } }
+    expect(stampedProbe.envelope.state).toEqual({ lastReadAt: '2026-10-08T20:34:30.867000+00:00' })
+    // Let the stamped run's own ledger write land too (runCount 7 → 8) — it
+    // preserves state through its read-modify-write and would otherwise
+    // resurrect the file after the poisoning below.
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try {
+        const ledger = JSON.parse(await readFile(join(home, '.dsh', 'yantao', 'state.json'), 'utf8')) as { capabilities?: Record<string, { runCount?: number }> }
+        if (ledger.capabilities?.probe?.runCount === 8) break
+      } catch {
+        // the write has not landed yet
+      }
+      await new Promise(resolveSleep => setTimeout(resolveSleep, 20))
+    }
+    // A corrupt ledger reads as no state — the bridge never breaks on it.
+    await writeFile(join(home, '.dsh', 'yantao', 'state.json'), '{poisoned', 'utf8')
+    const poisoned = await registeredTool('kb_exec_capability_script')
+      ?.execute({ name: 'probe', command: 'node probe.js' }) as ExecResult
+    expect(poisoned.ok).toBe(true)
+    const poisonedProbe = JSON.parse(poisoned.stdout) as { envelope: { state: unknown } }
+    expect(poisonedProbe.envelope.state).toBeNull()
+  })
+
   it('reports a non-zero exit as not-ok with the exit code', async () => {
     await routeProbe(['human', 'agent'])
     await writeFile(join(skillDir, 'fail.js'), 'process.stderr.write("差一点")\nprocess.exit(3)\n', 'utf8')

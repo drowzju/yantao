@@ -53,12 +53,16 @@ def default_since():
 
 
 def is_stale(last_read_at):
-    """没有水印、或水印老于 30 天、或解析不了，都算可能有断层。"""
+    """没有水印、或水印老于 30 天、或解析不了，都算可能有断层。
+    无时区的时间戳解析得出 naive 值，与 aware 的 now 相减会抛 TypeError，
+    同样落进「解析不了」桶——水印的序列化在宿主手里，这里只降级不崩溃。"""
     if not last_read_at:
         return True
     try:
         then = datetime.fromisoformat(str(last_read_at).replace("Z", "+00:00"))
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError, TypeError):
+        return True
+    if then.tzinfo is None:
         return True
     return datetime.now(timezone.utc) - then > timedelta(days=MAIL_STALE_DAYS)
 
@@ -90,17 +94,24 @@ def run_fetch(caller_input, state):
         })
         return
 
-    result = {
-        "since": since,
-        "stale": is_stale(last_read_at),
-        "messages": messages,
-        "hasMore": len(messages) >= limit if limit > 0 else False,
-    }
-    if until:
-        result["until"] = until
-    if last_read_at:
-        result["lastReadAt"] = last_read_at
-    emit({"ok": True, "result": result})
+    # 取数成功后的结果组装也纳入兜底（评审 2026-10-09）：is_stale 等组装步骤
+    # 的任何意外异常都不能让 fetch 在读完 COM 后以裸栈崩溃——那会留下空
+    # stdout，违反「除一行 JSON 外不输出任何内容」的协议承诺。
+    try:
+        result = {
+            "since": since,
+            "stale": is_stale(last_read_at),
+            "messages": messages,
+            "hasMore": len(messages) >= limit if limit > 0 else False,
+        }
+        if until:
+            result["until"] = until
+        if last_read_at:
+            result["lastReadAt"] = last_read_at
+        emit({"ok": True, "result": result})
+    except Exception as error:
+        emit({"ok": False, "kind": "other", "message": f"组装取数结果失败：{error}",
+              "hint": HINTS["other"]})
 
 
 def run_delete(caller_input, channel):

@@ -80,6 +80,12 @@ describe('normalizeSchedules', () => {
     const many = Array.from({ length: SCHEDULES_SOFT_CAP + 1 }, (_, at) => schedule({ id: `sch_${at}` }))
     expect(() => normalizeSchedules(many)).toThrow(/最多/)
   })
+
+  it('能力绑定：修剪保留、空串视为无绑定、非字符串拒绝', () => {
+    expect(normalizeSchedules([schedule({ capability: '  mail  ' })])[0]?.capability).toBe('mail')
+    expect(normalizeSchedules([schedule({ capability: '' })])[0]?.capability).toBeUndefined()
+    expect(() => normalizeSchedules([schedule({ capability: 42 as unknown as string })])).toThrow(/能力绑定/)
+  })
 })
 
 describe('readSchedules / writeSchedules', () => {
@@ -132,6 +138,13 @@ describe('markSchedule', () => {
   it('未知 id 拒绝', async () => {
     await writeSchedules(kbRoot, [schedule()])
     await expect(markSchedule(kbRoot, 'sch_ghost', { lastFiredAt: '2026-10-03T09:00:00.000Z' })).rejects.toThrow(KbError)
+  })
+
+  it('补时间戳不抹能力绑定（回写保字段回归）', async () => {
+    await writeSchedules(kbRoot, [schedule({ capability: 'mail' })])
+    const fired = await markSchedule(kbRoot, 'sch_abc123def', { lastFiredAt: '2026-10-03T09:00:00.000Z' })
+    expect(fired[0]?.capability).toBe('mail')
+    await expect(readSchedules(kbRoot)).resolves.toEqual(fired)
   })
 })
 

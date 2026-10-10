@@ -488,6 +488,37 @@ describe('ProposalCard 校验卡的实体分组与自由输入 (2026-09-30)', ()
   })
 })
 
+describe('ProposalCard add-memory 分流提示 (2026-10-10)', () => {
+  const MEMORY_PROPOSAL: Proposal = {
+    title: 't',
+    actions: [
+      { kind: 'add-memory', scope: 'mail', text: '翻页一律用 --slim 元数据模式', reason: '晨间事故' },
+      { kind: 'add-memory', scope: 'global', text: '全局规矩一条', reason: 'r' },
+    ],
+  }
+
+  it('scope 指向已注册能力的行附改道提示，global 行不附', () => {
+    const { container } = render(
+      <ProposalCard
+        proposal={MEMORY_PROPOSAL}
+        onConfirm={() => {}}
+        onDismiss={() => {}}
+        capabilityScopes={['mail']}
+        t={t}
+      />,
+    )
+    expect(screen.getByText(/改提技能改写/)).toBeTruthy()
+    expect(container.querySelectorAll('[data-proposal-memory-hint]')).toHaveLength(1)
+  })
+
+  it('不传能力清单时整卡无提示', () => {
+    const { container } = render(
+      <ProposalCard proposal={MEMORY_PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />,
+    )
+    expect(container.querySelector('[data-proposal-memory-hint]')).toBeNull()
+  })
+})
+
 describe('ProposalCard 邮件卡可用性 (ADR-0038)', () => {
   const MAIL_PROPOSAL: Proposal = {
     title: '邮件分析 2026-09-30',

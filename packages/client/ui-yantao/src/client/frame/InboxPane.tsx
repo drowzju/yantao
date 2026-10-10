@@ -27,6 +27,8 @@ export interface InboxPaneProps {
   readonly onConfirm: (entry: KbQueuedProposal, ticked: readonly number[]) => void
   /** Drop one pending entry without writing anything. */
   readonly onDiscard: (entry: KbQueuedProposal) => void
+  /** The registered capabilities' names — add-memory rows scoped to one carry the rewrite hint (2026-10-10). */
+  readonly capabilityScopes?: readonly string[]
   /** The workbench dictionary's bound translator — the shared card's tongue. */
   readonly t: WorkbenchT
 }
@@ -162,7 +164,7 @@ function ordered(entries: readonly KbQueuedProposal[]): readonly KbQueuedProposa
  * @param props - see {@link InboxPaneProps}.
  * @returns the pane element.
  */
-export function InboxPane({ entries, busyId, onConfirm, onDiscard, t }: InboxPaneProps): ReactElement {
+export function InboxPane({ entries, busyId, onConfirm, onDiscard, capabilityScopes, t }: InboxPaneProps): ReactElement {
   // The open card's entry id; either verdict closes it — the row's chip
   // carries the outcome (取消即丢弃，ADR-0047 验收修正).
   const [openId, setOpenId] = useState<string | null>(null)
@@ -229,6 +231,7 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, t }: InboxPan
           onConfirm={(ticked) => { setOpenId(null); onConfirm(openEntry, ticked) }}
           onDiscard={() => { setOpenId(null); onDiscard(openEntry) }}
           busy={busyId === openEntry.id}
+          {...(capabilityScopes !== undefined ? { capabilityScopes } : {})}
           t={t}
         />
       )}
