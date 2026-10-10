@@ -430,6 +430,9 @@ export function apply(ctx: Context): void {
       // document (hard rule 5) — see ./model-config.ts.
       loadModelsConfig: () => loadModelsConfig(ctx),
       saveModelsConfig: (draft: ModelsConfigDraft) => saveModelsConfig(ctx, draft),
+      // 快捷键目录的读面：注册表的 live catalog（键帽已按平台呈现，
+      // 用户改键自动跟随），Frame 只过滤 yantao.* 展示。
+      shortcutCatalog: ctx.shortcuts.catalog,
     }),
   }, Frame), 'ui-yantao: root frame')
 

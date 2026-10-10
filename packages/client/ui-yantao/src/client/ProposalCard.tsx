@@ -183,6 +183,17 @@ const footerStyle = {
   borderTop: '1px solid var(--yt-border-subtle)',
 } as const
 
+/** Esc 武装警示条（2026-10-09）：警告语义走语义色 token，不新造颜色。 */
+const escArmStyle = {
+  margin: 0,
+  padding: '6px 8px',
+  borderRadius: 6,
+  background: 'var(--yt-warning-bg)',
+  color: 'var(--yt-warning-text)',
+  fontSize: 'var(--yt-type-label)',
+  flexShrink: 0,
+} as const
+
 /** The kinds in the order the card lists their groups. */
 const GROUP_ORDER: readonly ProposalAction['kind'][] = [
   'create-entity', 'create-project', 'add-todo', 'append-log', 'write-state', 'edit-section', 'append-section', 'create-link', 'save-resource', 'add-memory', 'delete-mails', 'archive-mails', 'skill-rewrite',
@@ -266,7 +277,9 @@ const diffBoxStyle = {
   background: 'var(--yt-surface-secondary)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 6,
-  fontFamily: 'monospace',
+  // 2026-10-09 评审：裸 'monospace' 是全卡唯一的外来字体痕迹，回归
+  // --yt-font-code（路径/ID/diff 的正典代码字体栈）。
+  fontFamily: 'var(--yt-font-code)',
   fontSize: 'var(--yt-type-label)',
   lineHeight: 1.5,
   whiteSpace: 'pre-wrap',
@@ -393,6 +406,10 @@ export function ProposalCard(props: {
   // The free-input box's draft and its in-flight state.
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  // Esc 武装（2026-10-09 第四轮评审 P1）：已勾选若干行后，Esc 误触不应
+  // 一键抹掉半个裁决——第一次 Esc 只亮警示条（4 秒内再按才算丢弃），
+  // 空手时 Esc 保持一等逃生口的原义。
+  const [escArmed, setEscArmed] = useState(false)
   // 模态语义（2026-10-05 补课，行为收进 useDialogModal）：提案卡是全 UI
   // 最高危的裁决面——读屏必须能感知它的存在（role=dialog + aria-modal），
   // Tab 必须被关在卡里，Esc 必须是一等逃生口。busy 时 Esc 不动：确认在途，
@@ -401,11 +418,22 @@ export function ProposalCard(props: {
     busy: props.busy === true,
     // ADR-0047 验收修正: in the inbox Esc *is* the discard — the same
     // verdict as the footer's 丢弃, never a silent non-decision.
+    // 2026-10-09: with rows ticked the first Esc only arms; the second
+    // one within the window takes the verdict (Riley 红旗：深夜批量裁决
+    // 手滑 Esc，整卡蒸发不知丢了什么).
     onClose: () => {
+      if (ticked.length > 0 && !escArmed) { setEscArmed(true); return }
       if (props.onDiscard !== undefined) props.onDiscard()
       else props.onDismiss?.()
     },
   })
+  // The armed window is short on purpose: long enough to press Esc again,
+  // short enough that the card never sits in a hair-trigger state.
+  useEffect(() => {
+    if (!escArmed) return
+    const timer = window.setTimeout(() => { setEscArmed(false) }, 4000)
+    return () => { window.clearTimeout(timer) }
+  }, [escArmed])
   // A revision round produces a proposal with different *content*; the tick
   // state of the previous round must not leak into it (OCR review 2026-09-30).
   // Content, not object identity (2026-10-09 修正): the inbox pane re-parses
@@ -421,6 +449,7 @@ export function ProposalCard(props: {
     setAreaPicks({})
     setPrescanOpen(false)
     setDigestOpen(false)
+    setEscArmed(false)
   }, [fingerprint])
 
   /** Tick or untick one area of one create-project row. */
@@ -890,6 +919,11 @@ export function ProposalCard(props: {
             </div>
           )}
         </div>
+        {escArmed && (
+          <p style={escArmStyle} role="alert" data-proposal-esc-arm="true">
+            {t('proposal.escArm', { count: ticked.length })}
+          </p>
+        )}
         <div style={footerStyle}>
           <button type="button" style={ghostButtonStyle} data-hover="true" disabled={props.busy === true || nothing} onClick={all}>
             {t('proposal.acceptAll')}

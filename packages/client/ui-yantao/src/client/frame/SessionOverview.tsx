@@ -189,7 +189,8 @@ function DailyBarsCard({ bars, range, t }: {
                 style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'stretch', minWidth: 2 }}
               >
                 <span style={{ height: total / peak * 64, background: 'var(--yt-accent)', minHeight: total > 0 ? 2 : 0 }} />
-                <span style={{ height: 12, textAlign: 'center', fontSize: 9, lineHeight: '12px', color: 'var(--yt-text-muted)', whiteSpace: 'nowrap' }}>
+                {/* 2026-10-09 评审：9→10px——坐标刻度非正文，但不低于 10px 下限。 */}
+                <span style={{ height: 12, textAlign: 'center', fontSize: 10, lineHeight: '12px', color: 'var(--yt-text-muted)', whiteSpace: 'nowrap' }}>
                   {index % stride === 0 ? day.day.slice(5) : ''}
                 </span>
               </span>

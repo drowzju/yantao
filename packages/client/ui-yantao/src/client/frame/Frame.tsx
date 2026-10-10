@@ -64,6 +64,7 @@ import type { PanelToggles } from './layout.ts'
 import type { SidebarRightFileSeat } from '../sidebar-right.ts'
 import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
 import type { WorkbenchT } from '../locales.ts'
+import { ShortcutsDialog, type ShortcutCatalogFace } from '../ShortcutsDialog.tsx'
 
 /** Full props: the render share for the four seats this frame declares, plus the panel-action seat. */
 export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.insights' | 'footer.insights'> & {
@@ -194,6 +195,8 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly relationGraph: RelationGraphLoader
   /** Read the model gateway's config view — the 配置 dialog's open read. */
   readonly loadModelsConfig: () => Promise<ModelsConfigView>
+  /** The shortcuts registry's live catalog — the 快捷键 directory's read face. */
+  readonly shortcutCatalog: ShortcutCatalogFace
   /** Commit a 配置 dialog draft; the result separates conflict from refusal. */
   readonly saveModelsConfig: (draft: ModelsConfigDraft) => Promise<ModelsConfigSaveResult>
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
@@ -486,9 +489,10 @@ export function Frame({
   promptShortcutList, promptShortcutSave, fillShortcut,
   scheduleList, scheduleSave, scheduleMark, runSchedule,
   proposalInboxList, proposalInboxResolve, relationGraph,
-  loadModelsConfig, saveModelsConfig,
+  loadModelsConfig, saveModelsConfig, shortcutCatalog,
 }: FrameProps): ReactElement {
   const [configOpen, setConfigOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
   const [intakeOpen, setIntakeOpen] = useState(true)
@@ -1707,6 +1711,15 @@ export function Frame({
     })
   }, [])
 
+  // The tab strip's close gesture (2026-10-09 第四轮评审 P2)：先把 debounce
+  // 窗口里的脏草稿写下去，再拆 tab——否则 ≤2s 的编辑随 tab 一起蒸发。
+  // 注意 delete 路径（removeResource）不走这里：文件已经没了，flush 会
+  // 把陈旧草稿写回去复活它。
+  const closeFileTab = useCallback((path: string): void => {
+    editors.current.get(path)?.flush()
+    closeFile(path)
+  }, [closeFile])
+
   // The resource row's right-click 「删除」 (ADR-0020): remove the file, then
   // drop its tab (if open) and reload both trees. Failures propagate to the
   // rail's own onError, same as the archive gestures.
@@ -1838,7 +1851,7 @@ export function Frame({
           />
         )}
         onActivate={(key) => { setTabs(state => activateTab(state, key)) }}
-        onClose={closeFile}
+        onClose={closeFileTab}
         renderConversation={() => renderSlot('main', {}, { entryKey: 'conversation' })}
         renderFile={(tab) => {
           if (tab.mode === 'read') {
@@ -1967,6 +1980,11 @@ export function Frame({
         <button style={footerButtonStyle} data-config-button="true" data-hover="true" onClick={() => { setConfigOpen(true) }}>
           {t('config.open')}
         </button>
+        {/* 2026-10-09 第四轮评审 P1：8 条热键注册后无处可见——这个只读目录
+            是它们的展示面，键帽实时读注册表 catalog（改键/平台差异自动跟随）。 */}
+        <button style={footerButtonStyle} data-shortcuts-button="true" data-hover="true" onClick={() => { setShortcutsOpen(true) }}>
+          {t('shortcuts.open')}
+        </button>
         {/* ADR-0045 决定 8: the 调度 entry rides beside 配置 at the window's
             bottom-left; it opens the centre 调度 tab, not a dialog. */}
         <button
@@ -1994,6 +2012,9 @@ export function Frame({
           save={saveModelsConfig}
           onClose={() => { setConfigOpen(false) }}
         />
+      )}
+      {shortcutsOpen && (
+        <ShortcutsDialog t={t} catalog={shortcutCatalog} onClose={() => { setShortcutsOpen(false) }} />
       )}
       {refineProposal !== null && (
         <ProposalCard

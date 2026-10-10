@@ -38,6 +38,8 @@ export type SaveOutcome = 'saved' | 'conflict' | 'failed'
 export interface FileEditorApi {
   /** Replace the draft and save it through the same pre-save comparison. */
   patch(content: string): Promise<SaveOutcome>
+  /** Write any pending debounced draft now (2026-10-09 第四轮评审 P2：关 tab 前的 flush seam). */
+  flush(): void
 }
 
 /** Editor props: the file, the file channel, and the status report upward. */
@@ -236,6 +238,12 @@ export function FileEditor({
     }, debounceMs)
   }, [cancel, save, debounceMs])
 
+  /** Write now — bound to blur, the tab strip's close gesture, and 覆盖. */
+  const flush = useCallback((): void => {
+    cancel()
+    void save(false)
+  }, [cancel, save])
+
   // The reading view's write path: adopt the content as this editor's draft and
   // run the same save the keystroke path runs — one baseline, one conflict bar.
   useEffect(() => {
@@ -246,17 +254,12 @@ export function FileEditor({
         setDraft(next)
         return save(false)
       },
+      flush,
     })
     return () => {
       apiSink.current?.(null)
     }
-  }, [save])
-
-  /** Write now — bound to blur, and to 覆盖. */
-  const flush = useCallback((): void => {
-    cancel()
-    void save(false)
-  }, [cancel, save])
+  }, [save, flush])
 
   /** 放弃我的修改: take the server copy back as both draft and baseline. */
   const discard = useCallback((): void => {

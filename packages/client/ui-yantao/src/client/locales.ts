@@ -107,6 +107,13 @@ export const zh = {
   'config.modelIdRequired': '模型 ID 不能为空',
   'config.defaultMissing': '默认模型必须是模型列表中的一行',
 
+  // 快捷键目录（左下角「快捷键」按钮；只读，键帽实时读 shortcuts 注册表的 catalog）
+  'shortcuts.open': '快捷键',
+  'shortcuts.title': '快捷键',
+  'shortcuts.close': '关闭',
+  'shortcuts.empty': '暂无已注册的快捷键。',
+  'shortcuts.unbound': '未绑定',
+
   // Context occupancy（洞察组成卡的占用条读数；ADR-0050，原 ADR-0039 状态条仅存的词条）
   'context.aria': '上下文已用 {percent}%',
 
@@ -368,6 +375,7 @@ export const zh = {
   'proposal.acceptAll': '全部接受',
   'proposal.ignoreAll': '全部忽略',
   'proposal.confirmWrite': '确认写入（{count}）',
+  'proposal.escArm': '已勾选 {count} 项——再按一次 Esc 才会丢弃这份裁决',
 
   // Selection menu
   'selection.title': '选中文字',
@@ -490,6 +498,14 @@ export const en = {
   'config.conflict': 'The configuration changed elsewhere; reloaded — please retry',
   'config.modelIdRequired': 'A model ID cannot be empty',
   'config.defaultMissing': 'The default model must be one of the listed rows',
+
+  // 快捷键目录 (the bottom-left 快捷键 button; read-only, keycaps stream from
+  // the shortcuts registry's catalog)
+  'shortcuts.open': 'Shortcuts',
+  'shortcuts.title': 'Keyboard shortcuts',
+  'shortcuts.close': 'Close',
+  'shortcuts.empty': 'No keyboard shortcuts registered yet.',
+  'shortcuts.unbound': 'Unbound',
 
   // Context occupancy (the dashboard's occupancy bar; ADR-0050, the sole survivor
   // of the ADR-0039 status bar's vocabulary)
@@ -753,6 +769,7 @@ export const en = {
   'proposal.acceptAll': 'Accept all',
   'proposal.ignoreAll': 'Ignore all',
   'proposal.confirmWrite': 'Confirm write ({count})',
+  'proposal.escArm': '{count} rows ticked — press Esc again to discard this verdict',
 
   // Selection menu
   'selection.title': 'Selected text',

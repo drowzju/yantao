@@ -272,7 +272,9 @@ function TrendCard({ steps, feed, t }: { steps: readonly TrendStep[]; feed: read
                 >
                   <span style={{ height: bar.outputTokens / peak * BAR_MAX_HEIGHT, background: 'var(--yt-success)', minHeight: bar.outputTokens > 0 ? 2 : 0 }} />
                   <span style={{ height: bar.inputTokens / peak * BAR_MAX_HEIGHT, background: 'var(--yt-accent)' }} />
-                  <span style={{ height: 12, textAlign: 'center', fontSize: 9, lineHeight: '12px', color: 'var(--yt-text-muted)' }}>
+                  {/* 2026-10-09 评审：9→10px——压缩标记是符号非正文，但不再
+                      低于 10px 下限；12px 盒子装得下。 */}
+                  <span style={{ height: 12, textAlign: 'center', fontSize: 10, lineHeight: '12px', color: 'var(--yt-text-muted)' }}>
                     {compacted ? '✂' : ''}
                   </span>
                 </span>
