@@ -152,7 +152,7 @@ export function headingOutline(text: string): readonly OutlineEntry[] {
  *
  * A freshly created entity's template declares its sections before any of them
  * carries text; rendered at full heading weight they announce several empty
- * rooms and dominate the first screen (design.md §1: emptiness must serve a
+ * rooms and dominate the first screen (DESIGN.md §1: emptiness must serve a
  * focal point, not fill one). A level-2+ heading followed by nothing but blank
  * lines until the next heading or the end of the file becomes a single
  * `**name**（空）` line; consecutive placeholders land on adjacent lines, which

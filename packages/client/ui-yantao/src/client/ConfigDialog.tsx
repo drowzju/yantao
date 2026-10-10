@@ -52,7 +52,7 @@ const headerStyle = {
 } as const
 
 // 2026-10-09 第四轮评审：对话框标题回归 --yt-type-title（16px）档；
-// 输入类控件是正文面（design.md 第 3 节「正文、列表、表格、输入」），
+// 输入类控件是正文面（DESIGN.md 第 3 节「正文、列表、表格、输入」），
 // 不为密度缩字号——此前 12px 的 inputStyle 违反该条。
 const titleStyle = { fontSize: 'var(--yt-type-title)', fontWeight: 600 } as const
 

@@ -300,7 +300,7 @@ function FileRow({
           {file.archived === true && <span style={{ color: 'var(--yt-text-muted)' }}>{t('workbench.archived')}</span>}
         </>
       ) : (
-        // A person's relation is a tag, not a ` · ` tail (design.md §7): it
+        // A person's relation is a tag, not a ` · ` tail (DESIGN.md §7): it
         // pins to the row's right edge as a small muted label.
         <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1521,7 +1521,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
         {/* ADR-0035, 2026-09-29 修订: the validate entry lives in the two tabs
           it scopes — 人物 / 项目. It rides NewEntityRow's trailing slot, so
           新建 and 校验 hug each other instead of splitting to opposite ends
-          of the row (design.md §5). */}
+          of the row (DESIGN.md §5). */}
         {(tab === 'people' || tab === 'projects') && onValidate !== undefined && (
           <NewEntityRow
             t={t}

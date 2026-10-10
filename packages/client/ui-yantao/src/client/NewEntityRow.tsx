@@ -35,7 +35,7 @@ export interface NewEntityRowProps {
   } | undefined
   /**
    * An action riding immediately beside the 新建 button (or beside the edit
-   * row) — the 校验 button (design.md: actions of one group hug each other,
+   * row) — the 校验 button (DESIGN.md: actions of one group hug each other,
    * they never split to opposite ends of the row).
    */
   readonly trailing?: ReactNode

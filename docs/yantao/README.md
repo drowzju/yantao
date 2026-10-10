@@ -170,7 +170,7 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"
 | [development.md](development.md) | 构建、运行、停止、测试、门禁、坑、排障方向 |
 | [capability-integration.md](capability-integration.md) | 能力整编手册:sidecar/中央路由/信封契约/执行桥/落盘约定/记忆回流/常见坑/检查清单(ADR-0043/0044) |
 | [memory.md](memory.md) | 记忆系统设计纪要(背景材料,结论以 ADR-0032/0044 为准) |
-| [design.md](design.md) | UI 设计规则:`--yt-*` token、排版与间距阶梯、表面与构图纪律、迁移路径 |
+| [../../apps/yantao/DESIGN.md](../../apps/yantao/DESIGN.md) | UI 设计规则(唯一正典):`--yt-*` token、排版与间距阶梯、表面与构图纪律、迁移路径 |
 | [TODO.md](TODO.md) | 待办:done / next / deferred(每个搁置项都带原因) |
 | [../adr/](../adr/) | ADR 0001–0044(索引见第 4 节) |
 | [../subsystems/yantao.md](../subsystems/yantao.md) | 知识库与 `yantaoKb` Remote 子系统页(上游子系统格式) |

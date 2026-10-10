@@ -110,7 +110,7 @@ const confirmStyle = {
   background: 'var(--yt-surface-secondary)',
 } as const
 
-/** The code font (design.md §3): command fragments and tool payloads wear it. */
+/** The code font (DESIGN.md §3): command fragments and tool payloads wear it. */
 const CODE_FONT = 'var(--yt-font-code)'
 
 const codeStyle = {
@@ -192,7 +192,7 @@ function CapabilityRow({
 }
 
 /**
- * Descriptions clamp to two lines (design.md §5: 挤则删并重) — the inventory
+ * Descriptions clamp to two lines (DESIGN.md §5: 挤则删并重) — the inventory
  * stays scannable; the row's own click opens the detail view with the full
  * text, and the tooltip carries it too.
  */

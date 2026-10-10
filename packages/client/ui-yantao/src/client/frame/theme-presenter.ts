@@ -4,7 +4,7 @@
  * whoever owns the frame owns these DOM fields — `html { color-scheme }` for
  * native UA chrome, `body[data-ds-dark-theme]` for the token palette, the
  * content font-size axis, the active theme's alias-token overrides, the
- * `--yt-*` design-token family (docs/yantao/design.md §2–4), and one
+ * `--yt-*` design-token family (apps/yantao/DESIGN.md §2–4), and one
  * presenter-owned `meta[name="theme-color"]`. Pure DOM writes: the presenter
  * only ever retracts what it wrote itself.
  */
@@ -151,7 +151,7 @@ export class ThemePresenter {
       body.style.setProperty(name, value)
       this.#appliedTokens.push(name)
     }
-    // Our own `--yt-*` family (docs/yantao/design.md §2–4): the same write
+    // Our own `--yt-*` family (apps/yantao/DESIGN.md §2–4): the same write
     // and retraction discipline as the alias tokens, keyed on the scheme.
     for (const [name, value] of Object.entries(ytTokensFor(scheme))) {
       body.style.setProperty(name, value)

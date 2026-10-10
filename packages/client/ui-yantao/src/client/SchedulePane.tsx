@@ -7,7 +7,7 @@
  * with an advanced mode that types the cron directly (决定 6); the prompt
  * field's 「从惯用提示词填入」 copies a snapshot, never a reference (决定 5).
  *
- * Design discipline (docs/yantao/design.md): colors and metrics ride the
+ * Design discipline (apps/yantao/DESIGN.md): colors and metrics ride the
  * `--yt-*` tokens; the cron is a code fragment and wears the code font;
  * evidence (下次触发/上次触发/上次错过) owns its own muted line — never a
  * ` · ` tail; the destructive 删除 wears ghost clothes.
@@ -94,7 +94,7 @@ function formatStamp(iso: string): string {
 
 const FONT = 'var(--yt-font-ui)'
 
-/** The code font (design.md §3): code fragments only — the cron string here. */
+/** The code font (DESIGN.md §3): code fragments only — the cron string here. */
 const CODE_FONT = 'var(--yt-font-code)'
 
 const paneStyle = {
@@ -160,7 +160,7 @@ const fieldLabelStyle = {
   color: 'var(--yt-text-muted)',
 } as const
 
-/** One muted evidence line (design.md §7: 从属证据独立成行). */
+/** One muted evidence line (DESIGN.md §7: 从属证据独立成行). */
 const metaLineStyle = {
   color: 'var(--yt-text-muted)',
   fontSize: 'var(--yt-type-label)',
@@ -197,7 +197,7 @@ const buttonStyle = {
     同一副面孔；accent-bg 淡底回归其文档角色：选中态。（2026-10-05） */
 
 
-/** The destructive action's ghost clothes (design.md §7): no border, transparent, muted ink, the explanation rides the tooltip. */
+/** The destructive action's ghost clothes (DESIGN.md §7): no border, transparent, muted ink, the explanation rides the tooltip. */
 const ghostDangerStyle = {
   fontFamily: FONT,
   fontSize: 'var(--yt-type-body)',

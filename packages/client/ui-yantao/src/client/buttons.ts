@@ -1,5 +1,5 @@
 /**
- * The two button faces every surface shares (design.md §7, 2026-10-05 第三轮
+ * The two button faces every surface shares (DESIGN.md §7, 2026-10-05 第三轮
  * 评审 #7 的裁决)：主行动一律实心 accent 面——这是页面上唯一的实心彩色，
  * 视线落点不需要竞争；次级动作穿幽灵装。之前主钮有两副面孔（裁决卡的实心
  * vs 调度面板的 accent-bg 淡底），淡底回归它的文档角色——选中态。

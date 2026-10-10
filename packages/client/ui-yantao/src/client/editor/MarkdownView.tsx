@@ -24,7 +24,7 @@
  *
  * - **Empty sections (v4).** A template-declared section with no text yet
  *   collapses to a `**name**（空）` placeholder line instead of a full-weight
- *   heading over nothing (docs/yantao/design.md §1), and headings pull onto
+ *   heading over nothing (apps/yantao/DESIGN.md §1), and headings pull onto
  *   the design ladder via `MarkdownView.module.css`. The outline is computed
  *   from the same collapsed text the body renders.
  *
@@ -213,7 +213,7 @@ export function MarkdownView({
   const split = useMemo(() => splitFrontmatter(content), [content])
   const summary = useMemo(() => frontmatterSummary(split.fields), [split.fields])
   // Only the host knows what a target means; the view just renders its answer.
-  // Empty template sections collapse first (design.md §1), and the outline is
+  // Empty template sections collapse first (DESIGN.md §1), and the outline is
   // taken from the same collapsed text the body renders — its ordinal-to-DOM
   // mapping must describe what is actually on screen.
   const body = useMemo(() => {

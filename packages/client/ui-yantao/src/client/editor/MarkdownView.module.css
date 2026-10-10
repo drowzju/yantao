@@ -1,5 +1,5 @@
 /*
- * Reading-view typographic scale (docs/yantao/design.md §3).
+ * Reading-view typographic scale (apps/yantao/DESIGN.md §3).
  *
  * The upstream chat sheet (MarkdownText.module.css) sizes h1–h3 for agent
  * conversation output; in a KB document the `## ` sections are structure, not

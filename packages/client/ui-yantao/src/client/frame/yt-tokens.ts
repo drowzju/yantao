@@ -1,5 +1,5 @@
 /**
- * The `--yt-*` design-token family (docs/yantao/design.md §2–4), written onto
+ * The `--yt-*` design-token family (apps/yantao/DESIGN.md §2–4), written onto
  * `body.style` by the {@link ./theme-presenter.ts} alongside the upstream
  * alias tokens. Two scheme-dependent colour sets (light/dark) plus one
  * scheme-independent set (the type and space ladders). Components reference

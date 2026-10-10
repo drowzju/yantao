@@ -68,13 +68,13 @@ const titleRowStyle = { ...titleStyle, display: 'flex', alignItems: 'center', ju
 /** Baseline alignment: the checkbox and the date ride the title's first text baseline. */
 const rowStyle = { display: 'flex', gap: 6, alignItems: 'baseline', padding: '2px 6px' } as const
 
-/** A deadline is plain coloured text — urgency is colour, not chrome (design.md §2.5, §8). */
+/** A deadline is plain coloured text — urgency is colour, not chrome (DESIGN.md §2.5, §8). */
 const dueStyle = { fontSize: 'var(--yt-type-label)', color: 'var(--yt-text-muted)', whiteSpace: 'nowrap' } as const
 
-/** 语义红 (design.md `--yt-error`) for a deadline due today or tomorrow — and one already overdue. */
+/** 语义红 (DESIGN.md `--yt-error`) for a deadline due today or tomorrow — and one already overdue. */
 const dueUrgentStyle = { ...dueStyle, color: 'var(--yt-error)' } as const
 
-/** 语义琥珀 (design.md `--yt-warning-text`) for a deadline within five days. */
+/** 语义琥珀 (DESIGN.md `--yt-warning-text`) for a deadline within five days. */
 const dueSoonStyle = { ...dueStyle, color: 'var(--yt-warning-text)' } as const
 
 const doneTitleStyle = { color: 'var(--yt-text-muted)', textDecoration: 'line-through', cursor: 'pointer', flex: 1, minWidth: 0 } as const
@@ -404,7 +404,7 @@ export function TodoBoard({ t, load, write, refreshKey, onOpenFile }: TodoBoardP
         <>
           <div style={titleRowStyle} data-todo-block="todo">
             <span>{t('todo.todoColumn')}</span>
-            {/* The add gesture lives in the block's title row (design.md §5):
+            {/* The add gesture lives in the block's title row (DESIGN.md §5):
                 a lone bordered button on its own line read as a leftover. */}
             <button data-hover="true" type="button" style={addStyle} title={t('todo.addTitle')} disabled={busy} onClick={add}>+</button>
           </div>

@@ -1,5 +1,5 @@
 /*
- * TodoBoard row chrome (docs/yantao/design.md §5).
+ * TodoBoard row chrome (apps/yantao/DESIGN.md §5).
  *
  * The row's secondary affordances (edit, remove) stay invisible until the row
  * is hovered or keyboard-focused: five rows of boxed buttons outweighed the

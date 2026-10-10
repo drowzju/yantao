@@ -76,15 +76,15 @@ const groupTitleStyle = { margin: '8px 0 0', fontSize: 'var(--yt-type-label)', f
 
 /** One entry row: the action pins to the first line (a baseline-aligned
  *  button sinks to mid-block beside multi-line text), and sibling spacing is
- *  each row's own marginTop — one owner per gap (design.md §4). */
+ *  each row's own marginTop — one owner per gap (DESIGN.md §4). */
 const rowStyle = { display: 'flex', gap: 8, alignItems: 'flex-start', minWidth: 0 } as const
 
 const textStyle = { minWidth: 0 } as const
 
-/** The date on a line of its own — timestamps are the muted token's canonical 从属证据 (design.md §2.2). */
+/** The date on a line of its own — timestamps are the muted token's canonical 从属证据 (DESIGN.md §2.2). */
 const dateStyle = { color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)', marginTop: 4 } as const
 
-/** A per-row destructive action wears the ghost cut: no border, muted ink (design.md §7). */
+/** A per-row destructive action wears the ghost cut: no border, muted ink (DESIGN.md §7). */
 const deleteStyle = {
   flexShrink: 0, padding: '0 4px', border: 'none', background: 'transparent',
   color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)', cursor: 'pointer',
@@ -104,7 +104,7 @@ const armedDeleteStyle = {
 
 const buttonStyle = { padding: '4px 8px', flexShrink: 0 } as const
 
-/** The collapsed creation affordance: one quiet button (design.md §7 —
+/** The collapsed creation affordance: one quiet button (DESIGN.md §7 —
  *  a low-frequency creation entry does not earn a resident form row). */
 const addOpenStyle = { ...buttonStyle, alignSelf: 'flex-start' } as const
 
