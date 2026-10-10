@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { PROPOSAL_INBOX_DISPLAY_PATH, readProposalInbox } from '../src/proposal-inbox.ts'
-import { SKILL_REWRITE_SOURCE, proposeSkillRewrite } from '../src/skill-rewrite.ts'
+import { SKILL_REWRITE_SOURCE, locateUniqueSpan, proposeSkillRewrite } from '../src/skill-rewrite.ts'
 import { KbError } from '../src/types.ts'
 
 let kbRoot: string
@@ -52,6 +52,28 @@ function nomination(overrides: Partial<Parameters<typeof proposeSkillRewrite>[1]
     ...overrides,
   }
 }
+
+describe('locateUniqueSpan', () => {
+  it('唯一命中返回索引', () => {
+    expect(locateUniqueSpan('第一段\n原始笔记\n第三段\n', '原始笔记')).toEqual({ at: 4 })
+  })
+
+  it('不存在返回 absent', () => {
+    expect(locateUniqueSpan('abc', 'xyz')).toBe('absent')
+  })
+
+  it('多次出现返回 ambiguous', () => {
+    expect(locateUniqueSpan('原始笔记\n中间\n原始笔记\n', '原始笔记')).toBe('ambiguous')
+  })
+
+  it('重叠出现也算 ambiguous——aa 在 aaa 里 indexOf 找不到第二次但位移 1 能找到', () => {
+    expect(locateUniqueSpan('aaa', 'aa')).toBe('ambiguous')
+  })
+
+  it('空串在非空 haystack 里到处都是，视作 ambiguous', () => {
+    expect(locateUniqueSpan('abc', '')).toBe('ambiguous')
+  })
+})
 
 describe('proposeSkillRewrite', () => {
   it('合法提名入 ADR-0047 收件箱，载荷带完整 diff 信封', async () => {

@@ -59,18 +59,23 @@ const FOCUS_RING_CSS = `
 body {
   transition: none !important;
 }
-button[data-hover]:not([data-hover="primary"]):not([data-hover="close"]):hover {
+/* 2026-10-10 ocr 评审：:hover 命中 :disabled——忙碌态按钮也被涂灰，加
+   :not(:disabled) 门。 */
+button[data-hover]:not([data-hover="primary"]):not([data-hover="close"]):not(:disabled):hover {
   background: var(--yt-surface-secondary) !important;
 }
-button[data-hover]:not([data-hover="primary"]):not([data-hover="close"]):active {
+button[data-hover]:not([data-hover="primary"]):not([data-hover="close"]):not(:disabled):active {
   background: var(--yt-border-subtle) !important;
 }
 /* A selected row is already accented — hover deepens nothing, press keeps
-   the selection colour instead of flashing neutral. */
-button[data-hover][data-selected]:hover {
+   the selection colour instead of flashing neutral. The exclusion chain is
+   mirrored from the generic rule so the carve-out out-specifies it
+   ((0,5,1) > (0,4,1)，两边都 !important——2026-10-10 ocr 评审：原先
+   (0,3,1) 输给通用规则，选中 tab 悬停照样闪灰，豁免是死 CSS）。 */
+button[data-hover][data-selected]:not([data-hover="primary"]):not([data-hover="close"]):not(:disabled):hover {
   background: var(--yt-accent-bg) !important;
 }
-button[data-hover][data-selected]:active {
+button[data-hover][data-selected]:not([data-hover="primary"]):not([data-hover="close"]):not(:disabled):active {
   background: var(--yt-accent-bg) !important;
 }
 /* The solid accent face brightens/darkens with the scheme instead of
@@ -93,11 +98,14 @@ button[data-hover="close"]:hover {
    作用域规则与之重复，随门禁一并退役。 */
 /* 2026-10-09 第三轮评审 P1：role="button" 的可点击行（调度行等）在此前
    只有收件箱 pane 拿到治疗——同样的行，一处有声一处无声。门禁（hover-gate）
-   只扫 <button> 标签看不到它们，故这里全局兜底。 */
-[role="button"][tabindex]:hover {
+   只扫 <button> 标签看不到它们，故这里全局兜底。
+   2026-10-10 ocr 评审：!important 压得过选中行的内联 accent 样式，悬停
+   选中调度行视觉上「取消选中」——选中行以 data-selected 豁免（SchedulePane
+   负责标注），兜底只管未选中的行。 */
+[role="button"][tabindex]:not([data-selected]):hover {
   background: var(--yt-surface-secondary) !important;
 }
-[role="button"][tabindex]:active {
+[role="button"][tabindex]:not([data-selected]):active {
   background: var(--yt-border-subtle) !important;
 }
 `

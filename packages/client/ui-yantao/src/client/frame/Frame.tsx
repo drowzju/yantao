@@ -528,13 +528,19 @@ export function Frame({
     setWorkspaceOpen(!narrow)
   }, [narrow])
 
+  // One activation for every caller (2026-10-10 ocr 评审：八处闭包逐字重复，
+  // 提成单一稳定回调)——seat 发布、pane 跳转、tab 条点击共用。
+  const activate = useCallback((key: string): void => {
+    setTabs(state => activateTab(state, key))
+  }, [])
+
   // Publish this frame's toggle into the seat `ctx.layout` reads, and the
   // file opener into the seat `ctx.sidebarRight` (the 0.2.1 stand-in) reads.
   // Unmount restores the no-ops, so a torn-down frame never fires into a
   // dead component.
   useEffect(() => {
     panels.toggleIntake = () => { setIntakeOpen(open => !open) }
-    panels.activateTab = (key) => { setTabs(state => activateTab(state, key)) }
+    panels.activateTab = activate
     panels.setConfigOpen = (open) => { setConfigOpen(open) }
     sidebarFiles.openFile = (path) => { setTabs(state => openTab(state, path, readOnlyPath(path) ? 'read' : 'edit')) }
     return () => {
@@ -543,7 +549,7 @@ export function Frame({
       panels.setConfigOpen = () => {}
       sidebarFiles.openFile = () => {}
     }
-  }, [panels, sidebarFiles])
+  }, [panels, sidebarFiles, activate])
 
   const cols = solveColumns(
     viewport,
@@ -1487,12 +1493,12 @@ export function Frame({
       if (row.sessionId !== null) setDetailRow(row)
       return
     }
-    if (row.kind === 'refine') setTabs(state => activateTab(state, CONVERSATION_TAB))
+    if (row.kind === 'refine') activate(CONVERSATION_TAB)
     else {
       setIntakeOpen(true)
       setConnectorReveal(({ nonce }) => ({ nonce: nonce + 1, capability: row.target ?? null }))
     }
-  }, [])
+  }, [activate])
   const cancelTask = useCallback((row: TaskRow): void => {
     if (row.kind === 'refine') cancelRefine()
     else if (row.kind === 'validate') cancelValidate()
@@ -1599,12 +1605,12 @@ export function Frame({
   // the human cannot see is no feedback at all (2026-10-08).
   const sendSelection = useCallback((text: string): void => {
     setCapabilityNotice(null)
-    setTabs(state => activateTab(state, CONVERSATION_TAB))
+    activate(CONVERSATION_TAB)
     void promptSession(text).then(
       () => { setCapabilityNotice('已发送到当前会话。', { severity: 'info' }) },
       (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`, { severity: 'error' }) },
     )
-  }, [promptSession])
+  }, [promptSession, activate])
 
   // The no-selection sibling (ADR-0025 决定 5): right-clicking the middle
   // pane's md surfaces with nothing selected offers the same opted-in
@@ -1654,12 +1660,12 @@ export function Frame({
   // 「画图无反馈」 report).
   const runSelectionCapability = useCallback((name: string, selection: string): void => {
     setCapabilityNotice(null)
-    setTabs(state => activateTab(state, CONVERSATION_TAB))
+    activate(CONVERSATION_TAB)
     void promptSession(capabilityGestureMessage(name, { selection })).then(
       () => {},
       (failure: unknown) => { setCapabilityNotice(`发送失败：${remoteMessage(failure)}`, { severity: 'error' }) },
     )
-  }, [promptSession])
+  }, [promptSession, activate])
 
   // The active file's link graph, host-computed: one call per activation, and
   // again after a tree reload, which is when a new file could have appeared.
@@ -1734,9 +1740,18 @@ export function Frame({
   // 窗口里的脏草稿写下去，再拆 tab——否则 ≤2s 的编辑随 tab 一起蒸发。
   // 注意 delete 路径（removeResource）不走这里：文件已经没了，flush 会
   // 把陈旧草稿写回去复活它。
+  // 2026-10-10 ocr 评审（高危）：flush 是跨两个 await 的异步写，fire-and-forget
+  // 会在 conflict（没写盘）/failed（写盘出错）时照样拆 tab——冲突条和错误随
+  // 编辑器一起卸载，草稿无声丢失。等到 'saved' 才拆；其余结局留 tab 让人处置。
   const closeFileTab = useCallback((path: string): void => {
-    editors.current.get(path)?.flush()
-    closeFile(path)
+    const editor = editors.current.get(path)
+    if (editor === undefined) {
+      closeFile(path)
+      return
+    }
+    void editor.flushNow().then((outcome) => {
+      if (outcome === 'saved') closeFile(path)
+    })
   }, [closeFile])
 
   // The resource row's right-click 「删除」 (ADR-0020): remove the file, then
@@ -1858,7 +1873,7 @@ export function Frame({
           // is the card's own gesture; switching to the conversation tab is
           // the frame's, passed through as owner props. `active` gates the
           // pane's reads on the tab actually being visible (lazy load).
-          onSwitchToConversation: () => { setTabs(state => activateTab(state, CONVERSATION_TAB)) },
+          onSwitchToConversation: () => { activate(CONVERSATION_TAB) },
           active: tabs.active === INSIGHTS_TAB,
         })}
         inboxPending={inboxEntries.filter(entry => entry.status === 'pending').length}
@@ -1871,7 +1886,7 @@ export function Frame({
             t={t}
           />
         )}
-        onActivate={(key) => { setTabs(state => activateTab(state, key)) }}
+        onActivate={(key) => { activate(key) }}
         onClose={closeFileTab}
         renderConversation={() => renderSlot('main', {}, { entryKey: 'conversation' })}
         renderFile={(tab) => {
@@ -2012,7 +2027,7 @@ export function Frame({
           style={footerButtonStyle}
           data-schedule-button="true"
           data-hover="true"
-          onClick={() => { setTabs(state => activateTab(state, SCHEDULES_TAB)) }}
+          onClick={() => { activate(SCHEDULES_TAB) }}
         >
           {t('schedule.open')}
         </button>
@@ -2020,7 +2035,7 @@ export function Frame({
             machinery threads the current session's projection seat through;
             the tab activation rides the owner props (the frame owns the tab
             state, the entry owns the pressure reading). */}
-        {renderSlot('footer.insights', { onOpen: () => { setTabs(state => activateTab(state, INSIGHTS_TAB)) } })}
+        {renderSlot('footer.insights', { onOpen: () => { activate(INSIGHTS_TAB) } })}
       </div>
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>
       {needsRoot && (

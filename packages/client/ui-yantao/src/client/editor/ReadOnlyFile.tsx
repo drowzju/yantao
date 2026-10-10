@@ -61,6 +61,11 @@ const frameStyle = {
   // 随主题取 raised 面（2026-10-09 评审 P1）：硬编码 #ffffff 在暗色下是一块
   // 亮斑；PDF 阅读器自带白底不受影响，HTML/eml 正文自带背景色也不受影响。
   backgroundColor: 'var(--yt-surface-raised)',
+  // 2026-10-10 ocr 评审：iframe 内容文档按 css-color-adjust-1 继承宿主的
+  // color-scheme——暗色主题下，不带自绘背景的 html/eml 正文（手写黑字的
+  // 邮件很常见）会得深色画布配深色字。文档帧一律钉在浅色方案：邮件本来就是
+  // 为浅色渲染的媒介，PDF 阅读器自带白底不受影响。
+  colorScheme: 'light',
 } as const
 
 const headGridStyle = {

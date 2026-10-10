@@ -38,7 +38,13 @@ export type SaveOutcome = 'saved' | 'conflict' | 'failed'
 export interface FileEditorApi {
   /** Replace the draft and save it through the same pre-save comparison. */
   patch(content: string): Promise<SaveOutcome>
-  /** Write any pending debounced draft now (2026-10-09 第四轮评审 P2：关 tab 前的 flush seam). */
+  /**
+   * Write any pending debounced draft now and resolve with the save's outcome
+   * (2026-10-10 ocr 评审：关 tab 的手势要等到 'saved' 才拆——conflict/failed
+   * 得留在原地让人看见冲突条/错误，fire-and-forget 会把它们连同 tab 一起埋掉).
+   */
+  flushNow(): Promise<SaveOutcome>
+  /** Fire-and-forget flush — bound to blur, where nobody inspects the outcome. */
   flush(): void
 }
 
@@ -238,11 +244,16 @@ export function FileEditor({
     }, debounceMs)
   }, [cancel, save, debounceMs])
 
-  /** Write now — bound to blur, the tab strip's close gesture, and 覆盖. */
-  const flush = useCallback((): void => {
+  /** Write now and report the outcome — the tab strip's close gesture awaits it. */
+  const flushNow = useCallback((): Promise<SaveOutcome> => {
     cancel()
-    void save(false)
+    return save(false)
   }, [cancel, save])
+
+  /** Fire-and-forget write-now — bound to blur. */
+  const flush = useCallback((): void => {
+    void flushNow()
+  }, [flushNow])
 
   // The reading view's write path: adopt the content as this editor's draft and
   // run the same save the keystroke path runs — one baseline, one conflict bar.
@@ -254,12 +265,13 @@ export function FileEditor({
         setDraft(next)
         return save(false)
       },
+      flushNow,
       flush,
     })
     return () => {
       apiSink.current?.(null)
     }
-  }, [save, flush])
+  }, [save, flushNow, flush])
 
   /** 放弃我的修改: take the server copy back as both draft and baseline. */
   const discard = useCallback((): void => {

@@ -349,6 +349,9 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
                 tabIndex={0}
                 style={selectedId === schedule.id ? activeRowStyle : rowStyle}
                 data-schedule-row={schedule.id}
+                // theme-presenter 的 role=button hover 兜底带 !important，会压过
+                // 内联 accent——选中行靠这个属性豁免兜底（2026-10-10 ocr 评审）。
+                data-selected={selectedId === schedule.id || undefined}
                 onClick={() => { openEditor(schedule) }}
                 onKeyDown={(event) => { if (event.key === 'Enter') openEditor(schedule) }}
               >

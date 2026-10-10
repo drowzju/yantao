@@ -1365,6 +1365,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       promptShortcutList={kb.promptShortcutList}
       promptShortcutSave={kb.promptShortcutSave}
       fillShortcut={kb.fillShortcut}
+      shortcutCatalog={{ getSnapshot: () => [], subscribe: () => () => {} }}
       scheduleList={kb.scheduleList}
       scheduleSave={kb.scheduleSave}
       scheduleMark={kb.scheduleMark}
@@ -1528,7 +1529,10 @@ describe('Frame', () => {
     expect(container.querySelectorAll('[data-tab="entities/areas/健康.md"]')).toHaveLength(1)
 
     fireEvent.click(screen.getByTitle('关闭'))
-    expect(container.querySelector('[data-tab="entities/areas/健康.md"]')).toBeNull()
+    // 关闭现在等编辑器 flushNow 的 'saved' 才拆 tab（2026-10-10 ocr 评审），异步生效。
+    await waitFor(() => {
+      expect(container.querySelector('[data-tab="entities/areas/健康.md"]')).toBeNull()
+    })
     expect((container.querySelector('[data-tab="conversation"]') as HTMLElement).style.display).toBe('flex')
     expect(localStorage.getItem(TAB_STORAGE_KEY)).toBe('[]')
   })
