@@ -165,7 +165,7 @@ describe('patchWorkspaceRun', () => {
       status: 'failed',
       finishedAt: '2026-10-10T09:01:00.000Z',
       failedStep: 0,
-      finalResult: 'x'.repeat(2000),
+      finalResult: 'x'.repeat(20 * 1024),
       steps: [{
         index: 0,
         promptSnapshot: '炸的一步',
@@ -176,7 +176,7 @@ describe('patchWorkspaceRun', () => {
       }],
     })
     expect(patched[0]?.failedStep).toBe(0)
-    expect(patched[0]?.finalResult).toHaveLength(1001) // 1000 字 + 省略号
+    expect(patched[0]?.finalResult).toHaveLength(16 * 1024 + 1) // 16 KiB + 省略号
     expect(patched[0]?.steps[0]?.error).toHaveLength(501)
   })
 

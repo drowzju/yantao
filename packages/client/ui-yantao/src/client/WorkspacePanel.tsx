@@ -138,8 +138,32 @@ const runHeadStyle = { display: 'flex', gap: 8, alignItems: 'baseline', flexWrap
 
 const resultStyle = {
   color: 'var(--yt-text-secondary)', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-  maxHeight: 120, overflow: 'hidden',
 } as const
+const collapsedResultStyle = { ...resultStyle, maxHeight: 120, overflow: 'hidden' } as const
+
+/** Longer than this, a final result gets an expand toggle instead of rendering tall. */
+const RESULT_COLLAPSE_CHARS = 300
+
+/**
+ * One run's final result. The store keeps up to 16 KiB of the real answer,
+ * so the panel must not silently swallow it: long text renders collapsed
+ * with an explicit 展开/收起 toggle, short text renders as-is.
+ */
+function RunResult(props: { readonly t: WorkbenchT; readonly text: string }): ReactElement {
+  const [expanded, setExpanded] = useState(false)
+  const collapsible = props.text.length > RESULT_COLLAPSE_CHARS
+  return (
+    <>
+      <div style={collapsible && !expanded ? collapsedResultStyle : resultStyle}>{props.text}</div>
+      {collapsible && (
+        <button data-hover="true" type="button" style={ghostButtonStyle}
+          onClick={() => { setExpanded(value => !value) }}>
+          {expanded ? props.t('workspace.collapseResult') : props.t('workspace.expandResult')}
+        </button>
+      )}
+    </>
+  )
+}
 
 /** One instruction's editor form: name, optional cron, enabled, the step chain. */
 function InstructionForm(props: {
@@ -581,7 +605,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns }: Workspace
             )}
             {failed?.error !== undefined && <div style={errorStyle}>{failed.error}</div>}
             {entry.finalResult !== undefined && entry.finalResult !== '' && (
-              <div style={resultStyle}>{entry.finalResult}</div>
+              <RunResult t={t} text={entry.finalResult} />
             )}
           </div>
         )

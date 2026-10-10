@@ -77,8 +77,12 @@ export const WORKSPACE_RUNS_DISPLAY_PATH = '.dsh/yantao/workspace-runs.json'
 /** The ring budget (ADR-0056 决定 6): past this, the oldest finalized rows fall off. */
 export const RUN_HISTORY_CAP = 100
 
-/** Length caps on the runtime-authored text fields. */
-const RESULT_EXCERPT_MAX = 1000
+/** Length caps on the runtime-authored text fields. The result cap is the
+ * FINAL ANSWER's ceiling, not a garnish: the run history is the only place a
+ * chain's output survives, so it must hold a real agent answer intact (a
+ * 20-row markdown table already blows past 1000 chars). 16 KiB per field ×
+ * a ≤100-row ring stays a bounded file; the panel collapses the rendering. */
+const RESULT_EXCERPT_MAX = 16 * 1024
 const ERROR_MAX = 500
 
 /** Where the store sits on disk. */
