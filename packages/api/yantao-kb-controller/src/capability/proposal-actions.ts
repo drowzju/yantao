@@ -46,6 +46,30 @@ export const EMPTY_OK_FIELDS: ReadonlySet<string> = new Set([
   'edit-section:path', 'append-section:path', 'add-todo:body',
 ])
 
+/** One minimal valid example per kind, inlined into missing-field
+ * diagnostics (2026-10-10 补提事故：the drop note named the missing fields
+ * but not the shape, and a post-compaction repair rebuilt the rows without
+ * `entityPath` — costing two extra supplement cards. Teaching the shape in
+ * the same breath as the verdict makes the repair one-shot.). For kinds
+ * with an EMPTY_OK field the example shows it as `""` — the subtle contract
+ * (key must exist, value may be empty) is exactly what guessing gets wrong.
+ * Presentation-only: the parity spec pins the field tables, not this prose. */
+const KIND_EXAMPLES: Record<ActionKind, string> = {
+  'create-entity': '{"kind":"create-entity","entityType":"project","name":"某项目"}',
+  'create-project': '{"kind":"create-project","name":"某项目"}',
+  'append-log': '{"kind":"append-log","entityPath":"project:某项目","entityName":"某项目","text":"一条动态"}',
+  'write-state': '{"kind":"write-state","entityPath":"","entityName":"某项目","text":"当前状态一行"}',
+  'save-resource': '{"kind":"save-resource","path":"resources/某文件.md","content":"文件全文"}',
+  'create-link': '{"kind":"create-link","entityPath":"project:某项目","entityName":"某项目","link":"https://…"}',
+  'add-todo': '{"kind":"add-todo","title":"待办标题","body":"详情，可为空串"}',
+  'edit-section': '{"kind":"edit-section","path":"某实体.md","section":"某节","after":"锚定原文","why":"修改理由"}',
+  'append-section': '{"kind":"append-section","path":"某实体.md","section":"某节","text":"补充内容"}',
+  'add-memory': '{"kind":"add-memory","scope":"user","text":"记忆内容"}',
+  'delete-mails': '{"kind":"delete-mails","entryId":"…","sender":"…","subject":"…"}',
+  'archive-mails': '{"kind":"archive-mails","entryId":"…","sender":"…","subject":"…"}',
+  'skill-rewrite': '{"kind":"skill-rewrite","name":"mail","file":"SKILL.md","original":"原文","new":"新文","why":"理由"}',
+}
+
 /**
  * Diagnose one proposed action against the kind tables (ADR-0055): the one
  * row-level check both the whole-list and the per-item tolerant faces share.
@@ -64,7 +88,9 @@ function diagnoseAction(entry: unknown, at: number): string {
   const missing = required.filter(field =>
     typeof bag[field] !== 'string'
     || (bag[field] === '' && !EMPTY_OK_FIELDS.has(`${kind}:${field}`)))
-  return missing.length > 0 ? `第 ${at + 1} 项「${kind}」缺必填字段 ${missing.join('、')}` : ''
+  return missing.length > 0
+    ? `第 ${at + 1} 项「${kind}」缺必填字段 ${missing.join('、')}（该项形如 ${KIND_EXAMPLES[kind as ActionKind]}）`
+    : ''
 }
 
 /**

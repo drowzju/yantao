@@ -41,9 +41,10 @@ describe('validateProposedActions（ADR-0055 提名工具的服务端校验）',
     expect(EMPTY_OK_FIELDS.has('append-log:entityPath')).toBe(true)
     // entityPath 显式空串：在 EMPTY_OK 名单里，放行
     expect(validateProposedActions([{ kind: 'append-log', entityPath: '', entityName: 'x', text: 'y' }])).toEqual([])
-    // 整个缺席：照样点名
+    // 整个缺席：照样点名，且诊断带最小合法示例（2026-10-10 补提事故：
+    // 只点名不给形状，压缩后凭记忆重建漏了 entityPath，多赔了一张卡）
     expect(validateProposedActions([{ kind: 'append-log', entityName: 'x', text: 'y' }]))
-      .toEqual(['第 1 项「append-log」缺必填字段 entityPath'])
+      .toEqual(['第 1 项「append-log」缺必填字段 entityPath（该项形如 {"kind":"append-log","entityPath":"project:某项目","entityName":"某项目","text":"一条动态"}）'])
   })
 })
 
@@ -237,6 +238,7 @@ describe('kb_propose_actions 工具（注册面 + 入队）', () => {
     expect(result.id).toMatch(/^prp_/)
     expect(result.dropped).toHaveLength(2)
     expect(result.dropped?.[0]).toContain('缺必填字段 entryId、sender、subject')
+    expect(result.dropped?.[0]).toContain('形如 {"kind":"delete-mails"')
     expect(result.dropped?.[1]).toContain('不是已知的动作类别')
     const listed = await ctx.yantaoKbController.proposalInboxList()
     expect(listed.proposals).toHaveLength(1)
