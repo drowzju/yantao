@@ -204,14 +204,20 @@ export function detailFromEvents(events: readonly SessionWireEvent[]): readonly 
       continue
     }
     if (event.type === 'tool/result') {
-      const data = event.data as { callId?: unknown }
-      const callId = data.callId
-      const item = typeof callId === 'string' ? pending.get(callId) : undefined
+      // 真实线缆（a5000eab 实录）：result 的 callId 通常嵌套在
+      // message.toolCallId / message.source.callId，顶层 callId 只是部分
+      // 发送方的形状——三处都试，与 scheduler 的提名判定同一套读法。
+      const data = event.data as {
+        callId?: unknown
+        message?: { toolCallId?: unknown; source?: { callId?: unknown } }
+      }
+      const id = data.callId ?? data.message?.toolCallId ?? data.message?.source?.callId
+      const item = typeof id === 'string' ? pending.get(id) : undefined
       const { text, error } = resultOf(event.data)
       if (item !== undefined) {
         item.result = clip(text, RESULT_CLIP)
         item.error = error
-        pending.delete(callId as string)
+        pending.delete(id as string)
       }
       continue
     }

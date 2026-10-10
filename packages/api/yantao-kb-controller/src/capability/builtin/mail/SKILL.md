@@ -4,7 +4,7 @@ description: 读取本地 Outlook 桌面客户端的邮件，按断点增量拉�
 disable-model-invocation: true
 metadata:
   yantao:
-    version: 16
+    version: 17
 ---
 
 # 邮件能力
@@ -122,6 +122,11 @@ python-missing / outlook-unavailable / folder-missing / not-invocable / other。
 **每封邮件一条动作**，逐封展开 `entryId`/`sender`/`subject`——不要把多封合并成
 一个批量动作（如 `mailIds` 数组或 `targets` 列表）：服务端校验器只认逐封字段，
 批量形态整单被拒（2026-10-10 早晨事故）。
+
+**小批量提名**：一次 `kb_propose_actions` 调用只提一小批（十来封以内为宜），
+多了就分几次调用。校验是整单制——一单里有一条动作缺字段，整单被拒、修完
+重提；单越大修复轮越贵（2026-10-10 实测 27 项大单修了三轮才过，白烧两轮
+上下文）。小批提交，哪批被拒就只修哪批。
 
 若本任务读取或处理过邮件，调用时再加一个 `mails` 水位参数，抄自实际取到的
 批次首尾：`mails:{"lastReadAt":"<最新一封的 receivedAt>","firstReadAt":

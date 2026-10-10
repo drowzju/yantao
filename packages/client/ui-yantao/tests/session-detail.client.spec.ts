@@ -51,6 +51,18 @@ describe('detailFromEvents', () => {
     expect(items.map(item => item.kind)).toEqual(['user'])
   })
 
+  it('pairs results whose callId rides the real-wire nested slots (a5000eab 实录)', () => {
+    // 生产线缆：result 顶层无 callId，嵌在 message.toolCallId / message.source.callId。
+    const items = detailFromEvents([
+      event('tool/call', 1, { callId: 'c1', name: 'kb_propose_actions', arguments: '{}' }),
+      event('tool/result', 2, { message: { toolCallId: 'c1', content: [{ type: 'text', text: '已入队提议队列' }] } }),
+      event('tool/call', 3, { callId: 'c2', name: 'kb_read', arguments: '{}' }),
+      event('tool/result', 4, { message: { source: { callId: 'c2' }, content: [{ type: 'text', text: '# 页' }] } }),
+    ])
+    expect(items[0]).toMatchObject({ kind: 'tool', name: 'kb_propose_actions', result: '已入队提议队列', error: null })
+    expect(items[1]).toMatchObject({ kind: 'tool', name: 'kb_read', result: '# 页', error: null })
+  })
+
   it('clips oversized texts with the truncation mark', () => {
     const long = 'x'.repeat(17_000)
     const items = detailFromEvents([
