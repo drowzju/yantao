@@ -114,6 +114,20 @@ function succeedWith(child: FakeChild, result: string, sessionId?: string): void
   })
 }
 
+/** Emit an arbitrary stdout payload, then close cleanly. */
+function answerWith(child: FakeChild, payload: string, exitCode = 0): void {
+  queueMicrotask(() => {
+    child.stdout.emit('data', Buffer.from(payload))
+    child.emit('close', exitCode)
+  })
+}
+
+/** Restore one env var to its prior value (undefined deletes it). */
+function restore(previous: string | undefined, key: string): void {
+  if (previous === undefined) Reflect.deleteProperty(process.env, key)
+  else process.env[key] = previous
+}
+
 /** Poll until the predicate holds, failing with the label on timeout. */
 async function until(description: string, check: () => Promise<boolean>): Promise<void> {
   const deadline = Date.now() + 2000
@@ -191,6 +205,54 @@ describe('yantaoKb.workspaceRun', () => {
     expect(call?.args).toEqual(['-p', '-y', '--output-format', 'json'])
     expect(call?.options?.cwd).toBe(kbRoot)
     expect(call?.child.promptReceived).toBe('向目录里的代码打个招呼')
+  })
+
+  it('parses the event-array output shape (real `--output-format json` contract, 2026-10-10)', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const fake = fakeSpawn(({ child }) => {
+      answerWith(child, JSON.stringify([
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: '…' }] },
+        { type: 'file-history-snapshot' },
+        { type: 'reasoning' },
+        { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '数组答' }] },
+        { type: 'result', subtype: 'success', is_error: false, result: '数组答', session_id: 'sessARR' },
+      ]))
+    })
+    ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+
+    await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+    await until('array run settles success', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
+    const [run] = await readWorkspaceRuns(kbRoot)
+    expect(run?.finalResult).toBe('数组答')
+    expect(run?.steps[0]).toMatchObject({ exitCode: 0, sessionId: 'sessARR', resultExcerpt: '数组答' })
+  })
+
+  it('strips session-scoped env vars from the spawned environment (SERVER__PORT wedge, 2026-10-10)', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const previous = {
+      serverPort: process.env.SERVER__PORT,
+      sessionId: process.env.CODEBUDDY_SESSION_ID,
+      marker: process.env.WORKSPACE_ENV_MARKER,
+    }
+    process.env.SERVER__PORT = '53031'
+    process.env.CODEBUDDY_SESSION_ID = 'sess_parent'
+    process.env.WORKSPACE_ENV_MARKER = 'keep-me'
+    try {
+      const fake = fakeSpawn(({ child }) => { succeedWith(child, '好了') })
+      ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+
+      await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+      await until('sanitized run settles success', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
+
+      const env = fake.calls[0]?.options?.env as Record<string, string | undefined>
+      expect(env.SERVER__PORT).toBeUndefined()
+      expect(env.CODEBUDDY_SESSION_ID).toBeUndefined()
+      expect(env.WORKSPACE_ENV_MARKER).toBe('keep-me')
+    } finally {
+      restore(previous.serverPort, 'SERVER__PORT')
+      restore(previous.sessionId, 'CODEBUDDY_SESSION_ID')
+      restore(previous.marker, 'WORKSPACE_ENV_MARKER')
+    }
   })
 
   it('passes --model through and --resume chains step 2 onto step 1', async () => {

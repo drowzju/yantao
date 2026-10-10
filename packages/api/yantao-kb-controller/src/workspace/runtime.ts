@@ -7,7 +7,10 @@
  * Per step the runtime spawns `codebuddy -p -y --output-format json` with
  * `cwd` pinned to the workspace's directory, the prompt delivered on stdin
  * (keeps argv free of user text — no shell-quoting surface on any platform),
- * and reads the single-result JSON back for `session_id` and `result`. Step
+ * and reads the result event back for `session_id` and `result`. The output
+ * contract (observed 2026-10-10) is an event ARRAY whose final element is
+ * `{type:'result', result, session_id, …}`; older builds emitted the single
+ * object directly, so both shapes parse. Step
  * N+1 resumes step N's session (`--resume`), the 会话延续链 of ADR-0056
  * 决定 3. Any step that exits non-zero, fails to spawn, or answers
  * unparseable output BREAKS the chain (决定 3: no tolerance — the later
@@ -38,6 +41,27 @@ const MAX_STEP_STDOUT_BYTES = 1024 * 1024
 
 /** How much of one step's stderr feeds a failure message. */
 const MAX_STEP_STDERR_BYTES = 64 * 1024
+
+/**
+ * Session-scoped environment variables that must NOT reach the spawned CLI.
+ * Bisected 2026-10-10: with the full inherited environment `codebuddy -p`
+ * wedges forever; with a minimal environment it answers in ~6s; adding ONLY
+ * `SERVER__PORT` back reproduces the wedge. That variable names the parent
+ * session's internal service port — the child tries to reuse the busy port
+ * and hangs. `CODEBUDDY_*` carries the parent session's identity (service
+ * proxy, session id), and `TRACEPARENT`/`BAGGAGE` propagate the parent's
+ * trace context — all meaningless to a fresh headless run, all stripped.
+ */
+const STRIPPED_ENV_PATTERN = /^(?:CODEBUDDY_|SERVER__|TRACEPARENT$|BAGGAGE$)/
+
+/** The inherited environment minus the session-scoped variables. */
+function spawnEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && !STRIPPED_ENV_PATTERN.test(key)) env[key] = value
+  }
+  return env
+}
 
 /** One live chain's in-process handle — what a stop gesture reaches. */
 interface LiveRun {
@@ -227,6 +251,7 @@ export class WorkspaceRuntime {
     if (resumeSessionId !== undefined) args.push('--resume', resumeSessionId)
     const child = this.spawnImpl('codebuddy', args, {
       cwd: space.directory,
+      env: spawnEnv(),
       shell: true, // Windows: the npm shim is a .cmd; every token here is shell-safe (the prompt rides stdin)
       windowsHide: true,
       // POSIX only: the process becomes a group leader so stop can reap the tree with one signal.
@@ -295,8 +320,9 @@ export class WorkspaceRuntime {
           })
           return
         }
-        // `--output-format json` is the SINGLE-result contract: stdout is one
-        // JSON object carrying `result` and `session_id`.
+        // `--output-format json` emits an event ARRAY whose final element is
+        // the result event (`{type:'result', result, session_id, …}`);
+        // older builds emitted the single object directly — accept both.
         const raw = Buffer.concat(stdoutChunks).toString('utf8')
         let parsed: unknown
         try {
@@ -306,10 +332,16 @@ export class WorkspaceRuntime {
           settle({ exitCode: code, error: `codebuddy 输出不是合法 JSON：${clipped}` })
           return
         }
-        const record = parsed as { result?: unknown; session_id?: unknown }
-        const result = typeof record.result === 'string' ? record.result : undefined
-        if (result === undefined) {
+        const record = (Array.isArray(parsed)
+          ? [...parsed].reverse().find(event => typeof event === 'object' && event !== null && (event as { type?: unknown }).type === 'result')
+          : parsed) as { result?: unknown; session_id?: unknown; is_error?: unknown } | undefined
+        const result = typeof record?.result === 'string' ? record.result : undefined
+        if (record === undefined || result === undefined) {
           settle({ exitCode: code, error: 'codebuddy 输出缺少 result 字段' })
+          return
+        }
+        if (record.is_error === true) {
+          settle({ exitCode: code, error: `codebuddy 报告运行失败：${result.slice(0, MAX_STEP_STDERR_BYTES)}` })
           return
         }
         settle({
