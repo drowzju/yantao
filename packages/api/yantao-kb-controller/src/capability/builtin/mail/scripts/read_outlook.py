@@ -78,8 +78,10 @@ EXIT_BY_KIND = {
     "other": EXIT_OTHER,
 }
 
-# 正文截断长度。分析只需要前面一段，但留存的原文要尽量完整，取一个折中。
-BODY_LIMIT = 12000
+# 正文摘要长度（2026-10-10 裁决）：分诊与写提议理由只需要开头一段，整页正文
+# 灌进上下文只会喂压缩。整封原文不靠这里留存——值得留存的邮件由人批准后走
+# 保存动词落 .eml 原件（ADR-0037），数据不会丢。
+BODY_LIMIT = 512
 
 # `Body` 短于这个长度就认为它是空壳，改用 `HTMLBody` 剥标签。
 PLAIN_BODY_MIN = 40
@@ -162,7 +164,7 @@ def plain_body(item):
 
 
 def clip(text):
-    """截断正文，返回 (正文, 是否被截断)。"""
+    """截成正文摘要，返回 (摘要, 是否被截断)。"""
     if len(text) <= BODY_LIMIT:
         return text, False
     return text[:BODY_LIMIT], True

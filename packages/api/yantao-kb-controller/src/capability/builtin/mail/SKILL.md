@@ -4,7 +4,7 @@ description: 读取本地 Outlook 桌面客户端的邮件，按断点增量拉�
 disable-model-invocation: true
 metadata:
   yantao:
-    version: 17
+    version: 18
 ---
 
 # 邮件能力
@@ -35,11 +35,17 @@ yantao 工作台的邮件能力（ADR-0019 建立，ADR-0021 迁移为能力目�
   （推进水印是批准后的另一个动作）。
 - 成功：`{ok: true, result: {since, until?, lastReadAt?, stale, messages, hasMore}}`，
   `messages` 每封 `{id, entryId, receivedAt, senderName, senderAddress, subject, body, truncated, toMe, superiorInvolved, conversationId, conversationTopic}`；
-  `body` 至多 12000 字；`toMe` 是我与这封邮件的关系（to 主送 / cc 抄送 / none 都不是 /
-  unknown 认不出）；`superiorInvolved` 是收件人中是否命中上级地址集合（布尔，ADR-0034
-  批次②）——两者都只回关系或旗标，不含其他收件人的名字或地址；`conversationId`/`conversationTopic`
-  是 Outlook 的会话键与会话主题（Outlook 2010+），读不到时为空串，客户端据此前提
-  归并线程、缺失时回退按主题剥 RE/FW 前缀分组。
+  `body` 是**正文开头摘要，至多 512 字**（2026-10-10 裁决）；`toMe` 是我与这封邮件的关系
+  （to 主送 / cc 抄送 / none 都不是 / unknown 认不出）；`superiorInvolved` 是收件人中是否
+  命中上级地址集合（布尔，ADR-0034 批次②）——两者都只回关系或旗标，不含其他收件人的
+  名字或地址；`conversationId`/`conversationTopic` 是 Outlook 的会话键与会话主题
+  （Outlook 2010+），读不到时为空串，客户端据此前提归并线程、缺失时回退按主题剥
+  RE/FW 前缀分组。
+- **正文摘要就够了，不要整读**：分诊（删除/保存提名）与写提议理由靠元数据加开头
+  512 字足矣。整封原文不靠取数通道留存——值得留存的邮件由人批准后走保存动词落
+  .eml 原件（见下），数据不会丢。不要为了「看清正文」把大批邮件拉进上下文：
+  实测整页正文灌入会让上下文几分钟顶满，压缩开销达到工作时间的近三倍
+  （2026-10-10 调度任务实测，压缩占墙钟 73%）。
 
 ### 翻页与巡扫纪律（2026-10-10 立）
 
@@ -53,7 +59,8 @@ yantao 工作台的邮件能力（ADR-0019 建立，ADR-0021 迁移为能力目�
 - 翻页锚定协议：区间两端都不含（见上），下一页 `--until` 取当前页底时间
   **+1 秒**（越过开区间下界的同秒兄弟信才不丢），重叠出现的邮件按 `id` 去重；
   返回单封且与上页重复即证明区间触底。
-- 需要读某封正文做分析时，再单独小页（limit 1-3）拉取那一封。
+- 需要补充判断依据时，再单独小页（limit 1-3）拉取那一封——回来的同样是 512 字
+  摘要；摘要仍不够下判断，就按元数据判断，不要反复重读。
 
 ### 删除（`verb: 'delete'`，仅人通道，ADR-0034 决定 5）
 
