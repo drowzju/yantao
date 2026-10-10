@@ -4,7 +4,7 @@ description: 读取本地 Outlook 桌面客户端的邮件，按断点增量拉�
 disable-model-invocation: true
 metadata:
   yantao:
-    version: 18
+    version: 19
 ---
 
 # 邮件能力
@@ -130,10 +130,11 @@ python-missing / outlook-unavailable / folder-missing / not-invocable / other。
 一个批量动作（如 `mailIds` 数组或 `targets` 列表）：服务端校验器只认逐封字段，
 批量形态整单被拒（2026-10-10 早晨事故）。
 
-**小批量提名**：一次 `kb_propose_actions` 调用只提一小批（十来封以内为宜），
-多了就分几次调用。校验是整单制——一单里有一条动作缺字段，整单被拒、修完
-重提；单越大修复轮越贵（2026-10-10 实测 27 项大单修了三轮才过，白烧两轮
-上下文）。小批提交，哪批被拒就只修哪批。
+**一跑一卡（2026-10-10 裁决）**：整个任务的提名在收尾时汇总为**一次**
+`kb_propose_actions` 调用——人只在一张卡上逐封勾选裁决，不要按批次拆成
+多张卡。校验是逐项容错的：不合格的项被点名剔除（诊断随工具结果返回），
+合格项照常入队；只有全部项都不合格才整单拒绝。被剔除的项修正后随收尾的
+下一次调用补提即可；除非反复被拒，不要预防性地拆小批。
 
 若本任务读取或处理过邮件，调用时再加一个 `mails` 水位参数，抄自实际取到的
 批次首尾：`mails:{"lastReadAt":"<最新一封的 receivedAt>","firstReadAt":

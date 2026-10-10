@@ -8,7 +8,7 @@ import type { YantaoKbService } from '@deepseek-ai/dsh-yantao-kb'
 import YantaoKbController from '../src/index.ts'
 import { EMPTY_OK_FIELDS as CLIENT_EMPTY_OK, KINDS as CLIENT_KINDS, REQUIRED_FIELDS as CLIENT_REQUIRED_FIELDS } from '../../../client/ui-yantao/src/client/capability-match.ts'
 import { TRUNCATION_MARKER as CLIENT_TRUNCATION_MARKER } from '../../../client/ui-yantao/src/client/scheduler.ts'
-import { EMPTY_OK_FIELDS, KINDS, mailSpanNote, normalizeMailRange, REQUIRED_FIELDS, validateProposedActions } from '../src/capability/proposal-actions.ts'
+import { EMPTY_OK_FIELDS, KINDS, mailSpanNote, normalizeMailRange, partitionProposedActions, REQUIRED_FIELDS, validateProposedActions } from '../src/capability/proposal-actions.ts'
 import { TRUNCATION_MARKER as EXEC_TRUNCATION_MARKER } from '../src/capability/exec.ts'
 
 describe('validateProposedActions（ADR-0055 提名工具的服务端校验）', () => {
@@ -44,6 +44,36 @@ describe('validateProposedActions（ADR-0055 提名工具的服务端校验）',
     // 整个缺席：照样点名
     expect(validateProposedActions([{ kind: 'append-log', entityName: 'x', text: 'y' }]))
       .toEqual(['第 1 项「append-log」缺必填字段 entityPath'])
+  })
+})
+
+describe('partitionProposedActions（2026-10-10 裁决：逐项容错，一跑一卡的船不再整沉）', () => {
+  const VALID_APPEND_LOG = { kind: 'append-log', entityPath: '项目/dsh 学习.md', entityName: 'dsh 学习', text: '有进展' }
+  const VALID_DELETE_MAIL = { kind: 'delete-mails', entryId: 'a', sender: 's@example.com', subject: '周报' }
+
+  it('好坏混合：合格项原样通过，坏项点名进诊断', () => {
+    const { valid, diagnostics } = partitionProposedActions([
+      VALID_DELETE_MAIL,
+      { kind: 'delete-mails', mailIds: ['x'] },
+      '不是对象',
+      VALID_APPEND_LOG,
+    ])
+    expect(valid).toEqual([VALID_DELETE_MAIL, VALID_APPEND_LOG])
+    expect(diagnostics).toHaveLength(2)
+    expect(diagnostics[0]).toContain('缺必填字段 entryId、sender、subject')
+    expect(diagnostics[1]).toContain('第 3 项不是对象')
+  })
+
+  it('空数组：零合格 + 空输入诊断，与 validateProposedActions 同词', () => {
+    expect(partitionProposedActions([]))
+      .toEqual({ valid: [], diagnostics: ['actions 不能为空——没有值得提议的就不要调用本工具'] })
+  })
+
+  it('全坏：valid 为空，诊断齐全', () => {
+    const { valid, diagnostics } = partitionProposedActions([{ kind: 'format-disk' }])
+    expect(valid).toEqual([])
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0]).toContain('不是已知的动作类别')
   })
 })
 
@@ -188,9 +218,29 @@ describe('kb_propose_actions 工具（注册面 + 入队）', () => {
     await expect(tool().execute({
       title: '坏提议',
       actions: [{ kind: 'delete-mails', mailIds: ['a', 'b'] }, { kind: 'format-disk' }],
-    }, {} as never)).rejects.toThrow(/缺必填字段 entryId、sender、subject/)
+    }, {} as never)).rejects.toThrow(/没有一项合格/)
     await expect(tool().execute({ title: '空提议', actions: [] }, {} as never)).rejects.toThrow(/actions 不能为空/)
     const listed = await ctx.yantaoKbController.proposalInboxList()
     expect(listed.proposals).toHaveLength(0)
+  })
+
+  it('混合提名逐项容错：合格项入队，坏项点名随结果带回（2026-10-10 裁决）', async () => {
+    const result = await tool().execute({
+      title: '好坏混合',
+      actions: [
+        { kind: 'delete-mails', entryId: 'a', sender: 's@example.com', subject: '周报' },
+        { kind: 'delete-mails', mailIds: ['x'] },
+        { kind: 'format-disk' },
+        { kind: 'append-log', entityPath: '项目/x.md', entityName: 'x', text: '有进展' },
+      ],
+    }, {} as never) as { id: string; dropped?: readonly string[] }
+    expect(result.id).toMatch(/^prp_/)
+    expect(result.dropped).toHaveLength(2)
+    expect(result.dropped?.[0]).toContain('缺必填字段 entryId、sender、subject')
+    expect(result.dropped?.[1]).toContain('不是已知的动作类别')
+    const listed = await ctx.yantaoKbController.proposalInboxList()
+    expect(listed.proposals).toHaveLength(1)
+    const proposal = listed.proposals[0]?.proposal as { actions: readonly unknown[] }
+    expect(proposal.actions).toHaveLength(2)
   })
 })

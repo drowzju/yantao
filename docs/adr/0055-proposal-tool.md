@@ -101,3 +101,10 @@ mail SKILL.md v15→v16 已同步数据目录。验证：controller/ui-yantao �
 修了三处自伤：DSL 的 object 节点必须显式 `additionalProperties`（两个不合规格节点曾把整个 InferArgs
 退化成宽松 JsonValue）、scheduler 的事件变量需 readonly、harness 的 follow 需区分 askTurn 与
 collectEvents 的来访（事件收集裸跟进不得消费脚本回复，否则修复回合拿不到回答）。
+
+修订（2026-10-10，逐项容错 + 一跑一卡）：整单制在实践中把一次邮件调度的提名逼成六七张小卡
+（27 项大单被整单拒修三轮的事故应激），人要在提议页挨张点。裁决两项：(1) 校验器改逐项容错——
+`partitionProposedActions` 把合格项与坏项分开，合格项照常入队、坏项诊断随工具结果带回
+（`dropped` 字段），全军覆没才整单拒绝；(2) mail SKILL.md v19 把「小批量提名」纪律改回
+「一跑一卡」——收尾汇总一次提交，被剔项修正后补提，不预防性拆批。信任锚不动：入队的每一项
+仍等人在卡上逐封勾选批准。

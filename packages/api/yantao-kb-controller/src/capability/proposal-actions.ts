@@ -47,29 +47,65 @@ export const EMPTY_OK_FIELDS: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * Diagnose one proposed action against the kind tables (ADR-0055): the one
+ * row-level check both the whole-list and the per-item tolerant faces share.
+ * @param entry - one action exactly as the model handed it over.
+ * @param at - the action's 0-based position, for the named diagnostic.
+ * @returns the diagnostic line, or '' when the row passes.
+ */
+function diagnoseAction(entry: unknown, at: number): string {
+  if (typeof entry !== 'object' || entry === null) return `第 ${at + 1} 项不是对象`
+  const bag = entry as Record<string, unknown>
+  const kind = typeof bag.kind === 'string' ? bag.kind : undefined
+  if (kind === undefined || !KINDS.includes(kind as ActionKind)) {
+    return `第 ${at + 1} 项「${kind ?? '（缺 kind）'}」不是已知的动作类别`
+  }
+  const required = REQUIRED_FIELDS[kind as ActionKind] ?? []
+  const missing = required.filter(field =>
+    typeof bag[field] !== 'string'
+    || (bag[field] === '' && !EMPTY_OK_FIELDS.has(`${kind}:${field}`)))
+  return missing.length > 0 ? `第 ${at + 1} 项「${kind}」缺必填字段 ${missing.join('、')}` : ''
+}
+
+/**
  * Validate one proposed `actions` array field-by-field (ADR-0055): unlike
  * the client's parser — which silently drops unknown rows — the tool is the
- * nomination's front door, so every bad row is named back to the model as a
- * tool failure and repaired in-turn.
+ * nomination's front door, so every bad row is named back to the model.
  * @param raw - the `actions` array exactly as the model handed it over.
  * @returns one diagnostic line per offending action; empty means the whole
  *   list passes and may be enqueued verbatim.
  */
 export function validateProposedActions(raw: readonly unknown[]): readonly string[] {
   if (raw.length === 0) return ['actions 不能为空——没有值得提议的就不要调用本工具']
-  return raw.map((entry, at) => {
-    if (typeof entry !== 'object' || entry === null) return `第 ${at + 1} 项不是对象`
-    const bag = entry as Record<string, unknown>
-    const kind = typeof bag.kind === 'string' ? bag.kind : undefined
-    if (kind === undefined || !KINDS.includes(kind as ActionKind)) {
-      return `第 ${at + 1} 项「${kind ?? '（缺 kind）'}」不是已知的动作类别`
-    }
-    const required = REQUIRED_FIELDS[kind as ActionKind] ?? []
-    const missing = required.filter(field =>
-      typeof bag[field] !== 'string'
-      || (bag[field] === '' && !EMPTY_OK_FIELDS.has(`${kind}:${field}`)))
-    return missing.length > 0 ? `第 ${at + 1} 项「${kind}」缺必填字段 ${missing.join('、')}` : ''
-  }).filter(line => line !== '')
+  return raw.map((entry, at) => diagnoseAction(entry, at)).filter(line => line !== '')
+}
+
+/**
+ * Split a proposed `actions` array into the rows that pass the kind tables
+ * and named diagnostics for the rest (2026-10-10 裁决：逐项容错). The old
+ * whole-order gate made one bad row sink a whole run-sized nomination — the
+ * mail schedule's one-card-per-run shape needs the opposite: valid rows
+ * enqueue, bad rows are named back for an in-turn repair.
+ * @param raw - the `actions` array exactly as the model handed it over.
+ * @returns the passing rows (enqueue these) and one diagnostic line per
+ *   dropped row; an empty `raw` yields no valid rows and the empty-input
+ *   diagnostic, so the caller's all-dropped face covers it naturally.
+ */
+export function partitionProposedActions(raw: readonly unknown[]): {
+  valid: readonly unknown[]
+  diagnostics: readonly string[]
+} {
+  if (raw.length === 0) {
+    return { valid: [], diagnostics: ['actions 不能为空——没有值得提议的就不要调用本工具'] }
+  }
+  const valid: unknown[] = []
+  const diagnostics: string[] = []
+  raw.forEach((entry, at) => {
+    const line = diagnoseAction(entry, at)
+    if (line === '') valid.push(entry)
+    else diagnostics.push(line)
+  })
+  return { valid, diagnostics }
 }
 
 /**

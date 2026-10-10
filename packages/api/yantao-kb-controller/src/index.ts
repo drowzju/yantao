@@ -64,7 +64,7 @@ import { applySkillRewrite } from './capability/rewrite.ts'
 import { CAPABILITY_HINTS, CapabilityError, runCapability } from './capability/run.ts'
 import type { CapabilityInvoker } from './capability/run.ts'
 import { CAPABILITY_ENVIRONMENT_NOTE, execCapabilityScript, instructionTextOf } from './capability/exec.ts'
-import { mailSpanNote, normalizeMailRange, validateProposedActions } from './capability/proposal-actions.ts'
+import { mailSpanNote, normalizeMailRange, partitionProposedActions } from './capability/proposal-actions.ts'
 import { addRoutes, readRoutes, removeRoute, routedSkill, updateRoute, ROUTES_PATH } from './capability/routing.ts'
 import type { CapabilityRoute } from './capability/routing.ts'
 import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
@@ -524,8 +524,9 @@ export class YantaoKbController extends TypertRemoteService {
       description:
         '把值得人拍板的写入动作打包成一个提议，送进「提议」收件箱等人在提议页批准（ADR-0055）。'
         + '本工具只入队不执行——动作由人批准后才落库，不要为了让动作生效而调用本工具。'
-        + 'actions 每项形如 {"kind":"append-log","entityPath":…,…}，kind 与必填字段在服务端校验，'
-        + '不合格会被整单拒绝并把每一项的问题点名返回，按报错修正后重新调用即可。'
+        + 'actions 每项形如 {"kind":"append-log","entityPath":…,…}，kind 与必填字段在服务端校验：'
+        + '不合格的项会被点名剔除（诊断随结果返回，修正后可再次调用补提），合格的项照常入队；'
+        + '全部项都不合格才整单拒绝。'
         + '没有值得提议的动作就不要调用本工具（纯文字汇报即可）；入队成功后不要再在回答里重复输出信封 JSON。',
       parameters: {
         title: { type: 'string', required: true, description: '一句话概括这批动作，作为提议卡标题' },
@@ -554,20 +555,28 @@ export class YantaoKbController extends TypertRemoteService {
           additionalProperties: false,
           properties: {
             id: { type: 'string', required: true },
+            dropped: { type: 'array', items: { type: 'string' }, description: '被剔除项的逐条诊断；一项都没剔时缺省' },
           },
         },
         // Validation failure THROWS (the execute below) — a rendered value is
         // always an enqueued one; there is no ok:false face (ocr 评审 #6).
         render: (_args, value) => [{
           type: 'text',
-          text: `提议已入队（${value.id}），等人在「提议」页批准或丢弃。回答里不要再重复输出提议信封。`,
+          text: value.dropped === undefined
+            ? `提议已入队（${value.id}），等人在「提议」页批准或丢弃。回答里不要再重复输出提议信封。`
+            : `提议已入队（${value.id}），但 ${value.dropped.length} 项不合格被剔除：${value.dropped.join('；')}。`
+              + '合格的已在卡上等人在「提议」页批准或丢弃；修正后可再次调用补提被剔除的动作。回答里不要再重复输出提议信封。',
         }],
       },
       execute: async ({ title, actions, note, mails, source, sourceName }) => {
         this.requireKbRootForInbox()
-        const diagnostics = validateProposedActions(actions)
-        if (diagnostics.length > 0) {
-          throw new Error(`提议未通过校验，请修正后重新调用（整单未入队）：${diagnostics.join('；')}`)
+        // 逐项容错（2026-10-10 裁决）：一跑一卡的提名动辄几十项，整单制会让
+        // 一条坏行沉掉整船。合格项照常入队，坏项点名随结果带回；只有全军覆没
+        // 才拒绝——那时也没有任何东西可入队。信任锚不动：入队的每一项仍然
+        // 要等人在提议卡上批准。
+        const { valid, diagnostics } = partitionProposedActions(actions)
+        if (valid.length === 0) {
+          throw new Error(`提议未通过校验，没有一项合格（整单未入队）：${diagnostics.join('；')}`)
         }
         const range = normalizeMailRange(mails)
         const noteParts = [note, mailSpanNote(range)].filter((part): part is string => part !== undefined && part !== '')
@@ -578,12 +587,15 @@ export class YantaoKbController extends TypertRemoteService {
           ...(noteParts.length > 0 ? { note: noteParts.join(' · ') } : {}),
           proposal: {
             title,
-            actions,
+            actions: valid,
             ...(range !== undefined ? { mails: range } : {}),
           },
         })
         const fresh = stored.at(-1)
-        return { id: fresh?.id ?? '' }
+        return {
+          id: fresh?.id ?? '',
+          ...(diagnostics.length > 0 ? { dropped: [...diagnostics] } : {}),
+        }
       },
     }))
   }

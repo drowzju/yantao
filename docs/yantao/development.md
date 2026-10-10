@@ -132,8 +132,9 @@ powershell -File scripts\sync-in.ps1 -Bundle <bundle 路径>
 
 - **提名正门是工具 `kb_propose_actions`**(ADR-0055):调度器在每次 fire 时**自动**把工具约定拼到
   提示词末尾(`scheduler.ts` 的 `withProposalConvention`)——教模型把值得人拍板的写入动作经
-  `kb_propose_actions` 送进收件箱(title + actions 逐项,kind 与必填字段服务端校验,不合格整单拒绝、
-  诊断当轮回给模型修),不自行执行、没有值得提议的就完全不调用、入队成功后不再重复输出信封。
+  `kb_propose_actions` 送进收件箱(title + actions 逐项,kind 与必填字段服务端校验,不合格项点名剔除、
+  合格项照常入队,全坏才整单拒绝;2026-10-10 由整单制改逐项容错,诊断当轮回给模型修),不自行执行、
+  没有值得提议的就完全不调用、入队成功后不再重复输出信封。
   2026-10-09 的能力归属原则延续:统一约定只教**能力无关**的 KB 写入类别;邮件专属的
   `delete-mails`/`archive-mails` 动作与 `mails` 水位字段的教学在 mail 能力自己的 SKILL.md(builtin v16)。
 - **双路径互斥**:run 结束先扫事件日志,检出 `kb_propose_actions` 调用即走工具路径(跳过散文解析与
