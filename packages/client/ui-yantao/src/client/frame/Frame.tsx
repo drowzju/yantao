@@ -224,8 +224,8 @@ const FONT = 'var(--yt-font-ui)'
  */
 const LINK_GRAPH_DEBOUNCE_MS = 350
 
-/** How often the KB's change counter is compared (ADR-0017). */
-const REVISION_POLL_MS = 3000
+/** How often the KB's change counter is compared (ADR-0017; 2026-10-11 收紧到 1.5s). */
+const REVISION_POLL_MS = 1500
 
 /** How often the scheduler scans the definitions (ADR-0045 决定 2). */
 const SCHEDULE_SCAN_MS = 30_000
