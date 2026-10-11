@@ -1,12 +1,11 @@
 /**
- * One-off generator for the tray icon: rasterizes the PARAP monogram
- * (the same geometry as `packages/client/ui-yantao/src/client/brand/YantaoMark.tsx`)
- * onto a paper badge and emits base64 PNG data URLs ready to paste into
- * `src/main.ts`.
+ * One-off generator for the tray/window icon: rasterizes the YT monogram
+ * (white badge, ink letters) and emits base64 PNG data URLs ready to paste
+ * into `src/main.ts`.
  *
  * Why a badge and not the bare glyph: the Windows tray sits on dark taskbars
  * by default but light ones exist, so ink-on-nothing disappears on one of the
- * two. A paper tile with an ink glyph and a hairline ink rim reads on both.
+ * two. A white tile with ink letters and a hairline ink rim reads on both.
  *
  * Pure Node: analytic shape tests with 16× supersampling for the antialiased
  * edges, PNG encoded with node:zlib. No canvas, no image library.
@@ -18,42 +17,45 @@ import { deflateSync } from 'node:zlib'
 
 /** Ink of the yantao world (`--yt-ink`). */
 const INK = [0x2e, 0x2b, 0x26]
-/** Warm paper of the yantao world (`--yt-paper`). */
-const PAPER = [0xfb, 0xfa, 0xf7]
+/** The badge's white ground. */
+const PAPER = [0xff, 0xff, 0xff]
 /** Rim ink alpha (0..1) — enough to define the tile on a light taskbar. */
 const RIM_ALPHA = 0.55
 
 /** Supersamples per pixel edge. */
 const SS = 16
 
-// --- geometry (unit space: the 24×24 viewBox of YantaoMark) -----------------
+// --- geometry (unit space: the letters' ink box is x 1.5..33.5, y 2.5..21.5) --
 
-/** Rounded rectangle: x,y corner, w,h extents, r corner radius. */
-function insideRoundedRect(x, y, w, h, r, px, py) {
-  if (px < x || px > x + w || py < y || py > y + h) return false
-  const cx = x + w / 2
-  const cy = y + h / 2
-  const dx = Math.abs(px - cx) - (w / 2 - r)
-  const dy = Math.abs(py - cy) - (h / 2 - r)
-  const ox = Math.max(dx, 0)
-  const oy = Math.max(dy, 0)
-  return Math.hypot(ox, oy) <= r
+/** Distance from point (px,py) to the segment (ax,ay)-(bx,by). */
+function distToSegment(ax, ay, bx, by, px, py) {
+  const dx = bx - ax
+  const dy = by - ay
+  const len2 = dx * dx + dy * dy
+  let t = len2 === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / len2
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 }
 
-/** Half disc bulging to +x from centre (cx,cy) with radius r. */
-function insideHalfDisc(cx, cy, r, px, py) {
-  if (px < cx) return false
-  return (px - cx) ** 2 + (py - cy) ** 2 <= r * r
-}
+/** The letter strokes: two arms and a stem for Y, a bar and a stem for T. */
+const STROKES = [
+  [3, 4, 9.5, 12.5],    // Y left arm
+  [16, 4, 9.5, 12.5],   // Y right arm
+  [9.5, 12.5, 9.5, 20], // Y stem
+  [20, 5.5, 32, 5.5],   // T bar
+  [26, 5.5, 26, 20],    // T stem
+]
+const STROKE_HALF = 1.5
 
-/** The P: stem plus bowl, counter knocked out (even-odd, as in YantaoMark). */
+/** Ink-box extents of the strokes above (for centring). */
+const INK_X = 1.5
+const INK_Y = 2.5
+const INK_W = 32
+const INK_H = 19
+
+/** The YT letters: any stroke within reach. */
 function insideGlyph(px, py) {
-  const stem = insideRoundedRect(5, 4, 3.4, 16, 1.7, px, py)
-  const bowlOuter = insideRoundedRect(8.4, 4, 5.1, 10, 0, px, py)
-    || insideHalfDisc(13.5, 9, 5, px, py)
-  const counter = insideRoundedRect(11.8, 7.1, 1.3, 3.8, 0, px, py)
-    || insideHalfDisc(13.1, 9, 1.9, px, py)
-  return (stem || bowlOuter) && !counter
+  return STROKES.some(([ax, ay, bx, by]) => distToSegment(ax, ay, bx, by, px, py) <= STROKE_HALF)
 }
 
 // --- PNG encoding -----------------------------------------------------------
@@ -119,12 +121,11 @@ function render(size) {
   const inset = Math.max(1, Math.round(size / 16))
   const badge = { x: inset, y: inset, w: size - 2 * inset, h: size - 2 * inset }
   const radius = badge.w * 0.25
-  // Glyph box: the mark's ink bounding box (x 5..18.5, y 4..20 in the 24-unit
-  // viewBox) scaled to fill ~72% of the badge height, centred.
-  const glyphHeight = badge.w * 0.72
-  const scale = glyphHeight / 16
-  const gx = badge.x + (badge.w - 13.5 * scale) / 2 - 5 * scale
-  const gy = badge.y + (badge.h - glyphHeight) / 2 - 4 * scale
+  // Glyph box: the letters' ink box scaled to fill ~84% of the badge width,
+  // centred both ways.
+  const scale = (badge.w * 0.84) / INK_W
+  const gx = badge.x + (badge.w - INK_W * scale) / 2 - INK_X * scale
+  const gy = badge.y + (badge.h - INK_H * scale) / 2 - INK_Y * scale
   const rimHalf = 0.5 // px, centred on the badge edge
 
   for (let py = 0; py < size; py++) {
@@ -168,9 +169,9 @@ function render(size) {
 
 // --- self-check + output ------------------------------------------------------
 
-for (const size of [16, 32]) {
+for (const size of [16, 32, 64]) {
   const rgba = render(size)
-  // Coverage sanity: the badge must occupy most of the canvas, the glyph a third-ish of the badge.
+  // Coverage sanity: the badge must occupy most of the canvas, the letters a visible share.
   let opaque = 0, ink = 0
   for (let i = 0; i < rgba.length; i += 4) {
     if (rgba[i + 3] > 200) opaque++

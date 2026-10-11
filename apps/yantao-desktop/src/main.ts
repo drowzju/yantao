@@ -50,15 +50,15 @@ const HOST_BOOT_TIMEOUT_MS = 180_000
 const WORKBENCH_LOAD_TIMEOUT_MS = 60_000
 
 /**
- * The tray icon: the PARAP monogram on a warm-paper badge, rasterised from the
- * same geometry as `packages/client/ui-yantao/src/client/brand/YantaoMark.tsx`
- * by `scripts/gen-tray-icon.mjs` (analytic shapes + supersampling, PNG via
- * node:zlib). A badge rather than a bare glyph because the tray sits on dark
- * taskbars by default but light ones exist — ink on nothing vanishes on one of
- * the two. Regenerate and paste if the mark itself ever changes.
+ * The tray/window icon: the YT monogram — ink letters on a white badge,
+ * rasterised by `scripts/gen-tray-icon.mjs` (analytic strokes + supersampling,
+ * PNG via node:zlib). A badge rather than bare letters because the tray sits
+ * on dark taskbars by default but light ones exist — ink on nothing vanishes
+ * on one of the two. Regenerate and paste if the mark itself ever changes.
  */
-const TRAY_ICON_16 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABGklEQVR42mNggAI9bTVGPW01YT1tNSU9bTVlHFgJqoaRARnoaatx7tq5tfn1q+cvfv/6/h8fBqkBqQXpgdsMEoAp+PH9y/+fP77+f/f2FRx///YZwyCoIYwgA4RhNj95fP+/jZXp/4jQgP962mpwbKin+T8nK+3/82ePUVwC0gsyQAkmeOLYYRSNIGxlbvTfQFcDzI4KD/7/6+c3uCEgvSADlPEZAPLClUvn/+vrqIP5V69cRDZAmSgD3rx+/t9IXwvMP3/uFGkGZGUk//dwcwSzXZxs/3/7+ok0A2AYpBnZdrwGONpZgdkwfO7sSRSbCRrg4erwn1CCQjZAiQIDlLAmpML87P/EJGlYQsJIysTYDk/KFGcmSrMzAH+zhC2FDZfeAAAAAElFTkSuQmCC'
-const TRAY_ICON_32 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB40lEQVR42mNgGKxAT1uNSU9bTVBPW01BT1tNmUysADWDiSSLmxtrbS6cP7361ctnz3/++Pr396/v/8nBIL0gM0Bmgcwk6BA9bTX23bu2tX77+uknuZbiwiAzQWaD7MDpc5ACaluMjqGOwAwJUBDh8vnH92/+//r57f+P71/+v3v7CicmNiRAdmH4HhRP6Io/f3r/Pz0l4b+ettp/DzfH/8uWLACzcWFrC+P/FaWF/2/euIrXESC7UEIBlFJBiQVd4Ypli1AssLUyw+sAGDYx1Pm/ZtUynA4A2QWyE9kBCthS+9TJ/URZiA0b6Gr8P7h/N87cAbIT2QHK2BQS44Agf+//IUG+/y3MDDHkvD2cQZZhdQTITqo4AJb4vnz+8L+kKA9D/uiRA/RxAAi/f/f6v5G+For83NnT6ecAELYyN0KRnzZlAv0csHvnNgz5jetX09YBoLJh3ZqV/7s7W/+bGumiyBkbaP9/8fwxbR2AD7e3NuIsC2jugOiIEHBJSncHGOpp/m9pqsNrOdkO8HB1AIvhwqC08PzZY6IqJbIckBgfRbVqedQBg84BRFXH1HIAtuqYqAZJQV4WVRyArUFCVJOMUFOLWIzRJCO2UUqt5jlGo3RQNMsHvGMyKLpmg6JzSm8AALYjupHDj46WAAAAAElFTkSuQmCC'
+const TRAY_ICON_16 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABH0lEQVR42mNggAI9bTVGPW01YT1tNSU9bTVlHFgJqoaRARnoaatx7t2zu/n9u3cv/hMAIDUgtSA9cJtBAv9JBFBDGEEGCBNjMzaXgPSCDFACCWzdsun/x48f4Qp+/vz5f/WqFXgNAekFGaAM4pQWF/zPy8n4/+/fP7Bka0vj/5jI0P/Tpkz6b21hgoJTk+JhBijDDfj8+dN/bw+X//PmzPq/beuW/3bWZv+fP3v2/9Onj/9vXL/2v6+n839yYiyY/eLFc0wDQAAkaWFq8N/SzPD/4cMHUZy7ZNGC//m5WeheQDUABHq7O/4XF+Zi+JdoA6ZPnfy/prqcvgYoIQvevHH9/9kzpzEMePDg/v/jx45ijUaKExJlSZnizERpdgYAHGvS5YlC4DMAAAAASUVORK5CYII='
+const TRAY_ICON_32 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB/klEQVR42mNgGKxAT1uNSU9bTVBPW01BT1tNmUysADWDiSSLW5sbbC5fvrT63du3z//+/fv3P5kApBdkBsgskJkEHaKnrca+b+/u1l+/fv38T2UAMhNkNsgOnD4HKfhPYwB1BGZIgIKIFj7HFhIguzB8D4qn/3QCILtQQgGUUkGJhV4OANkFshPZAQqUpHZycgfITmQHKMMkp0+b/N/G0uT/iRPHcBrw6uXL/96erv/TUxPJdgTITqwOqCgrBkn+d7C1/P/y5QsMjX/+/PkfHxsJVuPmbP//w4cP/2Ojwv57uDnixZ5uTv9XLF9K2AGvX7/+7+xoA7YAZNHv379RHNDb3QGWM9TT/H/m9Kn/N29cB/OJwYX5OYQdAAJnzpwCWwDS1NPVDhffu2fXf30ddbD4vDmz4OIXzp8D5W84BoUeSE1HWzNcbP++PeDQIsoBIDB/7mywISALQRY/evTwv7WFCVgsLyfj/79//3DGLyjIQeo2blhHehqAAZAFeTmZYIOszI3/B/l7g9mguPz48SPeBEYVB4AAyCIvd2d4HJoY6vy/evUKwRRONQeAAMhCmAOWLFpAVBajqgOgisH49KmTow4YdcDAOCArPeW/t4cLSkmGD7S1NIFLw4cPHhDtgAGvjge8QTKwTbIBb5QOimb5gHdMBkXXbFB0TukNAN3I9GAvXknOAAAAAElFTkSuQmCC'
+const TRAY_ICON_64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAD0ElEQVR42u2b208TQRSHgfjmX9BHQlI1CwUF5SpVYghGTb2ERES5iIJUUBOjJiqB4C0SQAlKEXwwKuqDQoX4YhSEclVBuemTscAD1CJyNQgtx5wNIu2UUrrbsu3OL5kHmNmZc765ndnOenhQUVHZIxkj9ZQx0rUyRiqRMVJvGSP1cXLynm8bbfB0mtPyiGDJq5rq1N7eHvXQ4OC331NTk7BKwrbRBrQFbULbHAJDxkg9FHtiJM1NjfnjY2N6EKjQNrQRbUWb+XLeq7xMtffn8HAfuIjQVrQZbefq/JqaavX5mZmZP+BiQpvRdvTB7p7HCgwGgwFcVGj7PASvFc95HEKu2POWRsL8dLAdAC4irjTnbVkT0CebtzpcScHNhD7ZtEXiXirkrY7LFom+LQsAAwpwU6Fvyw5/jKrcFQD6ZnUaYFyNoaW7AkDf0EdrACSrGds74+yAPloD4A1uLvTRGgAf8weMRgNczc2GyPAtEB8XC31aLScD7hYXwbatobBfsQu6uzpXA4DPigC8VFfiQwtJsTsGJiftmyXPnlYQdQkeQHlZqYnRmM6dPbPihnu6uyBoo69JPZs3+S3kV1U+h9SUJDiadJhzwnrUVS/4AaDVfofgIH8CwpOKRzY7Pzo6Cjujo4g6rl3JYfMb6uuIPD5So6aBOwBUTbWaqDwwgLFpDs/NzUGGMpV4PvaAAqanp9kyqpJihwDAenkBgMrNySIaiN4hZ3vXmu6Xk1MoLDgQ+vv/n7U62j+Cv+86Xp0P8FsPnzra+QOAvXUwdh/RkDLtGNvLlvThfRsE+G0wKY+Ovn3zmiir0dRDdtZFuHzpgsWEsM3hL1UW62lq1PCzBizWwEA/RIQGERDKSkuIsnq9HqLkYUTZ/Lwbdq3epzOVJvXg307ZBcxVV/uGGK7Yy62tzSaxQ3JiPOF84pE4mJ2ddW0AqMKCPMK57ZGh8EOnY/NvF+YT+Rj86HRDdu/fggKArwmTE8geTko4xM5vSyOkpaWJUwAjKAAo7G1LcxxXX/P/larucI7gBAcA1dbaQqzy5ik9LQWMRqN7AmBD5XuqJZ3HrerXyAgvMbxgAWAMoDxx3GKk2Nn5mbdDjGAB/Iv18WCz2EDcCfiUoAGgwkNMA6THDx9QABQABUABUAAUAAVAAVAAogCAb3kXG/iurpZXAHk3r/Pyas1hAL5+6WUhyCNCoOhWwZIvSu0VnjcyT6axI+1URjpMTIw7BIDofxwV/c/jor8gIe4rMqK/JEWvydGLkvSqLL0sTa/L0w8m6Ccz9KMp+tkc/XCSikos+gvFQCwQM3DWiAAAAABJRU5ErkJggg=='
 
 /** The page shown while the host boots. */
 const LOADING_PAGE = 'data:text/html;charset=utf-8,' + encodeURIComponent(
@@ -282,6 +282,9 @@ function ensureWindow(): BrowserWindow {
     height: 900,
     title: 'yantao 工作台',
     show: false,
+    // The taskbar/title-bar icon: without this the window wears Electron's
+    // default. Same YT badge as the tray, at taskbar density.
+    icon: nativeImage.createFromDataURL(TRAY_ICON_64),
     // The host is loopback-only and hands out its own launch token; nothing here
     // needs Node in the renderer, and keeping it out is the point of the trust
     // boundary. The preload adds exactly one channel back out: `yantao.notify`.
