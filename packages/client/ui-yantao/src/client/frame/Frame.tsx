@@ -922,16 +922,17 @@ export function Frame({
   // One read at mount: the graph is a browsing overview, not a live monitor —
   // the revision poll's refresh affordances don't extend here. A failed read
   // leaves the pane on its loading text and reports through the notice line.
+  // The pane's 刷新 button re-runs the same read (2026-10-11).
   const [graphData, setGraphData] = useState<KbRelationGraphResult | null>(null)
 
-  useEffect(() => {
-    let stale = false
-    relationGraph().then(
-      (result) => { if (!stale) setGraphData(result) },
-      (failure: unknown) => { if (!stale) setCapabilityNotice(`图谱读取失败：${remoteMessage(failure)}`, { severity: 'error' }) },
+  const reloadGraph = useCallback((): void => {
+    void relationGraph().then(
+      (result) => { setGraphData(result) },
+      (failure: unknown) => { setCapabilityNotice(`图谱读取失败：${remoteMessage(failure)}`, { severity: 'error' }) },
     )
-    return () => { stale = true }
   }, [relationGraph])
+
+  useEffect(() => { reloadGraph() }, [reloadGraph])
 
   const discardInboxEntry = useCallback((entry: KbQueuedProposal): void => {
     setInboxBusyId(entry.id)
@@ -1912,7 +1913,7 @@ export function Frame({
           graph: graphData === null ? (
             <div style={{ padding: 16, color: 'var(--yt-text-muted)' }}>图谱加载中…</div>
           ) : (
-            <GraphPane data={graphData} onOpen={(path) => { openFile(path, 'edit') }} t={t} />
+            <GraphPane data={graphData} onOpen={(path) => { openFile(path, 'edit') }} onReload={reloadGraph} t={t} />
           ),
         })}
         insightsPressure={renderSlot('center.insights.pressure', {})}

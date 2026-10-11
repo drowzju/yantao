@@ -126,6 +126,8 @@ export interface GraphPaneProps {
   readonly data: KbRelationGraphResult
   /** Open one entity on double-click (the frame's file-tab gesture, ADR-0051). */
   readonly onOpen: (path: string) => void
+  /** Re-read the whole KB's graph (the frame's reload; absent in tests). */
+  readonly onReload?: (() => void) | undefined
   readonly t: WorkbenchT
 }
 
@@ -140,7 +142,7 @@ interface ExtraViews {
  * @param props - see {@link GraphPaneProps}.
  * @returns the pane element.
  */
-export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
+export function GraphPane({ data, onOpen, onReload = undefined, t }: GraphPaneProps): ReactElement {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const layoutRef = useRef<ForceLayout | null>(null)
   const alphaRef = useRef(0)
@@ -402,13 +404,15 @@ export function GraphPane({ data, onOpen, t }: GraphPaneProps): ReactElement {
   const layout = layoutRef.current
   if (data.nodes.length === 0 || filtered.nodes.length === 0) {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--yt-text-muted)' }}>
+      <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--yt-text-muted)' }}>
         {t('graph.empty')}
+        {onReload !== undefined && <ReloadButton onReload={onReload} t={t} />}
       </div>
     )
   }
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+      {onReload !== undefined && <ReloadButton onReload={onReload} t={t} />}
       <svg
         ref={svgRef}
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
@@ -532,4 +536,28 @@ const GRAPH_LEGEND_KEYS: Record<KbWireRelationEdge['kind'], Parameters<Workbench
   'person-project': 'graph.legend.personProject',
   'area-project': 'graph.legend.areaProject',
   'person-person': 'graph.legend.personPerson',
+}
+
+/** The 刷新 button's ghost face — top-left, mirroring the legend card (top-right). */
+const reloadButtonStyle = {
+  position: 'absolute',
+  top: 8,
+  left: 12,
+  padding: '2px 10px',
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-border-subtle)',
+  borderRadius: 6,
+  color: 'var(--yt-text-secondary)',
+  cursor: 'pointer',
+  fontFamily: 'var(--yt-font-ui)',
+  fontSize: 'var(--yt-type-label)',
+} as const
+
+/** The pane's 刷新 button; rendered in the graph view and the empty state alike. */
+function ReloadButton({ onReload, t }: { onReload: () => void; t: WorkbenchT }): ReactElement {
+  return (
+    <button type="button" data-hover="true" style={reloadButtonStyle} title={t('graph.refresh')} onClick={onReload}>
+      {t('graph.refresh')}
+    </button>
+  )
 }

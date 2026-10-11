@@ -82,3 +82,8 @@ frontmatter 里的领域名可走同一解析通路定位到 `entities/areas/` �
 - alpha 常量（INITIAL_ALPHA/ALPHA_DECAY/ALPHA_FLOOR）属动画循环关切，放 GraphPane
   本地；graphLayout 只管单步数学。
 - `pnpm vitest run packages/client/ui-yantao`、client bundle 重建通过。
+- 2026-10-11 补丁：图谱原为挂载时一次读取（browsing overview，不参与 revision
+  轮询的刷新面），实体变更后图不会跟新。补 pane 左上角「刷新」按钮：Frame 把一次性
+  读取重构成 `reloadGraph` 回调，经 `GraphPaneProps.onReload` 传入，空态（暂无实体）
+  下同样可点——刚建完第一批实体正是最需要它的时刻。仍不做自动刷新：全量图重读的
+  时机交给人判断。

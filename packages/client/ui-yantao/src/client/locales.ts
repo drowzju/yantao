@@ -381,6 +381,7 @@ export const zh = {
 
   // 图谱 tab (ADR-0049)
   'graph.empty': '暂无实体',
+  'graph.refresh': '刷新',
   'graph.legend.personProject': '人 — 项目',
   'graph.legend.areaProject': '领域 — 项目',
   'graph.legend.personPerson': '人 — 人',
@@ -814,6 +815,7 @@ export const en = {
 
   // 图谱 tab (ADR-0049)
   'graph.empty': 'No entities yet',
+  'graph.refresh': 'Refresh',
   'graph.legend.personProject': 'person — project',
   'graph.legend.areaProject': 'area — project',
   'graph.legend.personPerson': 'person — person',
