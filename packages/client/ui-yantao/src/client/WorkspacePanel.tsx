@@ -86,18 +86,39 @@ const spaceTitleStyle = { margin: 0, fontSize: 'var(--yt-type-label)', fontWeigh
 
 const metaStyle = { color: 'var(--yt-text-secondary)', fontSize: 12 } as const
 
-const instructionRowStyle = { display: 'flex', gap: 8, alignItems: 'flex-start', minWidth: 0 } as const
+/** The instruction table: one row per instruction, compact meta type. */
+const tableStyle = { width: '100%', borderCollapse: 'collapse', fontSize: 12 } as const
 
-const textStyle = { minWidth: 0 } as const
+const thStyle = {
+  textAlign: 'left', padding: '2px 8px 2px 0', borderBottom: '1px solid var(--yt-border-subtle)',
+  color: 'var(--yt-text-muted)', fontWeight: 500, whiteSpace: 'nowrap',
+} as const
 
-const actionsStyle = { display: 'flex', gap: 8, flexShrink: 0 } as const
+const tdStyle = {
+  padding: '4px 8px 4px 0', borderBottom: '1px solid var(--yt-border-subtle)',
+  color: 'var(--yt-text-primary)', verticalAlign: 'top',
+} as const
+
+const tdMetaStyle = { ...tdStyle, color: 'var(--yt-text-secondary)', whiteSpace: 'nowrap' } as const
+
+const tdNameStyle = { ...tdStyle, minWidth: 0, wordBreak: 'break-word' } as const
+
+const tdActionsStyle = { ...tdStyle, whiteSpace: 'nowrap', textAlign: 'right', width: 1 } as const
+
+const actionsStyle = { display: 'flex', gap: 6, flexShrink: 0, justifyContent: 'flex-end' } as const
 
 const buttonStyle = { padding: '1px 8px', fontSize: 12 } as const
 
+/** Row-action icons wear the ghost cut (DESIGN: 低频破坏性动作穿 ghost 装); the label lives in the tooltip. */
+const iconButtonStyle = {
+  flexShrink: 0, padding: '0 4px', border: 'none', background: 'transparent',
+  color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)', cursor: 'pointer', lineHeight: 1.5,
+} as const
+
 /** A per-row destructive action wears the ghost cut; armed, danger on the raised surface. */
 const deleteStyle = {
-  flexShrink: 0, padding: '0 4px', border: 'none', background: 'transparent',
-  color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)', cursor: 'pointer',
+  ...iconButtonStyle,
+  color: 'var(--yt-text-muted)',
 } as const
 
 const armedDeleteStyle = {
@@ -119,7 +140,7 @@ const inputStyle = { padding: '4px 8px', width: '100%', boxSizing: 'border-box' 
 
 const formActionsStyle = { display: 'flex', gap: 8 } as const
 
-const addOpenStyle = { ...buttonStyle, alignSelf: 'flex-start', padding: '4px 8px' } as const
+const addOpenStyle = { ...iconButtonStyle, alignSelf: 'flex-start', padding: '2px 6px' } as const
 
 const stepRowStyle = { display: 'flex', gap: 6, alignItems: 'flex-start' } as const
 
@@ -425,9 +446,10 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns }: Workspace
       <div style={mutedStyle}>{t('workspace.description')}</div>
       {(spaceDraft !== null || instructionDraft !== null) ? null : (
         <button data-hover="true" type="button" style={addOpenStyle} disabled={busy}
+          title={t('workspace.addSpace')}
           data-workspace-add-space="true"
           onClick={() => { setSpaceDraft({ id: null, name: '', directory: '', model: '' }) }}>
-          {t('workspace.addSpace')}
+          ＋
         </button>
       )}
       {spaceDraft !== null && (
@@ -461,14 +483,16 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns }: Workspace
           <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
             <div style={{ ...spaceTitleStyle, minWidth: 0, flex: 1 }}>{space.name}</div>
             <div style={actionsStyle}>
-              <button data-hover="true" type="button" style={buttonStyle} disabled={busy}
+              <button data-hover="true" type="button" style={iconButtonStyle} disabled={busy}
+                title={t('workspace.edit')}
                 data-workspace-space-edit={space.id}
                 onClick={() => { setSpaceDraft({ id: space.id, name: space.name, directory: space.directory, model: space.model ?? '' }) }}>
-                {t('workspace.edit')}
+                ✎
               </button>
               <button data-hover="true" type="button"
                 style={armedDelete === `w:${space.id}` ? armedDeleteStyle : deleteStyle}
                 disabled={busy}
+                title={armedDelete === `w:${space.id}` ? undefined : t('workspace.delete')}
                 data-armed={armedDelete === `w:${space.id}` || undefined}
                 data-workspace-space-delete={space.id}
                 onClick={() => {
@@ -479,81 +503,85 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns }: Workspace
                   setArmedDelete(null)
                   void deleteSpace(space)
                 }}>
-                {armedDelete === `w:${space.id}` ? t('workbench.deleteArm') : t('workspace.delete')}
+                {armedDelete === `w:${space.id}` ? t('workbench.deleteArm') : '−'}
               </button>
             </div>
           </div>
           <div style={metaStyle}>{space.directory}{space.model !== undefined ? ` · ${space.model}` : ''}</div>
-          {space.instructions.map((instruction, index) => {
-            const editing = instructionDraft !== null && instructionDraft.id === instruction.id
-            return (
-              <div key={instruction.id} style={{ ...instructionRowStyle, marginTop: index === 0 ? 2 : 8 }}
-                data-workspace-instruction={instruction.id}>
-                {editing ? (
-                  <InstructionForm
-                    t={t}
-                    draft={instructionDraft}
-                    busy={busy}
-                    onChange={(patch) => { setInstructionDraft(current => current === null ? current : { ...current, ...patch }) }}
-                    onSubmit={() => { void submitInstruction() }}
-                    onCancel={() => { setInstructionDraft(null) }}
-                  />
-                ) : (
-                  <>
-                    <div style={textStyle}>
-                      <div>
-                        {instruction.name}
-                        {!instruction.enabled && <span style={mutedStyle}> · {t('workspace.disabledTag')}</span>}
+          {space.instructions.length > 0 && (
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>{t('common.name')}</th>
+                  <th style={thStyle}>{t('workspace.colTrigger')}</th>
+                  <th style={thStyle}>{t('workspace.colSteps')}</th>
+                  <th style={thStyle}>{t('workspace.colLast')}</th>
+                  <th style={thStyle}>{t('workspace.colActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {space.instructions.map(instruction => (
+                  <tr key={instruction.id} data-workspace-instruction={instruction.id}>
+                    <td style={tdNameStyle}>
+                      {instruction.name}
+                      {!instruction.enabled && <span style={mutedStyle}> · {t('workspace.disabledTag')}</span>}
+                    </td>
+                    <td style={tdMetaStyle}>
+                      {instruction.cron === undefined
+                        ? t('workspace.triggerManual')
+                        : `${t('workspace.triggerCron')}：${instruction.cron}`}
+                    </td>
+                    <td style={tdMetaStyle}>{t('workspace.stepsCount', { count: instruction.steps.length })}</td>
+                    <td style={tdMetaStyle}>
+                      {instruction.lastFiredAt !== undefined && `${t('workspace.lastFired')} ${stamp(instruction.lastFiredAt)}`}
+                      {instruction.lastFiredAt !== undefined && instruction.lastMissedAt !== undefined && ' · '}
+                      {instruction.lastMissedAt !== undefined && `${t('workspace.lastMissed')} ${stamp(instruction.lastMissedAt)}`}
+                      {instruction.lastFiredAt === undefined && instruction.lastMissedAt === undefined && '—'}
+                    </td>
+                    <td style={tdActionsStyle}>
+                      <div style={actionsStyle}>
+                        <button data-hover="true" type="button" style={iconButtonStyle} disabled={busy}
+                          title={t('workspace.run')}
+                          data-workspace-run={instruction.id}
+                          onClick={() => { void trigger(space, instruction) }}>
+                          ▶
+                        </button>
+                        <button data-hover="true" type="button" style={iconButtonStyle} disabled={busy}
+                          title={t('workspace.edit')}
+                          data-workspace-instruction-edit={instruction.id}
+                          onClick={() => {
+                            setInstructionDraft({
+                              spaceId: space.id, id: instruction.id, name: instruction.name,
+                              cron: instruction.cron ?? '', enabled: instruction.enabled,
+                              steps: [...instruction.steps],
+                            })
+                          }}>
+                          ✎
+                        </button>
+                        <button data-hover="true" type="button"
+                          style={armedDelete === `i:${instruction.id}` ? armedDeleteStyle : deleteStyle}
+                          disabled={busy}
+                          title={armedDelete === `i:${instruction.id}` ? undefined : t('workspace.delete')}
+                          data-armed={armedDelete === `i:${instruction.id}` || undefined}
+                          data-workspace-instruction-delete={instruction.id}
+                          onClick={() => {
+                            if (armedDelete !== `i:${instruction.id}`) {
+                              setArmedDelete(`i:${instruction.id}`)
+                              return
+                            }
+                            setArmedDelete(null)
+                            void deleteInstruction(space, instruction)
+                          }}>
+                          {armedDelete === `i:${instruction.id}` ? t('workbench.deleteArm') : '−'}
+                        </button>
                       </div>
-                      <div style={metaStyle}>
-                        {instruction.cron === undefined
-                          ? t('workspace.triggerManual')
-                          : `${t('workspace.triggerCron')}：${instruction.cron}`}
-                        {' · '}
-                        {t('workspace.stepsCount', { count: instruction.steps.length })}
-                        {instruction.lastFiredAt !== undefined && ` · ${t('workspace.lastFired')} ${stamp(instruction.lastFiredAt)}`}
-                        {instruction.lastMissedAt !== undefined && ` · ${t('workspace.lastMissed')} ${stamp(instruction.lastMissedAt)}`}
-                      </div>
-                    </div>
-                    <div style={actionsStyle}>
-                      <button data-hover="true" type="button" style={buttonStyle} disabled={busy}
-                        data-workspace-run={instruction.id}
-                        onClick={() => { void trigger(space, instruction) }}>
-                        {t('workspace.run')}
-                      </button>
-                      <button data-hover="true" type="button" style={buttonStyle} disabled={busy}
-                        data-workspace-instruction-edit={instruction.id}
-                        onClick={() => {
-                          setInstructionDraft({
-                            spaceId: space.id, id: instruction.id, name: instruction.name,
-                            cron: instruction.cron ?? '', enabled: instruction.enabled,
-                            steps: [...instruction.steps],
-                          })
-                        }}>
-                        {t('workspace.edit')}
-                      </button>
-                      <button data-hover="true" type="button"
-                        style={armedDelete === `i:${instruction.id}` ? armedDeleteStyle : deleteStyle}
-                        disabled={busy}
-                        data-armed={armedDelete === `i:${instruction.id}` || undefined}
-                        data-workspace-instruction-delete={instruction.id}
-                        onClick={() => {
-                          if (armedDelete !== `i:${instruction.id}`) {
-                            setArmedDelete(`i:${instruction.id}`)
-                            return
-                          }
-                          setArmedDelete(null)
-                          void deleteInstruction(space, instruction)
-                        }}>
-                        {armedDelete === `i:${instruction.id}` ? t('workbench.deleteArm') : t('workspace.delete')}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )
-          })}
-          {instructionDraft !== null && instructionDraft.spaceId === space.id && instructionDraft.id === null && (
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {instructionDraft !== null && instructionDraft.spaceId === space.id && (
             <InstructionForm
               t={t}
               draft={instructionDraft}
@@ -565,13 +593,14 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns }: Workspace
           )}
           {instructionDraft === null && (
             <button data-hover="true" type="button" style={addOpenStyle} disabled={busy}
+              title={t('workspace.addInstruction')}
               data-workspace-add-instruction={space.id}
               onClick={() => {
                 setInstructionDraft({
                   spaceId: space.id, id: null, name: '', cron: '', enabled: true, steps: [''],
                 })
               }}>
-              {t('workspace.addInstruction')}
+              ＋
             </button>
           )}
         </div>
