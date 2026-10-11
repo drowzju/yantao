@@ -1177,6 +1177,14 @@ export interface KbWorkspaceRunsListResult {
   readonly path: string
 }
 
+/** Result of `yantaoKb.workspaceRunsClear`: the history after the human's clear gesture. */
+export interface KbWorkspaceRunsClearResult {
+  /** How many finalized rows were dropped. */
+  readonly cleared: number
+  /** The runs that remain (still-running rows), newest first. */
+  readonly runs: readonly KbWorkspaceRun[]
+}
+
 /**
  * One queued proposal in the inbox (ADR-0047): a structured proposal produced
  * outside a human-initiated card flow — today, a schedule's background

@@ -18,7 +18,7 @@ import type {
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceDeleter, ResourceRegistrar, ShortcutFiller,
   TodoLoader, TodoWriter, Archiver,
-  WorkspaceLister, WorkspaceRunner, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
+  WorkspaceLister, WorkspaceRunner, WorkspaceRunsClearer, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
 import { useFloatingMenu } from './menu-behavior.ts'
@@ -1106,6 +1106,8 @@ export interface IntakeRailProps extends RailProps {
   readonly workspaceRunStop: WorkspaceRunStopper
   /** Read the run-history ring (ADR-0056 决定 6). */
   readonly workspaceRunsList: WorkspaceRunsLister
+  /** Clear the run history's finalized rows. */
+  readonly workspaceRunsClear: WorkspaceRunsClearer
 }
 
 /** A small ghost face for the error row's 重试 (matches the discard ghost). */
@@ -1207,7 +1209,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     onRunCapability, kbRoot = '',
     memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
     promptShortcutList, promptShortcutSave, fillShortcut,
-    workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList,
+    workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList, workspaceRunsClear,
   } = props
   const mailDelete = props.mailDelete
   const mailArchive = props.mailArchive
@@ -1439,6 +1441,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
             run={workspaceRun}
             stop={workspaceRunStop}
             listRuns={workspaceRunsList}
+            clearRuns={workspaceRunsClear}
           />
         )}
         {tab === 'resources' && (

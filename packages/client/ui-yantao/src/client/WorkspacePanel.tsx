@@ -21,7 +21,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import type {
   KbWorkspace, KbWorkspaceInstruction, KbWorkspaceRun,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import { remoteMessage, type WorkspaceLister, type WorkspaceRunner, type WorkspaceRunsLister, type WorkspaceRunStopper, type WorkspaceSaver } from './remote.ts'
+import { remoteMessage, type WorkspaceLister, type WorkspaceRunner, type WorkspaceRunsClearer, type WorkspaceRunsLister, type WorkspaceRunStopper, type WorkspaceSaver } from './remote.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 import { ghostButtonStyle, primaryButtonStyle } from './buttons.ts'
 
@@ -39,6 +39,8 @@ export interface WorkspacePanelProps {
   readonly stop: WorkspaceRunStopper
   /** Read the run-history ring. */
   readonly listRuns: WorkspaceRunsLister
+  /** Clear the run history's finalized rows. */
+  readonly clearRuns: WorkspaceRunsClearer
 }
 
 /** A client-minted store id — same recipe as the kb store's (`<prefix>_<base36 ms>_<random>`). */
@@ -115,14 +117,27 @@ const iconButtonStyle = {
   color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)', cursor: 'pointer', lineHeight: 1.5,
 } as const
 
+/**
+ * The ＋/− gestures wear an ink ring: bare glyphs read as stray punctuation
+ * next to the table's hairlines, the circle makes them obviously clickable.
+ */
+const circledIconStyle = {
+  ...iconButtonStyle,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  width: 18, height: 18, padding: 0, boxSizing: 'border-box',
+  border: '1px solid var(--yt-border-strong)', borderRadius: '50%',
+} as const
+
 /** A per-row destructive action wears the ghost cut; armed, danger on the raised surface. */
 const deleteStyle = {
-  ...iconButtonStyle,
+  ...circledIconStyle,
   color: 'var(--yt-text-muted)',
 } as const
 
 const armedDeleteStyle = {
   ...deleteStyle,
+  width: 'auto',
+  height: 'auto',
   color: 'var(--yt-error)',
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-strong)',
@@ -140,7 +155,7 @@ const inputStyle = { padding: '4px 8px', width: '100%', boxSizing: 'border-box' 
 
 const formActionsStyle = { display: 'flex', gap: 8 } as const
 
-const addOpenStyle = { ...iconButtonStyle, alignSelf: 'flex-start', padding: '2px 6px' } as const
+const addOpenStyle = { ...circledIconStyle, alignSelf: 'flex-start' } as const
 
 const stepRowStyle = { display: 'flex', gap: 6, alignItems: 'flex-start' } as const
 
@@ -268,11 +283,11 @@ function InstructionForm(props: {
  * @param props - see {@link WorkspacePanelProps}.
  * @returns the panel element.
  */
-export function WorkspacePanel({ t, list, save, run, stop, listRuns }: WorkspacePanelProps): ReactElement {
+export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns }: WorkspacePanelProps): ReactElement {
   // Every seam is a fresh closure on each render (inject face), so the loads
   // and writes read them through a ref — the same discipline MemoryPanel uses.
-  const latest = useRef({ list, save, run, stop, listRuns })
-  latest.current = { list, save, run, stop, listRuns }
+  const latest = useRef({ list, save, run, stop, listRuns, clearRuns })
+  latest.current = { list, save, run, stop, listRuns, clearRuns }
 
   const [spaces, setSpaces] = useState<readonly KbWorkspace[] | null>(null)
   const [runs, setRuns] = useState<readonly KbWorkspaceRun[] | null>(null)
@@ -290,6 +305,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns }: Workspace
     steps: string[]
   } | null>(null)
   const [armedDelete, setArmedDelete] = useState<string | null>(null)
+  const [armedClear, setArmedClear] = useState(false)
 
   const reload = useCallback(async (): Promise<void> => {
     try {
@@ -434,6 +450,23 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns }: Workspace
       setNotice(null)
       setHistoryError(remoteMessage(failure))
       await reloadRuns()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Clear the finalized history rows; the store keeps whatever is still running. */
+  const clearHistory = async (): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const result = await latest.current.clearRuns()
+      setRuns(result.runs)
+      setNotice(t('workspace.cleared', { count: result.cleared }))
+      setHistoryError(null)
+    } catch (failure: unknown) {
+      setNotice(null)
+      setHistoryError(remoteMessage(failure))
     } finally {
       setBusy(false)
     }
@@ -605,7 +638,27 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns }: Workspace
           )}
         </div>
       ))}
-      <div style={zoneTitleStyle}>{t('workspace.history')}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <div style={{ ...zoneTitleStyle, flex: 1 }}>{t('workspace.history')}</div>
+        {runs !== null && runs.length > 0 && (
+          <button data-hover="true" type="button"
+            style={armedClear ? armedDeleteStyle : deleteStyle}
+            disabled={busy}
+            title={armedClear ? undefined : t('workspace.clearHistory')}
+            data-armed={armedClear || undefined}
+            data-workspace-clear-history="true"
+            onClick={() => {
+              if (!armedClear) {
+                setArmedClear(true)
+                return
+              }
+              setArmedClear(false)
+              void clearHistory()
+            }}>
+            {armedClear ? t('workspace.clearArm') : '−'}
+          </button>
+        )}
+      </div>
       {historyError !== null && <div style={errorStyle} data-workspace-history-error="true">{historyError}</div>}
       {runs !== null && runs.length === 0 && <div style={mutedStyle} data-workspace-history-empty="true">{t('workspace.historyEmpty')}</div>}
       {history.map((entry) => {

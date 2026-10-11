@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type {
-  KbWorkspace, KbWorkspaceListResult, KbWorkspaceRunsListResult, KbWorkspaceSaveArgs, KbWorkspaceSaveResult,
+  KbWorkspace, KbWorkspaceListResult, KbWorkspaceRunsClearResult, KbWorkspaceRunsListResult, KbWorkspaceSaveArgs, KbWorkspaceSaveResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { WorkspacePanel, type WorkspacePanelProps } from '../src/client/WorkspacePanel.tsx'
 import { t } from './helpers.client.ts'
@@ -62,6 +62,7 @@ function props(overrides: Partial<WorkspacePanelProps> = {}): WorkspacePanelProp
     run: vi.fn(async () => ({ runId: 'run_new' })),
     stop: vi.fn(async () => ({ runs: RUNS.runs })),
     listRuns: vi.fn(async () => RUNS),
+    clearRuns: vi.fn(async (): Promise<KbWorkspaceRunsClearResult> => ({ cleared: 2, runs: [RUNS.runs[0]] })),
     ...overrides,
   }
 }
@@ -165,6 +166,37 @@ describe('WorkspacePanel', () => {
     expect(panel.save).toHaveBeenCalledTimes(1)
     const args = (panel.save as ReturnType<typeof vi.fn>).mock.calls[0][0] as KbWorkspaceSaveArgs
     expect(args.workspaces[0].instructions).toEqual([])
+  })
+
+  it('arms the history clear: the first click arms, the second clears the finalized rows', async () => {
+    const panel = props()
+    const { container } = render(<WorkspacePanel {...panel} />)
+    await screen.findByText('报告目录')
+    const clear = () => container.querySelector('[data-workspace-clear-history]') as Element
+    expect(clear()).not.toBeNull()
+    await act(async () => {
+      fireEvent.click(clear())
+    })
+    expect(panel.clearRuns).not.toHaveBeenCalled()
+    expect(clear().textContent).toContain('确认清空？')
+    await act(async () => {
+      fireEvent.click(clear())
+    })
+    expect(panel.clearRuns).toHaveBeenCalledTimes(1)
+    expect(await screen.findByText('已清空 2 条。')).toBeTruthy()
+    // 只剩仍在运行的那条
+    expect(container.querySelector('[data-workspace-run="run_live"]')).not.toBeNull()
+    expect(container.querySelector('[data-workspace-run="run_old"]')).toBeNull()
+    expect(container.querySelector('[data-workspace-run="run_ok"]')).toBeNull()
+  })
+
+  it('hides the clear gesture when the history is empty', async () => {
+    const { container } = render(<WorkspacePanel {...props({
+      listRuns: vi.fn(async (): Promise<KbWorkspaceRunsListResult> => ({ runs: [], path: '.dsh/yantao/workspace-runs.json' })),
+    })} />)
+    await screen.findByText('报告目录')
+    expect(await screen.findByText('还没有运行记录。')).toBeTruthy()
+    expect(container.querySelector('[data-workspace-clear-history]')).toBeNull()
   })
 
   it('shows the empty state when nothing is configured', async () => {

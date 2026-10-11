@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  appendWorkspaceRun, finalizeInterruptedRuns, newRunId, normalizeWorkspaceRuns, patchWorkspaceRun,
-  readWorkspaceRuns, RUN_HISTORY_CAP,
+  appendWorkspaceRun, clearWorkspaceRuns, finalizeInterruptedRuns, newRunId, normalizeWorkspaceRuns,
+  patchWorkspaceRun, readWorkspaceRuns, RUN_HISTORY_CAP,
   type WorkspaceRun,
 } from '../src/workspace-runs.ts'
 import { KbError } from '../src/types.ts'
@@ -221,6 +221,39 @@ describe('finalizeInterruptedRuns', () => {
     expect(runs[1]?.status).toBe('success')
     // 再跑一遍是空操作
     await expect(finalizeInterruptedRuns(kbRoot)).resolves.toBe(0)
+  })
+})
+
+describe('clearWorkspaceRuns', () => {
+  it('清掉终态行，保留 running 行，并返回清掉的条数', async () => {
+    await appendWorkspaceRun(kbRoot, {
+      workspaceId: 'wsp_abc123def',
+      instructionId: 'ins_abc123def',
+      instructionName: '日报',
+      trigger: 'manual',
+      steps: ['x'],
+    })
+    await appendWorkspaceRun(kbRoot, {
+      workspaceId: 'wsp_abc123def',
+      instructionId: 'ins_abc123def',
+      instructionName: '日报',
+      trigger: 'cron',
+      steps: ['y'],
+    })
+    const [, second] = await readWorkspaceRuns(kbRoot)
+    await patchWorkspaceRun(kbRoot, second?.id ?? '', { status: 'success', finishedAt: '2026-10-10T09:05:00.000Z' })
+    const dropped = await clearWorkspaceRuns(kbRoot)
+    expect(dropped).toBe(1)
+    const runs = await readWorkspaceRuns(kbRoot)
+    expect(runs).toHaveLength(1)
+    expect(runs[0]?.status).toBe('running')
+    // 再清是空操作
+    await expect(clearWorkspaceRuns(kbRoot)).resolves.toBe(0)
+  })
+
+  it('空历史是空操作', async () => {
+    await expect(clearWorkspaceRuns(kbRoot)).resolves.toBe(0)
+    await expect(readWorkspaceRuns(kbRoot)).resolves.toEqual([])
   })
 })
 

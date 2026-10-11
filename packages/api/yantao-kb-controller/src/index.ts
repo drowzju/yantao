@@ -58,7 +58,7 @@ import {
   readSchedules, writeSchedules, markSchedule, SCHEDULES_DISPLAY_PATH,
   enqueueProposal, readProposalInbox, resolveProposalInboxEntry, PROPOSAL_INBOX_DISPLAY_PATH,
   readWorkspaces, writeWorkspaces, markInstruction, WORKSPACES_DISPLAY_PATH,
-  readWorkspaceRuns, appendWorkspaceRun, WORKSPACE_RUNS_DISPLAY_PATH,
+  readWorkspaceRuns, appendWorkspaceRun, clearWorkspaceRuns, WORKSPACE_RUNS_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
 import type { EntityType, WorkspaceDef } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities, seedBuiltinRoutes } from './capability/builtin.ts'
@@ -120,6 +120,7 @@ import type {
   KbWorkspaceListResult,
   KbWorkspaceRunArgs,
   KbWorkspaceRunResult,
+  KbWorkspaceRunsClearResult,
   KbWorkspaceRunsListResult,
   KbWorkspaceRunStopArgs,
   KbWorkspaceRunStopResult,
@@ -1888,6 +1889,23 @@ export class YantaoKbController extends TypertRemoteService {
     this.requireKbRootForWorkspaces(WORKSPACE_RUNS_DISPLAY_PATH)
     try {
       return { runs: (await readWorkspaceRuns(this.kbRoot)).slice().reverse(), path: WORKSPACE_RUNS_DISPLAY_PATH }
+    } catch (error: unknown) {
+      throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)
+    }
+  }
+
+  /**
+   * Clear the run history (工作区 tab 一键清空): every finalized row goes,
+   * rows still running stay — their chains are live and will patch their
+   * rows as they settle. A human gesture through the panel, armed twice.
+   * @returns how many rows were dropped and what remains.
+   */
+  @Remote('workspaceRunsClear')
+  async workspaceRunsClear(): Promise<KbWorkspaceRunsClearResult> {
+    this.requireKbRootForWorkspaces(WORKSPACE_RUNS_DISPLAY_PATH)
+    try {
+      const cleared = await clearWorkspaceRuns(this.kbRoot)
+      return { cleared, runs: (await readWorkspaceRuns(this.kbRoot)).slice().reverse() }
     } catch (error: unknown) {
       throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)
     }

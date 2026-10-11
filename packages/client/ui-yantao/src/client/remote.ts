@@ -55,7 +55,7 @@ import type {
   KbSetRootResult, KbSkillRewriteApplyArgs, KbSkillRewriteApplyResult, KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
   KbWorkspaceListResult, KbWorkspaceRunArgs,
-  KbWorkspaceRunResult, KbWorkspaceRunsListResult, KbWorkspaceRunStopArgs,
+  KbWorkspaceRunResult, KbWorkspaceRunsClearResult, KbWorkspaceRunsListResult, KbWorkspaceRunStopArgs,
   KbWorkspaceRunStopResult, KbWorkspaceSaveArgs, KbWorkspaceSaveResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 
@@ -151,6 +151,8 @@ export interface KbRemote {
   workspaceRunStop(args: KbWorkspaceRunStopArgs): Promise<RemoteResult<KbWorkspaceRunStopResult>>
   /** The run-history ring (ADR-0056 决定 6), newest first. */
   workspaceRunsList(): Promise<RemoteResult<KbWorkspaceRunsListResult>>
+  /** Clear the run history's finalized rows; running rows stay. */
+  workspaceRunsClear(): Promise<RemoteResult<KbWorkspaceRunsClearResult>>
   /** The proposal inbox's listing (ADR-0047), in enqueue order — pending and decided alike. */
   proposalInboxList(): Promise<RemoteResult<KbProposalInboxListResult>>
   /** Append one proposal to the inbox (ADR-0047); the store assigns id, stamp and pending status. */
@@ -338,6 +340,9 @@ export type WorkspaceRunStopper = (runId: string) => Promise<KbWorkspaceRunStopR
 
 /** Read the run-history ring (ADR-0056 决定 6) — newest first. */
 export type WorkspaceRunsLister = () => Promise<KbWorkspaceRunsListResult>
+
+/** Clear the run history's finalized rows; resolves what was dropped and what remains. */
+export type WorkspaceRunsClearer = () => Promise<KbWorkspaceRunsClearResult>
 
 /** Read the proposal inbox (ADR-0047) — the 提议 tab's read. */
 export type ProposalInboxLister = () => Promise<KbProposalInboxListResult>
@@ -1157,6 +1162,18 @@ export async function loadWorkspaceRuns(ctx: Context): Promise<KbWorkspaceRunsLi
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.workspaceRunsList())
+}
+
+/**
+ * Clear the run history (工作区 tab 的一键清空): the store drops every
+ * finalized row and keeps the still-running ones — their chains are live.
+ * @param ctx - client root context.
+ * @returns how many rows were dropped and what remains, newest first.
+ */
+export async function clearWorkspaceRunHistory(ctx: Context): Promise<KbWorkspaceRunsClearResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.workspaceRunsClear())
 }
 
 /**

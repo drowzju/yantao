@@ -85,6 +85,7 @@ import {
   loadSchedules, markSchedule, savePromptShortcuts, saveSchedules, setKbRoot,
   enqueueInboxProposal, loadProposalInbox, loadRelationGraph, resolveInboxProposal,
   loadWorkspaces, saveWorkspaces, runWorkspaceInstruction, stopWorkspaceRun, loadWorkspaceRuns,
+  clearWorkspaceRunHistory,
   setRelation, unregisterCapability, updateCapabilityRoute, writeFile, writeTodos,
 } from './remote.ts'
 import type { CapabilityRegisterReach } from './remote.ts'
@@ -395,6 +396,7 @@ export function apply(ctx: Context): void {
       workspaceRun: (args: KbWorkspaceRunArgs) => runWorkspaceInstruction(ctx, args),
       workspaceRunStop: (runId: string) => stopWorkspaceRun(ctx, runId),
       workspaceRunsList: () => loadWorkspaceRuns(ctx),
+      workspaceRunsClear: () => clearWorkspaceRunHistory(ctx),
       // ADR-0047: the 提议 surface — the scheduler's enqueue after a fired
       // session's answer parsed into a proposal, the inbox tab's read and
       // the two verdicts.

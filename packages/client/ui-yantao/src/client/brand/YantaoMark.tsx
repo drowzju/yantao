@@ -1,43 +1,44 @@
 /**
- * The workbench's brand mark: the PARAP monogram, filling the hero's
+ * The workbench's brand mark: the PARAP wordmark, filling the hero's
  * `conversation.hero.brand.mark` slot so the middle column stops borrowing
  * upstream's fish. Drawn in `currentColor` like the fallback it replaces, so
  * it follows the active theme without a colour of its own.
  *
- * The shape is a P: a stem plus a bowl whose counter is knocked out with the
- * even-odd rule — two subpaths, no glyph font and no external asset.
+ * Two stacked lines: PARAP in big caps, then the five words it stands for —
+ * projects, areas, resources, archives, people — in small grey underneath.
+ * The headline locale string is empty; this mark IS the brand text. The
+ * sizes are pinned (48/16): the slot's 34px suggestion belongs to the fish
+ * it replaced, not to a two-line wordmark.
  * @module @deepseek-ai/dsh-client-ui-yantao/brand
  */
 import type { ReactElement } from 'react'
 
-/** The bowl and its counter: outer half-round from y=4 to y=14, then the hole. */
-const BOWL = 'M8.4 4H13.5A5 5 0 0 1 13.5 14H8.4V4Zm3.4 3.1v3.8h1.3a1.9 1.9 0 0 0 0-3.8h-1.3Z'
-
 /** Props the hero hands its brand mark (upstream's `HeroBrandMarkOwnerProps`). */
 export interface YantaoMarkProps {
-  /** Requested square edge in pixels. */
+  /** Requested square edge in pixels — ignored; the wordmark pins its own sizes. */
   readonly size: number
   /** Host class preserving the surrounding mark geometry. */
   readonly className?: string | undefined
 }
 
+const wordmarkStyle = {
+  display: 'inline-flex', flexDirection: 'column', alignItems: 'center', whiteSpace: 'nowrap',
+} as const
+
+const capsStyle = { fontSize: 48, fontWeight: 700, lineHeight: 1.1, letterSpacing: '0.06em' } as const
+
+const wordsStyle = { fontSize: 16, fontWeight: 400, lineHeight: 1.3, opacity: 0.55 } as const
+
 /**
- * Render the PARAP mark at the requested size.
+ * Render the PARAP wordmark.
  * @param props - see {@link YantaoMarkProps}.
  * @returns the mark element.
  */
-export function YantaoMark({ size, className }: YantaoMarkProps): ReactElement {
+export function YantaoMark({ className }: YantaoMarkProps): ReactElement {
   return (
-    <svg
-      className={className}
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <rect x="5" y="4" width="3.4" height="16" rx="1.7" />
-      <path d={BOWL} fillRule="evenodd" />
-    </svg>
+    <span className={className} style={wordmarkStyle} aria-label="PARAP: projects, areas, resources, archives, people">
+      <span style={capsStyle} aria-hidden="true">PARAP</span>
+      <span style={wordsStyle} aria-hidden="true">projects, areas, resources, archives, people</span>
+    </span>
   )
 }

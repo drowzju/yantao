@@ -352,3 +352,20 @@ describe('yantaoKb.workspaceRunsList', () => {
     expect(result.runs[0]).toMatchObject({ status: 'success', trigger: 'manual' })
   })
 })
+
+describe('yantaoKb.workspaceRunsClear', () => {
+  it('drops finalized rows and reports the count', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const fake = fakeSpawn(({ child }) => { succeedWith(child, '好') })
+    ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+    await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+    await until('run settles', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
+
+    const result = await ctx.yantaoKbController.workspaceRunsClear()
+    expect(result.cleared).toBe(1)
+    expect(result.runs).toEqual([])
+    await expect(readWorkspaceRuns(kbRoot)).resolves.toEqual([])
+    // 再清是空操作
+    await expect(ctx.yantaoKbController.workspaceRunsClear()).resolves.toMatchObject({ cleared: 0 })
+  })
+})

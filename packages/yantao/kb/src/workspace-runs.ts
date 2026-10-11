@@ -307,6 +307,24 @@ export function patchWorkspaceRun(kbRoot: string, runId: string, patch: Workspac
 }
 
 /**
+ * Clear the history on the human's gesture (工作区 tab 一键清空): every
+ * finalized row goes. Rows still `running` stay — a live chain's runtime
+ * will patch its row as steps settle, and erasing it would make that patch
+ * fail with `workspace-run-not-found` while the chain itself keeps running.
+ * @param kbRoot - the live KB root.
+ * @returns how many rows were dropped.
+ */
+export async function clearWorkspaceRuns(kbRoot: string): Promise<number> {
+  return withRunsLock(async () => {
+    const runs = await readWorkspaceRuns(kbRoot)
+    const kept = runs.filter(run => run.status === 'running')
+    if (kept.length === runs.length) return 0
+    await writeWorkspaceRuns(kbRoot, kept)
+    return runs.length - kept.length
+  })
+}
+
+/**
  * Boot-time healing (ADR-0056 决定 4): every row still marked `running` is a
  * run whose process died with the last controller — mark it `interrupted`
  * with the boot moment as its end. Never catches up, never re-runs.

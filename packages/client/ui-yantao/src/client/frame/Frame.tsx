@@ -22,7 +22,7 @@ import type {
   PromptShortcutSaver, RelationGraphLoader, RelationSetter, ResourceDeleter, ResourceRegistrar, RevisionLoader,
   ScheduleLister, ScheduleMarker,
   ScheduleSaver, ProposalInboxLister, ProposalInboxResolver, ShortcutFiller,
-  WorkspaceLister, WorkspaceRunner, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
+  WorkspaceLister, WorkspaceRunner, WorkspaceRunsClearer, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
   RootLoader, RootSetter,
   Archiver, SkillRewriteApplier,
   SessionPrompter, TodoLoader, TodoWriter,
@@ -200,6 +200,8 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly workspaceRunStop: WorkspaceRunStopper
   /** Read the run-history ring (ADR-0056 决定 6). */
   readonly workspaceRunsList: WorkspaceRunsLister
+  /** Clear the run history's finalized rows. */
+  readonly workspaceRunsClear: WorkspaceRunsClearer
   /** Read the proposal inbox (ADR-0047) — the 提议 tab's read. */
   readonly proposalInboxList: ProposalInboxLister
   /** Record the human's decision on one pending inbox entry (ADR-0047). */
@@ -501,7 +503,7 @@ export function Frame({
   sessionDetail, onKbRootChanged, mailDelete, mailArchive, skillRewriteApply,
   promptShortcutList, promptShortcutSave, fillShortcut,
   scheduleList, scheduleSave, scheduleMark, runSchedule,
-  workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList,
+  workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList, workspaceRunsClear,
   proposalInboxList, proposalInboxResolve, relationGraph,
   loadModelsConfig, saveModelsConfig, shortcutCatalog,
 }: FrameProps): ReactElement {
@@ -1844,6 +1846,7 @@ export function Frame({
           workspaceRun={workspaceRun}
           workspaceRunStop={workspaceRunStop}
           workspaceRunsList={workspaceRunsList}
+          workspaceRunsClear={workspaceRunsClear}
           onRunCapability={runRowCapability}
           onRefine={runRefineGesture}
           kbRoot={kbRoot}
