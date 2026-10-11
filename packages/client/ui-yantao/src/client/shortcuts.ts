@@ -1,6 +1,8 @@
 /**
  * Workbench keyboard commands (batch one of the keyboard-efficiency pass):
- * six centre-tab jumps, the config dialog, and the intake-rail toggle —
+ * three centre-tab jumps (ADR-0057 collapsed the six-tab strip to three;
+ * Digit4-6 sit vacant rather than carrying two-step sub-region semantics),
+ * the config dialog, and the intake-rail toggle —
  * registered through the shared shortcuts framework (the same registry
  * ui-workspace contributes to), never a bespoke keydown listener.
  *
@@ -16,7 +18,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ShortcutCommand, ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 import type { PanelToggles } from './frame/layout.ts'
-import { CONVERSATION_TAB, GRAPH_TAB, INBOX_TAB, INSIGHTS_TAB, SCHEDULES_TAB, TASKS_TAB } from './tabs.ts'
+import { CONVERSATION_TAB, INSIGHTS_TAB, TASKS_TAB } from './tabs.ts'
 
 /** One centre-tab jump: the registry row and the tab it activates. */
 export interface WorkbenchTabJump {
@@ -32,14 +34,11 @@ export interface WorkbenchTabJump {
   readonly tab: string
 }
 
-/** The six tab jumps in Digit1..Digit6 order — pure data, asserted in tests. */
+/** The three tab jumps in Digit1..Digit3 order — pure data, asserted in tests. */
 export const WORKBENCH_TAB_JUMPS: readonly WorkbenchTabJump[] = [
   { tail: 'conversation', labelKey: 'center.conversation', aliases: ['go to conversation'], code: 'Digit1', tab: CONVERSATION_TAB },
   { tail: 'tasks', labelKey: 'center.tasks', aliases: ['go to tasks'], code: 'Digit2', tab: TASKS_TAB },
-  { tail: 'schedules', labelKey: 'center.schedules', aliases: ['go to schedules'], code: 'Digit3', tab: SCHEDULES_TAB },
-  { tail: 'inbox', labelKey: 'center.inbox', aliases: ['go to proposals'], code: 'Digit4', tab: INBOX_TAB },
-  { tail: 'graph', labelKey: 'center.graph', aliases: ['go to graph'], code: 'Digit5', tab: GRAPH_TAB },
-  { tail: 'insights', labelKey: 'center.insights', aliases: ['go to insights'], code: 'Digit6', tab: INSIGHTS_TAB },
+  { tail: 'insights', labelKey: 'center.insights', aliases: ['go to insights'], code: 'Digit3', tab: INSIGHTS_TAB },
 ]
 
 /**

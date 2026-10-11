@@ -55,7 +55,7 @@ async function bench(runtime: 'web' | 'desktop' = 'web', platform: ShortcutPlatf
 afterEach(() => { vi.restoreAllMocks() })
 
 describe('workbench keyboard commands', () => {
-  it('registers the eight commands in table order, each with a binding', async () => {
+  it('registers the five commands in table order, each with a binding', async () => {
     const b = await bench()
     expect(b.registry.catalog.getSnapshot().map(row => row.id)).toEqual([
       ...WORKBENCH_TAB_JUMPS.map(jump => `yantao.tab.${jump.tail}`),
@@ -67,12 +67,12 @@ describe('workbench keyboard commands', () => {
   it('binds Ctrl+Shift chords on web/windows and Cmd+Opt chords on desktop/macos', async () => {
     const b = await bench()
     expect(b.registry.catalog.getSnapshot().map(row => row.aria)).toEqual([
-      'Control+Shift+1', 'Control+Shift+2', 'Control+Shift+3', 'Control+Shift+4', 'Control+Shift+5', 'Control+Shift+6',
+      'Control+Shift+1', 'Control+Shift+2', 'Control+Shift+3',
       'Control+Shift+,', 'Control+Shift+B',
     ])
     const mac = await bench('desktop', 'macos')
     expect(mac.registry.catalog.getSnapshot().map(row => row.keys)).toEqual([
-      ['⌥', '⌘', '1'], ['⌥', '⌘', '2'], ['⌥', '⌘', '3'], ['⌥', '⌘', '4'], ['⌥', '⌘', '5'], ['⌥', '⌘', '6'],
+      ['⌥', '⌘', '1'], ['⌥', '⌘', '2'], ['⌥', '⌘', '3'],
       ['⌥', '⌘', ','], ['⌥', '⌘', 'B'],
     ])
   })
@@ -81,9 +81,9 @@ describe('workbench keyboard commands', () => {
     const b = await bench()
     const consume = vi.fn()
     expect(b.registry.dispatch(key('Digit1'), context, consume)).toMatchObject({ status: 'handled', commandId: 'yantao.tab.conversation' })
-    expect(b.registry.dispatch(key('Digit4'), { ...context, region: 'editable' }, consume))
-      .toMatchObject({ status: 'handled', commandId: 'yantao.tab.inbox' })
-    expect(b.tabs).toEqual(['conversation', 'inbox'])
+    expect(b.registry.dispatch(key('Digit3'), { ...context, region: 'editable' }, consume))
+      .toMatchObject({ status: 'handled', commandId: 'yantao.tab.insights' })
+    expect(b.tabs).toEqual(['conversation', 'insights'])
     expect(b.registry.dispatch(key('Comma'), context, consume).commandId).toBe('yantao.config.open')
     expect(b.config).toEqual([true])
     expect(b.registry.dispatch(key('KeyB'), context, consume).commandId).toBe('yantao.rail.intake')
@@ -117,9 +117,9 @@ describe('workbench keyboard commands', () => {
 })
 
 describe('WORKBENCH_TAB_JUMPS', () => {
-  it('is pure data: six jumps over Digit1..Digit6 onto distinct tabs', () => {
-    expect(WORKBENCH_TAB_JUMPS).toHaveLength(6)
-    expect(WORKBENCH_TAB_JUMPS.map(jump => jump.code)).toEqual(['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'])
-    expect(new Set(WORKBENCH_TAB_JUMPS.map(jump => jump.tab)).size).toBe(6)
+  it('is pure data: three jumps over Digit1..Digit3 onto distinct tabs (ADR-0057)', () => {
+    expect(WORKBENCH_TAB_JUMPS).toHaveLength(3)
+    expect(WORKBENCH_TAB_JUMPS.map(jump => jump.code)).toEqual(['Digit1', 'Digit2', 'Digit3'])
+    expect(new Set(WORKBENCH_TAB_JUMPS.map(jump => jump.tab)).size).toBe(3)
   })
 })

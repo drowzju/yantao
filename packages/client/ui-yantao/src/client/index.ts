@@ -8,6 +8,7 @@
  * two rails. Nothing upstream is modified to place any of it.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { ReactNode } from 'react'
 // Type-only: pulls the `ctx.slots` service merge (ui-renderer installs the
 // registry), the `ctx.layout` Context merge (ui-layout owns the declaration),
 // and the theme snapshot type.
@@ -90,7 +91,7 @@ import type { CapabilityRegisterReach } from './remote.ts'
 import type { MailMessage } from './remote.ts'
 import { loadSessionInsights } from './insights.ts'
 import { InsightPane } from './frame/InsightPane.tsx'
-import { InsightsFooterButton } from './frame/InsightsFooterButton.tsx'
+import { InsightsPressureMark } from './frame/InsightsPressureMark.tsx'
 import { SessionDashboard } from './frame/SessionDashboard.tsx'
 import { SessionOverview } from './frame/SessionOverview.tsx'
 
@@ -102,18 +103,14 @@ export interface CenterInsightsOwnerProps {
   onSwitchToConversation: () => void
   /** Whether the insights tab is the visible centre tab (the lazy-load gate). */
   active?: boolean | undefined
+  /** The 关系图谱 sub-page's body — the frame's GraphPane element (ADR-0057). */
+  graph: ReactNode
 }
 
 /** Owner props the pane shell hands the cross-session overview (`insights.overview`). */
 export interface InsightsOverviewOwnerProps {
   /** Swings the centre pane back to the conversation tab. */
   onSwitchToConversation: () => void
-}
-
-/** Owner props the Frame hands the footer strip's 洞察 button (`footer.insights`). */
-export interface FooterInsightsOwnerProps {
-  /** Opens the centre pane's insights tab. */
-  onOpen: () => void
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -143,11 +140,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'insights.session': { kind: 'single'; scope: 'session-maybe' }
     /**
-     * ADR-0050: the footer strip's 洞察 button — `session-maybe` so its
-     * stroke can read the current session's context pressure (ADR-0039's
-     * red line lives on here).
+     * ADR-0057: the 洞察 tab label's pressure dot — `session-maybe` so it
+     * can read the current session's context pressure (ADR-0039's red line
+     * lives on here; the footer button it used to ride on is retired).
      */
-    'footer.insights': { kind: 'single'; scope: 'session-maybe'; owner: FooterInsightsOwnerProps }
+    'center.insights.pressure': { kind: 'single'; scope: 'session-maybe' }
   }
 }
 // Cordis forbids reading an undeclared service, and a Remote namespace counts
@@ -178,7 +175,8 @@ export const inject = [
  * frame declares, the ones upstream surfaces depend on are `main` (keyed;
  * renders the host's agent surface, the Frame selects it with entryKey
  * 'conversation') and `shell.overlay` (ui-commands' popupSelect); the other
- * two are the insights tab's pane and footer button (ADR-0050).
+ * two are the insights tab's pane and its label's pressure dot (ADR-0050,
+ * ADR-0057).
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
@@ -269,11 +267,11 @@ export function apply(ctx: Context): void {
       // entryKey 'conversation' 选中),不再是 single 的 `conversation` 槽。
       'main': { kind: 'keyed', scope: 'root' },
       'shell.overlay': { kind: 'list', scope: 'root' },
-      // ADR-0050: the insights tab — a root-scoped pane shell plus the
-      // footer strip's 洞察 button, session-scoped so its stroke reads the
-      // current session's context pressure.
+      // ADR-0050/0057: the insights tab — a root-scoped pane shell plus the
+      // tab label's pressure dot, session-scoped so it reads the current
+      // session's context pressure.
       'center.insights': { kind: 'single', scope: 'root' },
-      'footer.insights': { kind: 'single', scope: 'session-maybe' },
+      'center.insights.pressure': { kind: 'single', scope: 'session-maybe' },
     },
     inject: () => ({
       t,
@@ -515,14 +513,14 @@ export function apply(ctx: Context): void {
       }),
     }, SessionDashboard)), 'ui-yantao: insights session dashboard')
 
-  // ADR-0050: the footer strip's 洞察 button — the pressure alarm rides the
-  // session-maybe scope; the tab activation is the frame's, passed through
-  // the render site's owner props.
-  ctx.effect(() => ctx.slots.inject('footer.insights', () =>
+  // ADR-0057: the 洞察 tab label's pressure dot — the pressure alarm rides
+  // the session-maybe scope (the footer button it used to live on retired
+  // with ADR-0057's footer slim-down).
+  ctx.effect(() => ctx.slots.inject('center.insights.pressure', () =>
     ctx.slots.register({
-      name: 'footer.insights',
+      name: 'center.insights.pressure',
       locale: WORKBENCH_NS,
-    }, InsightsFooterButton)), 'ui-yantao: footer insights button')
+    }, InsightsPressureMark)), 'ui-yantao: insights pressure dot')
 
   // ADR-0044 决定 5: the agent's kb_propose_memory call renders as the light
   // approval card — 原文 + 目标作用域 + 批准/丢弃, the shortest feedback loop

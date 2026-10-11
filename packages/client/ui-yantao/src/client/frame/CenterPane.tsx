@@ -1,22 +1,22 @@
 /**
- * The centre pane: six permanent tabs — 对话, 任务 (ADR-0031), 调度
- * (ADR-0045), 提议 (ADR-0047), 图谱 (ADR-0049) and 洞察 (ADR-0050) — plus
- * one closeable tab per open KB file.
+ * The centre pane: three permanent tabs — 对话, 任务 (ADR-0031; ADR-0057
+ * merged 提议 and 调度 into it) and 洞察 (ADR-0050; ADR-0057 merged 图谱
+ * into it) — plus one closeable tab per open KB file.
  * The conversation is never unmounted — an
  * inactive tab's column is only
  * hidden — because it is the host's surface (scroll position and the composer
  * draft are its own) and remounting it would cost the human their place. File
  * panes stay mounted for the same reason: a draft survives a tab switch.
  *
- * Pure presentation: the tab state and every file action arrive as props.
+ * Pure presentation: the tab state and every file action arrive as props; the
+ * merged tabs' bodies arrive pre-assembled from the frame (ADR-0057).
  */
 import type { ReactElement, ReactNode } from 'react'
 import {
-  CONVERSATION_TAB, GRAPH_TAB, INBOX_TAB, INSIGHTS_TAB, SCHEDULES_TAB, TASKS_TAB,
+  CONVERSATION_TAB, INSIGHTS_TAB, TASKS_TAB,
   type FileTab, type TabState,
 } from '../tabs.ts'
 import { runningCount, type TaskRow } from '../task-view.ts'
-import { TasksPane } from './TasksPane.tsx'
 import { STATUS_KEYS, type SaveStatus } from '../editor/FileEditor.tsx'
 import type { WorkbenchT } from '../locales.ts'
 
@@ -37,26 +37,16 @@ export interface CenterPaneProps {
   readonly renderConversation: () => ReactNode
   /** Render one file tab's pane. */
   readonly renderFile: (tab: FileTab) => ReactNode
-  /** The frame's task rows (ADR-0031): the 任务 tab's list and its badge. */
+  /** The frame's task rows: the 任务 tab badge's running count. */
   readonly taskRows: readonly TaskRow[]
-  /** Stop one running task. */
-  readonly onTaskCancel: (row: TaskRow) => void
-  /** Jump to where one task's outcome lives. */
-  readonly onTaskJump: (row: TaskRow) => void
-  /** Open one task's 「详情」 drawer (ADR-0033); TasksPane offers the verb only for rows anchored to a session. */
-  readonly onTaskDetail: (row: TaskRow) => void
-  /** The open drawer, when one is — rendered inside the 任务 tab's box. */
-  readonly taskDetail: ReactNode
-  /** The 调度 tab's pane (ADR-0045) — rendered once, then only hidden. */
-  readonly schedulePane: ReactNode
-  /** The 提议 tab's pane (ADR-0047) — rendered once, then only hidden. */
-  readonly inboxPane: ReactNode
-  /** The 提议 tab's badge: the undecided backlog's size. */
+  /** The 任务 tab's second badge: the undecided proposal backlog's size (ADR-0057). */
   readonly inboxPending: number
-  /** The 图谱 tab's pane (ADR-0049) — rendered once, then only hidden. */
-  readonly graphPane: ReactNode
+  /** The 任务 tab's assembled body — 任务｜提议 above, 调度 below (ADR-0057) — rendered once, then only hidden. */
+  readonly tasksHub: ReactNode
   /** The 洞察 tab's pane (ADR-0050) — rendered once, then only hidden. */
   readonly insightsPane: ReactNode
+  /** The 洞察 tab's pressure adornment (ADR-0057): the context-pressure dot riding the tab label. */
+  readonly insightsPressure: ReactNode
   readonly t: WorkbenchT
 }
 
@@ -146,6 +136,17 @@ function StatusDot({ status, t }: { status: SaveStatus; t: WorkbenchT }): ReactE
   )
 }
 
+/** Badge pill shared by the 任务 tab's two counters (ADR-0057): the running
+    task count wears plain accent, the pending-proposal count the stronger
+    accent — the tones the two standalone tabs wore before the merge. */
+const badgeBaseStyle = {
+  borderRadius: 8,
+  color: 'var(--yt-on-accent)',
+  fontSize: 'var(--yt-type-label)',
+  lineHeight: '16px',
+  padding: '0 6px',
+} as const
+
 /**
  * Render the centre pane's tab strip and its panes.
  * @param props - see {@link CenterPaneProps}.
@@ -159,24 +160,16 @@ export function CenterPane({
   renderConversation,
   renderFile,
   taskRows,
-  onTaskCancel,
-  onTaskJump,
-  onTaskDetail,
-  taskDetail,
-  schedulePane,
-  inboxPane,
   inboxPending,
-  graphPane,
+  tasksHub,
   insightsPane,
+  insightsPressure,
   t,
 }: CenterPaneProps): ReactElement {
   // The conversation is rendered unconditionally and only hidden: remounting
   // it would drop the host's scroll position and composer draft.
   const conversationActive = tabs.active === CONVERSATION_TAB
   const tasksActive = tabs.active === TASKS_TAB
-  const schedulesActive = tabs.active === SCHEDULES_TAB
-  const inboxActive = tabs.active === INBOX_TAB
-  const graphActive = tabs.active === GRAPH_TAB
   const insightsActive = tabs.active === INSIGHTS_TAB
   // Only an editable file has two views; a read-only original is one <pre>.
   // The 阅读 / 源码 switch itself lives in the file pane's own header
@@ -187,71 +180,52 @@ export function CenterPane({
     <div style={paneStyle}>
       <div style={stripStyle}>
         <div style={conversationActive ? activeTabStyle : tabStyle}>
-          <button type="button" style={labelButtonStyle} data-hover="tab" onClick={() => { onActivate(CONVERSATION_TAB) }}>
+          <button type="button" style={labelButtonStyle} data-hover="tab" data-center-tab={CONVERSATION_TAB} onClick={() => { onActivate(CONVERSATION_TAB) }}>
             {t('center.conversation')}
           </button>
         </div>
         <div style={tasksActive ? activeTabStyle : tabStyle}>
-          <button type="button" style={labelButtonStyle} data-hover="tab" onClick={() => { onActivate(TASKS_TAB) }}>
+          <button type="button" style={labelButtonStyle} data-hover="tab" data-center-tab={TASKS_TAB} onClick={() => { onActivate(TASKS_TAB) }}>
             {t('center.tasks')}
           </button>
           {running > 0 && (
             <span
               data-tasks-badge="true"
               style={{
-                background: 'var(--yt-accent)',
-                borderRadius: 8,
+                ...badgeBaseStyle,
                 // accent 面上的文字随主题取色（--yt-on-accent，2026-10-09）：
                 // 此前硬编码 #fff，暗色下对 #7ba3e0 只有 ≈2.6:1。
-                color: 'var(--yt-on-accent)',
-                fontSize: 'var(--yt-type-label)',
-                lineHeight: '16px',
-                padding: '0 6px',
+                background: 'var(--yt-accent)',
               }}
             >
               {running}
             </span>
           )}
-        </div>
-        <div style={schedulesActive ? activeTabStyle : tabStyle}>
-          <button type="button" style={labelButtonStyle} data-hover="tab" onClick={() => { onActivate(SCHEDULES_TAB) }}>
-            {t('center.schedules')}
-          </button>
-        </div>
-        <div style={inboxActive ? activeTabStyle : tabStyle}>
-          <button type="button" style={labelButtonStyle} data-hover="tab" onClick={() => { onActivate(INBOX_TAB) }}>
-            {t('center.inbox')}
-          </button>
           {inboxPending > 0 && (
             <span
               data-inbox-badge="true"
               style={{
+                ...badgeBaseStyle,
                 // Light: plain --yt-accent gives 12px text only ~4:1; the
                 // stronger accent clears AA there (~5.6:1). Dark aliases
                 // strong to plain accent (#7ba3e0), so the ink flips to the
                 // dark scheme's --yt-on-accent (墨色，7:1+) instead of white
                 // (≈2.6:1，2026-10-09 评审 P1 收口).
                 background: 'var(--yt-accent-strong)',
-                borderRadius: 8,
-                color: 'var(--yt-on-accent)',
-                fontSize: 'var(--yt-type-label)',
-                lineHeight: '16px',
-                padding: '0 6px',
               }}
             >
               {inboxPending}
             </span>
           )}
         </div>
-        <div style={graphActive ? activeTabStyle : tabStyle}>
-          <button type="button" style={labelButtonStyle} data-hover="tab" onClick={() => { onActivate(GRAPH_TAB) }}>
-            {t('center.graph')}
-          </button>
-        </div>
         <div style={insightsActive ? activeTabStyle : tabStyle}>
-          <button type="button" style={labelButtonStyle} data-hover="tab" onClick={() => { onActivate(INSIGHTS_TAB) }}>
+          <button type="button" style={labelButtonStyle} data-hover="tab" data-center-tab={INSIGHTS_TAB} onClick={() => { onActivate(INSIGHTS_TAB) }}>
             {t('center.insights')}
           </button>
+          {/* ADR-0057: the context-pressure dot (amber past 80%, red past
+              95%) — the retired footer button's stroke, relocated to the tab
+              label so the alarm stays globally visible. */}
+          {insightsPressure}
         </div>
         {tabs.files.map((tab) => {
           const status = statuses[tab.path]
@@ -286,26 +260,10 @@ export function CenterPane({
           {renderConversation()}
         </div>
         <div
-          style={{ ...pageStyle, display: tasksActive ? 'flex' : 'none', position: 'relative' }}
+          style={{ ...pageStyle, display: tasksActive ? 'flex' : 'none' }}
           data-tab={TASKS_TAB}
         >
-          <TasksPane rows={taskRows} onCancel={onTaskCancel} onJump={onTaskJump} onDetail={onTaskDetail} />
-          {/* The 「详情」 drawer overlays its tab's box (ADR-0033): the box is
-              position:relative, so the drawer scrolls independently and never
-              escapes into the neighbouring tabs. */}
-          {taskDetail}
-        </div>
-        <div style={{ ...pageStyle, display: schedulesActive ? 'flex' : 'none' }} data-tab={SCHEDULES_TAB}>
-          {schedulePane}
-        </div>
-        <div
-          style={{ ...pageStyle, display: inboxActive ? 'flex' : 'none', position: 'relative' }}
-          data-tab={INBOX_TAB}
-        >
-          {inboxPane}
-        </div>
-        <div style={{ ...pageStyle, display: graphActive ? 'flex' : 'none' }} data-tab={GRAPH_TAB}>
-          {graphPane}
+          {tasksHub}
         </div>
         <div style={{ ...pageStyle, display: insightsActive ? 'flex' : 'none' }} data-tab={INSIGHTS_TAB}>
           {insightsPane}

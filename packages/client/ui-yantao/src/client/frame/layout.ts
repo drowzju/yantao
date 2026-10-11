@@ -25,7 +25,7 @@ import type { ILayout, MainPanelId, PanelInfo } from '@deepseek-ai/dsh-client-ui
 export interface PanelToggles {
   /** Collapse or expand the intake rail. */
   toggleIntake(): void
-  /** Switch the middle-column tab by key (e.g. `INBOX_TAB`). */
+  /** Switch the middle-column tab by key (e.g. `TASKS_TAB`). */
   activateTab(key: string): void
   /** Open or close the config dialog. */
   setConfigOpen(open: boolean): void

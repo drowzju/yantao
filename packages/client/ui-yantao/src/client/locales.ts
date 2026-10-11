@@ -80,10 +80,6 @@ export const zh = {
 
   // 配置对话框（左下角「配置」按钮；v1 仅模型一节）
   'config.open': '配置',
-  // 调度（ADR-0045；左下角「调度」按钮，打开中栏调度 tab）
-  'schedule.open': '调度',
-  // 洞察（ADR-0050；左下角「调度」右侧按钮，打开中栏洞察 tab）
-  'insights.open': '洞察',
   'config.title': '配置',
   'config.close': '关闭',
   'config.loading': '读取配置中…',
@@ -312,9 +308,6 @@ export const zh = {
   // Center pane
   'center.conversation': '对话',
   'center.tasks': '任务',
-  'center.schedules': '调度',
-  'center.inbox': '提议',
-  'center.graph': '图谱',
   'center.insights': '洞察',
   'center.close': '关闭',
   'center.read': '阅读',
@@ -518,10 +511,6 @@ export const en = {
 
   // 配置对话框 (bottom-left 配置 button; v1 ships the models section only)
   'config.open': 'Settings',
-  // 调度 (ADR-0045; the bottom-left 调度 button opens the centre 调度 tab)
-  'schedule.open': 'Schedules',
-  // 洞察 (ADR-0050; the button right of 调度 opens the centre insights tab)
-  'insights.open': 'Insights',
   'config.title': 'Settings',
   'config.close': 'Close',
   'config.loading': 'Loading configuration…',
@@ -752,9 +741,6 @@ export const en = {
   // Center pane
   'center.conversation': 'Conversation',
   'center.tasks': 'Tasks',
-  'center.schedules': 'Schedules',
-  'center.inbox': 'Proposals',
-  'center.graph': 'Graph',
   'center.insights': 'Insights',
   'center.close': 'Close',
   'center.read': 'Read',

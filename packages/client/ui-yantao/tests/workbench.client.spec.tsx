@@ -33,7 +33,7 @@ import { CapabilityPanel } from '../src/client/CapabilityPanel.tsx'
 import { RESOURCE_DRAG_TYPE } from '../src/client/refine.ts'
 import type { Proposal } from '../src/client/proposal.ts'
 import { t } from './helpers.client.ts'
-import { INBOX_TAB, TAB_STORAGE_KEY } from '../src/client/tabs.ts'
+import { TAB_STORAGE_KEY, TASKS_TAB } from '../src/client/tabs.ts'
 
 afterEach(() => {
   cleanup()
@@ -1422,9 +1422,9 @@ describe('Frame', () => {
     const { container } = render(renderFrame({}, () => {}, seat))
     // The keyboard commands fire into this seat; before mount they are
     // no-ops, after mount they swing the tabs and the dialog.
-    expect((container.querySelector('[data-tab="inbox"]') as HTMLElement).style.display).toBe('none')
-    act(() => { seat.activateTab(INBOX_TAB) })
-    expect((container.querySelector('[data-tab="inbox"]') as HTMLElement).style.display).toBe('flex')
+    expect((container.querySelector('[data-tab="tasks"]') as HTMLElement).style.display).toBe('none')
+    act(() => { seat.activateTab(TASKS_TAB) })
+    expect((container.querySelector('[data-tab="tasks"]') as HTMLElement).style.display).toBe('flex')
     expect((container.querySelector('[data-tab="conversation"]') as HTMLElement).style.display).toBe('none')
     expect(container.querySelector('[role="dialog"]')).toBeNull()
     act(() => { seat.setConfigOpen(true) })
@@ -1771,7 +1771,7 @@ describe('Frame', () => {
     fireEvent.click(await screen.findByText('人物'))
     fireEvent.click(await screen.findByText('校验'))
 
-    fireEvent.click(screen.getByText('任务'))
+    fireEvent.click(document.querySelector('[data-center-tab="tasks"]') as HTMLElement)
     const pane = await waitFor(() => {
       const found = document.querySelector('[data-tasks-pane="true"]')
       expect(found).not.toBeNull()
@@ -1814,7 +1814,7 @@ describe('Frame', () => {
 
     // The fetch is an execution the workbench started, so it is a row of its
     // own — 「读取邮件」 — visible while the reader subprocess works.
-    fireEvent.click(screen.getByText('任务'))
+    fireEvent.click(document.querySelector('[data-center-tab="tasks"]') as HTMLElement)
     const pane = await waitFor(() => {
       const found = document.querySelector('[data-tasks-pane="true"]')
       expect(found).not.toBeNull()
@@ -1846,7 +1846,7 @@ describe('Frame', () => {
     fireEvent.click(await screen.findByText('mail'))
     fireEvent.click(await screen.findByText('往后 →'))
     // The read answered 0 封 — a no-op. The 任务 tab keeps no row for it.
-    fireEvent.click(screen.getByText('任务'))
+    fireEvent.click(document.querySelector('[data-center-tab="tasks"]') as HTMLElement)
     await waitFor(() => {
       const rows = Array.from(document.querySelectorAll('[data-task-row]'))
         .filter(row => row.textContent?.includes('读取邮件'))
@@ -1896,7 +1896,7 @@ describe('Frame', () => {
     await screen.findByText('邮件分析 2026-09-21')
 
     // The review card parks the row at 待确认…
-    fireEvent.click(screen.getByText('任务'))
+    fireEvent.click(document.querySelector('[data-center-tab="tasks"]') as HTMLElement)
     const pane = await waitFor(() => {
       const found = document.querySelector('[data-tasks-pane="true"]')
       expect(found).not.toBeNull()

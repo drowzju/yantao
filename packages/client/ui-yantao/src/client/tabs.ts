@@ -22,19 +22,12 @@ export interface FileTab {
 /** Tab key of the permanent conversation tab — never closeable, never unmounted. */
 export const CONVERSATION_TAB = 'conversation'
 
-/** Tab key of the permanent 任务 tab (ADR-0031) — never closeable, never persisted. */
+/** Tab key of the permanent 任务 tab (ADR-0031; ADR-0057 merged 提议 and 调度 into it)
+    — never closeable, never persisted. */
 export const TASKS_TAB = 'tasks'
 
-/** Tab key of the permanent 调度 tab (ADR-0045) — never closeable, never persisted. */
-export const SCHEDULES_TAB = 'schedules'
-
-/** Tab key of the permanent 提议 tab (ADR-0047) — never closeable, never persisted. */
-export const INBOX_TAB = 'inbox'
-
-/** Tab key of the permanent 图谱 tab (ADR-0049) — never closeable, never persisted. */
-export const GRAPH_TAB = 'graph'
-
-/** Tab key of the permanent 洞察 tab (ADR-0050) — never closeable, never persisted. */
+/** Tab key of the permanent 洞察 tab (ADR-0050; ADR-0057 merged 图谱 into it)
+    — never closeable, never persisted. */
 export const INSIGHTS_TAB = 'insights'
 
 /** The centre pane's tab state. */

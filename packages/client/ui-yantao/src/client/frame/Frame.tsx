@@ -52,7 +52,7 @@ import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
 import { Onboarding } from '../Onboarding.tsx'
 import {
-  CONVERSATION_TAB, SCHEDULES_TAB, INSIGHTS_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs,
+  CONVERSATION_TAB, INSIGHTS_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs,
   readOnlyPath,
   restoreTabs,
   type TabMode, type TabState,
@@ -60,6 +60,8 @@ import {
 import { CenterPane, type ViewMode } from './CenterPane.tsx'
 import { GraphPane } from './GraphPane.tsx'
 import { InboxPane } from './InboxPane.tsx'
+import { TasksPane } from './TasksPane.tsx'
+import { TasksHubPane } from './TasksHubPane.tsx'
 import './frame.module.css'
 import type { PanelToggles } from './layout.ts'
 import type { SidebarRightFileSeat } from '../sidebar-right.ts'
@@ -68,7 +70,7 @@ import type { WorkbenchT } from '../locales.ts'
 import { ShortcutsDialog, type ShortcutCatalogFace } from '../ShortcutsDialog.tsx'
 
 /** Full props: the render share for the four seats this frame declares, plus the panel-action seat. */
-export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.insights' | 'footer.insights'> & {
+export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.insights' | 'center.insights.pressure'> & {
   /** The workbench dictionary's bound translator. */
   readonly t: WorkbenchT
   /** Mutable seat the frame fills with its own toggles on mount. */
@@ -1851,58 +1853,70 @@ export function Frame({
         tabs={tabs}
         statuses={statuses}
         taskRows={taskRows}
-        onTaskCancel={cancelTask}
-        onTaskJump={jumpTask}
-        onTaskDetail={onTaskDetail}
-        // Gate the pane behind the initial read (OCR 2026-10-03): before the
-        // store's rows arrive — or forever after a failed read — the pane
-        // must offer no mutating affordance, or an early full-list save would
-        // wipe every definition it never fetched.
-        schedulePane={!schedulesLoaded ? (
-          <div style={{ padding: 16, color: 'var(--yt-text-muted)' }}>调度加载中…</div>
-        ) : (
-          <SchedulePane
-            schedules={schedules}
-            onSave={commitSchedules}
-            promptShortcutList={promptShortcutList}
-            capabilityNames={capabilityScopes}
+        // ADR-0057: the 任务 tab's assembled body — 任务｜提议 above, 调度
+        // below. The 详情 drawer overlays the 任务 region (its hub wrapper is
+        // position:relative). The schedule gate keeps the pane read-only
+        // until the initial read lands (OCR 2026-10-03): before the store's
+        // rows arrive — or forever after a failed read — the pane must offer
+        // no mutating affordance, or an early full-list save would wipe
+        // every definition it never fetched.
+        tasksHub={(
+          <TasksHubPane
+            tasks={(
+              <>
+                <TasksPane rows={taskRows} onCancel={cancelTask} onJump={jumpTask} onDetail={onTaskDetail} />
+                {detailRow === null ? null : (
+                  <SessionDetailDrawer
+                    key={detailRow.id}
+                    row={detailRow}
+                    load={sessionDetail}
+                    onClose={closeTaskDetail}
+                    t={t}
+                  />
+                )}
+              </>
+            )}
+            inbox={!inboxLoaded ? (
+              <div style={{ padding: 16, color: 'var(--yt-text-muted)' }}>提议加载中…</div>
+            ) : (
+              <InboxPane
+                entries={inboxEntries}
+                busyId={inboxBusyId}
+                onConfirm={confirmInboxEntry}
+                onDiscard={discardInboxEntry}
+                capabilityScopes={capabilityScopes}
+                t={t}
+              />
+            )}
+            schedule={!schedulesLoaded ? (
+              <div style={{ padding: 16, color: 'var(--yt-text-muted)' }}>调度加载中…</div>
+            ) : (
+              <SchedulePane
+                schedules={schedules}
+                onSave={commitSchedules}
+                promptShortcutList={promptShortcutList}
+                capabilityNames={capabilityScopes}
+              />
+            )}
           />
-        )}
-        inboxPane={!inboxLoaded ? (
-          <div style={{ padding: 16, color: 'var(--yt-text-muted)' }}>提议加载中…</div>
-        ) : (
-          <InboxPane
-            entries={inboxEntries}
-            busyId={inboxBusyId}
-            onConfirm={confirmInboxEntry}
-            onDiscard={discardInboxEntry}
-            capabilityScopes={capabilityScopes}
-            t={t}
-          />
-        )}
-        graphPane={graphData === null ? (
-          <div style={{ padding: 16, color: 'var(--yt-text-muted)' }}>图谱加载中…</div>
-        ) : (
-          <GraphPane data={graphData} onOpen={(path) => { openFile(path, 'edit') }} t={t} />
         )}
         insightsPane={renderSlot('center.insights', {
           // ADR-0050: the overview's session-card jump — opening the session
           // is the card's own gesture; switching to the conversation tab is
           // the frame's, passed through as owner props. `active` gates the
           // pane's reads on the tab actually being visible (lazy load).
+          // ADR-0057: the 关系图谱 sub-page's body rides along as an owner
+          // prop — the graph is the sub-page's whole content.
           onSwitchToConversation: () => { activate(CONVERSATION_TAB) },
           active: tabs.active === INSIGHTS_TAB,
+          graph: graphData === null ? (
+            <div style={{ padding: 16, color: 'var(--yt-text-muted)' }}>图谱加载中…</div>
+          ) : (
+            <GraphPane data={graphData} onOpen={(path) => { openFile(path, 'edit') }} t={t} />
+          ),
         })}
+        insightsPressure={renderSlot('center.insights.pressure', {})}
         inboxPending={inboxEntries.filter(entry => entry.status === 'pending').length}
-        taskDetail={detailRow === null ? null : (
-          <SessionDetailDrawer
-            key={detailRow.id}
-            row={detailRow}
-            load={sessionDetail}
-            onClose={closeTaskDetail}
-            t={t}
-          />
-        )}
         onActivate={(key) => { activate(key) }}
         onClose={closeFileTab}
         renderConversation={() => renderSlot('main', {}, { entryKey: 'conversation' })}
@@ -2026,9 +2040,10 @@ export function Frame({
         />
       </div>
       {/* The reserved grid row: 配置 lives at the window's bottom-left, a
-          flow child so it survives intake collapse. The 调度 and 洞察
-          entries ride beside it (ADR-0045 决定 8 / ADR-0050) — the latter's
-          stroke carries the current session's pressure alarm. */}
+          flow child so it survives intake collapse. ADR-0057 retired the
+          调度/洞察 shortcuts beside it — the former moved into the 任务
+          tab's lower half, the latter's pressure alarm now rides the 洞察
+          tab label itself. */}
       <div style={footerStripStyle}>
         <button style={footerButtonStyle} data-config-button="true" data-hover="true" onClick={() => { setConfigOpen(true) }}>
           {t('config.open')}
@@ -2038,21 +2053,6 @@ export function Frame({
         <button style={footerButtonStyle} data-shortcuts-button="true" data-hover="true" onClick={() => { setShortcutsOpen(true) }}>
           {t('shortcuts.open')}
         </button>
-        {/* ADR-0045 决定 8: the 调度 entry rides beside 配置 at the window's
-            bottom-left; it opens the centre 调度 tab, not a dialog. */}
-        <button
-          style={footerButtonStyle}
-          data-schedule-button="true"
-          data-hover="true"
-          onClick={() => { activate(SCHEDULES_TAB) }}
-        >
-          {t('schedule.open')}
-        </button>
-        {/* ADR-0050: the 洞察 entry — a session-maybe slot entry so the slot
-            machinery threads the current session's projection seat through;
-            the tab activation rides the owner props (the frame owns the tab
-            state, the entry owns the pressure reading). */}
-        {renderSlot('footer.insights', { onOpen: () => { activate(INSIGHTS_TAB) } })}
       </div>
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>
       {needsRoot && (
