@@ -28,24 +28,25 @@ import type { ProposalTarget } from './proposal-apply.ts'
 import { entitiesOfTree } from './mail-apply.ts'
 import { CapabilityPanel } from './CapabilityPanel.tsx'
 import { MailPanel, mailRangeOf } from './MailPanel.tsx'
-import { MemoryPanel } from './MemoryPanel.tsx'
+import { ShengDePanel } from './ShengDePanel.tsx'
 import { WorkspacePanel } from './WorkspacePanel.tsx'
 import { createMailRun, useMailRun, type MailRunStore } from './mail-run.ts'
 import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { remoteMessage } from './remote.ts'
 import type { TabMode } from './tabs.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
-import { TodoBoard } from './TodoBoard.tsx'
 import { NewEntityRow } from './NewEntityRow.tsx'
 import type { ValidateScope } from './validate.ts'
 
 /** Loads one rail's sections; rejects with a message the rail can render. */
 export type TreeLoader = () => Promise<readonly KbTreeSection[]>
 
-/** Left-rail tabs in display order; `connector` is the 能力 tab (ADR-0021), `memory` the 记忆 one (ADR-0032),
-    `workspace` the 工作区 one (ADR-0056) — beside the 能力 tab, per the ADR's rail placement. */
-const INTAKE_PANEL_IDS: readonly (KbTreeSectionId | 'connector' | 'memory' | 'workspace')[] = [
-  'resources', 'todos', 'memory', 'workspace', 'connector',
+/** Left-rail tabs in display order; `shengde` is the merged 待办+记忆 tab
+    (2026-10-11 整合), `connector` is the 能力 tab (ADR-0021), `workspace` the
+    工作区 one (ADR-0056) — beside the 能力 tab, per the ADR's rail placement. */
+type IntakeTabId = KbTreeSectionId | 'connector' | 'memory' | 'workspace' | 'shengde'
+const INTAKE_PANEL_IDS: readonly IntakeTabId[] = [
+  'resources', 'shengde', 'workspace', 'connector',
 ]
 
 /** Right-rail tabs in display order. */
@@ -76,13 +77,14 @@ function sectionOf(
 }
 
 /** Panel and tab labels as dictionary keys — translated at render through the threaded `t`. */
-export const SECTION_KEYS: Record<KbTreeSectionId | 'connector' | 'memory' | 'workspace', WorkbenchLocaleKey> = {
+export const SECTION_KEYS: Record<KbTreeSectionId | 'connector' | 'memory' | 'workspace' | 'shengde', WorkbenchLocaleKey> = {
   resources: 'section.resource',
   todos: 'section.todo',
   meetings: 'section.meeting',
   connector: 'section.capability',
   memory: 'section.memory',
   workspace: 'section.workspace',
+  shengde: 'section.shengde',
   areas: 'section.domain',
   people: 'section.person',
   projects: 'section.project',
@@ -1187,10 +1189,12 @@ async function dropOnEntity(args: {
 }
 
 /**
- * The intake rail: 资源 / 待办 / 记忆 / 能力 as tabs. 待办 renders the
- * singleton as a TODO / DONE board inline (ADR-0018); 资源 rows open
- * read-only; 记忆 is ADR-0032's management view; 能力 lists the registered
- * capabilities (ADR-0021), the mail one embedding the connector panel.
+ * The intake rail: 资源 / 省得 / 工作区 / 能力 as tabs. 省得 is the merged
+ * 待办+记忆 tab (2026-10-11 整合): the singleton as a TODO / DONE board above
+ * (ADR-0018), the memory management view below (ADR-0032), its pending
+ * proposals counted on the tab itself; 资源 rows open read-only; 能力 lists
+ * the registered capabilities (ADR-0021), the mail one embedding the
+ * connector panel.
  * @param props - see {@link RailProps}.
  * @returns the rail element.
  */
@@ -1209,7 +1213,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const mailArchive = props.mailArchive
   const { sections, error, refresh } = useRail(load, refreshKey)
   const { capabilities, error: capabilityError } = useCapabilities(capabilityList, refreshKey)
-  const [tab, setTab] = useState<KbTreeSectionId | 'connector' | 'memory' | 'workspace'>('resources')
+  const [tab, setTab] = useState<IntakeTabId>('resources')
   // The mail run outlives the panel: tab switches, capability switches and a
   // collapsed rail all unmount MailPanel, and an analysis (or the proposal
   // card waiting on the human) must still be there when they come back.
@@ -1218,6 +1222,27 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const ownMailRun = useMemo(() => createMailRun(), [])
   const mailRun = props.mailRun ?? ownMailRun
   const mailState = useMailRun(mailRun)
+  // The 省得 tab's badge: a light poll of the pending memory-proposal count,
+  // so an agent's nomination is visible without entering the tab. Silent on
+  // failure — the panel itself carries the full error channels; a missed
+  // count only means a missing badge.
+  const latestProposals = useRef(memoryProposalList)
+  latestProposals.current = memoryProposalList
+  const [pendingMemories, setPendingMemories] = useState(0)
+  useEffect(() => {
+    let alive = true
+    const tick = (): void => {
+      void latestProposals.current().then((result) => {
+        if (alive) setPendingMemories((result.groups ?? []).reduce((sum, group) => sum + group.entries.length, 0))
+      }).catch(() => { /* 徽标沉默：面板内有完整的错误呈现 */ })
+    }
+    tick()
+    const timer = setInterval(tick, 30_000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [])
   const [actionError, setActionError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [dropping, setDropping] = useState(false)
@@ -1243,7 +1268,8 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     const owner = sectionOf(sections, selection)
     if (owner === undefined) return
     revealedFor.current = selection
-    setTab(owner)
+    // The todo singleton lives inside the merged 省得 tab now (2026-10-11).
+    setTab(owner === 'todos' ? 'shengde' : owner)
   }, [sections, selection])
 
   if (collapsed) {
@@ -1347,18 +1373,29 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
                 ●
               </span>
             )}
+            {id === 'shengde' && pendingMemories > 0 && (
+              <span style={{ marginLeft: 4, color: 'var(--yt-error)' }} title={t('memory.proposalZone.title')}>
+                {pendingMemories}
+              </span>
+            )}
           </button>
         ))}
       </div>
       {actionError !== null && <div style={errorStyle} role="alert">{actionError}</div>}
       <div style={railScrollStyle}>
-        {tab === 'todos' && (
-          <TodoBoard
+        {tab === 'shengde' && (
+          <ShengDePanel
             t={t}
             load={loadTodos}
             write={writeTodos}
             refreshKey={refreshKey}
             onOpenFile={(path) => { onOpenFile(path, 'edit') }}
+            list={memoryList}
+            add={memoryAdd}
+            remove={memoryDelete}
+            listProposals={memoryProposalList}
+            approveProposal={memoryProposalApprove}
+            discardProposal={memoryProposalDiscard}
           />
         )}
         {tab === 'connector' && (
@@ -1393,17 +1430,6 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
               )}
             />
           </>
-        )}
-        {tab === 'memory' && (
-          <MemoryPanel
-            t={t}
-            list={memoryList}
-            add={memoryAdd}
-            remove={memoryDelete}
-            listProposals={memoryProposalList}
-            approveProposal={memoryProposalApprove}
-            discardProposal={memoryProposalDiscard}
-          />
         )}
         {tab === 'workspace' && (
           <WorkspacePanel

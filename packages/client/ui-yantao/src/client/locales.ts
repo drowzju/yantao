@@ -36,6 +36,7 @@ export const zh = {
   'section.project': '项目',
   'section.memory': '记忆',
   'section.workspace': '工作区',
+  'section.shengde': '省得',
 
   // Person relations
   'relation.self': '自己',
@@ -214,6 +215,8 @@ export const zh = {
   'memory.proposal.discarded': '已丢弃，提案移出队列。',
   // Memory view's 待批准 zone (ADR-0044 决定 7).
   'memory.proposalZone.title': '待批准',
+  // The approved-rules region's collapse toggle (2026-10-11 省得整合).
+  'memory.approvedRegion': '已批准记忆',
 
   // Workspace (ADR-0056) — the 工作区 tab: directory-bound agent orchestration.
   'workspace.description': '工作空间：绑定一个目录与 agent（当前为 codebuddy），指令到点或手动在该目录下拉起 agent 干活。这里可以新建、编辑、删除与立即运行。',
@@ -471,6 +474,7 @@ export const en = {
   'section.project': 'Projects',
   'section.memory': 'Memory',
   'section.workspace': 'Workspaces',
+  'section.shengde': 'Memo',
 
   // Person relations
   'relation.self': 'Self',
@@ -651,6 +655,8 @@ export const en = {
   'memory.proposal.discarded': 'Discarded — removed from the queue.',
   // Memory view's 待批准 zone (ADR-0044 决定 7).
   'memory.proposalZone.title': 'Pending approval',
+  // The approved-rules region's collapse toggle (2026-10-11 省得整合).
+  'memory.approvedRegion': 'Approved memories',
 
   // Workspace (ADR-0056)
   'workspace.description': 'Workspaces bind a directory and an agent (currently codebuddy); instructions fire on a schedule or on demand, running the agent in that directory. Create, edit, delete and run them here.',

@@ -47,6 +47,10 @@ export interface MemoryPanelProps {
   readonly approveProposal: MemoryProposalApprover
   /** Drop one pending proposal without promoting it. */
   readonly discardProposal: MemoryProposalDiscarder
+  /** Controlled collapse of the approved-rules region; absent keeps it always open. */
+  readonly approvedOpen?: boolean
+  /** Report the human's toggle; supplied together with `approvedOpen` by the 省得 merge. */
+  readonly onApprovedOpenChange?: (open: boolean) => void
 }
 
 /** The two scopes with their own names; a capability scope shows as its name. */
@@ -140,6 +144,14 @@ const proposalMetaStyle = { color: 'var(--yt-text-secondary)', fontSize: 12, mar
 /** The two verdicts side by side at the card's foot. */
 const proposalActionsStyle = { display: 'flex', gap: 8, marginTop: 2 } as const
 
+/** A collapsible region title (2026-10-11 省得整合): same typography as the
+    scope titles, but a button — the approved sediment folds away. */
+const regionToggleStyle = {
+  ...groupTitleStyle, display: 'flex', alignItems: 'center', gap: 4, padding: 0,
+  borderWidth: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left',
+  fontFamily: 'inherit', width: '100%',
+} as const
+
 const verdictStyle = { padding: '1px 6px', fontSize: 12 } as const
 
 /**
@@ -197,7 +209,9 @@ function ProposalRow(props: {
  * @param props - see {@link MemoryPanelProps}.
  * @returns the panel element.
  */
-export function MemoryPanel({ t, list, add, remove, listProposals, approveProposal, discardProposal }: MemoryPanelProps): ReactElement {
+export function MemoryPanel({
+  t, list, add, remove, listProposals, approveProposal, discardProposal, approvedOpen, onApprovedOpenChange,
+}: MemoryPanelProps): ReactElement {
   // Every seam is a fresh closure on each render (inject face), so the load
   // and the writes read them through a ref — the same discipline useRail uses.
   const latest = useRef({ list, add, remove, listProposals, approveProposal, discardProposal })
@@ -342,6 +356,10 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
   // The 待批准 zone flattens the queue groups to cards.
   const pending = (proposals ?? []).flatMap(group => group.entries.map(entry => ({ group, entry })))
 
+  // The approved-rules region's controlled collapse; uncontrolled = always open.
+  const approvedVisible = approvedOpen ?? true
+  const approvedCount = (groups ?? []).reduce((sum, group) => sum + group.entries.length, 0)
+
   return (
     <div style={wrapStyle} data-memory-panel="true">
       <div style={mutedStyle}>{t('memory.description')}</div>
@@ -427,42 +445,57 @@ export function MemoryPanel({ t, list, add, remove, listProposals, approvePropos
       {notice !== null && <div style={hintStyle} data-memory-notice="true">{notice}</div>}
       {error !== null && <div style={errorStyle} data-memory-error="true">{error}</div>}
       {proposalError !== null && <div style={errorStyle} data-memory-proposal-error="true">{proposalError}</div>}
-      {groups === null && error === null && <div style={mutedStyle}>{t('memory.loading')}</div>}
-      {groups !== null && groups.length === 0 && <div style={mutedStyle} data-memory-empty="true">{t('memory.empty')}</div>}
-      {groups?.map(group => (
-        <div key={group.scope} data-memory-group={group.scope}>
-          <div style={groupTitleStyle}>{scopeLabel(t, group.scope)}</div>
-          {group.entries.map((entry, index) => (
-            <div
-              key={entry.id}
-              style={{ ...rowStyle, marginTop: index === 0 ? 8 : 12 }}
-              data-memory-entry={entry.id}
-            >
-              <div style={textStyle}>
-                {entry.text}
-                {entry.date !== undefined && <div style={dateStyle}>{entry.date}</div>}
-              </div>
-              <button data-hover="true"
-                type="button"
-                style={armedDeleteId === entry.id ? armedDeleteStyle : deleteStyle}
-                disabled={busy}
-                data-armed={armedDeleteId === entry.id || undefined}
-                data-memory-delete={entry.id}
-                onClick={() => {
-                  if (armedDeleteId !== entry.id) {
-                    setArmedDeleteId(entry.id)
-                    return
-                  }
-                  setArmedDeleteId(null)
-                  void forget(group, entry.id)
-                }}
-              >
-                {armedDeleteId === entry.id ? t('workbench.deleteArm') : '✕'}
-              </button>
+      {onApprovedOpenChange !== undefined && (
+        <button
+          type="button"
+          data-hover="true"
+          style={regionToggleStyle}
+          data-memory-approved-toggle="true"
+          onClick={() => { onApprovedOpenChange(!approvedVisible) }}
+        >
+          {approvedVisible ? '▾' : '▸'} {t('memory.approvedRegion')}{!approvedVisible && groups !== null ? `（${approvedCount}）` : ''}
+        </button>
+      )}
+      {approvedVisible && (
+        <>
+          {groups === null && error === null && <div style={mutedStyle}>{t('memory.loading')}</div>}
+          {groups !== null && groups.length === 0 && <div style={mutedStyle} data-memory-empty="true">{t('memory.empty')}</div>}
+          {groups?.map(group => (
+            <div key={group.scope} data-memory-group={group.scope}>
+              <div style={groupTitleStyle}>{scopeLabel(t, group.scope)}</div>
+              {group.entries.map((entry, index) => (
+                <div
+                  key={entry.id}
+                  style={{ ...rowStyle, marginTop: index === 0 ? 8 : 12 }}
+                  data-memory-entry={entry.id}
+                >
+                  <div style={textStyle}>
+                    {entry.text}
+                    {entry.date !== undefined && <div style={dateStyle}>{entry.date}</div>}
+                  </div>
+                  <button data-hover="true"
+                    type="button"
+                    style={armedDeleteId === entry.id ? armedDeleteStyle : deleteStyle}
+                    disabled={busy}
+                    data-armed={armedDeleteId === entry.id || undefined}
+                    data-memory-delete={entry.id}
+                    onClick={() => {
+                      if (armedDeleteId !== entry.id) {
+                        setArmedDeleteId(entry.id)
+                        return
+                      }
+                      setArmedDeleteId(null)
+                      void forget(group, entry.id)
+                    }}
+                  >
+                    {armedDeleteId === entry.id ? t('workbench.deleteArm') : '✕'}
+                  </button>
+                </div>
+              ))}
             </div>
           ))}
-        </div>
-      ))}
+        </>
+      )}
     </div>
   )
 }

@@ -198,7 +198,7 @@ describe('WorkbenchLayout', () => {
 describe('IntakeRail', () => {
   it('shows the four intake tabs and the 资源 tab first', async () => {
     render(<IntakeRail {...railProps()} />)
-    for (const label of ['资源', '待办', '记忆', '能力']) {
+    for (const label of ['资源', '省得', '工作区', '能力']) {
       expect(screen.getByText(label)).toBeTruthy()
     }
     expect(await screen.findByText('周报.eml')).toBeTruthy()
@@ -222,25 +222,27 @@ describe('IntakeRail', () => {
     expect(onOpenFile).toHaveBeenCalledWith('resources/周报.eml', 'read')
   })
 
-  it('renders 待办 as a board of 待办 / 已完成 panes loaded through the remote', async () => {
+  it('renders 省得 as the merged board: TODO open, DONE folded until wanted', async () => {
     const loadTodos = vi.fn(() => Promise.resolve(TODOS))
     const { container } = render(<IntakeRail {...railProps({ loadTodos })} />)
-    fireEvent.click(screen.getByText('待办'))
-    // The pane titles are asserted on their block markers: the tab itself is
-    // also named 待办, so a global text query would see both.
+    fireEvent.click(screen.getByText('省得'))
+    // The DONE pane starts collapsed (the sediment layer), so its rows are
+    // not in the DOM until the toggle opens it.
     await waitFor(() => {
       const blocks = [...container.querySelectorAll('[data-todo-block]')].map(node => node.textContent)
-      expect(blocks).toEqual(['待办+', '已完成'])
+      expect(blocks).toEqual(['待办+', '▸ 已完成（1）'])
     })
-    expect(loadTodos).toHaveBeenCalledOnce()
     expect(await screen.findByText('写下第一个待办')).toBeTruthy()
+    expect(container.querySelector('[data-todo-pane="done"]')).toBeNull()
+    fireEvent.click(screen.getByText(/已完成/))
     expect(await screen.findByText('已完成的')).toBeTruthy()
+    expect(container.querySelector('[data-todo-pane="done"]')).not.toBeNull()
   })
 
   it('opens the todo singleton in an editable tab through 打开全文', async () => {
     const onOpenFile = vi.fn()
     render(<IntakeRail {...railProps({ onOpenFile })} />)
-    fireEvent.click(screen.getByText('待办'))
+    fireEvent.click(screen.getByText('省得'))
     fireEvent.click(await screen.findByText('打开全文'))
     expect(onOpenFile).toHaveBeenCalledWith('entities/todos.md', 'edit')
   })

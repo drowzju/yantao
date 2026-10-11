@@ -26,6 +26,10 @@ export interface TodoBoardProps {
   readonly refreshKey: number
   /** Open the singleton in an editable centre-pane tab. */
   readonly onOpenFile: (path: string) => void
+  /** Controlled collapse of the DONE pane; absent keeps it always open. */
+  readonly doneOpen?: boolean
+  /** Report the human's toggle; supplied together with `doneOpen` by the 省得 merge. */
+  readonly onDoneOpenChange?: (open: boolean) => void
 }
 
 /** What the board holds of the file: the items it renders and the text a write must match. */
@@ -61,6 +65,14 @@ const errorStyle = { color: 'var(--yt-error)', padding: '4px 6px' } as const
 const mutedStyle = { color: 'var(--yt-text-muted)', padding: '4px 6px' } as const
 
 const titleStyle = { margin: '8px 0 2px', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
+
+/** A collapsible pane title (2026-10-11 省得整合): the same typography as a
+    block title, but a button — the sediment layers fold away until wanted. */
+const paneToggleStyle = {
+  ...titleStyle, display: 'flex', alignItems: 'center', gap: 4, padding: 0,
+  borderWidth: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left',
+  fontFamily: 'inherit',
+} as const
 
 /** A block header: the title on the left, the block's add gesture on the right. */
 const titleRowStyle = { ...titleStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between' } as const
@@ -271,7 +283,7 @@ function TodoEditor(props: {
  * @param props - see {@link TodoBoardProps}.
  * @returns the board element.
  */
-export function TodoBoard({ t, load, write, refreshKey, onOpenFile }: TodoBoardProps): ReactElement {
+export function TodoBoard({ t, load, write, refreshKey, onOpenFile, doneOpen, onDoneOpenChange }: TodoBoardProps): ReactElement {
   const [board, setBoard] = useState<Board | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -372,6 +384,7 @@ export function TodoBoard({ t, load, write, refreshKey, onOpenFile }: TodoBoardP
   const items = board?.items ?? []
   const { todo, done } = panes(items)
   const now = today()
+  const doneVisible = doneOpen ?? true
 
   /** Render one pane's rows, or its editor where a row expanded. */
   const renderRow = (entry: Entry): ReactElement => (
@@ -412,11 +425,25 @@ export function TodoBoard({ t, load, write, refreshKey, onOpenFile }: TodoBoardP
             {todo.length === 0 && <div style={mutedStyle}>{t('common.empty')}</div>}
             {todo.map(renderRow)}
           </div>
-          <div style={titleStyle} data-todo-block="done">{t('todo.doneColumn')}</div>
-          <div data-todo-pane="done">
-            {done.length === 0 && <div style={mutedStyle}>{t('common.empty')}</div>}
-            {done.map(renderRow)}
-          </div>
+          {onDoneOpenChange !== undefined ? (
+            <button
+              type="button"
+              data-hover="true"
+              style={paneToggleStyle}
+              data-todo-block="done"
+              onClick={() => { onDoneOpenChange(!doneVisible) }}
+            >
+              {doneVisible ? '▾' : '▸'} {t('todo.doneColumn')}{!doneVisible && done.length > 0 ? `（${done.length}）` : ''}
+            </button>
+          ) : (
+            <div style={titleStyle} data-todo-block="done">{t('todo.doneColumn')}</div>
+          )}
+          {doneVisible && (
+            <div data-todo-pane="done">
+              {done.length === 0 && <div style={mutedStyle}>{t('common.empty')}</div>}
+              {done.map(renderRow)}
+            </div>
+          )}
           <button data-hover="true"
             type="button"
             style={{ ...addStyle, marginTop: 6 }}
