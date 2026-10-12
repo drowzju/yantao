@@ -71,33 +71,33 @@ function stamp(iso: string | undefined): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString()
 }
 
-const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 8px' } as const
+const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-2)', padding: 'var(--yt-space-1) var(--yt-space-2)' } as const
 
-const mutedStyle = { color: 'var(--yt-text-muted)', fontSize: 12 } as const
+const mutedStyle = { color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)' } as const
 
-const errorStyle = { color: 'var(--yt-error)', fontSize: 12 } as const
+const errorStyle = { color: 'var(--yt-error)', fontSize: 'var(--yt-type-label)' } as const
 
-const hintStyle = { color: 'var(--yt-text-secondary)', fontSize: 12 } as const
+const hintStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
 
 const spaceCardStyle = {
-  display: 'flex', flexDirection: 'column', gap: 6, padding: '8px',
+  display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)', padding: 'var(--yt-space-2)',
   background: 'var(--yt-surface-raised)', border: '1px solid var(--yt-border-subtle)', borderRadius: 8,
 } as const
 
 const spaceTitleStyle = { margin: 0, fontSize: 'var(--yt-type-label)', fontWeight: 600, color: 'var(--yt-text-primary)' } as const
 
-const metaStyle = { color: 'var(--yt-text-secondary)', fontSize: 12 } as const
+const metaStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
 
 /** The instruction table: one row per instruction, compact meta type. */
-const tableStyle = { width: '100%', borderCollapse: 'collapse', fontSize: 12 } as const
+const tableStyle = { width: '100%', borderCollapse: 'collapse', fontSize: 'var(--yt-type-label)' } as const
 
 const thStyle = {
-  textAlign: 'left', padding: '2px 8px 2px 0', borderBottom: '1px solid var(--yt-border-subtle)',
+  textAlign: 'left', padding: 'var(--yt-space-1) var(--yt-space-2) var(--yt-space-1) 0', borderBottom: '1px solid var(--yt-border-subtle)',
   color: 'var(--yt-text-muted)', fontWeight: 500, whiteSpace: 'nowrap',
 } as const
 
 const tdStyle = {
-  padding: '4px 8px 4px 0', borderBottom: '1px solid var(--yt-border-subtle)',
+  padding: 'var(--yt-space-1) var(--yt-space-2) var(--yt-space-1) 0', borderBottom: '1px solid var(--yt-border-subtle)',
   color: 'var(--yt-text-primary)', verticalAlign: 'top',
 } as const
 
@@ -107,13 +107,13 @@ const tdNameStyle = { ...tdStyle, minWidth: 0, wordBreak: 'break-word' } as cons
 
 const tdActionsStyle = { ...tdStyle, whiteSpace: 'nowrap', textAlign: 'right', width: 1 } as const
 
-const actionsStyle = { display: 'flex', gap: 6, flexShrink: 0, justifyContent: 'flex-end' } as const
+const actionsStyle = { display: 'flex', gap: 'var(--yt-space-1)', flexShrink: 0, justifyContent: 'flex-end' } as const
 
-const buttonStyle = { padding: '1px 8px', fontSize: 12 } as const
+const buttonStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', fontSize: 'var(--yt-type-label)' } as const
 
 /** Row-action icons wear the ghost cut (DESIGN: 低频破坏性动作穿 ghost 装); the label lives in the tooltip. */
 const iconButtonStyle = {
-  flexShrink: 0, padding: '0 4px', border: 'none', background: 'transparent',
+  flexShrink: 0, padding: '0 var(--yt-space-1)', border: 'none', background: 'transparent',
   color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)', cursor: 'pointer', lineHeight: 1.5,
 } as const
 
@@ -142,38 +142,38 @@ const armedDeleteStyle = {
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-strong)',
   borderRadius: 3,
-  padding: '0 6px',
+  padding: '0 var(--yt-space-1)',
   whiteSpace: 'nowrap',
 } as const
 
 const formStyle = {
-  display: 'flex', flexDirection: 'column', gap: 8, padding: '8px',
+  display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-2)', padding: 'var(--yt-space-2)',
   background: 'var(--yt-surface-raised)', border: '1px solid var(--yt-border-subtle)', borderRadius: 8,
 } as const
 
-const inputStyle = { padding: '4px 8px', width: '100%', boxSizing: 'border-box' } as const
+const inputStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', width: '100%', boxSizing: 'border-box' } as const
 
-const formActionsStyle = { display: 'flex', gap: 8 } as const
+const formActionsStyle = { display: 'flex', gap: 'var(--yt-space-2)' } as const
 
 const addOpenStyle = { ...circledIconStyle, alignSelf: 'flex-start' } as const
 
-const stepRowStyle = { display: 'flex', gap: 6, alignItems: 'flex-start' } as const
+const stepRowStyle = { display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'flex-start' } as const
 
-const stepIndexStyle = { color: 'var(--yt-text-muted)', fontSize: 12, paddingTop: 6, flexShrink: 0 } as const
+const stepIndexStyle = { color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)', paddingTop: 'var(--yt-space-1)', flexShrink: 0 } as const
 
 const zoneTitleStyle = {
-  margin: '8px 0 2px', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-primary)',
+  margin: 'var(--yt-space-2) 0 var(--yt-space-1)', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-primary)',
 } as const
 
 const runRowStyle = {
-  display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, padding: '6px 8px', marginTop: 4,
+  display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)', minWidth: 0, padding: 'var(--yt-space-1) var(--yt-space-2)', marginTop: 'var(--yt-space-1)',
   background: 'var(--yt-surface-raised)', border: '1px solid var(--yt-border-subtle)', borderRadius: 8,
 } as const
 
-const runHeadStyle = { display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' } as const
+const runHeadStyle = { display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'baseline', flexWrap: 'wrap' } as const
 
 const resultStyle = {
-  color: 'var(--yt-text-secondary)', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+  color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
 } as const
 const collapsedResultStyle = { ...resultStyle, maxHeight: 120, overflow: 'hidden' } as const
 
@@ -233,7 +233,7 @@ function InstructionForm(props: {
         disabled={busy}
         onChange={(event) => { onChange({ cron: event.target.value }) }}
       />
-      <label style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 12 }}>
+      <label style={{ display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center', fontSize: 'var(--yt-type-label)' }}>
         <input type="checkbox" checked={draft.enabled} disabled={busy} onChange={(event) => { onChange({ enabled: event.target.checked }) }} />
         {t('workspace.enabled')}
       </label>
@@ -513,7 +513,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns }
       {spaces !== null && spaces.length === 0 && <div style={mutedStyle} data-workspace-empty="true">{t('workspace.empty')}</div>}
       {spaces?.map(space => (
         <div key={space.id} style={spaceCardStyle} data-workspace-space={space.id}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+          <div style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'baseline' }}>
             <div style={{ ...spaceTitleStyle, minWidth: 0, flex: 1 }}>{space.name}</div>
             <div style={actionsStyle}>
               <button data-hover="true" type="button" style={iconButtonStyle} disabled={busy}
@@ -638,7 +638,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns }
           )}
         </div>
       ))}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--yt-space-2)' }}>
         <div style={{ ...zoneTitleStyle, flex: 1 }}>{t('workspace.history')}</div>
         {runs !== null && runs.length > 0 && (
           <button data-hover="true" type="button"
@@ -667,7 +667,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns }
         return (
           <div key={entry.id} style={runRowStyle} data-workspace-run={entry.id} data-workspace-run-status={entry.status}>
             <div style={runHeadStyle}>
-              <strong style={{ fontSize: 12 }}>{entry.instructionName}</strong>
+              <strong style={{ fontSize: 'var(--yt-type-label)' }}>{entry.instructionName}</strong>
               <span style={mutedStyle}>
                 {entry.trigger === 'cron' ? t('workspace.triggerCron') : t('workspace.triggerManual')}
                 {' · '}{t(STATUS_KEYS[entry.status])}

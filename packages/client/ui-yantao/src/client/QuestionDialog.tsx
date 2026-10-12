@@ -38,7 +38,7 @@ const cardStyle = {
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 10,
-  padding: 16,
+  padding: 'var(--yt-space-4)',
   width: 'min(560px, 92vw)',
   maxHeight: '80vh',
   overflow: 'auto',
@@ -49,15 +49,15 @@ const cardStyle = {
   outline: 'none',
 } as const
 
-const questionStyle = { margin: '12px 0 2px', fontWeight: 600 } as const
+const questionStyle = { margin: 'var(--yt-space-3) 0 var(--yt-space-1)', fontWeight: 600 } as const
 
-const whyStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)', marginBottom: 4 } as const
+const whyStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)', marginBottom: 'var(--yt-space-1)' } as const
 
 const inputStyle = {
   display: 'block',
   width: '100%',
   boxSizing: 'border-box',
-  padding: '4px 8px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
   fontFamily: 'inherit',
@@ -66,14 +66,14 @@ const inputStyle = {
 
 const footerStyle = {
   display: 'flex',
-  gap: 8,
+  gap: 'var(--yt-space-2)',
   alignItems: 'center',
-  marginTop: 14,
-  paddingTop: 10,
+  marginTop: 'var(--yt-space-3)',
+  paddingTop: 'var(--yt-space-2)',
   borderTop: '1px solid var(--yt-border-subtle)',
 } as const
 
-const buttonStyle = { padding: '4px 10px', minHeight: 'var(--yt-control-min-h)' } as const
+const buttonStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', minHeight: 'var(--yt-control-min-h)' } as const
 
 /**
  * Render the question dialog.
@@ -98,8 +98,8 @@ export function QuestionDialog(props: {
   return (
     <div style={panelStyle} data-question-dialog="true" onKeyDown={onPanelKeyDown}>
       <div style={cardStyle} role="dialog" aria-modal="true" aria-label={t('workbench.questionTitle')} tabIndex={-1} ref={cardRef}>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>{t('workbench.questionTitle')}</div>
-        {run.reason !== '' && <div style={{ ...whyStyle, marginTop: 2 }}>{run.reason}</div>}
+        <div style={{ fontSize: 'var(--yt-type-body)', fontWeight: 600 }}>{t('workbench.questionTitle')}</div>
+        {run.reason !== '' && <div style={{ ...whyStyle, marginTop: 'var(--yt-space-1)' }}>{run.reason}</div>}
         {questions.map((question, index) => (
           <div key={index}>
             <div style={questionStyle}>{question.question}</div>

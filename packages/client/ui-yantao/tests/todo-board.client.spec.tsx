@@ -231,12 +231,20 @@ describe('TodoBoard', () => {
     expect(written(write).items[0]?.due).toBeUndefined()
   })
 
-  it('drops one item through its delete affordance', async () => {
+  it('drops one item through its delete affordance — two-click armed (P1-1, 2026-10-12)', async () => {
     const write: WriteSpy = vi.fn(() => Promise.resolve({ path: PATH, text: TEXT }))
     render(<TodoBoard {...props({ write })} />)
     await screen.findByText('有期限')
+    const del = screen.getAllByTitle('删除')[0] as HTMLElement
+    // 首击只武装：按钮换「确认删除？」，什么都不写。
     await act(async () => {
-      fireEvent.click(screen.getAllByTitle('删除')[0] as HTMLElement)
+      fireEvent.click(del)
+    })
+    expect(screen.getByText('确认删除？')).toBeTruthy()
+    expect(write).not.toHaveBeenCalled()
+    // 再击同一颗钮才执行。
+    await act(async () => {
+      fireEvent.click(screen.getByText('确认删除？'))
     })
     expect(written(write).items.map(item => item.title)).toEqual(['没期限', '已完成'])
   })

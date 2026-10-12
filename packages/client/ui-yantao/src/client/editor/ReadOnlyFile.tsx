@@ -36,18 +36,18 @@ const wrapStyle = {
 } as const
 
 const bannerStyle = {
-  padding: '4px 8px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   background: 'var(--yt-surface-secondary)',
   color: 'var(--yt-text-secondary)',
 } as const
 
-const errorStyle = { padding: '4px 8px', background: 'var(--yt-error-bg)', color: 'var(--yt-error)' } as const
+const errorStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', background: 'var(--yt-error-bg)', color: 'var(--yt-error)' } as const
 
 const preStyle = {
   flex: 1,
   minHeight: 0,
   margin: 0,
-  padding: 8,
+  padding: 'var(--yt-space-2)',
   overflow: 'auto',
   whiteSpace: 'pre-wrap',
   fontFamily: 'var(--yt-font-code)',
@@ -69,11 +69,11 @@ const frameStyle = {
 } as const
 
 const headGridStyle = {
-  padding: '6px 8px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   borderBottom: '1px solid var(--yt-border-subtle)',
   display: 'grid',
   gridTemplateColumns: 'max-content 1fr',
-  gap: '2px 10px',
+  gap: 'var(--yt-space-1) var(--yt-space-2)',
   background: 'var(--yt-surface-secondary)',
   // A long 收件人 list folds into dozens of lines; uncapped it swallows the
   // pane and squeezes the body iframe (flex:1, minHeight:0) to zero height —
@@ -85,10 +85,10 @@ const headGridStyle = {
 const headKeyStyle = { color: 'var(--yt-text-secondary)' } as const
 
 const attachmentRowStyle = {
-  padding: '2px 8px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   borderBottom: '1px solid var(--yt-border-subtle)',
   display: 'flex',
-  gap: 8,
+  gap: 'var(--yt-space-2)',
   alignItems: 'baseline',
 } as const
 

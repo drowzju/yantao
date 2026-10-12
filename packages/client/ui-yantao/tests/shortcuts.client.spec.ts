@@ -13,8 +13,9 @@ import { type PanelToggles } from '../src/client/frame/layout.ts'
 import { WORKBENCH_NS, en, zh } from '../src/client/locales.ts'
 
 const context = { region: 'page', modal: null, target: null } as const
+/** Ctrl+chord by default; pass `{ shift: true }` for the two-modifier chords. */
 const key = (code: string, rest: Partial<ShortcutGesture> = {}): ShortcutGesture => ({
-  code, control: true, alt: false, shift: true, meta: false, repeat: false,
+  code, control: true, alt: false, shift: false, meta: false, repeat: false,
   composing: false, defaultPrevented: false, ...rest,
 })
 
@@ -22,13 +23,12 @@ const key = (code: string, rest: Partial<ShortcutGesture> = {}): ShortcutGesture
 function recordPanels() {
   const tabs: string[] = []
   const config: boolean[] = []
-  const intakes = vi.fn()
   const panels: PanelToggles = {
-    toggleIntake: () => { intakes() },
+    toggleIntake: () => {},
     activateTab: (tab) => { tabs.push(tab) },
     setConfigOpen: (open) => { config.push(open) },
   }
-  return { panels, tabs, config, intakes }
+  return { panels, tabs, config }
 }
 
 async function bench(runtime: 'web' | 'desktop' = 'web', platform: ShortcutPlatform = 'windows') {
@@ -55,25 +55,23 @@ async function bench(runtime: 'web' | 'desktop' = 'web', platform: ShortcutPlatf
 afterEach(() => { vi.restoreAllMocks() })
 
 describe('workbench keyboard commands', () => {
-  it('registers the five commands in table order, each with a binding', async () => {
+  it('registers the four commands in table order, each with a binding', async () => {
     const b = await bench()
     expect(b.registry.catalog.getSnapshot().map(row => row.id)).toEqual([
       ...WORKBENCH_TAB_JUMPS.map(jump => `yantao.tab.${jump.tail}`),
-      'yantao.config.open', 'yantao.rail.intake',
+      'yantao.config.open',
     ])
     expect(b.registry.catalog.getSnapshot().every(row => row.keys.length > 0)).toBe(true)
   })
 
-  it('binds Ctrl+Shift chords on web/windows and Cmd+Opt chords on desktop/macos', async () => {
+  it('binds Ctrl+digit jumps and Ctrl+Shift config on web/windows, Cmd+Opt chords on desktop/macos', async () => {
     const b = await bench()
     expect(b.registry.catalog.getSnapshot().map(row => row.aria)).toEqual([
-      'Control+Shift+1', 'Control+Shift+2', 'Control+Shift+3',
-      'Control+Shift+,', 'Control+Shift+B',
+      'Control+1', 'Control+2', 'Control+3', 'Control+Shift+,',
     ])
     const mac = await bench('desktop', 'macos')
     expect(mac.registry.catalog.getSnapshot().map(row => row.keys)).toEqual([
-      ['⌥', '⌘', '1'], ['⌥', '⌘', '2'], ['⌥', '⌘', '3'],
-      ['⌥', '⌘', ','], ['⌥', '⌘', 'B'],
+      ['⌥', '⌘', '1'], ['⌥', '⌘', '2'], ['⌥', '⌘', '3'], ['⌥', '⌘', ','],
     ])
   })
 
@@ -84,10 +82,8 @@ describe('workbench keyboard commands', () => {
     expect(b.registry.dispatch(key('Digit3'), { ...context, region: 'editable' }, consume))
       .toMatchObject({ status: 'handled', commandId: 'yantao.tab.insights' })
     expect(b.tabs).toEqual(['conversation', 'insights'])
-    expect(b.registry.dispatch(key('Comma'), context, consume).commandId).toBe('yantao.config.open')
+    expect(b.registry.dispatch(key('Comma', { shift: true }), context, consume).commandId).toBe('yantao.config.open')
     expect(b.config).toEqual([true])
-    expect(b.registry.dispatch(key('KeyB'), context, consume).commandId).toBe('yantao.rail.intake')
-    expect(b.intakes).toHaveBeenCalledOnce()
   })
 
   it('blocks while a modal is open and passes composed input through', async () => {
@@ -106,11 +102,11 @@ describe('workbench keyboard commands', () => {
     expect(b.registry.catalog.getSnapshot()).toEqual([])
   })
 
-  it('leaves web/linux unbound — the browser whitelist has no Ctrl+Shift branch there', async () => {
+  it('leaves web/linux unbound — the browser whitelist has no branch for these chords there', async () => {
     const b = await bench('web', 'linux')
     expect(b.registry.catalog.getSnapshot().map(row => row.id)).toEqual([
       ...WORKBENCH_TAB_JUMPS.map(jump => `yantao.tab.${jump.tail}`),
-      'yantao.config.open', 'yantao.rail.intake',
+      'yantao.config.open',
     ])
     expect(b.registry.catalog.getSnapshot().every(row => row.keys.length === 0 && row.aria === undefined)).toBe(true)
   })

@@ -34,7 +34,7 @@ const cardStyle = {
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 10,
-  padding: 16,
+  padding: 'var(--yt-space-4)',
   width: 'min(560px, 92vw)',
   maxHeight: '80vh',
   // 头底固定、仅中段滚动（2026-10-09 评审 P2）：此前整卡 overflow:auto，
@@ -54,8 +54,8 @@ const cardScrollStyle = {
   minHeight: 0,
   overflowY: 'auto',
   // 吃掉卡自身的左右 padding，让滚动条贴卡缘；内容再用 padding 补回。
-  margin: '0 -16px',
-  padding: '0 16px',
+  margin: '0 calc(-1 * var(--yt-space-4))',
+  padding: '0 var(--yt-space-4)',
 } as const
 
 // 层级秩序（2026-09-30 展示修订）：片区有物理边界，组头是全卡最大的字，
@@ -64,41 +64,41 @@ const cardScrollStyle = {
 const groupContainerStyle = {
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 8,
-  padding: '8px 10px',
-  marginTop: 10,
+  padding: 'var(--yt-space-2)',
+  marginTop: 'var(--yt-space-2)',
 } as const
 
-const groupTitleStyle = { margin: '0 0 6px', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-primary)' } as const
+const groupTitleStyle = { margin: '0 0 var(--yt-space-2)', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-primary)' } as const
 
 /** A section title sitting outside any group envelope (findings, suggestions). */
-const sectionTitleStyle = { ...groupTitleStyle, margin: '12px 0 4px' } as const
+const sectionTitleStyle = { ...groupTitleStyle, margin: 'var(--yt-space-3) 0 var(--yt-space-1)' } as const
 
 /** A folded block's title inside the flex header row (digest, prescan): no margins —
     the row's own alignment decides. */
 const foldTitleStyle = { ...groupTitleStyle, margin: 0 } as const
 
-const focusTitleStyle = { margin: '12px 0 4px', fontSize: 'var(--yt-type-section)', fontWeight: 700, color: 'var(--yt-error)' } as const
+const focusTitleStyle = { margin: 'var(--yt-space-3) 0 var(--yt-space-1)', fontSize: 'var(--yt-type-section)', fontWeight: 700, color: 'var(--yt-error)' } as const
 
 const focusRowStyle = {
   display: 'flex',
-  gap: 8,
+  gap: 'var(--yt-space-2)',
   alignItems: 'baseline',
-  padding: '4px 6px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   background: 'var(--yt-error-bg)',
   borderRadius: 6,
   fontSize: 'var(--yt-type-label)',
 } as const
 
-const rowStyle = { display: 'flex', gap: 8, alignItems: 'flex-start', padding: '4px 0' } as const
+const rowStyle = { display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'flex-start', padding: 'var(--yt-space-1) 0' } as const
 
 const detailStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
 
-const summaryRowStyle = { display: 'flex', gap: 8, alignItems: 'center', padding: '2px 0' } as const
+const summaryRowStyle = { display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center', padding: 'var(--yt-space-1) 0' } as const
 
 const summaryTextStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
 
 const toggleStyle = {
-  padding: '1px 6px',
+  padding: '0 var(--yt-space-2)',
   fontSize: 'var(--yt-type-label)',
   color: 'var(--yt-text-secondary)',
   background: 'transparent',
@@ -113,10 +113,10 @@ const toggleStyle = {
    checkbox's aria-label and the title attribute still carry the full subject. */
 const subHeaderStyle = {
   display: 'inline-flex',
-  gap: 6,
+  gap: 'var(--yt-space-2)',
   alignItems: 'center',
-  margin: '2px 0 4px',
-  padding: '1px 8px',
+  margin: 'var(--yt-space-1) 0',
+  padding: '0 var(--yt-space-2)',
   maxWidth: '100%',
   fontSize: 'var(--yt-type-label)',
   fontWeight: 600,
@@ -140,8 +140,8 @@ const subHeaderTextStyle = {
    mail layer header, quieter (4px radius, no 600-weight sentence). */
 const supplementChipStyle = {
   display: 'inline-block',
-  marginRight: 6,
-  padding: '0 5px',
+  marginRight: 'var(--yt-space-2)',
+  padding: '0 var(--yt-space-1)',
   fontWeight: 600,
   color: 'var(--yt-text-secondary)',
   background: 'var(--yt-accent-bg)',
@@ -151,20 +151,20 @@ const supplementChipStyle = {
 
 /** A mail layer's rows indent under their chip, so the layer reads as a layer
    and not as a run of sibling rows (P1: chip and rows used to share one left edge). */
-const layerRowsStyle = { paddingLeft: 18 } as const
+const layerRowsStyle = { paddingLeft: 'var(--yt-space-4)' } as const
 
 const instructionStyle = {
   display: 'flex',
-  gap: 8,
-  marginTop: 12,
-  paddingTop: 10,
+  gap: 'var(--yt-space-2)',
+  marginTop: 'var(--yt-space-3)',
+  paddingTop: 'var(--yt-space-2)',
   borderTop: '1px solid var(--yt-border-subtle)',
 } as const
 
 const inputStyle = {
   flex: 1,
   minWidth: 0,
-  padding: '4px 8px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
   fontFamily: 'inherit',
@@ -175,18 +175,18 @@ const inputStyle = {
 
 const footerStyle = {
   display: 'flex',
-  gap: 8,
+  gap: 'var(--yt-space-2)',
   alignItems: 'center',
   flexShrink: 0,
-  marginTop: 14,
-  paddingTop: 10,
+  marginTop: 'var(--yt-space-4)',
+  paddingTop: 'var(--yt-space-2)',
   borderTop: '1px solid var(--yt-border-subtle)',
 } as const
 
 /** Esc 武装警示条（2026-10-09）：警告语义走语义色 token，不新造颜色。 */
 const escArmStyle = {
   margin: 0,
-  padding: '6px 8px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   borderRadius: 6,
   background: 'var(--yt-warning-bg)',
   color: 'var(--yt-warning-text)',
@@ -272,8 +272,8 @@ function targetOfLink(link: string): string {
 
 /** The skill-rewrite diff block's styles: monospace, quietly striped. */
 const diffBoxStyle = {
-  margin: '4px 0 2px',
-  padding: '6px 8px',
+  margin: 'var(--yt-space-1) 0 var(--yt-space-1)',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   background: 'var(--yt-surface-secondary)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 6,
@@ -750,14 +750,14 @@ export function ProposalCard(props: {
                             repeats it); the grid keeps wrapped rows on an even mesh
                             instead of orphaning one box per line. */}
                           {areasControl && proposal.areas !== undefined && (
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', marginTop: 2 }} data-proposal-areas={index}>
+                            <div style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'baseline', marginTop: 'var(--yt-space-1)' }} data-proposal-areas={index}>
                               <span style={detailStyle}>{t('proposal.areas')}</span>
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: '2px 8px', flex: 1 }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 'var(--yt-space-1) var(--yt-space-2)', flex: 1 }}>
                                 {proposal.areas.map((area) => {
                                   const current = areaPicks[index] ?? action.areas ?? []
                                   const on = current.includes(area)
                                   return (
-                                    <label key={area} style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 'var(--yt-type-label)' }}>
+                                    <label key={area} style={{ display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center', fontSize: 'var(--yt-type-label)' }}>
                                       <input
                                         type="checkbox"
                                         aria-label={`${action.name}·${area}`}
@@ -798,7 +798,7 @@ export function ProposalCard(props: {
       >
         <div style={{ flexShrink: 0 }}>
           <div style={{ fontSize: 'var(--yt-type-title)', fontWeight: 600 }}>{proposal.title}</div>
-          {proposal.note !== undefined && <div style={{ ...detailStyle, marginTop: 2 }}>{proposal.note}</div>}
+          {proposal.note !== undefined && <div style={{ ...detailStyle, marginTop: 'var(--yt-space-1)' }}>{proposal.note}</div>}
         </div>
         <div style={cardScrollStyle}>
           {proposal.highlights !== undefined && proposal.highlights.length > 0 && (
@@ -892,7 +892,7 @@ export function ProposalCard(props: {
               ))}
             </div>
           )}
-          {nothing && <div style={{ ...detailStyle, marginTop: 10 }}>{t('proposal.empty')}</div>}
+          {nothing && <div style={{ ...detailStyle, marginTop: 'var(--yt-space-2)' }}>{t('proposal.empty')}</div>}
           {/* The model block's base is where its rows start in the canonical
             tick order — prescan length under the disjoint contract, derived
             from the one concatenation rather than re-derived here. The

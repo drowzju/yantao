@@ -12,6 +12,8 @@ import type { KbTodoItem, KbWriteTodosArgs } from '@deepseek-ai/dsh-api-yantao-k
 import type { TodoLoader, TodoWriter } from './remote.ts'
 import { remoteMessage } from './remote.ts'
 import type { WorkbenchT } from './locales.ts'
+import { ghostButtonStyle, primaryButtonStyle, raisedButtonStyle } from './buttons.ts'
+import { useArmedAction } from './use-armed-action.ts'
 import css from './TodoBoard.module.css'
 
 /** Board props. */
@@ -58,18 +60,18 @@ function blank(): KbTodoItem {
   return { done: false, title: '', body: '', extra: [] }
 }
 
-const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 2 } as const
+const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)' } as const
 
-const errorStyle = { color: 'var(--yt-error)', padding: '4px 6px' } as const
+const errorStyle = { color: 'var(--yt-error)', padding: 'var(--yt-space-1) var(--yt-space-2)' } as const
 
-const mutedStyle = { color: 'var(--yt-text-muted)', padding: '4px 6px' } as const
+const mutedStyle = { color: 'var(--yt-text-muted)', padding: 'var(--yt-space-1) var(--yt-space-2)' } as const
 
-const titleStyle = { margin: '8px 0 2px', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
+const titleStyle = { margin: 'var(--yt-space-2) 0 var(--yt-space-1)', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
 
 /** A collapsible pane title (2026-10-11 省得整合): the same typography as a
     block title, but a button — the sediment layers fold away until wanted. */
 const paneToggleStyle = {
-  ...titleStyle, display: 'flex', alignItems: 'center', gap: 4, padding: 0,
+  ...titleStyle, display: 'flex', alignItems: 'center', gap: 'var(--yt-space-1)', padding: 0,
   borderWidth: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left',
   fontFamily: 'inherit',
 } as const
@@ -78,7 +80,7 @@ const paneToggleStyle = {
 const titleRowStyle = { ...titleStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between' } as const
 
 /** Baseline alignment: the checkbox and the date ride the title's first text baseline. */
-const rowStyle = { display: 'flex', gap: 6, alignItems: 'baseline', padding: '2px 6px' } as const
+const rowStyle = { display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'baseline', padding: 'var(--yt-space-1) var(--yt-space-2)' } as const
 
 /** A deadline is plain coloured text — urgency is colour, not chrome (DESIGN.md §2.5, §8). */
 const dueStyle = { fontSize: 'var(--yt-type-label)', color: 'var(--yt-text-muted)', whiteSpace: 'nowrap' } as const
@@ -93,13 +95,24 @@ const doneTitleStyle = { color: 'var(--yt-text-muted)', textDecoration: 'line-th
 
 const titleButtonStyle = { cursor: 'pointer', flex: 1, minWidth: 0, textAlign: 'left' } as const
 
-const editorStyle = { display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 6px 8px 26px' } as const
+const editorStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)', padding: 'var(--yt-space-1) var(--yt-space-2) var(--yt-space-2) var(--yt-space-5)' } as const
 
 const fieldStyle = { width: '100%', boxSizing: 'border-box' } as const
 
-const buttonStyle = { padding: '2px 6px' } as const
+/** The armed delete's inline face: danger ink on the raised surface, the same
+    cut MemoryPanel's armed ✕ wears — it must override the css.action hover
+    chrome, so it rides as an inline style only while armed. */
+const armedDeleteFace = {
+  color: 'var(--yt-error)',
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-border-strong)',
+  borderRadius: 3,
+  whiteSpace: 'nowrap',
+} as const
 
-const addStyle = { ...buttonStyle, alignSelf: 'flex-start', marginTop: 2 } as const
+/** The block-header add gesture and the 打开全文 affordance: the shared
+    raised face (P1-2 收敛) — this board's bare UA buttons are gone. */
+const addStyle = { ...raisedButtonStyle, alignSelf: 'flex-start' } as const
 
 /** Today as a YYYY-MM-DD stamp, in the human's own timezone. */
 function today(): string {
@@ -194,6 +207,8 @@ function TodoRow(props: {
   readonly entry: Entry
   readonly now: string
   readonly disabled: boolean
+  /** True while this row's delete is armed (two-click, P1-1 收敛). */
+  readonly armed: boolean
   readonly onToggle: () => void
   readonly onEdit: () => void
   readonly onRemove: () => void
@@ -226,7 +241,18 @@ function TodoRow(props: {
       )}
       <span className={css.actions}>
         <button data-hover="true" type="button" className={css.action} title={props.t('todo.edit')} disabled={props.disabled} onClick={props.onEdit}>…</button>
-        <button data-hover="true" type="button" className={css.action} title={props.t('todo.delete')} disabled={props.disabled} onClick={props.onRemove}>×</button>
+        <button
+          data-hover="true"
+          type="button"
+          className={css.action}
+          style={props.armed ? armedDeleteFace : undefined}
+          data-armed={props.armed || undefined}
+          title={props.t('todo.delete')}
+          disabled={props.disabled}
+          onClick={props.onRemove}
+        >
+          {props.armed ? props.t('workbench.deleteArm') : '×'}
+        </button>
       </span>
     </div>
   )
@@ -270,9 +296,9 @@ function TodoEditor(props: {
         style={fieldStyle}
         onChange={(event) => { props.onDraft({ ...draft, body: event.target.value }) }}
       />
-      <div style={{ display: 'flex', gap: 4 }}>
-        <button data-hover="true" type="button" style={buttonStyle} onClick={props.onSave}>{t('todo.save')}</button>
-        <button data-hover="true" type="button" style={buttonStyle} onClick={props.onCancel}>{t('common.cancel')}</button>
+      <div style={{ display: 'flex', gap: 'var(--yt-space-1)' }}>
+        <button data-hover="true" type="button" style={primaryButtonStyle} onClick={props.onSave}>{t('todo.save')}</button>
+        <button data-hover="true" type="button" style={ghostButtonStyle} onClick={props.onCancel}>{t('common.cancel')}</button>
       </div>
     </div>
   )
@@ -291,6 +317,9 @@ export function TodoBoard({ t, load, write, refreshKey, onOpenFile, doneOpen, on
   /** The index of an item added locally and not yet written; 取消 drops it. */
   const [adding, setAdding] = useState<number | null>(null)
   const [draft, setDraft] = useState<Draft>({ title: '', due: '', body: '' })
+  // 行删除的两击武装（P1-1 收敛，2026-10-12）：× 首击只武装该行，再击才
+  // 执行；此前这里是全工作台唯二的即时删除之一。展开编辑即解除。
+  const { armedId: armedDeleteId, attempt: attemptDelete, disarm: disarmDelete } = useArmedAction()
   // Every loader is a fresh closure on each render (inject face), so the
   // effects and the write path reach them through a ref.
   const latest = useRef({ load, write })
@@ -349,6 +378,7 @@ export function TodoBoard({ t, load, write, refreshKey, onOpenFile, doneOpen, on
   const openEditor = (index: number): void => {
     const item = board?.items[index]
     if (item === undefined) return
+    disarmDelete()
     setEditing(index)
     setDraft({ title: item.title, due: item.due ?? '', body: item.body })
   }
@@ -356,6 +386,7 @@ export function TodoBoard({ t, load, write, refreshKey, onOpenFile, doneOpen, on
   /** Append a blank item and open it; the host refuses it until it has a title. */
   const add = (): void => {
     if (board === null) return
+    disarmDelete()
     const index = board.items.length
     setBoard({ ...board, items: [...board.items, blank()] })
     setAdding(index)
@@ -397,9 +428,12 @@ export function TodoBoard({ t, load, write, refreshKey, onOpenFile, doneOpen, on
           disabled={busy}
           onToggle={() => { replace(entry.index, flipped(entry.item, !entry.item.done)) }}
           onEdit={() => { openEditor(entry.index) }}
+          armed={armedDeleteId === String(entry.index)}
           onRemove={() => {
-            if (board === null) return
-            commit(board.items.filter((_item, at) => at !== entry.index))
+            attemptDelete(String(entry.index), () => {
+              if (board === null) return
+              commit(board.items.filter((_item, at) => at !== entry.index))
+            })
           }}
         />
       )}
@@ -446,7 +480,7 @@ export function TodoBoard({ t, load, write, refreshKey, onOpenFile, doneOpen, on
           )}
           <button data-hover="true"
             type="button"
-            style={{ ...addStyle, marginTop: 6 }}
+            style={{ ...addStyle, marginTop: 'var(--yt-space-2)' }}
             onClick={() => { onOpenFile(board.path) }}
           >
             {t('todo.openFull')}

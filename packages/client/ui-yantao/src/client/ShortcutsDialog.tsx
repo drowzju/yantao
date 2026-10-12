@@ -36,14 +36,14 @@ const cardStyle = {
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 10,
-  padding: 16,
+  padding: 'var(--yt-space-4)',
   width: 'min(420px, 92vw)',
   maxHeight: '70vh',
   overflow: 'auto',
   boxShadow: 'var(--yt-shadow-overlay)',
   display: 'flex',
   flexDirection: 'column',
-  gap: 12,
+  gap: 'var(--yt-space-3)',
   outline: 'none',
 } as const
 
@@ -61,8 +61,8 @@ const rowStyle = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  gap: 12,
-  padding: '7px 0',
+  gap: 'var(--yt-space-3)',
+  padding: 'var(--yt-space-2) 0',
 } as const
 
 const rowBorderStyle = { borderBottom: '1px solid var(--yt-border-subtle)' } as const
@@ -74,7 +74,7 @@ const emptyStyle = { margin: 0, color: 'var(--yt-text-secondary)', fontSize: 'va
 const unboundStyle = { color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)' } as const
 
 const closeButtonStyle = {
-  padding: '2px 10px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   minHeight: 'var(--yt-control-min-h)',
   boxSizing: 'border-box',
   background: 'transparent',

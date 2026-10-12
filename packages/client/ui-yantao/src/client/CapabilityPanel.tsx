@@ -28,6 +28,9 @@ import type {
 import { remoteMessage } from './remote.ts'
 import { NewEntityRow } from './NewEntityRow.tsx'
 import type { WorkbenchT } from './locales.ts'
+import { raisedButtonStyle, toolButtonStyle } from './buttons.ts'
+import { useArmedAction } from './use-armed-action.ts'
+import { formatStamp } from './stamp.ts'
 
 /** What the panel needs from the Remote and the frame. */
 export interface CapabilityPanelProps {
@@ -62,14 +65,14 @@ export interface CapabilityPanelProps {
   readonly fillShortcut: ShortcutFiller
 }
 
-const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' } as const
+const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-2)', padding: 'var(--yt-space-1) var(--yt-space-2)' } as const
 
 const rowStyle = {
   display: 'block',
   width: '100%',
   textAlign: 'left',
-  padding: '4px 6px',
-  margin: '1px 0',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
+  margin: 0,
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: 'transparent',
@@ -78,7 +81,9 @@ const rowStyle = {
   cursor: 'pointer',
 } as const
 
-const buttonStyle = { padding: '3px 8px', alignSelf: 'flex-start' } as const
+/** 表单行次级钮收敛到 ./buttons.ts 的 raised 面（P1-2 收敛，2026-10-12）——
+    此前的裸 UA 按钮没有最小命中高度。 */
+const buttonStyle = { ...raisedButtonStyle, alignSelf: 'flex-start' } as const
 
 const nameStyle = { fontWeight: 600 } as const
 
@@ -87,22 +92,22 @@ const mutedStyle = { color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-lab
 /** One 可达性 checkbox row: block-level, so the three options stack on their
    own lines instead of flowing inline (they used to separate only by text
    wrap luck, and the 注销 button tailed the third row). */
-const reachLabelStyle = { ...mutedStyle, display: 'block', margin: '2px 0' } as const
+const reachLabelStyle = { ...mutedStyle, display: 'block', margin: 'var(--yt-space-1) 0' } as const
 
 const errorStyle = { color: 'var(--yt-error)', fontSize: 'var(--yt-type-label)' } as const
 
-const titleStyle = { margin: '4px 0 2px', fontSize: 'var(--yt-type-body)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
+const titleStyle = { margin: 'var(--yt-space-1) 0 var(--yt-space-1)', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
 
 /** The 能力清单 heading: a wider top margin separates it from the 惯用提示词 section above. */
-const inventoryHeadingStyle = { ...titleStyle, marginTop: 14 } as const
+const inventoryHeadingStyle = { ...titleStyle, marginTop: 'var(--yt-space-4)' } as const
 
 const greyedNameStyle = { fontWeight: 600, color: 'var(--yt-text-muted)' } as const
 
 const confirmStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 6,
-  padding: 8,
+  gap: 'var(--yt-space-2)',
+  padding: 'var(--yt-space-2)',
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: 'var(--yt-border-strong)',
@@ -117,12 +122,12 @@ const codeStyle = {
   fontFamily: CODE_FONT,
   fontSize: 'var(--yt-type-label)',
   background: 'var(--yt-surface-secondary)',
-  padding: '2px 4px',
-  borderRadius: 3,
+  padding: '0 var(--yt-space-1)',
+  borderRadius: 4,
   wordBreak: 'break-all',
 } as const
 
-const confirmButtonRowStyle = { display: 'flex', gap: 8 } as const
+const confirmButtonRowStyle = { display: 'flex', gap: 'var(--yt-space-2)' } as const
 
 /** The reach checkboxes the register dialog offers; the type is never asked — registration always writes an instruction capability. */
 interface RegisterReach {
@@ -204,7 +209,7 @@ const clampedMutedStyle = {
   overflow: 'hidden',
 } as const
 
-const shortcutRowStyle = { display: 'flex', alignItems: 'flex-start', gap: 2, margin: '1px 0' } as const
+const shortcutRowStyle = { display: 'flex', alignItems: 'flex-start', gap: 'var(--yt-space-1)', margin: 0 } as const
 
 /**
  * One shortcut's expansion line: a leading `/command` (the skill-invocation
@@ -225,20 +230,23 @@ const shortcutMainStyle = {
   minWidth: 0,
 } as const
 
-const shortcutToolStyle = {
-  border: 'none',
-  background: 'transparent',
-  cursor: 'pointer',
-  padding: '4px 3px',
-  color: 'var(--yt-text-muted)',
-  fontSize: 'var(--yt-type-label)',
+// 行内小工具钮（↑↓ / 编辑 / 删除）收敛到 ./buttons.ts 的 tool 面
+// （P1-2 收敛，2026-10-12）——私养的微缩版退役。
+
+/** The armed delete's inline face: danger ink on the raised surface (P1-1). */
+const armedToolFace = {
+  color: 'var(--yt-error)',
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-border-strong)',
+  borderRadius: 3,
+  whiteSpace: 'nowrap',
 } as const
 
 const shortcutFormStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 6,
-  padding: 8,
+  gap: 'var(--yt-space-2)',
+  padding: 'var(--yt-space-2)',
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: 'var(--yt-border-strong)',
@@ -249,7 +257,7 @@ const shortcutFormStyle = {
 const inputStyle = {
   width: '100%',
   boxSizing: 'border-box',
-  padding: '3px 6px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: 'var(--yt-border-subtle)',
@@ -294,6 +302,9 @@ function ShortcutSection({
   const [editing, setEditing] = useState<ShortcutEditing | null>(null)
   const [alias, setAlias] = useState('')
   const [text, setText] = useState('')
+  // 行删除的两击武装（P1-1 收敛，2026-10-12）：删除首击只武装，再击才执行；
+  // 此前这里是全工作台唯二的即时删除之一。进入任一编辑态即解除。
+  const { armedId, attempt, disarm } = useArmedAction()
   // Fresh closures from the inject face: read through a ref, like the panel.
   const latest = useRef({ load, save, fill })
   latest.current = { load, save, fill }
@@ -323,6 +334,7 @@ function ShortcutSection({
   }
 
   const openAdd = (): void => {
+    disarm()
     setEditing('new')
     setAlias('')
     setText('')
@@ -331,6 +343,7 @@ function ShortcutSection({
   const openEdit = (index: number): void => {
     const shortcut = shortcuts?.[index]
     if (shortcut === undefined) return
+    disarm()
     setEditing(index)
     setAlias(shortcut.alias)
     setText(shortcut.text)
@@ -386,7 +399,7 @@ function ShortcutSection({
 
   return (
     <div data-shortcut-section="true">
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--yt-space-2)' }}>
         <div style={titleStyle}>{t('shortcut.heading')}</div>
         {editing === null && (
           <button data-hover="true" type="button" style={{ ...buttonStyle, marginLeft: 'auto' }} onClick={openAdd}>
@@ -417,18 +430,25 @@ function ShortcutSection({
               <span style={nameStyle}>/{shortcut.alias}</span>
               <div style={mutedStyle}>{shortcutTextOf(shortcut.text)}</div>
             </button>
-            <button data-hover="true" type="button" style={shortcutToolStyle} disabled={index === 0} title={t('shortcut.up')}
+            <button data-hover="true" type="button" style={toolButtonStyle} disabled={index === 0} title={t('shortcut.up')}
               onClick={() => { void move(index, -1) }}
             >↑</button>
-            <button data-hover="true" type="button" style={shortcutToolStyle} disabled={index === shortcuts.length - 1} title={t('shortcut.down')}
+            <button data-hover="true" type="button" style={toolButtonStyle} disabled={index === shortcuts.length - 1} title={t('shortcut.down')}
               onClick={() => { void move(index, 1) }}
             >↓</button>
-            <button data-hover="true" type="button" style={shortcutToolStyle} title={t('shortcut.edit')}
+            <button data-hover="true" type="button" style={toolButtonStyle} title={t('shortcut.edit')}
               onClick={() => { openEdit(index) }}
             >{t('shortcut.edit')}</button>
-            <button data-hover="true" type="button" style={shortcutToolStyle} title={t('shortcut.delete')}
-              onClick={() => { void remove(index) }}
-            >{t('shortcut.delete')}</button>
+            <button
+              data-hover="true"
+              type="button"
+              style={armedId === String(index) ? { ...toolButtonStyle, ...armedToolFace } : toolButtonStyle}
+              data-armed={armedId === String(index) || undefined}
+              title={t('shortcut.delete')}
+              onClick={() => { attempt(String(index), () => { void remove(index) }) }}
+            >
+              {armedId === String(index) ? t('workbench.deleteArm') : t('shortcut.delete')}
+            </button>
           </div>
         )
       ))}
@@ -555,7 +575,7 @@ function ReachSection({
       {!confirmingUnregister ? (
         <button data-hover="true"
           type="button"
-          style={{ ...buttonStyle, marginTop: 6 }}
+          style={{ ...buttonStyle, marginTop: 'var(--yt-space-2)' }}
           disabled={busy}
           data-capability-unregister="true"
           onClick={() => { setConfirmingUnregister(true) }}
@@ -597,16 +617,13 @@ function routeRawOf(capability: KbCapabilitySummary): string {
 /**
  * Local wall-clock for the run summary (P5): the store's ISO stamps used to
  * reach the panel verbatim — `2026-10-09T04:03:50.813Z`, UTC noise and all.
- * Renders `YYYY-MM-DD HH:mm` in the human's own timezone; an unparseable
- * stamp degrades to its raw text rather than lying.
+ * Renders through the shared `formatStamp`（P3-1 收敛，2026-10-12——全工作台
+ * 一个口径）; an unparseable stamp degrades to its raw text rather than lying.
  * @param stamp - the persisted ISO timestamp.
  * @returns the display text.
  */
 function formatRunAt(stamp: string): string {
-  const at = new Date(stamp)
-  if (Number.isNaN(at.getTime())) return stamp
-  const pad = (value: number): string => `${value}`.padStart(2, '0')
-  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
+  return Number.isNaN(new Date(stamp).getTime()) ? stamp : formatStamp(stamp)
 }
 
 /**

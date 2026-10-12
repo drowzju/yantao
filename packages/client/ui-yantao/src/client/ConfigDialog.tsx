@@ -33,14 +33,14 @@ const cardStyle = {
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 10,
-  padding: 16,
+  padding: 'var(--yt-space-4)',
   width: 'min(520px, 92vw)',
   maxHeight: '80vh',
   overflow: 'auto',
   boxShadow: 'var(--yt-shadow-overlay)',
   display: 'flex',
   flexDirection: 'column',
-  gap: 10,
+  gap: 'var(--yt-space-2)',
   // 卡自身接收初始焦点（tabIndex=-1）；轮廓交给卡内的真控件去画。
   outline: 'none',
 } as const
@@ -63,10 +63,10 @@ const sectionStyle = {
   color: 'var(--yt-text-secondary)',
 } as const
 
-const fieldStyle = { display: 'flex', flexDirection: 'column', gap: 3, fontSize: 'var(--yt-type-label)' } as const
+const fieldStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)', fontSize: 'var(--yt-type-label)' } as const
 
 const inputStyle = {
-  padding: '5px 8px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 6,
   background: 'var(--yt-surface-primary)',
@@ -76,13 +76,13 @@ const inputStyle = {
 
 const hintStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
 
-const rowStyle = { display: 'flex', gap: 6, alignItems: 'center' } as const
+const rowStyle = { display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center' } as const
 
-const listStyle = { display: 'flex', flexDirection: 'column', gap: 6 } as const
+const listStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)' } as const
 
 const errorStyle = {
   margin: 0,
-  padding: '6px 8px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   borderRadius: 6,
   background: 'var(--yt-error-bg)',
   color: 'var(--yt-error)',
@@ -94,11 +94,11 @@ const okStyle = { margin: 0, color: 'var(--yt-accent, var(--yt-text-secondary))'
 const footerStyle = {
   display: 'flex',
   justifyContent: 'flex-end',
-  paddingTop: 8,
+  paddingTop: 'var(--yt-space-2)',
   borderTop: '1px solid var(--yt-border-subtle)',
 } as const
 
-const buttonStyle = { padding: '5px 14px', minHeight: 'var(--yt-control-min-h)' } as const
+const buttonStyle = { padding: 'var(--yt-space-1) var(--yt-space-3)', minHeight: 'var(--yt-control-min-h)' } as const
 
 const ghostStyle = { ...buttonStyle, background: 'transparent', border: '1px solid var(--yt-border-subtle)' } as const
 

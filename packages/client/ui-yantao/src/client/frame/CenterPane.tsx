@@ -65,8 +65,8 @@ const paneStyle = {
 const stripStyle = {
   display: 'flex',
   alignItems: 'stretch',
-  gap: 2,
-  padding: '4px 4px 0',
+  gap: 'var(--yt-space-1)',
+  padding: 'var(--yt-space-1) var(--yt-space-1) 0',
   borderBottom: '1px solid var(--yt-border-subtle)',
   background: 'var(--yt-surface-primary)',
 } as const
@@ -74,8 +74,8 @@ const stripStyle = {
 const tabStyle = {
   display: 'flex',
   alignItems: 'center',
-  gap: 4,
-  padding: '4px 6px',
+  gap: 'var(--yt-space-1)',
+  padding: 'var(--yt-space-1) var(--yt-space-1)',
   // 页签是中列的主点击面之一（2026-10-05 第三轮评审 P2#4）：28px 命中目标
   // 此前只覆盖了对话框系，这里补上。
   minHeight: 'var(--yt-control-min-h)',
@@ -95,7 +95,7 @@ const labelButtonStyle = {
   background: 'transparent',
   cursor: 'pointer',
   fontFamily: FONT,
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
   maxWidth: 160,
   overflow: 'hidden',
   textOverflow: 'ellipsis',

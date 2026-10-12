@@ -44,8 +44,8 @@ const subButtonStyle = {
   background: 'transparent',
   cursor: 'pointer',
   fontFamily: 'var(--yt-font-ui)',
-  fontSize: 12,
-  padding: '2px 10px',
+  fontSize: 'var(--yt-type-label)',
+  padding: 'var(--yt-space-1) var(--yt-space-3)',
   minHeight: 'var(--yt-control-min-h)',
   boxSizing: 'border-box',
   color: 'var(--yt-text-secondary)',
@@ -65,7 +65,7 @@ const subBadgeStyle = {
   color: 'var(--yt-on-accent)',
   fontSize: 'var(--yt-type-label)',
   lineHeight: '16px',
-  padding: '0 6px',
+  padding: '0 var(--yt-space-2)',
 } as const
 
 const hubStyle = {
@@ -92,7 +92,7 @@ export function TasksHubPane({ tasks, inbox, schedule, badges }: TasksHubPanePro
   const [sub, setSub] = useState<TasksSub>('tasks')
   return (
     <div style={hubStyle} data-tasks-hub="true" data-tasks-sub={sub}>
-      <div style={{ display: 'flex', gap: 4, padding: '6px 8px 0', flexShrink: 0 }}>
+      <div style={{ display: 'flex', gap: 'var(--yt-space-1)', padding: 'var(--yt-space-2) var(--yt-space-2) 0', flexShrink: 0 }}>
         {(Object.keys(SUB_LABELS) as TasksSub[]).map((key) => {
           const count = badges?.[key] ?? 0
           return (
@@ -101,7 +101,7 @@ export function TasksHubPane({ tasks, inbox, schedule, badges }: TasksHubPanePro
               type="button"
               data-hover="tab"
               data-tasks-sub-button={key}
-              style={{ ...(sub === key ? activeSubButtonStyle : subButtonStyle), display: 'flex', alignItems: 'center', gap: 4 }}
+              style={{ ...(sub === key ? activeSubButtonStyle : subButtonStyle), display: 'flex', alignItems: 'center', gap: 'var(--yt-space-1)' }}
               onClick={() => { setSub(key) }}
             >
               {SUB_LABELS[key]}

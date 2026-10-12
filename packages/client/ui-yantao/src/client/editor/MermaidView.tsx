@@ -153,14 +153,14 @@ export function MermaidBlock({ code }: MermaidBlockProps): ReactElement {
     // A diagram that does not parse keeps its source visible — the author
     // must be able to see both the complaint and what drew it.
     return (
-      <div data-mermaid-error="true" style={{ margin: '4px 0' }}>
+      <div data-mermaid-error="true" style={{ margin: 'var(--yt-space-1) 0' }}>
         <div role="alert" style={{
-          color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-body)', marginBottom: 2,
+          color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-body)', marginBottom: 'var(--yt-space-1)',
         }}>
           mermaid: {error}
         </div>
         <pre style={{
-          margin: 0, padding: '6px 8px', overflowX: 'auto', borderRadius: 4,
+          margin: 0, padding: 'var(--yt-space-1) var(--yt-space-2)', overflowX: 'auto', borderRadius: 4,
           background: 'var(--yt-surface-raised)', border: '1px solid var(--yt-border-subtle)',
           fontSize: 'var(--yt-type-label)', whiteSpace: 'pre-wrap',
         }}>{code}</pre>
@@ -171,7 +171,7 @@ export function MermaidBlock({ code }: MermaidBlockProps): ReactElement {
     // While the chunk loads, the fence shows as plain source — never blank.
     return (
       <pre data-mermaid-pending="true" style={{
-        margin: '4px 0', padding: '6px 8px', overflowX: 'auto', borderRadius: 4,
+        margin: 'var(--yt-space-1) 0', padding: 'var(--yt-space-1) var(--yt-space-2)', overflowX: 'auto', borderRadius: 4,
         background: 'var(--yt-surface-raised)', border: '1px solid var(--yt-border-subtle)',
         fontSize: 'var(--yt-type-label)', whiteSpace: 'pre-wrap',
       }}>{code}</pre>
@@ -184,7 +184,7 @@ export function MermaidBlock({ code }: MermaidBlockProps): ReactElement {
       srcDoc={doc}
       sandbox={MERMAID_SANDBOX}
       style={{
-        display: 'block', width: '100%', border: 0, margin: '4px 0',
+        display: 'block', width: '100%', border: 0, margin: 'var(--yt-space-1) 0',
         height: height ?? MIN_HEIGHT,
       }}
     />

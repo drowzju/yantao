@@ -9,7 +9,7 @@
 
 .actions {
   display: flex;
-  gap: 2px;
+  gap: var(--yt-space-1);
   opacity: 0;
   transition: opacity var(--ds-transition-duration, 120ms) ease;
 }
@@ -26,8 +26,8 @@
   font: inherit;
   font-size: var(--yt-type-label);
   color: var(--yt-text-muted);
-  padding: 0 3px;
-  border-radius: 3px;
+  padding: 0 var(--yt-space-1);
+  border-radius: 4px;
 }
 
 .action:hover {

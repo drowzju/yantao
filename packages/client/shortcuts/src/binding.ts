@@ -100,7 +100,10 @@ export function isWebBindingAllowed(binding: NormalizedBinding, platform: Shortc
     const primary = platform === 'macos' ? 'meta' : 'control'
     if (binding.modifiers.length === 1
       && ((['Comma', 'Backslash'].includes(binding.code) && binding.modifiers[0] === primary)
-        || (binding.code === 'Backquote' && binding.modifiers[0] === 'control'))) return true
+        || (binding.code === 'Backquote' && binding.modifiers[0] === 'control')
+        // Primary+digit delivers only in desktop-shell web views (Electron): real
+        // browsers reserve Ctrl/Cmd+1..9 for tab switching and never emit the keydown.
+        || (/^Digit[1-9]$/u.test(binding.code) && binding.modifiers[0] === primary))) return true
     if (binding.modifiers.length === 2 && binding.modifiers.includes(primary)
       && (binding.modifiers.includes('alt') || binding.modifiers.includes('shift'))) return true
   }

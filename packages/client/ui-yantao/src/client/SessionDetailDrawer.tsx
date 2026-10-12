@@ -55,14 +55,14 @@ const headerStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  gap: 8,
-  padding: '10px 14px',
+  gap: 'var(--yt-space-2)',
+  padding: 'var(--yt-space-2) var(--yt-space-3)',
   borderBottom: '1px solid var(--yt-border-subtle)',
   flex: 'none',
 }
 
 const titleStyle: CSSProperties = {
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
   fontWeight: 600,
   color: 'var(--yt-text-primary)',
   overflow: 'hidden',
@@ -75,9 +75,9 @@ const closeButtonStyle: CSSProperties = {
   border: 'none',
   background: 'transparent',
   color: 'var(--yt-text-secondary)',
-  fontSize: 16,
+  fontSize: 'var(--yt-type-title)',
   lineHeight: 1,
-  padding: '2px 6px',
+  padding: 'var(--yt-space-1) var(--yt-space-1)',
   cursor: 'pointer',
   borderRadius: 4,
 }
@@ -86,13 +86,13 @@ const bodyStyle: CSSProperties = {
   flex: 1,
   minHeight: 0,
   overflowY: 'auto',
-  padding: '8px 14px 16px',
+  padding: 'var(--yt-space-2) var(--yt-space-3) var(--yt-space-4)',
 }
 
 const noticeStyle: CSSProperties = {
-  padding: '24px 14px',
+  padding: 'var(--yt-space-5) var(--yt-space-3)',
   color: 'var(--yt-text-secondary)',
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
   textAlign: 'center',
 }
 
@@ -102,12 +102,12 @@ const errorStyle: CSSProperties = {
 }
 
 const dividerStyle: CSSProperties = {
-  margin: '14px 0 8px',
+  margin: 'var(--yt-space-3) 0 var(--yt-space-2)',
   color: 'var(--yt-text-secondary)',
-  fontSize: 11,
+  fontSize: 'var(--yt-type-label)',
   display: 'flex',
   alignItems: 'center',
-  gap: 8,
+  gap: 'var(--yt-space-2)',
 }
 
 const dividerLineStyle: CSSProperties = {
@@ -116,10 +116,10 @@ const dividerLineStyle: CSSProperties = {
 }
 
 const bubbleStyle: CSSProperties = {
-  margin: '4px 0',
-  padding: '6px 10px',
+  margin: 'var(--yt-space-1) 0',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   borderRadius: 6,
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
   lineHeight: 1.6,
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
@@ -138,7 +138,7 @@ const injectedBubbleStyle: CSSProperties = {
   background: 'transparent',
   border: '1px dashed var(--yt-border-subtle)',
   color: 'var(--yt-text-secondary)',
-  fontSize: 11,
+  fontSize: 'var(--yt-type-label)',
 }
 
 const assistantBubbleStyle: CSSProperties = {
@@ -149,23 +149,23 @@ const assistantBubbleStyle: CSSProperties = {
 const toolHeaderStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'baseline',
-  gap: 6,
+  gap: 'var(--yt-space-1)',
   width: '100%',
   border: 'none',
   background: 'transparent',
-  padding: '4px 10px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   cursor: 'pointer',
   textAlign: 'left',
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
   color: 'var(--yt-text-secondary)',
   borderRadius: 6,
 }
 
 const toolBodyStyle: CSSProperties = {
-  margin: '0 0 4px 10px',
-  padding: '6px 10px',
+  margin: '0 0 var(--yt-space-1) var(--yt-space-2)',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   borderLeft: '2px solid var(--yt-border-subtle)',
-  fontSize: 11,
+  fontSize: 'var(--yt-type-label)',
   lineHeight: 1.6,
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
@@ -180,14 +180,14 @@ const errorTagStyle: CSSProperties = {
 const usageStripStyle: CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
-  gap: '2px 14px',
-  padding: '6px 10px',
-  margin: '0 0 8px',
+  gap: 'var(--yt-space-1) var(--yt-space-3)',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
+  margin: '0 0 var(--yt-space-2)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 6,
   background: 'var(--yt-surface-raised)',
   color: 'var(--yt-text-secondary)',
-  fontSize: 11,
+  fontSize: 'var(--yt-type-label)',
   fontVariantNumeric: 'tabular-nums',
 }
 
@@ -284,9 +284,9 @@ export function SessionDetailDrawer(props: {
         </button>
         {open && (
           <div style={toolBodyStyle}>
-            <div style={{ color: 'var(--yt-text-muted)', marginBottom: 2 }}>参数</div>
+            <div style={{ color: 'var(--yt-text-muted)', marginBottom: 'var(--yt-space-1)' }}>参数</div>
             <div>{item.args}</div>
-            <div style={{ color: 'var(--yt-text-muted)', marginTop: 6, marginBottom: 2 }}>
+            <div style={{ color: 'var(--yt-text-muted)', marginTop: 'var(--yt-space-1)', marginBottom: 'var(--yt-space-1)' }}>
               {item.error !== null ? `结果（${item.error}）` : '结果'}
             </div>
             <div>{item.result ?? '（尚未返回）'}</div>

@@ -16,6 +16,9 @@ import type { KbQueuedProposal } from '@deepseek-ai/dsh-api-yantao-kb-controller
 import { proposalOfPayload } from '../capability-match.ts'
 import type { WorkbenchT } from '../locales.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
+import { toolButtonStyle } from '../buttons.ts'
+import { activatable } from '../activatable.ts'
+import { formatStamp } from '../stamp.ts'
 
 /** The pane's props: the inbox's rows, the in-flight decision, the two verdicts. */
 export interface InboxPaneProps {
@@ -49,23 +52,23 @@ const listStyle = {
   flex: 1,
   minHeight: 0,
   overflow: 'auto',
-  padding: 12,
+  padding: 'var(--yt-space-3)',
   display: 'flex',
   flexDirection: 'column',
-  gap: 8,
+  gap: 'var(--yt-space-2)',
 } as const
 
 const emptyStyle = {
-  padding: 16,
+  padding: 'var(--yt-space-4)',
   color: 'var(--yt-text-muted)',
 } as const
 
 const rowStyle = {
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 8,
-  padding: '8px 10px',
+  padding: 'var(--yt-space-2)',
   display: 'flex',
-  gap: 8,
+  gap: 'var(--yt-space-2)',
   alignItems: 'flex-start',
   background: 'var(--yt-surface-primary)',
 } as const
@@ -75,7 +78,7 @@ const rowMainStyle = {
   minWidth: 0,
   display: 'flex',
   flexDirection: 'column',
-  gap: 2,
+  gap: 'var(--yt-space-1)',
   cursor: 'pointer',
 } as const
 
@@ -100,7 +103,7 @@ const metaStyle = {
 /** The decided row's status chip: quiet, so pending rows own the urgency. */
 const chipApprovedStyle = {
   display: 'inline-block',
-  padding: '0 6px',
+  padding: '0 var(--yt-space-2)',
   borderRadius: 8,
   fontSize: 'var(--yt-type-label)',
   lineHeight: '16px',
@@ -113,16 +116,8 @@ const chipDiscardedStyle = {
   color: 'var(--yt-text-muted)',
 } as const
 
-const discardButtonStyle = {
-  padding: '2px 8px',
-  background: 'transparent',
-  border: '1px solid var(--yt-border-subtle)',
-  borderRadius: 6,
-  color: 'var(--yt-text-secondary)',
-  cursor: 'pointer',
-  fontFamily: FONT,
-  fontSize: 'var(--yt-type-label)',
-} as const
+// 行内丢弃/关闭钮收敛到 ./buttons.ts 的 tool 面（P1-2 收敛，2026-10-12）——
+// 私养的迷你幽灵退役。
 
 /** The degraded card for a payload the client can no longer parse. */
 const plainCardStyle = {
@@ -140,17 +135,12 @@ const plainInnerStyle = {
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 10,
-  padding: 16,
+  padding: 'var(--yt-space-4)',
   width: 'min(480px, 92vw)',
   boxShadow: 'var(--yt-shadow-overlay)',
 } as const
 
-/** Format one ISO stamp for the rows' metadata lines (SchedulePane's recipe). */
-function formatStamp(iso: string): string {
-  const at = new Date(iso)
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${at.getMonth() + 1}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
-}
+// formatStamp 已收编到 ../stamp.ts（P3-1 收敛，2026-10-12）。
 
 /** Display order: pending rows first, newest first within each group. */
 function ordered(entries: readonly KbQueuedProposal[]): readonly KbQueuedProposal[] {
@@ -185,16 +175,7 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, capabilitySco
                   role={pending ? 'button' : undefined}
                   tabIndex={pending ? 0 : undefined}
                   onClick={() => { if (pending) setOpenId(entry.id) }}
-                  onKeyDown={(event) => {
-                    if (!pending) return
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      // Space's native action on a role="button" is scrolling
-                      // — swallow it so activating the row doesn't scroll the
-                      // list beneath the card that just opened.
-                      event.preventDefault()
-                      setOpenId(entry.id)
-                    }
-                  }}
+                  onKeyDown={pending ? activatable(() => { setOpenId(entry.id) }) : undefined}
                 >
                   <span style={titleStyle}>{entry.title}</span>
                   {entry.note !== undefined && <span style={noteStyle}>{entry.note}</span>}
@@ -211,7 +192,7 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, capabilitySco
                 {pending && (
                   <button
                     type="button"
-                    style={discardButtonStyle}
+                    style={toolButtonStyle}
                     data-inbox-row-discard="true"
                     data-hover="true"
                     disabled={busyId === entry.id}
@@ -239,16 +220,16 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, capabilitySco
         <div style={plainCardStyle} data-inbox-unparsable="true">
           <div style={plainInnerStyle}>
             <div style={titleStyle}>{openEntry.title}</div>
-            <div style={{ ...noteStyle, margin: '8px 0 12px' }}>
+            <div style={{ ...noteStyle, margin: 'var(--yt-space-2) 0 var(--yt-space-3)' }}>
               这条提议的内容无法在本工作台解析（可能来自旧版本），只能丢弃。
             </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button data-hover="true" type="button" style={discardButtonStyle} onClick={() => { setOpenId(null) }}>
+            <div style={{ display: 'flex', gap: 'var(--yt-space-2)', justifyContent: 'flex-end' }}>
+              <button data-hover="true" type="button" style={toolButtonStyle} onClick={() => { setOpenId(null) }}>
                 关闭
               </button>
               <button data-hover="true"
                 type="button"
-                style={discardButtonStyle}
+                style={toolButtonStyle}
                 disabled={busyId === openEntry.id}
                 onClick={() => { onDiscard(openEntry) }}
               >

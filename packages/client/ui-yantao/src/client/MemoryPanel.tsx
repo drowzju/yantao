@@ -29,7 +29,8 @@ import {
   type MemoryProposalApprover, type MemoryProposalDiscarder, type MemoryProposalLister,
 } from './remote.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
-import { ghostButtonStyle, primaryButtonStyle } from './buttons.ts'
+import { ghostButtonStyle, primaryButtonStyle, toolButtonStyle } from './buttons.ts'
+import { useArmedAction } from './use-armed-action.ts'
 
 /** What the panel needs: the three memory RPCs, already bound to the context. */
 export interface MemoryPanelProps {
@@ -68,29 +69,29 @@ function scopeLabel(t: WorkbenchT, scope: string): string {
   return key === undefined ? scope : t(key)
 }
 
-const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 8px' } as const
+const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-2)', padding: 'var(--yt-space-1) var(--yt-space-2)' } as const
 
-const mutedStyle = { color: 'var(--yt-text-muted)', fontSize: 12 } as const
+const mutedStyle = { color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)' } as const
 
-const errorStyle = { color: 'var(--yt-error)', fontSize: 12 } as const
+const errorStyle = { color: 'var(--yt-error)', fontSize: 'var(--yt-type-label)' } as const
 
-const hintStyle = { color: 'var(--yt-text-secondary)', fontSize: 12 } as const
+const hintStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
 
-const groupTitleStyle = { margin: '8px 0 0', fontSize: 'var(--yt-type-label)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
+const groupTitleStyle = { margin: 'var(--yt-space-2) 0 0', fontSize: 'var(--yt-type-label)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
 
 /** One entry row: the action pins to the first line (a baseline-aligned
  *  button sinks to mid-block beside multi-line text), and sibling spacing is
  *  each row's own marginTop — one owner per gap (DESIGN.md §4). */
-const rowStyle = { display: 'flex', gap: 8, alignItems: 'flex-start', minWidth: 0 } as const
+const rowStyle = { display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'flex-start', minWidth: 0 } as const
 
 const textStyle = { minWidth: 0 } as const
 
 /** The date on a line of its own — timestamps are the muted token's canonical 从属证据 (DESIGN.md §2.2). */
-const dateStyle = { color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)', marginTop: 4 } as const
+const dateStyle = { color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)', marginTop: 'var(--yt-space-1)' } as const
 
 /** A per-row destructive action wears the ghost cut: no border, muted ink (DESIGN.md §7). */
 const deleteStyle = {
-  flexShrink: 0, padding: '0 4px', border: 'none', background: 'transparent',
+  flexShrink: 0, padding: '0 var(--yt-space-1)', border: 'none', background: 'transparent',
   color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)', cursor: 'pointer',
 } as const
 
@@ -102,11 +103,11 @@ const armedDeleteStyle = {
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-strong)',
   borderRadius: 3,
-  padding: '0 6px',
+  padding: '0 var(--yt-space-1)',
   whiteSpace: 'nowrap',
 } as const
 
-const buttonStyle = { padding: '4px 8px', flexShrink: 0 } as const
+const buttonStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', flexShrink: 0 } as const
 
 /** The collapsed creation affordance: one quiet button (DESIGN.md §7 —
  *  a low-frequency creation entry does not earn a resident form row). */
@@ -115,44 +116,45 @@ const addOpenStyle = { ...buttonStyle, alignSelf: 'flex-start' } as const
 /** The expanded editing form: a raised card, its controls stacked so the
  *  input spans the rail's full width. */
 const addFormStyle = {
-  display: 'flex', flexDirection: 'column', gap: 8, padding: '8px',
+  display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-2)', padding: 'var(--yt-space-2)',
   background: 'var(--yt-surface-raised)', border: '1px solid var(--yt-border-subtle)', borderRadius: 8,
 } as const
 
 /** The scope picker keeps its natural width inside the roomy card. */
-const addScopeStyle = { padding: '4px 8px', alignSelf: 'flex-start', maxWidth: '100%' } as const
+const addScopeStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', alignSelf: 'flex-start', maxWidth: '100%' } as const
 
-const inputStyle = { padding: '4px 8px', width: '100%', boxSizing: 'border-box' } as const
+const inputStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', width: '100%', boxSizing: 'border-box' } as const
 
 /** The form's verdict row: 保存 primary, 取消 ghost — both faces from
     ./buttons.ts (the shared cuts, 2026-10-05). */
-const addActionsStyle = { display: 'flex', gap: 8 } as const
+const addActionsStyle = { display: 'flex', gap: 'var(--yt-space-2)' } as const
 
 /** The 待批准 zone's heading, one step above the scope titles. */
 const zoneTitleStyle = {
-  margin: '8px 0 2px', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-primary)',
+  margin: 'var(--yt-space-2) 0 var(--yt-space-1)', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-primary)',
 } as const
 
 /** Raised cards: the queue is the one zone that asks for a verdict. */
 const proposalRowStyle = {
-  display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0, padding: '6px 8px', marginTop: 4,
+  display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)', minWidth: 0, padding: 'var(--yt-space-1) var(--yt-space-2)', marginTop: 'var(--yt-space-1)',
   background: 'var(--yt-surface-raised)', border: '1px solid var(--yt-border-subtle)', borderRadius: 8,
 } as const
 
-const proposalMetaStyle = { color: 'var(--yt-text-secondary)', fontSize: 12, marginTop: 2 } as const
+const proposalMetaStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)', marginTop: 'var(--yt-space-1)' } as const
 
 /** The two verdicts side by side at the card's foot. */
-const proposalActionsStyle = { display: 'flex', gap: 8, marginTop: 2 } as const
+const proposalActionsStyle = { display: 'flex', gap: 'var(--yt-space-2)', marginTop: 'var(--yt-space-1)' } as const
 
 /** A collapsible region title (2026-10-11 省得整合): same typography as the
     scope titles, but a button — the approved sediment folds away. */
 const regionToggleStyle = {
-  ...groupTitleStyle, display: 'flex', alignItems: 'center', gap: 4, padding: 0,
+  ...groupTitleStyle, display: 'flex', alignItems: 'center', gap: 'var(--yt-space-1)', padding: 0,
   borderWidth: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left',
   fontFamily: 'inherit', width: '100%',
 } as const
 
-const verdictStyle = { padding: '1px 6px', fontSize: 12 } as const
+/** The proposal card's two verdicts wear the shared tool face (P1-2 收敛) —
+    same cut as the inbox discard, no private miniature. */
 
 /**
  * One pending proposal card (ADR-0044 决定 7): the distilled text with its
@@ -183,7 +185,7 @@ function ProposalRow(props: {
       <div style={proposalActionsStyle}>
         <button data-hover="true"
           type="button"
-          style={verdictStyle}
+          style={toolButtonStyle}
           disabled={busy}
           data-memory-proposal-approve={entry.id}
           onClick={() => { props.onApprove(group.scope, entry.text) }}
@@ -192,7 +194,7 @@ function ProposalRow(props: {
         </button>
         <button data-hover="true"
           type="button"
-          style={verdictStyle}
+          style={toolButtonStyle}
           disabled={busy}
           data-memory-proposal-discard={entry.id}
           onClick={() => { props.onDiscard(group.scope, entry.text) }}
@@ -228,9 +230,10 @@ export function MemoryPanel({
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [adding, setAdding] = useState(false)
-  // 删除的两击武装（2026-10-05 第三轮评审 P2#3）：✕ 首击只武装该行（变
-  // 「确认删除？」），再击才执行；武装另一行或收起即解除。此前唯独这里例外。
-  const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null)
+  // 删除的两击武装（2026-10-05 第三轮评审 P2#3；2026-10-12 起走共享
+  // useArmedAction）：✕ 首击只武装该行（变「确认删除？」），再击才执行；
+  // 武装另一行即自动解除。
+  const { armedId: armedDeleteId, attempt: attemptDelete } = useArmedAction()
   const [scope, setScope] = useState('global')
   const [text, setText] = useState('')
 
@@ -479,14 +482,7 @@ export function MemoryPanel({
                     disabled={busy}
                     data-armed={armedDeleteId === entry.id || undefined}
                     data-memory-delete={entry.id}
-                    onClick={() => {
-                      if (armedDeleteId !== entry.id) {
-                        setArmedDeleteId(entry.id)
-                        return
-                      }
-                      setArmedDeleteId(null)
-                      void forget(group, entry.id)
-                    }}
+                    onClick={() => { attemptDelete(entry.id, () => { void forget(group, entry.id) }) }}
                   >
                     {armedDeleteId === entry.id ? t('workbench.deleteArm') : '✕'}
                   </button>

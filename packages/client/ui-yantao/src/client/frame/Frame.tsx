@@ -245,7 +245,7 @@ const frameStyle = {
   height: '100%',
   minWidth: 0,
   fontFamily: FONT,
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
 } as const
 
 const colStyle = { minWidth: 0, overflow: 'hidden' } as const
@@ -259,12 +259,12 @@ const footerStripStyle = {
   gridColumn: '1 / -1',
   display: 'flex',
   alignItems: 'center',
-  padding: '3px 10px',
+  padding: 'var(--yt-space-1) var(--yt-space-3)',
   borderTop: '1px solid var(--yt-border-subtle)',
   background: 'var(--yt-surface-primary)',
 } as const
 
-const footerButtonStyle = { padding: '2px 10px', minHeight: 'var(--yt-control-min-h)', boxSizing: 'border-box', fontSize: 12 } as const
+const footerButtonStyle = { padding: 'var(--yt-space-1) var(--yt-space-3)', minHeight: 'var(--yt-control-min-h)', boxSizing: 'border-box', fontSize: 'var(--yt-type-label)' } as const
 
 /** The stack holding one file's two views; both stay mounted, one is shown. */
 const bothPanesStyle = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } as const
@@ -276,8 +276,8 @@ const fileModeBarStyle = {
   display: 'flex',
   justifyContent: 'flex-end',
   alignItems: 'center',
-  gap: 2,
-  padding: '2px 6px',
+  gap: 'var(--yt-space-1)',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   borderBottom: '1px solid var(--yt-border-subtle)',
   background: 'var(--yt-surface-primary)',
 } as const
@@ -291,7 +291,9 @@ const modeButtonStyle = {
   cursor: 'pointer',
   fontFamily: 'var(--yt-font-ui)',
   fontSize: 'var(--yt-type-label)',
-  padding: '1px 6px',
+  padding: '0 var(--yt-space-2)',
+  minHeight: 'var(--yt-control-min-h)',
+  boxSizing: 'border-box',
 } as const
 
 const activeModeStyle = { ...modeButtonStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } as const
@@ -324,7 +326,7 @@ const noticeStyle = {
   left: '50%',
   transform: 'translateX(-50%)',
   maxWidth: '80%',
-  padding: '6px 12px',
+  padding: 'var(--yt-space-2) var(--yt-space-3)',
   background: 'var(--yt-surface-raised)',
   // Split longhand, not the `border` shorthand: the severity variants below
   // swap borderColor alone, and mixing shorthand with a longhand makes React
@@ -334,8 +336,22 @@ const noticeStyle = {
   borderColor: 'var(--yt-border-subtle)',
   borderRadius: 6,
   boxShadow: 'var(--yt-shadow-menu)',
-  fontSize: 12,
+  fontSize: 'var(--yt-type-label)',
   zIndex: 45,
+} as const
+
+/** The notice bar's inline chips（撤销 / 取消 / ✕）：一份私有脸收敛为一处
+    定义（P1-2 收敛，2026-10-12）——此前三枚芯片各抄一遍同样的内联样式。 */
+const noticeChipStyle = {
+  marginLeft: 'var(--yt-space-3)',
+  padding: '0 var(--yt-space-2)',
+  minHeight: 'var(--yt-control-min-h)',
+  boxSizing: 'border-box',
+  border: '1px solid var(--yt-border-strong)',
+  borderRadius: 4,
+  background: 'var(--yt-surface-raised)',
+  cursor: 'pointer',
+  fontSize: 'var(--yt-type-label)',
 } as const
 
 /** An error notice: the error pair speaks, the human must dismiss it. */
@@ -1888,7 +1904,7 @@ export function Frame({
               </>
             )}
             inbox={!inboxLoaded ? (
-              <div style={{ padding: 16, color: 'var(--yt-text-muted)' }}>提议加载中…</div>
+              <div style={{ padding: 'var(--yt-space-4)', color: 'var(--yt-text-muted)' }}>提议加载中…</div>
             ) : (
               <InboxPane
                 entries={inboxEntries}
@@ -1900,7 +1916,7 @@ export function Frame({
               />
             )}
             schedule={!schedulesLoaded ? (
-              <div style={{ padding: 16, color: 'var(--yt-text-muted)' }}>调度加载中…</div>
+              <div style={{ padding: 'var(--yt-space-4)', color: 'var(--yt-text-muted)' }}>调度加载中…</div>
             ) : (
               <SchedulePane
                 schedules={schedules}
@@ -1921,7 +1937,7 @@ export function Frame({
           onSwitchToConversation: () => { activate(CONVERSATION_TAB) },
           active: tabs.active === INSIGHTS_TAB,
           graph: graphData === null ? (
-            <div style={{ padding: 16, color: 'var(--yt-text-muted)' }}>图谱加载中…</div>
+            <div style={{ padding: 'var(--yt-space-4)', color: 'var(--yt-text-muted)' }}>图谱加载中…</div>
           ) : (
             <GraphPane data={graphData} onOpen={(path) => { openFile(path, 'edit') }} onReload={reloadGraph} t={t} />
           ),
@@ -2206,15 +2222,7 @@ export function Frame({
           {capabilityNotice.action !== undefined && (
             <button data-hover="true"
               type="button"
-              style={{
-                marginLeft: 10,
-                padding: '1px 8px',
-                border: '1px solid var(--yt-border-strong)',
-                borderRadius: 4,
-                background: 'var(--yt-surface-raised)',
-                cursor: 'pointer',
-                fontSize: 12,
-              }}
+              style={noticeChipStyle}
               onClick={(event) => {
                 event.stopPropagation()
                 capabilityNotice.action?.run()
@@ -2224,7 +2232,7 @@ export function Frame({
               {capabilityNotice.severity === 'undo' && undoRemaining !== null && (
                 // --yt-text-tertiary 从未定义（2026-10-09 评审 P3）：倒计时
                 // 曾因此继承父色，severity 配色形同虚设——回落到 muted。
-                <span style={{ marginLeft: 4, color: 'var(--yt-text-muted)' }}>· {undoRemaining}s</span>
+                <span style={{ marginLeft: 'var(--yt-space-1)', color: 'var(--yt-text-muted)' }}>· {undoRemaining}s</span>
               )}
             </button>
           )}
@@ -2233,15 +2241,7 @@ export function Frame({
           {(refineActive || validateActive) && (
             <button data-hover="true"
               type="button"
-              style={{
-                marginLeft: 10,
-                padding: '1px 8px',
-                border: '1px solid var(--yt-border-strong)',
-                borderRadius: 4,
-                background: 'var(--yt-surface-raised)',
-                cursor: 'pointer',
-                fontSize: 12,
-              }}
+              style={noticeChipStyle}
               onClick={(event) => {
                 event.stopPropagation()
                 if (refineActive) cancelRefine()
@@ -2256,16 +2256,7 @@ export function Frame({
               错误正文可以安心停留、复制。 */}
           <button
             type="button"
-            style={{
-              marginLeft: 10,
-              padding: '1px 8px',
-              border: '1px solid var(--yt-border-strong)',
-              borderRadius: 4,
-              background: 'var(--yt-surface-raised)',
-              cursor: 'pointer',
-              fontSize: 12,
-              color: 'inherit',
-            }}
+            style={{ ...noticeChipStyle, color: 'inherit' }}
             title={t('frame.closeNotice')}
             data-notice-close="true"
             data-hover="close"

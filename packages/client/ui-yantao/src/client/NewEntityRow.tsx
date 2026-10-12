@@ -41,10 +41,10 @@ export interface NewEntityRowProps {
   readonly trailing?: ReactNode
 }
 
-const rowStyle = { display: 'flex', gap: 4, margin: '4px 0' } as const
+const rowStyle = { display: 'flex', gap: 'var(--yt-space-1)', margin: 'var(--yt-space-1) 0' } as const
 
 // 错误行（2026-10-05 第三轮评审 P2#6）：正文字号 + role=alert，读屏必播报。
-const errorStyle = { color: 'var(--yt-error)', padding: '0 6px', fontSize: 'var(--yt-type-body)' } as const
+const errorStyle = { color: 'var(--yt-error)', padding: '0 var(--yt-space-1)', fontSize: 'var(--yt-type-body)' } as const
 
 /**
  * Render the inline creation row.
@@ -81,10 +81,10 @@ export function NewEntityRow({ t, label, placeholder, submit, choice, trailing }
   }, [editing, busy, close])
 
   return (
-    <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
+    <div style={{ display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'flex-start' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         {!editing && (
-          <button data-hover="true" type="button" style={{ padding: '2px 6px' }} onClick={() => { setEditing(true) }} disabled={busy}>
+          <button data-hover="true" type="button" style={{ padding: 'var(--yt-space-1) var(--yt-space-1)' }} onClick={() => { setEditing(true) }} disabled={busy}>
             {label}
           </button>
         )}
@@ -128,7 +128,7 @@ export function NewEntityRow({ t, label, placeholder, submit, choice, trailing }
                 ))}
               </select>
             )}
-            <button data-hover="true" type="button" style={{ padding: '2px 6px' }} disabled={busy} onClick={close}>{t('common.cancel')}</button>
+            <button data-hover="true" type="button" style={{ padding: 'var(--yt-space-1) var(--yt-space-1)' }} disabled={busy} onClick={close}>{t('common.cancel')}</button>
           </div>
         )}
         {error !== null && <div style={errorStyle} role="alert">{error}</div>}

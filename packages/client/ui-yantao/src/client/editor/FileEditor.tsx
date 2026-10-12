@@ -85,9 +85,9 @@ const wrapStyle = {
   fontSize: 'var(--yt-type-body)',
 } as const
 
-const barStyle = { padding: '4px 8px', background: 'var(--yt-warning-bg)', color: 'var(--yt-text-secondary)', display: 'flex', gap: 6, alignItems: 'center' } as const
+const barStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', background: 'var(--yt-warning-bg)', color: 'var(--yt-text-secondary)', display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center' } as const
 
-const errorStyle = { padding: '4px 8px', background: 'var(--yt-error-bg)', color: 'var(--yt-error)' } as const
+const errorStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', background: 'var(--yt-error-bg)', color: 'var(--yt-error)' } as const
 
 const textareaStyle = {
   flex: 1,
@@ -99,18 +99,18 @@ const textareaStyle = {
   borderTopWidth: 1,
   borderStyle: 'solid',
   borderColor: 'var(--yt-border-subtle)',
-  padding: 8,
+  padding: 'var(--yt-space-2)',
   fontFamily: 'var(--yt-font-code)',
   fontSize: 'var(--yt-type-body)',
   lineHeight: 1.5,
 } as const
 
-const diffStyle = { display: 'flex', gap: 8, minHeight: 0, flex: 1, padding: 8 } as const
+const diffStyle = { display: 'flex', gap: 'var(--yt-space-2)', minHeight: 0, flex: 1, padding: 'var(--yt-space-2)' } as const
 
 const preStyle = {
   flex: 1,
   margin: 0,
-  padding: 8,
+  padding: 'var(--yt-space-2)',
   overflow: 'auto',
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',

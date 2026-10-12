@@ -61,9 +61,9 @@ const FONT = 'var(--yt-font-ui)'
 const sectionStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 12,
+  gap: 'var(--yt-space-3)',
   minWidth: 0,
-  padding: 12,
+  padding: 'var(--yt-space-3)',
   // The section sits at the BOTTOM of the insights pane (below the session
   // dashboard), so its separator crowns it rather than foots it.
   borderTop: '1px solid var(--yt-border-subtle)',
@@ -91,9 +91,9 @@ const DIVIDER_FALLBACK_PANE_HEIGHT = 720
 const cardStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 6,
+  gap: 'var(--yt-space-1)',
   minWidth: 0,
-  padding: 12,
+  padding: 'var(--yt-space-3)',
   borderRadius: 6,
   border: '1px solid var(--yt-border-subtle)',
   background: 'var(--yt-surface-primary)',
@@ -111,7 +111,7 @@ const mutedStyle = { color: 'var(--yt-text-muted)' } as const
 const pillButtonStyle = {
   fontSize: 'var(--yt-type-label)',
   fontFamily: FONT,
-  padding: '0 6px',
+  padding: '0 var(--yt-space-1)',
   minHeight: 20,
   borderRadius: 4,
   cursor: 'pointer',
@@ -127,14 +127,14 @@ const slimBarStyle = {
   ...sectionStyle,
   flexDirection: 'row',
   alignItems: 'center',
-  gap: 8,
-  padding: '8px 12px',
+  gap: 'var(--yt-space-2)',
+  padding: 'var(--yt-space-2) var(--yt-space-3)',
 } as const
 
 const slimActionButtonStyle = {
   ...pillButtonStyle,
   marginLeft: 'auto',
-  padding: '4px 12px',
+  padding: 'var(--yt-space-1) var(--yt-space-3)',
   minHeight: 26,
   borderColor: 'var(--yt-border-subtle)',
   background: 'var(--yt-surface-primary)',
@@ -179,7 +179,7 @@ function DailyBarsCard({ bars, range, t }: {
       {bars.length === 0 ? (
         <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.empty')}</p>
       ) : (
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 64 + 14 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--yt-space-1)', height: 64 + 14 }}>
           {bars.map((day, index) => {
             const total = grandTotalOf(day)
             return (
@@ -190,7 +190,7 @@ function DailyBarsCard({ bars, range, t }: {
               >
                 <span style={{ height: total / peak * 64, background: 'var(--yt-accent)', minHeight: total > 0 ? 2 : 0 }} />
                 {/* 2026-10-09 评审：9→10px——坐标刻度非正文，但不低于 10px 下限。 */}
-                <span style={{ height: 12, textAlign: 'center', fontSize: 10, lineHeight: '12px', color: 'var(--yt-text-muted)', whiteSpace: 'nowrap' }}>
+                <span style={{ height: 12, textAlign: 'center', fontSize: 'var(--yt-type-label)', lineHeight: '12px', color: 'var(--yt-text-muted)', whiteSpace: 'nowrap' }}>
                   {index % stride === 0 ? day.day.slice(5) : ''}
                 </span>
               </span>
@@ -229,7 +229,7 @@ function HeatmapCard({ cells, activeDay, onPick, t }: {
           gridTemplateColumns: `repeat(${cells.length}, 12px)`,
           gridTemplateRows: 'repeat(7, 12px)',
           gridAutoFlow: 'column',
-          gap: 2,
+          gap: 'var(--yt-space-1)',
           width: 'fit-content',
         }}
       >
@@ -306,11 +306,11 @@ function SessionCard({ row, fetchTotals, onOpen, onInsights, t }: {
       style={{
         ...cardStyle,
         cursor: 'pointer',
-        gap: 4,
-        padding: '8px 10px',
+        gap: 'var(--yt-space-1)',
+        padding: 'var(--yt-space-2) var(--yt-space-2)',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--yt-space-1)', minWidth: 0 }}>
         <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{row.title}</span>
         {row.running && (
           <span style={{ flexShrink: 0, fontSize: 'var(--yt-type-label)', color: 'var(--yt-success)' }}>{t('insights.overview.card.running')}</span>
@@ -324,7 +324,7 @@ function SessionCard({ row, fetchTotals, onOpen, onInsights, t }: {
           {row.cwd}
         </span>
       )}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--yt-space-1)' }}>
         <span style={{ fontVariantNumeric: 'tabular-nums' }}>
           {totals === undefined ? t('insights.overview.card.noUsage') : formatTokens(grandTotalOf(totals))}
         </span>
@@ -564,9 +564,9 @@ export function SessionOverview({
       data-insights-section="overview"
     >
       {dividerHandle}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--yt-space-2)', flexWrap: 'wrap', flexShrink: 0 }}>
         <p style={{ ...cardTitleStyle, fontSize: 'var(--yt-type-body)' }}>{t('insights.overview.title')}</p>
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 'var(--yt-space-1)' }}>
           {result !== null && RANGE_OPTIONS.map(candidate => (
             <button data-hover="true"
               key={candidate}
@@ -599,9 +599,9 @@ export function SessionOverview({
           </button>
         </span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-3)', flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {phase === 'idle' ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--yt-space-2)' }}>
             <button data-hover="true"
               type="button"
               style={{ ...slimActionButtonStyle, marginLeft: 0 }}
@@ -611,7 +611,7 @@ export function SessionOverview({
             </button>
           </div>
         ) : phase === 'failed' ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--yt-space-2)', flexWrap: 'wrap' }}>
             <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.loadFailed')}</p>
             <button data-hover="true"
               type="button"
@@ -622,7 +622,7 @@ export function SessionOverview({
             </button>
           </div>
         ) : phase !== 'ok' && result === null ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--yt-space-2)', flexWrap: 'wrap' }}>
             <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.overview.loading')}</p>
             <button data-hover="true"
               type="button"
@@ -634,30 +634,30 @@ export function SessionOverview({
           </div>
         ) : (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--yt-space-3)' }}>
               <KpiCard label={t('insights.overview.kpi.sessions')}>
-                <p style={{ margin: 0, fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                <p style={{ margin: 0, fontSize: 'var(--yt-type-display)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                   {distinctSessionsOf(bars)}
                 </p>
               </KpiCard>
               <KpiCard label={t('insights.overview.kpi.tokens')}>
-                <p style={{ margin: 0, fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                <p style={{ margin: 0, fontSize: 'var(--yt-type-display)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                   {formatTokens(grandTotalOf(rangeTotals))}
                 </p>
                 <BucketLine buckets={rangeTotals} t={t} />
               </KpiCard>
               <KpiCard label={t('insights.overview.kpi.cacheHit')}>
-                <p style={{ margin: 0, fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                <p style={{ margin: 0, fontSize: 'var(--yt-type-display)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                   {`${cacheHitRateOf(rangeTotals)}%`}
                 </p>
               </KpiCard>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--yt-space-3)' }}>
               <DailyBarsCard bars={bars} range={range} t={t} />
               <HeatmapCard cells={heat} activeDay={activeDay} onPick={setActiveDay} t={t} />
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-2)' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--yt-space-2)' }}>
                 <p style={cardTitleStyle}>{t('insights.overview.cards.title')}</p>
                 <input
                   type="search"
@@ -671,7 +671,7 @@ export function SessionOverview({
                     flex: 1,
                     fontFamily: FONT,
                     fontSize: 'var(--yt-type-label)',
-                    padding: '2px 8px',
+                    padding: 'var(--yt-space-1) var(--yt-space-2)',
                     borderRadius: 4,
                     border: '1px solid var(--yt-border-subtle)',
                     background: 'var(--yt-surface-primary)',
@@ -684,7 +684,7 @@ export function SessionOverview({
                   {rows.length === 0 ? t('insights.overview.empty') : t('insights.overview.noMatch')}
                 </p>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 'var(--yt-space-2)' }}>
                   {filtered.map(row => (
                     <SessionCard
                       key={row.id}

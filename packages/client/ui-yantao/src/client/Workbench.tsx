@@ -35,6 +35,7 @@ import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-contr
 import { remoteMessage } from './remote.ts'
 import type { TabMode } from './tabs.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
+import { ghostButtonStyle } from './buttons.ts'
 import { NewEntityRow } from './NewEntityRow.tsx'
 import type { ValidateScope } from './validate.ts'
 
@@ -147,13 +148,13 @@ const FONT = 'var(--yt-font-ui)'
 const railStyle = {
   width: '100%',
   height: '100%',
-  padding: 12,
+  padding: 'var(--yt-space-3)',
   boxSizing: 'border-box',
   display: 'flex',
   flexDirection: 'column',
   overflow: 'hidden',
   fontFamily: FONT,
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
 } as const
 
 /** The rail's scrollable body: everything beneath the tab strip. */
@@ -163,21 +164,21 @@ const railScrollStyle = { flex: 1, minHeight: 0, overflowY: 'auto' } as const
 const compactStyle = {
   width: '100%',
   height: '100%',
-  paddingTop: 12,
+  paddingTop: 'var(--yt-space-3)',
   boxSizing: 'border-box',
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
-  gap: 6,
+  gap: 'var(--yt-space-1)',
   fontFamily: FONT,
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
 } as const
 
-const titleStyle = { margin: '12px 0 4px', fontSize: 12, fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
+const titleStyle = { margin: 'var(--yt-space-3) 0 var(--yt-space-1)', fontSize: 'var(--yt-type-label)', fontWeight: 600, color: 'var(--yt-text-secondary)' } as const
 
 // 错误行（2026-10-05 第三轮评审 P2#6）：正文字号 + role=alert——12px 彩字
 // 视觉上近乎隐形，读屏则整段错过写失败。
-const errorStyle = { color: 'var(--yt-error)', padding: '4px 6px', fontSize: 'var(--yt-type-body)' } as const
+const errorStyle = { color: 'var(--yt-error)', padding: 'var(--yt-space-1) var(--yt-space-2)', fontSize: 'var(--yt-type-body)' } as const
 
 const rowStyle = {
   display: 'block',
@@ -185,9 +186,9 @@ const rowStyle = {
   textAlign: 'left',
   // 侧边距 ≥8px（2026-10-05 命中目标修订）：检测器实测 6px 挤掉了文本
   // 呼吸空间（cramped-padding），行也是左栏的主点击面。
-  padding: '4px 8px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   minHeight: 'var(--yt-control-min-h)',
-  margin: '1px 0',
+  margin: 0,
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: 'transparent',
@@ -268,7 +269,7 @@ function FileRow({
       style={{
         ...(selection === file.path ? selectedRowStyle : rowStyle),
         ...(dropHover ? dropHoverStyle : {}),
-        paddingLeft: 8 + indent * 14,
+        paddingLeft: 'var(--yt-space-2)' + indent * 14,
       }}
       data-selected={selection === file.path || undefined}
       data-drop-target={drop !== undefined || undefined}
@@ -308,7 +309,7 @@ function FileRow({
       ) : (
         // A person's relation is a tag, not a ` · ` tail (DESIGN.md §7): it
         // pins to the row's right edge as a small muted label.
-        <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--yt-space-2)' }}>
           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {file.name}
             {file.archived === true && <span style={{ color: 'var(--yt-text-muted)' }}>{t('workbench.archived')}</span>}
@@ -356,7 +357,7 @@ function Section({
   return (
     <div>
       {showHeading && <div style={titleStyle}>{t(SECTION_KEYS[id])}</div>}
-      {section === undefined && <div style={{ color: 'var(--yt-text-muted)', padding: '4px 6px' }}>{t('common.empty')}</div>}
+      {section === undefined && <div style={{ color: 'var(--yt-text-muted)', padding: 'var(--yt-space-1) var(--yt-space-1)' }}>{t('common.empty')}</div>}
       {active.map(file => (
         <FileRow
           key={file.path}
@@ -482,7 +483,7 @@ function ResourceTree({
     })
   }, [])
   if (section === undefined) {
-    return <div style={{ color: 'var(--yt-text-muted)', padding: '4px 6px' }}>{t('common.empty')}</div>
+    return <div style={{ color: 'var(--yt-text-muted)', padding: 'var(--yt-space-1) var(--yt-space-1)' }}>{t('common.empty')}</div>
   }
   const renderNode = (node: ResourceDirNode, depth: number): ReactElement[] => {
     const rows: ReactElement[] = []
@@ -496,7 +497,7 @@ function ResourceTree({
         <button data-hover="true"
           key={`dir:${child.dir}`}
           type="button"
-          style={{ ...rowStyle, paddingLeft: 8 + depth * 14, color: 'var(--yt-text-secondary)' }}
+          style={{ ...rowStyle, paddingLeft: 'var(--yt-space-2)' + depth * 14, color: 'var(--yt-text-secondary)' }}
           data-resource-dir={child.dir}
           aria-expanded={!folded}
           onClick={() => { toggle(child.dir) }}
@@ -550,20 +551,20 @@ interface MenuTarget {
 const menuStyle = {
   position: 'fixed',
   zIndex: 40,
-  padding: 4,
+  padding: 'var(--yt-space-1)',
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
   boxShadow: 'var(--yt-shadow-menu)',
   fontFamily: FONT,
-  fontSize: 13,
+  fontSize: 'var(--yt-type-body)',
 } as const
 
 const menuItemStyle = {
   display: 'block',
   width: '100%',
   textAlign: 'left',
-  padding: '3px 8px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   minHeight: 'var(--yt-control-min-h)',
   boxSizing: 'border-box',
   border: 'none',
@@ -572,7 +573,7 @@ const menuItemStyle = {
   whiteSpace: 'nowrap',
 } as const
 
-const menuNoteStyle = { color: 'var(--yt-text-secondary)', padding: '2px 8px 4px' } as const
+const menuNoteStyle = { color: 'var(--yt-text-secondary)', padding: 'var(--yt-space-1) var(--yt-space-2) var(--yt-space-1)' } as const
 
 /** 2026-10-09 第二轮评审 P2-C：关系/能力/手势/删除区之间的分隔线，替代
  * 此前只靠小字注头的分组方式——武装后的删除项不再与「拷贝链接」浑然一体。 */
@@ -960,7 +961,7 @@ function CompactRail({
         // P2：此前只是一个 title 兜底的裸字符).
         <button
           type="button"
-          style={{ ...rowStyle, width: 'auto', padding: '2px 8px', color: 'var(--yt-error)' }}
+          style={{ ...rowStyle, width: 'auto', padding: 'var(--yt-space-1) var(--yt-space-2)', color: 'var(--yt-error)' }}
           data-hover="true"
           title={error}
           onClick={onExpand}
@@ -1110,30 +1111,19 @@ export interface IntakeRailProps extends RailProps {
   readonly workspaceRunsClear: WorkspaceRunsClearer
 }
 
-/** A small ghost face for the error row's 重试 (matches the discard ghost). */
-const railRetryStyle = {
-  padding: '1px 8px',
-  minHeight: 'var(--yt-control-min-h)',
-  boxSizing: 'border-box',
-  background: 'transparent',
-  border: '1px solid var(--yt-border-subtle)',
-  borderRadius: 4,
-  color: 'var(--yt-text-secondary)',
-  cursor: 'pointer',
-  fontFamily: FONT,
-  fontSize: 'var(--yt-type-label)',
-} as const
+// 错误行的重试钮收敛到 ./buttons.ts 的幽灵面（P1-2 收敛，2026-10-12）——
+// 私养的 railRetryStyle 退役。
 
 /** The rail's error row: the load failure stays interactive — readable in
     place, with 重试 to reload (2026-10-09 评审 P2：此前是一个不可交互、正文
     藏在 title 里的"！"). */
 function RailHeader({ error, onRetry, t }: { error: string | null; onRetry: () => void; t: WorkbenchT }): ReactElement {
   return (
-    <div style={{ marginBottom: 8 }}>
+    <div style={{ marginBottom: 'var(--yt-space-2)' }}>
       {error !== null && (
         <div style={errorStyle} role="alert" data-rail-error="true">
-          <span style={{ display: 'block', marginBottom: 4 }}>{error}</span>
-          <button type="button" style={railRetryStyle} data-hover="true" onClick={onRetry}>
+          <span style={{ display: 'block', marginBottom: 'var(--yt-space-1)' }}>{error}</span>
+          <button type="button" style={ghostButtonStyle} data-hover="true" onClick={onRetry}>
             {t('workbench.retry')}
           </button>
         </div>
@@ -1352,7 +1342,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
       onDrop={(event) => { void onDrop(event) }}
     >
       <RailHeader error={error} onRetry={() => { void refresh() }} t={t} />
-      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 'var(--yt-space-1)', marginBottom: 'var(--yt-space-2)' }}>
         {INTAKE_PANEL_IDS.map(id => (
           <button
             key={id}
@@ -1369,14 +1359,14 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
                 waiting) somewhere the human cannot currently see. */}
             {id === 'connector' && (mailState.review !== null || mailState.phase === 'analysing') && (
               <span
-                style={{ marginLeft: 4, color: mailState.review !== null ? 'var(--yt-error)' : 'var(--yt-text-muted)' }}
+                style={{ marginLeft: 'var(--yt-space-1)', color: mailState.review !== null ? 'var(--yt-error)' : 'var(--yt-text-muted)' }}
                 title={t(mailState.review !== null ? 'mail.tab.awaiting' : 'mail.tab.running')}
               >
                 ●
               </span>
             )}
             {id === 'shengde' && pendingMemories > 0 && (
-              <span style={{ marginLeft: 4, color: 'var(--yt-error)' }} title={t('memory.proposalZone.title')}>
+              <span style={{ marginLeft: 'var(--yt-space-1)', color: 'var(--yt-error)' }} title={t('memory.proposalZone.title')}>
                 {pendingMemories}
               </span>
             )}
@@ -1556,7 +1546,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
       onDragLeave={(event) => { event.stopPropagation() }}
     >
       <RailHeader error={error} onRetry={() => { void refresh() }} t={t} />
-      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 'var(--yt-space-1)', marginBottom: 'var(--yt-space-2)' }}>
         {WORKSPACE_TAB_IDS.map(id => (
           <button
             key={id}
@@ -1592,7 +1582,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
             trailing={(
               <button data-hover="true"
                 type="button"
-                style={{ padding: '2px 6px', marginTop: 4 }}
+                style={{ padding: 'var(--yt-space-1) var(--yt-space-1)', marginTop: 'var(--yt-space-1)' }}
                 onClick={() => { onValidate(tab === 'people' ? 'person' : 'project') }}
               >
                 {t('workbench.validateButton')}

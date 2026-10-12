@@ -34,13 +34,13 @@ const overlayStyle = {
 
 const cardStyle = {
   minWidth: 320,
-  padding: 24,
+  padding: 'var(--yt-space-5)',
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 8,
   display: 'flex',
   flexDirection: 'column',
-  gap: 12,
+  gap: 'var(--yt-space-3)',
 } as const
 
 const errorStyle = { color: 'var(--yt-error)' } as const
@@ -87,7 +87,7 @@ export function Onboarding({ setRoot, pickDirectory, onConfigured, t }: Onboardi
           {t('onboarding.description')}
         </div>
         {error !== null && <div style={errorStyle}>{error}</div>}
-        <button data-hover="true" type="button" style={{ padding: '6px 12px' }} disabled={busy} onClick={choose}>
+        <button data-hover="true" type="button" style={{ padding: 'var(--yt-space-1) var(--yt-space-3)' }} disabled={busy} onClick={choose}>
           {busy ? t('onboarding.busy') : t('onboarding.choose')}
         </button>
       </div>

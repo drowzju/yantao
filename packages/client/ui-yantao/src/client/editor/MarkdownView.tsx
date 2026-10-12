@@ -68,8 +68,8 @@ const wrapStyle = {
 const barStyle = {
   display: 'flex',
   alignItems: 'center',
-  gap: 6,
-  padding: '4px 8px',
+  gap: 'var(--yt-space-1)',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   borderBottom: '1px solid var(--yt-border-subtle)',
   color: 'var(--yt-text-secondary)',
   fontSize: 'var(--yt-type-label)',
@@ -82,18 +82,18 @@ const toggleStyle = {
   cursor: 'pointer',
   fontFamily: 'inherit',
   fontSize: 'var(--yt-type-label)',
-  padding: '1px 6px',
+  padding: 'var(--yt-space-1) var(--yt-space-1)',
 } as const
 
 const tableStyle = {
-  margin: '4px 8px 8px',
+  margin: 'var(--yt-space-1) var(--yt-space-2) var(--yt-space-2)',
   borderCollapse: 'collapse',
   fontSize: 'var(--yt-type-label)',
 } as const
 
 const cellStyle = {
   borderBottom: '1px solid var(--yt-border-subtle)',
-  padding: '2px 8px 2px 0',
+  padding: 'var(--yt-space-1) var(--yt-space-2) var(--yt-space-1) 0',
   textAlign: 'left',
   verticalAlign: 'top',
   whiteSpace: 'pre-wrap',
@@ -109,7 +109,7 @@ const outlineStyle = {
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
-  padding: '4px 6px',
+  padding: 'var(--yt-space-1) var(--yt-space-1)',
   boxShadow: 'var(--yt-shadow-menu)',
   maxWidth: 220,
 } as const
@@ -123,13 +123,13 @@ const outlineItemStyle = {
   cursor: 'pointer',
   fontFamily: 'inherit',
   fontSize: 'var(--yt-type-label)',
-  padding: '1px 0',
+  padding: 'var(--yt-space-1) 0',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 } as const
 
-const bodyStyle = { position: 'relative', flex: 1, minHeight: 0, padding: '8px 12px' } as const
+const bodyStyle = { position: 'relative', flex: 1, minHeight: 0, padding: 'var(--yt-space-2) var(--yt-space-3)' } as const
 
 /**
  * Loaded local images: KB path → object URL (ADR-0048 一期). Module-scoped so

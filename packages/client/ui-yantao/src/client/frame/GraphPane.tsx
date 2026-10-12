@@ -481,8 +481,8 @@ export function GraphPane({ data, onOpen, onReload = undefined, t }: GraphPanePr
           right: 12,
           display: 'flex',
           flexDirection: 'column',
-          gap: 4,
-          padding: '6px 10px',
+          gap: 'var(--yt-space-1)',
+          padding: 'var(--yt-space-1) var(--yt-space-2)',
           borderRadius: 6,
           background: 'var(--yt-surface-raised)',
           border: '1px solid var(--yt-border-subtle)',
@@ -500,7 +500,7 @@ export function GraphPane({ data, onOpen, onReload = undefined, t }: GraphPanePr
               key={kind}
               onClick={switchKey === null ? undefined : () => { toggleSwitch(switchKey) }}
               style={{
-                display: 'flex', alignItems: 'center', gap: 6,
+                display: 'flex', alignItems: 'center', gap: 'var(--yt-space-1)',
                 cursor: switchKey === null ? 'default' : 'pointer',
                 userSelect: 'none',
               }}
@@ -543,7 +543,7 @@ const reloadButtonStyle = {
   position: 'absolute',
   top: 8,
   left: 12,
-  padding: '2px 10px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 6,

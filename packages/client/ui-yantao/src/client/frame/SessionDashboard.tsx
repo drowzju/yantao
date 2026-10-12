@@ -47,10 +47,10 @@ const rootStyle = {
   minWidth: 0,
   minHeight: 0,
   overflow: 'auto',
-  padding: 12,
+  padding: 'var(--yt-space-3)',
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-  gap: 12,
+  gap: 'var(--yt-space-3)',
   alignContent: 'start',
   fontFamily: FONT,
   fontSize: 'var(--yt-type-body)',
@@ -59,9 +59,9 @@ const rootStyle = {
 const cardStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 8,
+  gap: 'var(--yt-space-2)',
   minWidth: 0,
-  padding: 12,
+  padding: 'var(--yt-space-3)',
   borderRadius: 6,
   border: '1px solid var(--yt-border-subtle)',
   background: 'var(--yt-surface-primary)',
@@ -85,7 +85,7 @@ function LegendRow({ color, label, tokens, capacity, sub }: {
   sub?: boolean | undefined
 }): ReactElement {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, paddingLeft: sub ? 14 : 0 }}>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--yt-space-1)', paddingLeft: sub ? 14 : 0 }}>
       <span style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0, alignSelf: 'center' }} />
       <span style={{ ...mutedStyle, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
       <span style={{ marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
@@ -148,7 +148,7 @@ function CompositionCard({ breakdown, injectionTotal, lastStep, capacity, used, 
           />
         ))}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)' }}>
         {segments.map(segment => (
           <LegendRow
             key={segment.key}
@@ -229,9 +229,9 @@ function TrendCard({ steps, feed, t }: { steps: readonly TrendStep[]; feed: read
   const compactionsBefore = (seq: number): number => compactionSeqs.filter(s => s <= seq).length
   return (
     <section style={cardStyle} data-insights-card="trend">
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--yt-space-2)' }}>
         <p style={cardTitleStyle}>{t('insights.trend.title')}</p>
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 'var(--yt-space-1)' }}>
           {(['step', 'turn'] as const).map(candidate => (
             <button data-hover="true"
               key={candidate}
@@ -239,7 +239,7 @@ function TrendCard({ steps, feed, t }: { steps: readonly TrendStep[]; feed: read
               style={{
                 fontSize: 'var(--yt-type-label)',
                 fontFamily: FONT,
-                padding: '0 6px',
+                padding: '0 var(--yt-space-1)',
                 minHeight: 20,
                 borderRadius: 4,
                 cursor: 'pointer',
@@ -260,7 +260,7 @@ function TrendCard({ steps, feed, t }: { steps: readonly TrendStep[]; feed: read
         <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.trend.empty')}</p>
       ) : (
         <>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: BAR_MAX_HEIGHT + 14 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--yt-space-1)', height: BAR_MAX_HEIGHT + 14 }}>
             {bars.map((bar, index) => {
               const prev = index > 0 ? bars[index - 1] : undefined
               const compacted = prev !== undefined && compactionsBefore(bar.endSeq) > compactionsBefore(prev.endSeq)
@@ -274,14 +274,14 @@ function TrendCard({ steps, feed, t }: { steps: readonly TrendStep[]; feed: read
                   <span style={{ height: bar.inputTokens / peak * BAR_MAX_HEIGHT, background: 'var(--yt-accent)' }} />
                   {/* 2026-10-09 评审：9→10px——压缩标记是符号非正文，但不再
                       低于 10px 下限；12px 盒子装得下。 */}
-                  <span style={{ height: 12, textAlign: 'center', fontSize: 10, lineHeight: '12px', color: 'var(--yt-text-muted)' }}>
+                  <span style={{ height: 12, textAlign: 'center', fontSize: 'var(--yt-type-label)', lineHeight: '12px', color: 'var(--yt-text-muted)' }}>
                     {compacted ? '✂' : ''}
                   </span>
                 </span>
               )
             })}
           </div>
-          <div style={{ display: 'flex', gap: 12, fontSize: 'var(--yt-type-label)', color: 'var(--yt-text-muted)' }}>
+          <div style={{ display: 'flex', gap: 'var(--yt-space-3)', fontSize: 'var(--yt-type-label)', color: 'var(--yt-text-muted)' }}>
             <span>{t('insights.trend.legend.input')}</span>
             <span>{t('insights.trend.legend.output')}</span>
           </div>
@@ -324,12 +324,12 @@ function FeedRow({ item, t }: { item: FeedItem; t: WorkbenchT }): ReactElement {
   const badge = FEED_BADGE_KEYS[item.kind]
   const text = feedTextOf(item)
   return (
-    <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', minWidth: 0 }}>
+    <div style={{ display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'baseline', minWidth: 0 }}>
       <span
         style={{
           flexShrink: 0,
           fontSize: 'var(--yt-type-label)',
-          padding: '0 4px',
+          padding: '0 var(--yt-space-1)',
           borderRadius: 3,
           border: '1px solid var(--yt-border-subtle)',
           color: 'var(--yt-text-muted)',
@@ -349,9 +349,9 @@ function FeedCard({ feed, t }: { feed: readonly FeedItem[]; t: WorkbenchT }): Re
   const visible = filtered.slice(-FEED_VISIBLE)
   return (
     <section style={cardStyle} data-insights-card="feed">
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--yt-space-2)', flexWrap: 'wrap' }}>
         <p style={cardTitleStyle}>{t('insights.feed.title')}</p>
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 'var(--yt-space-1)', flexWrap: 'wrap' }}>
           {FEED_FILTERS.map(candidate => (
             <button data-hover="true"
               key={candidate}
@@ -359,7 +359,7 @@ function FeedCard({ feed, t }: { feed: readonly FeedItem[]; t: WorkbenchT }): Re
               style={{
                 fontSize: 'var(--yt-type-label)',
                 fontFamily: FONT,
-                padding: '0 6px',
+                padding: '0 var(--yt-space-1)',
                 minHeight: 20,
                 borderRadius: 4,
                 cursor: 'pointer',
@@ -379,7 +379,7 @@ function FeedCard({ feed, t }: { feed: readonly FeedItem[]; t: WorkbenchT }): Re
       {visible.length === 0 ? (
         <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.feed.empty')}</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)' }}>
           {visible.map(item => <FeedRow key={item.seq} item={item} t={t} />)}
           {filtered.length > visible.length && (
             <p style={{ ...mutedStyle, margin: 0, fontSize: 'var(--yt-type-label)' }}>
@@ -408,9 +408,9 @@ function FilesCard({ files, t }: { files: SessionInsights['files']; t: Workbench
         <p style={{ ...mutedStyle, margin: 0 }}>{t('insights.files.empty')}</p>
       ) : (
         <>
-          <div style={{ display: 'flex', gap: 16 }}>
+          <div style={{ display: 'flex', gap: 'var(--yt-space-4)' }}>
             {buckets.map(bucket => (
-              <span key={bucket.key} style={{ display: 'inline-flex', gap: 4, alignItems: 'baseline' }}>
+              <span key={bucket.key} style={{ display: 'inline-flex', gap: 'var(--yt-space-1)', alignItems: 'baseline' }}>
                 <span style={{ ...mutedStyle, fontSize: 'var(--yt-type-label)' }}>{bucket.label}</span>
                 <span style={{ fontVariantNumeric: 'tabular-nums' }}>{bucket.count}</span>
               </span>

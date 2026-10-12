@@ -95,7 +95,7 @@ const IMPORTANCE_STYLES: Record<MailImportance, CSSProperties> = {
 
 // 密度放宽（2026-10-05 第三轮评审 #9）：间距吃 space 阶梯、字号吃 type
 // 阶梯——之前 4px/6px 的挤压节奏让三个节拍糊成一团。
-const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 8, padding: 'var(--yt-space-2) var(--yt-space-3)' } as const
+const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-2)', padding: 'var(--yt-space-2) var(--yt-space-3)' } as const
 
 const buttonStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', minHeight: 'var(--yt-control-min-h)', boxSizing: 'border-box', alignSelf: 'flex-start' } as const
 
@@ -108,7 +108,7 @@ const hintStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-
 const mailListStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 4,
+  gap: 'var(--yt-space-1)',
   maxHeight: 240,
   overflow: 'auto',
   fontSize: 'var(--yt-type-label)',
@@ -117,7 +117,7 @@ const mailListStyle = {
   padding: 'var(--yt-space-1) 0',
 } as const
 
-const mailRowStyle = { display: 'flex', gap: 6, alignItems: 'baseline', minWidth: 0 } as const
+const mailRowStyle = { display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'baseline', minWidth: 0 } as const
 
 const mailBadgeStyle = { flexShrink: 0, fontSize: 'var(--yt-type-label)' } as const
 
@@ -128,7 +128,7 @@ const mailSubjectStyle = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSp
 /** A thread header is a full-width toggle: badge, topic, ×N, and the caret. */
 const threadHeadStyle = {
   display: 'flex',
-  gap: 6,
+  gap: 'var(--yt-space-1)',
   alignItems: 'baseline',
   minWidth: 0,
   width: '100%',
@@ -141,7 +141,7 @@ const threadHeadStyle = {
   fontSize: 'var(--yt-type-label)',
 } as const
 
-const threadMemberIndent = { paddingLeft: 14 } as const
+const threadMemberIndent = { paddingLeft: 'var(--yt-space-3)' } as const
 
 /** The date of one ISO stamp, for the line that names the batch on screen. */
 function day(iso: string): string {
@@ -225,7 +225,7 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
 
   return (
     <div style={wrapStyle} data-mail-panel="true">
-      <div style={{ display: 'flex', gap: 4 }}>
+      <div style={{ display: 'flex', gap: 'var(--yt-space-1)' }}>
         <button data-hover="true"
           type="button"
           style={buttonStyle}
@@ -322,7 +322,7 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
       )}
       {error !== null && <div style={errorStyle} role="alert" data-mail-error="true">{error}</div>}
       {memoryAdd !== undefined && (
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }} data-mail-memory="true">
+        <div style={{ display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center' }} data-mail-memory="true">
           <input
             style={{ flex: 1, minWidth: 0, padding: 'var(--yt-space-1) var(--yt-space-2)' }}
             value={memory}

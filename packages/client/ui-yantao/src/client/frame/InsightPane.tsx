@@ -59,8 +59,8 @@ const subButtonStyle = {
   background: 'transparent',
   cursor: 'pointer',
   fontFamily: 'var(--yt-font-ui)',
-  fontSize: 12,
-  padding: '2px 10px',
+  fontSize: 'var(--yt-type-label)',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   minHeight: 'var(--yt-control-min-h)',
   boxSizing: 'border-box',
   color: 'var(--yt-text-secondary)',
@@ -85,7 +85,7 @@ export function InsightPane({ renderSlot, onSwitchToConversation, active = true,
       style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
       data-insights-pane={sub}
     >
-      <div style={{ display: 'flex', gap: 4, padding: '6px 8px 0', flexShrink: 0 }}>
+      <div style={{ display: 'flex', gap: 'var(--yt-space-1)', padding: 'var(--yt-space-1) var(--yt-space-2) 0', flexShrink: 0 }}>
         {(Object.keys(SUB_LABELS) as InsightSub[]).map(key => (
           <button
             key={key}

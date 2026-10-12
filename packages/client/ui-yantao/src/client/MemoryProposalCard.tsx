@@ -88,20 +88,20 @@ function firstLine(text: string): string {
 }
 
 const cardStyle = {
-  margin: '4px 0',
-  padding: '10px 12px',
+  margin: 'var(--yt-space-1) 0',
+  padding: 'var(--yt-space-2) var(--yt-space-3)',
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 8,
 } as const
 
-const titleRowStyle = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } as const
+const titleRowStyle = { display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center', flexWrap: 'wrap' } as const
 
 const titleStyle = { fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-primary)' } as const
 
 /** The target scope, the card's one accent chip (ADR-0038's capsule layer). */
 const scopeChipStyle = {
-  padding: '1px 8px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   fontSize: 'var(--yt-type-label)',
   fontWeight: 600,
   color: 'var(--yt-text-secondary)',
@@ -111,7 +111,7 @@ const scopeChipStyle = {
 } as const
 
 const textStyle = {
-  margin: '8px 0 0',
+  margin: 'var(--yt-space-2) 0 0',
   fontSize: 'var(--yt-type-body)',
   color: 'var(--yt-text-primary)',
   whiteSpace: 'pre-wrap',
@@ -121,15 +121,15 @@ const textStyle = {
 const detailStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
 
 const errorRowStyle = {
-  marginTop: 8,
-  padding: '4px 6px',
+  marginTop: 'var(--yt-space-2)',
+  padding: 'var(--yt-space-1) var(--yt-space-1)',
   background: 'var(--yt-error-bg)',
   borderRadius: 6,
   fontSize: 'var(--yt-type-label)',
   color: 'var(--yt-error)',
 } as const
 
-const footerStyle = { display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 } as const
+const footerStyle = { display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center', marginTop: 'var(--yt-space-2)' } as const
 
 /** 裁决钮面孔收敛到 ./buttons.ts：批准是这张卡的主行动（实心 accent），
     丢弃穿幽灵装——与裁决卡的决策重心语法一致（2026-10-05）。 */
@@ -223,7 +223,7 @@ export function MemoryProposalCard(props: MemoryProposalCardProps): ReactElement
       )}
       {/* Interrupted before the tool ran: nothing was queued. */}
       {state === 'stopped' && (
-        <div style={{ ...detailStyle, marginTop: 8 }} data-memory-proposal-interrupted="true">
+        <div style={{ ...detailStyle, marginTop: 'var(--yt-space-2)' }} data-memory-proposal-interrupted="true">
           {t('memory.proposal.interrupted')}
         </div>
       )}
@@ -231,7 +231,7 @@ export function MemoryProposalCard(props: MemoryProposalCardProps): ReactElement
       {state === 'running' && (
         <>
           {args !== null && <div style={textStyle}>{args.text}</div>}
-          <div style={{ ...detailStyle, marginTop: 8 }}>{t('memory.proposal.running')}</div>
+          <div style={{ ...detailStyle, marginTop: 'var(--yt-space-2)' }}>{t('memory.proposal.running')}</div>
         </>
       )}
       {/* Settled ok. With args the card is the verdict surface; a window cut
@@ -241,13 +241,13 @@ export function MemoryProposalCard(props: MemoryProposalCardProps): ReactElement
           <>
             <div style={textStyle} data-memory-proposal-text="true">{args.text}</div>
             {args.source !== undefined && (
-              <div style={{ ...detailStyle, marginTop: 6 }} data-memory-proposal-source="true">
+              <div style={{ ...detailStyle, marginTop: 'var(--yt-space-1)' }} data-memory-proposal-source="true">
                 {t('memory.proposal.sourceLabel')}：{args.source}
               </div>
             )}
           </>
         )
-        : output !== null && <div style={{ ...detailStyle, marginTop: 8 }}>{output}</div>)}
+        : output !== null && <div style={{ ...detailStyle, marginTop: 'var(--yt-space-2)' }}>{output}</div>)}
       {/* A refused verdict: the queue's own refusal prose in the error row;
           the buttons stand below for a retry — a failed verdict is not a
           verdict. */}

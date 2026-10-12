@@ -15,7 +15,10 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import type { KbPromptShortcut, KbSchedule } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { cronNextFire } from './cron.ts'
-import { primaryButtonStyle } from './buttons.ts'
+import { primaryButtonStyle, raisedButtonStyle } from './buttons.ts'
+import { useArmedAction } from './use-armed-action.ts'
+import { activatable } from './activatable.ts'
+import { formatStamp } from './stamp.ts'
 import type { PromptShortcutLister } from './remote.ts'
 
 /** The pane's props: the store's rows, the save seam, the shortcut source, and the capability roster. */
@@ -85,12 +88,7 @@ function newScheduleId(): string {
   return `sch_${Date.now().toString(36)}_${[...random].map(byte => byte.toString(16).padStart(2, '0')).join('')}`
 }
 
-/** Format one ISO stamp for the list's metadata lines. */
-function formatStamp(iso: string): string {
-  const at = new Date(iso)
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${at.getMonth() + 1}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
-}
+// formatStamp 已收编到 ./stamp.ts（P3-1 收敛，2026-10-12）——全工作台一个口径。
 
 const FONT = 'var(--yt-font-ui)'
 
@@ -179,19 +177,8 @@ const inputStyle = {
   color: 'inherit',
 } as const
 
-const buttonStyle = {
-  fontFamily: FONT,
-  fontSize: 'var(--yt-type-body)',
-  padding: 'var(--yt-space-1) var(--yt-space-3)',
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: 'var(--yt-border-subtle)',
-  borderRadius: 4,
-  background: 'var(--yt-surface-raised)',
-  color: 'inherit',
-  cursor: 'pointer',
-  whiteSpace: 'nowrap',
-} as const
+// 表单行的次级钮（新建 / 填入 / 取消）收敛到 ./buttons.ts 的 raised 面
+// （P1-2 收敛，2026-10-12）——此前的私养版与 TodoBoard 的裸 UA 按钮一并退役。
 
 /** 主行动钮（创建/保存）的实心 accent 面孔收敛到 ./buttons.ts —— 与裁决卡
     同一副面孔；accent-bg 淡底回归其文档角色：选中态。（2026-10-05） */
@@ -224,11 +211,14 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<EditorDraft | null>(null)
   const [busy, setBusy] = useState(false)
-  // 删除的两击武装（2026-10-05 第三轮评审 P2#3）：首击只进入确认态，再击
-  // 才执行——本产品自己的删除惯例，此前唯独这里例外。换选中/关编辑器即解除。
-  const [deleteArmed, setDeleteArmed] = useState(false)
+  // 删除的两击武装（2026-10-05 第三轮评审 P2#3；2026-10-12 起走共享
+  // useArmedAction）：首击只进入确认态，再击才执行。换选中/关编辑器即解除。
+  const { armedId: armedDeleteId, attempt: attemptDelete, disarm: disarmDelete } = useArmedAction()
   const [shortcuts, setShortcuts] = useState<readonly KbPromptShortcut[]>([])
   const [shortcutAlias, setShortcutAlias] = useState('')
+  // 脏态基线（P2-2）：打开/保存时的草稿快照——此后每次换行、新建、取消
+  // 先比对，有未保存修改就问一声，不再无声丢稿。
+  const [snapshot, setSnapshot] = useState('')
 
   // The 填入 source loads once with the pane; a missing store is an empty menu.
   useEffect(() => {
@@ -240,23 +230,36 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
     return () => { stale = true }
   }, [promptShortcutList])
 
+  /** 还有未保存修改吗？以打开/保存时刻的草稿快照为基线。 */
+  const dirty = draft !== null && JSON.stringify(draft) !== snapshot
+
+  /** 脏态守卫：返回 false 表示人选择了留下（放弃切换）。 */
+  const abandonGuard = (): boolean => dirty === false || window.confirm('当前调度还没保存，放弃这些修改？')
+
   const openEditor = (schedule: KbSchedule): void => {
+    if (selectedId === schedule.id && draft !== null) return
+    if (!abandonGuard()) return
     setSelectedId(schedule.id)
-    setDeleteArmed(false)
-    setDraft({
+    disarmDelete()
+    const next: EditorDraft = {
       id: schedule.id,
       name: schedule.name,
       prompt: schedule.prompt,
       rule: ruleOfCron(schedule.cron),
       enabled: schedule.enabled,
       capability: schedule.capability ?? '',
-    })
+    }
+    setDraft(next)
+    setSnapshot(JSON.stringify(next))
   }
 
   const openNew = (): void => {
+    if (!abandonGuard()) return
     setSelectedId(null)
-    setDeleteArmed(false)
-    setDraft({ id: null, name: '', prompt: '', rule: { mode: 'daily', time: '09:00' }, enabled: true, capability: '' })
+    disarmDelete()
+    const next: EditorDraft = { id: null, name: '', prompt: '', rule: { mode: 'daily', time: '09:00' }, enabled: true, capability: '' }
+    setDraft(next)
+    setSnapshot(JSON.stringify(next))
   }
 
   const fillShortcut = (): void => {
@@ -282,7 +285,9 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
         }
         if (await onSave([...schedules, created])) {
           setSelectedId(created.id)
-          setDraft({ ...draft, id: created.id })
+          const saved = { ...draft, id: created.id }
+          setDraft(saved)
+          setSnapshot(JSON.stringify(saved))
         }
       } else {
         // Rebuilt field-by-field rather than spread over the old row: an
@@ -300,7 +305,10 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
             ...(draft.capability !== '' ? { capability: draft.capability } : {}),
           }
           : row)
-        if (await onSave(next)) setDraft({ ...draft })
+        if (await onSave(next)) {
+          setDraft({ ...draft })
+          setSnapshot(JSON.stringify(draft))
+        }
       }
     } finally {
       setBusy(false)
@@ -317,7 +325,7 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
       }
     } finally {
       setBusy(false)
-      setDeleteArmed(false)
+      disarmDelete()
     }
   }
 
@@ -334,7 +342,7 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
       <div style={listColStyle}>
         <div style={listHeadStyle}>
           <span>调度定义</span>
-          <button data-hover="true" type="button" style={buttonStyle} onClick={openNew}>+ 新建</button>
+          <button data-hover="true" type="button" style={raisedButtonStyle} onClick={openNew}>+ 新建</button>
         </div>
         <div style={listBodyStyle}>
           {schedules.length === 0 && (
@@ -353,7 +361,7 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
                 // 内联 accent——选中行靠这个属性豁免兜底（2026-10-10 ocr 评审）。
                 data-selected={selectedId === schedule.id || undefined}
                 onClick={() => { openEditor(schedule) }}
-                onKeyDown={(event) => { if (event.key === 'Enter') openEditor(schedule) }}
+                onKeyDown={activatable(() => { openEditor(schedule) })}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--yt-space-2)' }}>
                   <input
@@ -407,7 +415,7 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
                 <option value="">选择惯用提示词…</option>
                 {shortcuts.map(shortcut => <option key={shortcut.alias} value={shortcut.alias}>/{shortcut.alias}</option>)}
               </select>
-              <button data-hover="true" type="button" style={buttonStyle} disabled={shortcutAlias === ''} onClick={fillShortcut}>
+              <button data-hover="true" type="button" style={raisedButtonStyle} disabled={shortcutAlias === ''} onClick={fillShortcut}>
                 从惯用提示词填入
               </button>
             </div>
@@ -513,7 +521,7 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
               <button type="button" style={primaryButtonStyle} data-hover="primary" disabled={busy || draft.name.trim() === '' || draft.prompt.trim() === ''} onClick={() => { void saveDraft() }}>
                 {draft.id === null ? '创建' : '保存'}
               </button>
-              <button data-hover="true" type="button" style={buttonStyle} disabled={busy} onClick={() => { setDraft(null); setSelectedId(null); setDeleteArmed(false) }}>
+              <button data-hover="true" type="button" style={raisedButtonStyle} disabled={busy} onClick={() => { if (abandonGuard()) { setDraft(null); setSelectedId(null); disarmDelete() } }}>
                 取消
               </button>
               {draft.id !== null && (
@@ -521,17 +529,14 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
                   type="button"
                   style={ghostDangerStyle}
                   disabled={busy}
-                  data-armed={deleteArmed || undefined}
+                  data-armed={(draft.id !== null && armedDeleteId === draft.id) || undefined}
                   title="删除这条调度，不可恢复"
                   onClick={() => {
-                    if (!deleteArmed) {
-                      setDeleteArmed(true)
-                      return
-                    }
-                    void removeDraft()
+                    if (draft.id === null) return
+                    attemptDelete(draft.id, () => { void removeDraft() })
                   }}
                 >
-                  {deleteArmed ? '确认删除？' : '删除'}
+                  {armedDeleteId === draft.id ? '确认删除？' : '删除'}
                 </button>
               )}
             </div>

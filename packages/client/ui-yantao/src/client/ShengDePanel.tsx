@@ -38,7 +38,7 @@ function readExpansion(): Expansion {
 }
 
 /** The seam between the two planes. */
-const dividerStyle = { height: 1, background: 'var(--yt-border-subtle)', margin: '10px 0 6px' } as const
+const dividerStyle = { height: 1, background: 'var(--yt-border-subtle)', margin: 'var(--yt-space-2) 0 var(--yt-space-1)' } as const
 
 /**
  * Render the 省得 tab: the todo board above the memory view, each half's

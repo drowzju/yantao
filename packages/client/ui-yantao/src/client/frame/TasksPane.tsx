@@ -28,21 +28,21 @@ const paneStyle = {
   minWidth: 0,
   minHeight: 0,
   overflowY: 'auto',
-  padding: '8px 12px',
+  padding: 'var(--yt-space-2) var(--yt-space-3)',
   fontFamily: FONT,
   fontSize: 'var(--yt-type-body)',
   display: 'flex',
   flexDirection: 'column',
-  gap: 6,
+  gap: 'var(--yt-space-1)',
 } as const
 
-const emptyStyle = { color: 'var(--yt-text-muted)', padding: '24px 0', textAlign: 'center' } as const
+const emptyStyle = { color: 'var(--yt-text-muted)', padding: 'var(--yt-space-5) 0', textAlign: 'center' } as const
 
 const rowStyle = {
   display: 'flex',
   alignItems: 'baseline',
-  gap: 8,
-  padding: '6px 10px',
+  gap: 'var(--yt-space-2)',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 6,
   background: 'var(--yt-surface-raised)',
@@ -56,7 +56,7 @@ const elapsedStyle = { color: 'var(--yt-text-muted)', fontVariantNumeric: 'tabul
 
 const chipStyle = {
   borderRadius: 8,
-  padding: '0 8px',
+  padding: '0 var(--yt-space-2)',
   fontSize: 'var(--yt-type-label)',
   whiteSpace: 'nowrap',
 } as const
@@ -81,7 +81,7 @@ const actionButtonStyle = {
   cursor: 'pointer',
   fontFamily: FONT,
   fontSize: 'var(--yt-type-label)',
-  padding: '1px 8px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   whiteSpace: 'nowrap',
 } as const
 

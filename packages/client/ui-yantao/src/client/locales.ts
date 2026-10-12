@@ -4,6 +4,14 @@
  * it at compile time. The workbench is a plain child of the root frame, not
  * a slot entry, so its components receive the bound `t` as a prop threaded
  * from the plugin's `apply` — see `WorkbenchT` below.
+ *
+ * i18n 豁免登记（2026-10-12 评审 P3-1 裁决）：以下三个面板说纯中文、不走
+ * 本字典——它们是单人中文工作台的自留地，文案与领域词汇深度耦合（调度
+ * 规则选项、提议状态语），抽 key 只会制造一层无消费者的间接：
+ *   - SchedulePane.tsx（调度：触发规则选项、证据行措辞）
+ *   - TasksHubPane.tsx（任务壳：三个子页签名）
+ *   - InboxPane.tsx（提议：空态与状态芯片）
+ * 若未来要出英文版，从这里开始补登记，而不是先抽 key。
  */
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 
@@ -452,7 +460,6 @@ export const zh = {
 
   // Keyboard shortcuts (tab labels reuse the center.* keys)
   'shortcut.configOpen': '打开配置',
-  'shortcut.railIntake': '折叠/展开采集栏',
 } satisfies Record<string, string>
 
 /** Workbench locale key union. */
@@ -893,5 +900,4 @@ export const en = {
 
   // Keyboard shortcuts (tab labels reuse the center.* keys)
   'shortcut.configOpen': 'Open settings',
-  'shortcut.railIntake': 'Toggle intake rail',
 } satisfies Record<WorkbenchLocaleKey, string>

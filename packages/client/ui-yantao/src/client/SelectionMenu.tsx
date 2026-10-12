@@ -17,7 +17,7 @@ const FONT = 'var(--yt-font-ui)'
 const menuStyle = {
   position: 'fixed',
   zIndex: 40,
-  padding: 4,
+  padding: 'var(--yt-space-1)',
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 4,
@@ -30,7 +30,7 @@ const itemStyle = {
   display: 'block',
   width: '100%',
   textAlign: 'left',
-  padding: '3px 8px',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
   minHeight: 'var(--yt-control-min-h)',
   boxSizing: 'border-box',
   border: 'none',
@@ -42,7 +42,7 @@ const itemStyle = {
   whiteSpace: 'nowrap',
 } as const
 
-const noteStyle = { padding: '2px 8px', color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)' } as const
+const noteStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)' } as const
 
 /**
  * The selection menu, fixed-positioned at the mouseup point.
