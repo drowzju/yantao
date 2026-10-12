@@ -8,7 +8,8 @@
  * sub-choice lives in component state — remembered within the session,
  * never persisted — and defaults to 任务.
  *
- * Pure layout: no data, no verbs, no i18n (the panes skip it too).
+ * Pure layout: no verbs, no i18n (the panes skip it too) — the only data it
+ * touches is the sub-tabs' own counter badges (2026-10-12).
  */
 import { useState, type ReactElement, type ReactNode } from 'react'
 
@@ -19,10 +20,15 @@ export interface TasksHubPaneProps {
   readonly inbox: ReactNode
   /** The 调度 sub-page: the definitions-plus-editor pane. */
   readonly schedule: ReactNode
+  /** Per-sub-tab counter badges (2026-10-12): the counts used to ride the
+      parent 任务 tab as twin numeric pills, but a number there could not say
+      which sub-tab it belonged to — so each sub-tab now wears its own count
+      (任务: running tasks; 提议: pending proposals; 调度 has no signal). */
+  readonly badges?: Partial<Record<TasksSub, number>>
 }
 
 /** The three sub-pages, in strip order. */
-type TasksSub = 'tasks' | 'inbox' | 'schedule'
+export type TasksSub = 'tasks' | 'inbox' | 'schedule'
 
 const SUB_LABELS: Record<TasksSub, string> = {
   tasks: '任务',
@@ -52,6 +58,16 @@ const activeSubButtonStyle = {
   color: 'inherit',
 } as const
 
+/** Counter pill riding a sub-tab label (the count the parent tab dropped). */
+const subBadgeStyle = {
+  borderRadius: 8,
+  background: 'var(--yt-accent)',
+  color: 'var(--yt-on-accent)',
+  fontSize: 'var(--yt-type-label)',
+  lineHeight: '16px',
+  padding: '0 6px',
+} as const
+
 const hubStyle = {
   flex: 1,
   minWidth: 0,
@@ -70,25 +86,33 @@ const pageStyle = {
   flexDirection: 'column',
 } as const
 
-export function TasksHubPane({ tasks, inbox, schedule }: TasksHubPaneProps): ReactElement {
+export function TasksHubPane({ tasks, inbox, schedule, badges }: TasksHubPaneProps): ReactElement {
   // Remembered for the session only: switching centre tabs hides the pane but
   // never unmounts it, so the choice survives the round trip.
   const [sub, setSub] = useState<TasksSub>('tasks')
   return (
     <div style={hubStyle} data-tasks-hub="true" data-tasks-sub={sub}>
       <div style={{ display: 'flex', gap: 4, padding: '6px 8px 0', flexShrink: 0 }}>
-        {(Object.keys(SUB_LABELS) as TasksSub[]).map(key => (
-          <button
-            key={key}
-            type="button"
-            data-hover="tab"
-            data-tasks-sub-button={key}
-            style={sub === key ? activeSubButtonStyle : subButtonStyle}
-            onClick={() => { setSub(key) }}
-          >
-            {SUB_LABELS[key]}
-          </button>
-        ))}
+        {(Object.keys(SUB_LABELS) as TasksSub[]).map((key) => {
+          const count = badges?.[key] ?? 0
+          return (
+            <button
+              key={key}
+              type="button"
+              data-hover="tab"
+              data-tasks-sub-button={key}
+              style={{ ...(sub === key ? activeSubButtonStyle : subButtonStyle), display: 'flex', alignItems: 'center', gap: 4 }}
+              onClick={() => { setSub(key) }}
+            >
+              {SUB_LABELS[key]}
+              {count > 0 && (
+                <span data-tasks-sub-badge={key} style={subBadgeStyle}>
+                  {count}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
       {/* All three stay mounted (render-once): only the visible one is
           flexed, the others are display:none — an editor draft or an open

@@ -37,9 +37,9 @@ export interface CenterPaneProps {
   readonly renderConversation: () => ReactNode
   /** Render one file tab's pane. */
   readonly renderFile: (tab: FileTab) => ReactNode
-  /** The frame's task rows: the 任务 tab badge's running count. */
+  /** The frame's task rows: the 任务 tab dot's running count. */
   readonly taskRows: readonly TaskRow[]
-  /** The 任务 tab's second badge: the undecided proposal backlog's size (ADR-0057). */
+  /** The 任务 tab dot's other trigger: the undecided proposal backlog's size (ADR-0057). */
   readonly inboxPending: number
   /** The 任务 tab's assembled body — 任务｜提议 above, 调度 below (ADR-0057) — rendered once, then only hidden. */
   readonly tasksHub: ReactNode
@@ -136,16 +136,9 @@ function StatusDot({ status, t }: { status: SaveStatus; t: WorkbenchT }): ReactE
   )
 }
 
-/** Badge pill shared by the 任务 tab's two counters (ADR-0057): the running
-    task count wears plain accent, the pending-proposal count the stronger
-    accent — the tones the two standalone tabs wore before the merge. */
-const badgeBaseStyle = {
-  borderRadius: 8,
-  color: 'var(--yt-on-accent)',
-  fontSize: 'var(--yt-type-label)',
-  lineHeight: '16px',
-  padding: '0 6px',
-} as const
+/** The 任务 tab's sole badge: a plain blue dot whenever any sub-tab has a
+    signal (running tasks or pending proposals). The counts themselves moved
+    onto the sub-tabs (任务 / 提议) where their ownership is unambiguous. */
 
 /**
  * Render the centre pane's tab strip and its panes.
@@ -188,34 +181,22 @@ export function CenterPane({
           <button type="button" style={labelButtonStyle} data-hover="tab" data-center-tab={TASKS_TAB} onClick={() => { onActivate(TASKS_TAB) }}>
             {t('center.tasks')}
           </button>
-          {running > 0 && (
+          {/* The blue dot replaces the twin numeric pills: a number on the
+              parent tab could not say which sub-tab it belonged to, so the
+              counts now ride the sub-tabs themselves and the parent only
+              signals presence. */}
+          {(running > 0 || inboxPending > 0) && (
             <span
               data-tasks-badge="true"
               style={{
-                ...badgeBaseStyle,
-                // accent 面上的文字随主题取色（--yt-on-accent，2026-10-09）：
-                // 此前硬编码 #fff，暗色下对 #7ba3e0 只有 ≈2.6:1。
+                width: 7,
+                height: 7,
+                borderRadius: 4,
                 background: 'var(--yt-accent)',
+                display: 'inline-block',
+                flexShrink: 0,
               }}
-            >
-              {running}
-            </span>
-          )}
-          {inboxPending > 0 && (
-            <span
-              data-inbox-badge="true"
-              style={{
-                ...badgeBaseStyle,
-                // Light: plain --yt-accent gives 12px text only ~4:1; the
-                // stronger accent clears AA there (~5.6:1). Dark aliases
-                // strong to plain accent (#7ba3e0), so the ink flips to the
-                // dark scheme's --yt-on-accent (墨色，7:1+) instead of white
-                // (≈2.6:1，2026-10-09 评审 P1 收口).
-                background: 'var(--yt-accent-strong)',
-              }}
-            >
-              {inboxPending}
-            </span>
+            />
           )}
         </div>
         <div style={insightsActive ? activeTabStyle : tabStyle}>

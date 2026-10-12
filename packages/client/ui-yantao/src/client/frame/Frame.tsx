@@ -31,7 +31,7 @@ import type { AnalysisStage, MailAnalyser } from '../mail-analysis.ts'
 import { createMailRun, useMailRun } from '../mail-run.ts'
 import type { RefineGesture, RefineRosterEntry, RefineRunner, RefineRun } from '../refine.ts'
 import type { ValidateRun, ValidateRunner, ValidateScope, ValidateStage } from '../validate.ts'
-import { formatElapsed, type TaskKind, type TaskRow, type TaskStatus } from '../task-view.ts'
+import { formatElapsed, runningCount, type TaskKind, type TaskRow, type TaskStatus } from '../task-view.ts'
 import type { SessionDetailLoader } from '../session-detail.ts'
 import { SessionDetailDrawer } from '../SessionDetailDrawer.tsx'
 import type { Proposal, ProposalMailRange } from '../proposal.ts'
@@ -1790,6 +1790,12 @@ export function Frame({
     onKbRootChanged()
   }, [onKbRootChanged])
 
+  // The 任务 hub's per-sub-tab counters (2026-10-12): the 任务 sub-tab wears
+  // the running-task count, the 提议 sub-tab the pending-proposal backlog.
+  // The parent tab itself shows only a presence dot (CenterPane).
+  const runningTasks = runningCount(taskRows)
+  const pendingProposals = inboxEntries.filter(entry => entry.status === 'pending').length
+
   return (
     <div
       ref={frameRef}
@@ -1866,6 +1872,7 @@ export function Frame({
         // every definition it never fetched.
         tasksHub={(
           <TasksHubPane
+            badges={{ tasks: runningTasks, inbox: pendingProposals }}
             tasks={(
               <>
                 <TasksPane rows={taskRows} onCancel={cancelTask} onJump={jumpTask} onDetail={onTaskDetail} />
@@ -1920,7 +1927,7 @@ export function Frame({
           ),
         })}
         insightsPressure={renderSlot('center.insights.pressure', {})}
-        inboxPending={inboxEntries.filter(entry => entry.status === 'pending').length}
+        inboxPending={pendingProposals}
         onActivate={(key) => { activate(key) }}
         onClose={closeFileTab}
         renderConversation={() => renderSlot('main', {}, { entryKey: 'conversation' })}
