@@ -171,16 +171,20 @@ function ProposalRow(props: {
   readonly onDiscard: (scope: string, text: string) => void
 }): ReactElement {
   const { t, group, entry, busy } = props
-  const meta = [
+  // 元数据各自成段（2026-10-12 评审 P2-2）：DESIGN.md §7 禁止 ` · ` 尾巴——
+  // 来源与日期是证据，不是一句话里的连接词，拆成可换行的独立小段。
+  const metaSegments = [
     `${t('memory.proposal.scopeLabel')}：${scopeLabel(t, group.scope)}`,
     ...(entry.source !== '' ? [`${t('memory.proposal.sourceLabel')}：${entry.source}`] : []),
     ...(entry.date !== undefined ? [entry.date] : []),
-  ].join(' · ')
+  ]
   return (
     <div style={proposalRowStyle} data-memory-proposal={entry.id} data-memory-proposal-scope={group.scope}>
       <div style={textStyle}>
         {entry.text}
-        <div style={proposalMetaStyle}>{meta}</div>
+        <div style={{ ...proposalMetaStyle, display: 'flex', flexWrap: 'wrap', columnGap: 'var(--yt-space-2)' }}>
+          {metaSegments.map(segment => <span key={segment}>{segment}</span>)}
+        </div>
       </div>
       <div style={proposalActionsStyle}>
         <button data-hover="true"

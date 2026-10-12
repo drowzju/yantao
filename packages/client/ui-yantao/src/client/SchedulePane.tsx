@@ -10,12 +10,13 @@
  * Design discipline (apps/yantao/DESIGN.md): colors and metrics ride the
  * `--yt-*` tokens; the cron is a code fragment and wears the code font;
  * evidence (下次触发/上次触发/上次错过) owns its own muted line — never a
- * ` · ` tail; the destructive 删除 wears ghost clothes.
+ * ` · ` tail; the destructive 删除 arms through a two-click tool button; the
+ * dirty-editor guard is an in-pane confirm strip, never window.confirm.
  */
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import type { KbPromptShortcut, KbSchedule } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { cronNextFire } from './cron.ts'
-import { primaryButtonStyle, raisedButtonStyle } from './buttons.ts'
+import { ghostButtonStyle, primaryButtonStyle, raisedButtonStyle, toolButtonArmedStyle, toolButtonStyle } from './buttons.ts'
 import { useArmedAction } from './use-armed-action.ts'
 import { activatable } from './activatable.ts'
 import { formatStamp } from './stamp.ts'
@@ -184,16 +185,9 @@ const inputStyle = {
     同一副面孔；accent-bg 淡底回归其文档角色：选中态。（2026-10-05） */
 
 
-/** The destructive action's ghost clothes (DESIGN.md §7): no border, transparent, muted ink, the explanation rides the tooltip. */
-const ghostDangerStyle = {
-  fontFamily: FONT,
-  fontSize: 'var(--yt-type-body)',
-  padding: 'var(--yt-space-1) var(--yt-space-2)',
-  borderWidth: 0,
-  background: 'transparent',
-  color: 'var(--yt-text-muted)',
-  cursor: 'pointer',
-} as const
+// 删除钮的幽灵装收敛到 ./buttons.ts 的 tool 面（P1-2 收敛，2026-10-12）——
+// §7 的「无边框、透明底、muted 墨色」就是 tool 面的定义；武装态走共享
+// toolButtonArmedStyle。
 
 const missedBadgeStyle = {
   // 警告黄作文字在纸上只有 2.2:1；语义琥珀（--yt-warning-text）才过 AA。
@@ -219,6 +213,9 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
   // 脏态基线（P2-2）：打开/保存时的草稿快照——此后每次换行、新建、取消
   // 先比对，有未保存修改就问一声，不再无声丢稿。
   const [snapshot, setSnapshot] = useState('')
+  // 站内脏态确认（2026-10-12 评审 P2-2）：window.confirm 是系统级灰模态，
+  // 撕裂暖纸语境——dirty 时先把续作存起来，人点「放弃修改」才放行。
+  const [pendingAbandon, setPendingAbandon] = useState<(() => void) | null>(null)
 
   // The 填入 source loads once with the pane; a missing store is an empty menu.
   useEffect(() => {
@@ -233,33 +230,48 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
   /** 还有未保存修改吗？以打开/保存时刻的草稿快照为基线。 */
   const dirty = draft !== null && JSON.stringify(draft) !== snapshot
 
-  /** 脏态守卫：返回 false 表示人选择了留下（放弃切换）。 */
-  const abandonGuard = (): boolean => dirty === false || window.confirm('当前调度还没保存，放弃这些修改？')
+  /**
+   * 脏态守卫（续作式）：干净就直接放行；脏则把续作暂存，渲染站内确认条，
+   * 由人点「放弃修改」（放行）或「继续编辑」（撤销）裁决。
+   */
+  const abandonGuard = (proceed: () => void): void => {
+    if (!dirty) { proceed(); return }
+    setPendingAbandon(() => proceed)
+  }
+
+  /** 确认条的裁决动作：放行续作并收起确认条。 */
+  const confirmAbandon = (): void => {
+    const proceed = pendingAbandon
+    setPendingAbandon(null)
+    proceed?.()
+  }
 
   const openEditor = (schedule: KbSchedule): void => {
     if (selectedId === schedule.id && draft !== null) return
-    if (!abandonGuard()) return
-    setSelectedId(schedule.id)
-    disarmDelete()
-    const next: EditorDraft = {
-      id: schedule.id,
-      name: schedule.name,
-      prompt: schedule.prompt,
-      rule: ruleOfCron(schedule.cron),
-      enabled: schedule.enabled,
-      capability: schedule.capability ?? '',
-    }
-    setDraft(next)
-    setSnapshot(JSON.stringify(next))
+    abandonGuard(() => {
+      setSelectedId(schedule.id)
+      disarmDelete()
+      const next: EditorDraft = {
+        id: schedule.id,
+        name: schedule.name,
+        prompt: schedule.prompt,
+        rule: ruleOfCron(schedule.cron),
+        enabled: schedule.enabled,
+        capability: schedule.capability ?? '',
+      }
+      setDraft(next)
+      setSnapshot(JSON.stringify(next))
+    })
   }
 
   const openNew = (): void => {
-    if (!abandonGuard()) return
-    setSelectedId(null)
-    disarmDelete()
-    const next: EditorDraft = { id: null, name: '', prompt: '', rule: { mode: 'daily', time: '09:00' }, enabled: true, capability: '' }
-    setDraft(next)
-    setSnapshot(JSON.stringify(next))
+    abandonGuard(() => {
+      setSelectedId(null)
+      disarmDelete()
+      const next: EditorDraft = { id: null, name: '', prompt: '', rule: { mode: 'daily', time: '09:00' }, enabled: true, capability: '' }
+      setDraft(next)
+      setSnapshot(JSON.stringify(next))
+    })
   }
 
   const fillShortcut = (): void => {
@@ -392,6 +404,17 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
           <div style={{ color: 'var(--yt-text-muted)' }}>选中左侧一条调度进行编辑，或新建一条。</div>
         ) : (
           <>
+            {pendingAbandon !== null && (
+              <div
+                role="alertdialog"
+                aria-label="未保存修改确认"
+                style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center', flexWrap: 'wrap', padding: 'var(--yt-space-2)', border: '1px solid var(--yt-border-strong)', borderRadius: 4, background: 'var(--yt-surface-raised)' }}
+              >
+                <span>当前调度还没保存，放弃这些修改？</span>
+                <button data-hover="true" type="button" style={raisedButtonStyle} onClick={confirmAbandon}>放弃修改</button>
+                <button data-hover="true" type="button" style={ghostButtonStyle} onClick={() => { setPendingAbandon(null) }}>继续编辑</button>
+              </div>
+            )}
             <label style={fieldLabelStyle}>
               名称
               <input style={inputStyle} value={draft.name} onChange={(event) => { setDraft({ ...draft, name: event.target.value }) }} />
@@ -521,13 +544,13 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
               <button type="button" style={primaryButtonStyle} data-hover="primary" disabled={busy || draft.name.trim() === '' || draft.prompt.trim() === ''} onClick={() => { void saveDraft() }}>
                 {draft.id === null ? '创建' : '保存'}
               </button>
-              <button data-hover="true" type="button" style={raisedButtonStyle} disabled={busy} onClick={() => { if (abandonGuard()) { setDraft(null); setSelectedId(null); disarmDelete() } }}>
+              <button data-hover="true" type="button" style={raisedButtonStyle} disabled={busy} onClick={() => { abandonGuard(() => { setDraft(null); setSelectedId(null); disarmDelete() }) }}>
                 取消
               </button>
               {draft.id !== null && (
                 <button data-hover="true"
                   type="button"
-                  style={ghostDangerStyle}
+                  style={armedDeleteId === draft.id ? toolButtonArmedStyle : toolButtonStyle}
                   disabled={busy}
                   data-armed={(draft.id !== null && armedDeleteId === draft.id) || undefined}
                   title="删除这条调度，不可恢复"
