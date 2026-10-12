@@ -6,9 +6,10 @@
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
-import type { ShortcutCommand, ShortcutGesture, ShortcutPlatform } from '@deepseek-ai/dsh-client-shortcuts/client'
+import type { ShortcutCommand, ShortcutFixedInput, ShortcutGesture, ShortcutPlatform } from '@deepseek-ai/dsh-client-shortcuts/client'
 import { ShortcutRegistry } from '../../shortcuts/src/client/registry.ts'
-import { WORKBENCH_TAB_JUMPS, installWorkbenchShortcuts } from '../src/client/shortcuts.ts'
+import { PROPOSAL_VERDICT_KEYS, WORKBENCH_TAB_JUMPS, installWorkbenchShortcuts } from '../src/client/shortcuts.ts'
+import { proposalVerdictSeat } from '../src/client/proposal-verdict-seat.ts'
 import { type PanelToggles } from '../src/client/frame/layout.ts'
 import { WORKBENCH_NS, en, zh } from '../src/client/locales.ts'
 
@@ -36,10 +37,19 @@ async function bench(runtime: 'web' | 'desktop' = 'web', platform: ShortcutPlatf
   onTestFinished(async () => { await ctx.fiber.dispose() })
   const registry = new ShortcutRegistry(runtime, platform)
   const commands = new Map<string, ShortcutCommand>()
-  ctx.provide('shortcuts', { register: (command: ShortcutCommand) => {
-    commands.set(command.id, command)
-    return registry.register(command)
-  }, catalog: registry.catalog })
+  let fixedListener: ((input: ShortcutFixedInput) => void) | null = null
+  ctx.provide('shortcuts', {
+    register: (command: ShortcutCommand) => {
+      commands.set(command.id, command)
+      return registry.register(command)
+    },
+    catalog: registry.catalog,
+    registerFixed: (command: Parameters<typeof registry.registerFixed>[0]) => registry.registerFixed(command),
+    observeFixedInput: (listener: (input: ShortcutFixedInput) => void) => {
+      fixedListener = listener
+      return () => { fixedListener = null }
+    },
+  })
   const locale = new LocaleRuntime(ctx)
   locale.register(WORKBENCH_NS, { zh, en })
   locale.setLocale('en')
@@ -49,7 +59,9 @@ async function bench(runtime: 'web' | 'desktop' = 'web', platform: ShortcutPlatf
     installWorkbenchShortcuts(scoped, recorded.panels, locale.bind(WORKBENCH_NS))
   })
   await fiber.await()
-  return { ctx, fiber, registry, commands, ...recorded }
+  /** Deliver one fixed-input keystroke to the observed listener. */
+  const fireFixed = (input: ShortcutFixedInput): void => { fixedListener?.(input) }
+  return { ctx, fiber, registry, commands, fireFixed, ...recorded }
 }
 
 afterEach(() => { vi.restoreAllMocks() })
@@ -117,5 +129,76 @@ describe('WORKBENCH_TAB_JUMPS', () => {
     expect(WORKBENCH_TAB_JUMPS).toHaveLength(3)
     expect(WORKBENCH_TAB_JUMPS.map(jump => jump.code)).toEqual(['Digit1', 'Digit2', 'Digit3'])
     expect(new Set(WORKBENCH_TAB_JUMPS.map(jump => jump.tab)).size).toBe(3)
+  })
+})
+
+describe('proposal verdict fixed keys (2026-10-12 评审 P2-1)', () => {
+  /** A bare keystroke (no modifiers) as the DOM adapter would deliver it. */
+  const bare = (code: string, rest: Partial<ShortcutGesture> = {}): ShortcutGesture => ({
+    code, control: false, alt: false, shift: false, meta: false, repeat: false,
+    composing: false, defaultPrevented: false, ...rest,
+  })
+
+  it('registers the four fixed commands in the approval group, reserving their bare keys', async () => {
+    const b = await bench()
+    const rows = b.registry.fixedCatalog.getSnapshot().filter(row => row.id.startsWith('yantao.proposal.'))
+    expect(rows.map(row => row.id)).toEqual(PROPOSAL_VERDICT_KEYS.map(verdict => `yantao.proposal.${verdict.tail}`))
+    expect(rows.every(row => row.group === 'approval')).toBe(true)
+    expect(rows.map(row => row.keys)).toEqual([['J'], ['K'], ['Space'], ['Enter']])
+    // The reservation keeps editable commands off these keys.
+    expect(b.registry.definitions().filter(def => def.id.startsWith('yantao.proposal.')).every(def => def.fixed !== undefined)).toBe(true)
+  })
+
+  it('fires the seat handler for proposal-modal page input and consumes it', async () => {
+    const b = await bench()
+    const handler = { moveDown: vi.fn(), moveUp: vi.fn(), toggleTick: vi.fn(), confirmWrite: vi.fn() }
+    proposalVerdictSeat.current = handler
+    onTestFinished(() => { proposalVerdictSeat.current = null })
+    const consume = vi.fn()
+    b.fireFixed({ type: 'keydown', gesture: bare('KeyJ'), context: { ...context, modal: 'proposal' }, consume })
+    b.fireFixed({ type: 'keydown', gesture: bare('KeyK'), context: { ...context, modal: 'proposal' }, consume })
+    b.fireFixed({ type: 'keydown', gesture: bare('Space'), context: { ...context, modal: 'proposal' }, consume })
+    b.fireFixed({ type: 'keydown', gesture: bare('Enter'), context: { ...context, modal: 'proposal' }, consume })
+    expect(handler.moveDown).toHaveBeenCalledOnce()
+    expect(handler.moveUp).toHaveBeenCalledOnce()
+    expect(handler.toggleTick).toHaveBeenCalledOnce()
+    expect(handler.confirmWrite).toHaveBeenCalledOnce()
+    expect(consume).toHaveBeenCalledTimes(4)
+  })
+
+  it('ignores other modals, editable regions, modifier chords, and foreign keys', async () => {
+    const b = await bench()
+    const handler = { moveDown: vi.fn(), moveUp: vi.fn(), toggleTick: vi.fn(), confirmWrite: vi.fn() }
+    proposalVerdictSeat.current = handler
+    onTestFinished(() => { proposalVerdictSeat.current = null })
+    const consume = vi.fn()
+    b.fireFixed({ type: 'keydown', gesture: bare('KeyJ'), context: { ...context, modal: 'settings' }, consume })
+    b.fireFixed({ type: 'keydown', gesture: bare('KeyJ'), context: { ...context, modal: 'proposal', region: 'editable' }, consume })
+    b.fireFixed({ type: 'keydown', gesture: bare('KeyJ', { control: true }), context: { ...context, modal: 'proposal' }, consume })
+    b.fireFixed({ type: 'keydown', gesture: bare('KeyL'), context: { ...context, modal: 'proposal' }, consume })
+    expect(consume).not.toHaveBeenCalled()
+    expect(handler.moveDown).not.toHaveBeenCalled()
+  })
+
+  it('lets J/K repeat but not Space/Enter, and drops the seat with the fiber', async () => {
+    const b = await bench()
+    const handler = { moveDown: vi.fn(), moveUp: vi.fn(), toggleTick: vi.fn(), confirmWrite: vi.fn() }
+    proposalVerdictSeat.current = handler
+    onTestFinished(() => { proposalVerdictSeat.current = null })
+    const consume = vi.fn()
+    b.fireFixed({ type: 'keydown', gesture: bare('KeyJ', { repeat: true }), context: { ...context, modal: 'proposal' }, consume })
+    b.fireFixed({ type: 'keydown', gesture: bare('Space', { repeat: true }), context: { ...context, modal: 'proposal' }, consume })
+    expect(handler.moveDown).toHaveBeenCalledOnce()
+    expect(handler.toggleTick).not.toHaveBeenCalled()
+    await b.fiber.dispose()
+    b.fireFixed({ type: 'keydown', gesture: bare('KeyJ'), context: { ...context, modal: 'proposal' }, consume })
+    expect(handler.moveDown).toHaveBeenCalledOnce()
+  })
+
+  it('stays silent when no card occupies the seat', async () => {
+    const b = await bench()
+    const consume = vi.fn()
+    b.fireFixed({ type: 'keydown', gesture: bare('KeyJ'), context: { ...context, modal: 'proposal' }, consume })
+    expect(consume).not.toHaveBeenCalled()
   })
 })

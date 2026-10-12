@@ -4,7 +4,10 @@
  * Digit4-6 sit vacant rather than carrying two-step sub-region semantics)
  * and the config dialog — registered through the shared shortcuts framework
  * (the same registry ui-workspace contributes to), never a bespoke keydown
- * listener.
+ * listener. The proposal card's verdict keys (J/K/Space/Enter, 2026-10-12
+ * 评审 P2-1) ride the same framework's fixed-command path: bare keys the web
+ * whitelist refuses for editable commands, forwarded to the mounted card
+ * through the {@link ./proposal-verdict-seat.ts} seat.
  *
  * Bindings follow the ruling that yantao's desktop shell has no keyboard
  * bridge, so the effective runtime is `web`. The tab jumps ride the
@@ -18,10 +21,11 @@
  * registry treats a missing profile as unbound.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { ShortcutCommand, ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
+import type { ShortcutCommand, ShortcutCommandId, ShortcutFixedInput } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 import type { PanelToggles } from './frame/layout.ts'
 import { CONVERSATION_TAB, INSIGHTS_TAB, TASKS_TAB } from './tabs.ts'
+import { PROPOSAL_MODAL_ID, proposalVerdictSeat, type ProposalVerdictHandler } from './proposal-verdict-seat.ts'
 
 /** One centre-tab jump: the registry row and the tab it activates. */
 export interface WorkbenchTabJump {
@@ -42,6 +46,34 @@ export const WORKBENCH_TAB_JUMPS: readonly WorkbenchTabJump[] = [
   { tail: 'conversation', labelKey: 'center.conversation', aliases: ['go to conversation'], code: 'Digit1', tab: CONVERSATION_TAB },
   { tail: 'tasks', labelKey: 'center.tasks', aliases: ['go to tasks'], code: 'Digit2', tab: TASKS_TAB },
   { tail: 'insights', labelKey: 'center.insights', aliases: ['go to insights'], code: 'Digit3', tab: INSIGHTS_TAB },
+]
+
+/**
+ * One proposal-verdict fixed key (2026-10-12 评审 P2-1 批次一)：bare keys the
+ * web whitelist refuses for editable commands, so they ride the fixed-command
+ * path instead — owner-arbitrated local input, reserved against editable
+ * bindings, surfaced in the catalog's `approval` group. Pure data, asserted
+ * in tests.
+ */
+export interface ProposalVerdictKey {
+  /** Command-id tail after `yantao.proposal.`. */
+  readonly tail: string
+  /** Label key in the workbench dictionary. */
+  readonly labelKey: WorkbenchLocaleKey
+  /** Readable keycap for the fixed catalog. */
+  readonly keycap: string
+  /** Physical key code. */
+  readonly code: string
+  /** The seat method the keystroke fires. */
+  readonly action: keyof ProposalVerdictHandler
+}
+
+/** The four verdict keys in vim-adjacent order — J/K move, Space ticks, Enter confirms. */
+export const PROPOSAL_VERDICT_KEYS: readonly ProposalVerdictKey[] = [
+  { tail: 'cursor-down', labelKey: 'shortcut.proposalCursorDown', keycap: 'J', code: 'KeyJ', action: 'moveDown' },
+  { tail: 'cursor-up', labelKey: 'shortcut.proposalCursorUp', keycap: 'K', code: 'KeyK', action: 'moveUp' },
+  { tail: 'tick', labelKey: 'shortcut.proposalTick', keycap: 'Space', code: 'Space', action: 'toggleTick' },
+  { tail: 'confirm', labelKey: 'shortcut.proposalConfirm', keycap: 'Enter', code: 'Enter', action: 'confirmWrite' },
 ]
 
 /**
@@ -72,4 +104,32 @@ export function installWorkbenchShortcuts(ctx: Context, panels: PanelToggles, t:
   }
   register('yantao.config.open', () => t('shortcut.configOpen'), ['open settings', 'config'], 'Comma',
     ['primary', 'shift'], () => ({ status: 'handled', run: () => { panels.setConfigOpen(true) } }))
+
+  // 提案裁决键（批次一）：固定键走 approval 组注册并预约占位；真正的裁决
+  // 动作由挂载中的提案卡通过座位应答——卡片不在，键就是哑弹。只认提案卡
+  // 模态顶层的 page 区域输入：输入框里照常打字，聚焦的勾选框保留原生
+  // Space/Enter 行为，不会双重触发。
+  for (const verdict of PROPOSAL_VERDICT_KEYS) {
+    ctx.effect(() => ctx.shortcuts.registerFixed({
+      id: `yantao.proposal.${verdict.tail}` as ShortcutCommandId,
+      label: () => t(verdict.labelKey),
+      keys: [verdict.keycap],
+      bindings: [{ code: verdict.code, modifiers: [] }],
+      group: 'approval',
+    }), `ui-yantao: yantao.proposal.${verdict.tail}`)
+  }
+  ctx.effect(() => ctx.shortcuts.observeFixedInput((input: ShortcutFixedInput) => {
+    if (input.type !== 'keydown') return
+    const { gesture, context, consume } = input
+    // 长按连发只留给移动；Space/Enter 各按一次只做一件事。
+    const moves = gesture.code === 'KeyJ' || gesture.code === 'KeyK'
+    if (gesture.composing || (gesture.repeat && !moves)) return
+    if (gesture.control || gesture.alt || gesture.shift || gesture.meta) return
+    if (context.modal !== PROPOSAL_MODAL_ID || context.region !== 'page') return
+    const verdict = PROPOSAL_VERDICT_KEYS.find(candidate => candidate.code === gesture.code)
+    const handler = proposalVerdictSeat.current
+    if (verdict === undefined || handler === null) return
+    consume()
+    handler[verdict.action]()
+  }), 'ui-yantao: proposal verdict fixed input')
 }

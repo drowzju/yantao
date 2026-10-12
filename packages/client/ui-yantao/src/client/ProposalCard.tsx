@@ -17,6 +17,7 @@ import { useDialogModal } from './use-dialog-modal.ts'
 import { disabledOverlay, ghostButtonStyle, primaryButtonStyle } from './buttons.ts'
 import { entityNameOf } from './validate.ts'
 import { bareSubject } from './mail-threads.ts'
+import { PROPOSAL_MODAL_ID, proposalVerdictSeat, type ProposalVerdictHandler } from './proposal-verdict-seat.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 
 const panelStyle = {
@@ -449,6 +450,47 @@ export function ProposalCard(props: {
   // poll. An unchanged proposal must not reset the human's half-made verdict.
   const fingerprint = useMemo(() => JSON.stringify(proposal), [proposal])
   const settledFingerprint = useRef(fingerprint)
+
+  // 键盘裁决路径（2026-10-12 评审 P2-1 批次一）：J/K 移光标、Space 勾选、
+  // Enter 确认写入。光标是纯导航——高亮当前行、滚进视野，从不代替人做
+  // 裁决；Space/Enter 都是对卡内真控件的合成点击，勾选状态与确认闸门
+  // （count===0 / busy）仍然只有一条通路。行几何跟着折叠态走，所以每次
+  // 按键都现查 [data-proposal-row]，不在状态里缓存行表。
+  const cursorRef = useRef(-1)
+  const cursorRows = (): HTMLElement[] =>
+    cardRef.current === null ? [] : Array.from(cardRef.current.querySelectorAll<HTMLElement>('[data-proposal-row]'))
+  function resetCursor(): void {
+    cursorRef.current = -1
+    for (const row of cursorRows()) row.style.background = ''
+  }
+  const moveCursor = (delta: 1 | -1): void => {
+    const rows = cursorRows()
+    if (rows.length === 0) return
+    const next = cursorRef.current < 0
+      ? (delta === 1 ? 0 : rows.length - 1)
+      : Math.min(rows.length - 1, Math.max(0, cursorRef.current + delta))
+    rows.forEach((row, index) => { row.style.background = index === next ? 'var(--yt-accent-bg)' : '' })
+    rows[next]?.scrollIntoView({ block: 'nearest' })
+    cursorRef.current = next
+  }
+  const verdictHandler = useMemo<ProposalVerdictHandler>(() => ({
+    moveDown: () => { moveCursor(1) },
+    moveUp: () => { moveCursor(-1) },
+    toggleTick: () => {
+      const row = cursorRows()[cursorRef.current]
+      row?.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click()
+    },
+    confirmWrite: () => {
+      const button = cardRef.current?.querySelector<HTMLButtonElement>('[data-proposal-confirm]')
+      if (button !== null && !button.disabled) button.click()
+    },
+  }), [])
+  // 占住键盘座位：卡片活着才应答，卸载即让位（收件箱换卡、验证卡关闭）。
+  useEffect(() => {
+    proposalVerdictSeat.current = verdictHandler
+    return () => { if (proposalVerdictSeat.current === verdictHandler) proposalVerdictSeat.current = null }
+  }, [verdictHandler])
+
   useEffect(() => {
     if (settledFingerprint.current === fingerprint) return
     settledFingerprint.current = fingerprint
@@ -457,6 +499,7 @@ export function ProposalCard(props: {
     setPrescanOpen(false)
     setDigestOpen(false)
     setEscArmed(false)
+    resetCursor()
   }, [fingerprint])
 
   /** Tick or untick one area of one create-project row. */
@@ -795,6 +838,9 @@ export function ProposalCard(props: {
         aria-label={proposal.title}
         tabIndex={-1}
         ref={cardRef}
+        // 固定键仲裁的模态身份：shortcuts 的 DOM 适配器据此把 J/K/Space/Enter
+        // 记到提案卡名下（顶层模态才生效）。
+        data-shortcut-modal={PROPOSAL_MODAL_ID}
       >
         <div style={{ flexShrink: 0 }}>
           <div style={{ fontSize: 'var(--yt-type-title)', fontWeight: 600 }}>{proposal.title}</div>
@@ -970,6 +1016,7 @@ export function ProposalCard(props: {
           <button
             type="button"
             data-hover="primary"
+            data-proposal-confirm="true"
             style={{
               ...primaryButtonStyle,
               ...(props.busy === true || count === 0 ? disabledOverlay : {}),

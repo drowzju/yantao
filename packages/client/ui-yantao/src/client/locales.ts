@@ -460,6 +460,10 @@ export const zh = {
 
   // Keyboard shortcuts (tab labels reuse the center.* keys)
   'shortcut.configOpen': '打开配置',
+  'shortcut.proposalCursorDown': '提案卡：光标下移一行',
+  'shortcut.proposalCursorUp': '提案卡：光标上移一行',
+  'shortcut.proposalTick': '提案卡：勾选／取消当前行',
+  'shortcut.proposalConfirm': '提案卡：确认写入',
 } satisfies Record<string, string>
 
 /** Workbench locale key union. */
@@ -900,4 +904,8 @@ export const en = {
 
   // Keyboard shortcuts (tab labels reuse the center.* keys)
   'shortcut.configOpen': 'Open settings',
+  'shortcut.proposalCursorDown': 'Proposal card: cursor down one row',
+  'shortcut.proposalCursorUp': 'Proposal card: cursor up one row',
+  'shortcut.proposalTick': 'Proposal card: tick or untick the current row',
+  'shortcut.proposalConfirm': 'Proposal card: confirm write',
 } satisfies Record<WorkbenchLocaleKey, string>

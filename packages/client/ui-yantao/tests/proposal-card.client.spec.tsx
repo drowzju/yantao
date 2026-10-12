@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { Proposal } from '../src/client/proposal.ts'
 import { ProposalCard } from '../src/client/ProposalCard.tsx'
+import { proposalVerdictSeat } from '../src/client/proposal-verdict-seat.ts'
 import { t } from './helpers.client.ts'
 
 afterEach(() => {
@@ -121,6 +122,66 @@ describe('ProposalCard', () => {
     )
     fireEvent.click(screen.getByText('丢弃'))
     expect(onDiscard).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ProposalCard keyboard verdict path (2026-10-12 评审 P2-1)', () => {
+  // jsdom 不实现 scrollIntoView：光标移动把它滚进视野，测试里垫个桩。
+  beforeAll(() => {
+    Element.prototype.scrollIntoView = () => {}
+  })
+
+  it('claims the verdict seat while mounted and releases it on unmount', () => {
+    const view = render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
+    expect(proposalVerdictSeat.current).not.toBeNull()
+    view.unmount()
+    expect(proposalVerdictSeat.current).toBeNull()
+  })
+
+  it('moves the cursor with J/K, ticks with Space through the row checkbox', () => {
+    render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
+    const handler = proposalVerdictSeat.current!
+    const rows = () => Array.from(document.querySelectorAll<HTMLElement>('[data-proposal-row]'))
+    expect(rows()).toHaveLength(4)
+    handler.moveDown()
+    expect(rows()[0].style.background).toBe('var(--yt-accent-bg)')
+    expect(rows()[1].style.background).toBe('')
+    handler.toggleTick()
+    expect(screen.getByText('确认写入（1）')).toBeTruthy()
+    handler.moveDown()
+    handler.toggleTick()
+    expect(screen.getByText('确认写入（2）')).toBeTruthy()
+    handler.moveDown()
+    handler.moveUp()
+    handler.toggleTick() // back onto row 2: unticks it
+    expect(screen.getByText('确认写入（1）')).toBeTruthy()
+    // Clamped at the top: K from row 1 stays put, and the highlight follows.
+    handler.moveUp()
+    handler.moveUp()
+    expect(rows()[0].style.background).toBe('var(--yt-accent-bg)')
+  })
+
+  it('confirms through the footer button, gated by its own disabled state', () => {
+    const onConfirm = vi.fn()
+    render(<ProposalCard proposal={PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} t={t} />)
+    const handler = proposalVerdictSeat.current!
+    handler.confirmWrite() // nothing ticked: the button is disabled, a no-op
+    expect(onConfirm).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByLabelText('张三'))
+    handler.confirmWrite()
+    expect(onConfirm).toHaveBeenCalledWith([0], undefined)
+  })
+
+  it('resets the cursor when the proposal content changes (fingerprint guard)', () => {
+    const { rerender } = render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
+    const handler = proposalVerdictSeat.current!
+    handler.moveDown()
+    rerender(<ProposalCard proposal={{ ...PROPOSAL, note: '第二轮' }} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-proposal-row]'))
+    expect(rows.every(row => row.style.background === '')).toBe(true)
+    // A stale cursor would mis-target: the first J after the swap starts at row 1 again.
+    handler.toggleTick()
+    expect(screen.getByText('确认写入（0）')).toBeTruthy()
   })
 })
 
