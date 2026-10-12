@@ -412,7 +412,6 @@ export function MemoryPanel({
               // as ui-conversation's keymap and ProposalCard).
               if (event.nativeEvent.isComposing) return
               // keyCode 229 is the legacy IME-composition signal engines emit without isComposing.
-              // oxlint-disable-next-line typescript/no-deprecated
               if (event.nativeEvent.keyCode === 229) return
               if (event.key === 'Enter') { void remember() }
               if (event.key === 'Escape') { setAdding(false); setText('') }
