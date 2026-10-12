@@ -13,7 +13,7 @@
  * ` · ` tail; the destructive 删除 arms through a two-click tool button; the
  * dirty-editor guard is an in-pane confirm strip, never window.confirm.
  */
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { KbPromptShortcut, KbSchedule } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { cronNextFire } from './cron.ts'
 import { ghostButtonStyle, primaryButtonStyle, raisedButtonStyle, toolButtonArmedStyle, toolButtonStyle } from './buttons.ts'
@@ -216,6 +216,12 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
   // 站内脏态确认（2026-10-12 评审 P2-2）：window.confirm 是系统级灰模态，
   // 撕裂暖纸语境——dirty 时先把续作存起来，人点「放弃修改」才放行。
   const [pendingAbandon, setPendingAbandon] = useState<(() => void) | null>(null)
+  // 确认条出现即夺焦（复检 P1 补课）：alertdialog 不移焦点等于没宣告，
+  // 默认落在「继续编辑」——Enter 的默认动作永远是非破坏的那一侧。
+  const keepEditingRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    if (pendingAbandon !== null) keepEditingRef.current?.focus()
+  }, [pendingAbandon])
 
   // The 填入 source loads once with the pane; a missing store is an empty menu.
   useEffect(() => {
@@ -408,11 +414,22 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
               <div
                 role="alertdialog"
                 aria-label="未保存修改确认"
-                style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center', flexWrap: 'wrap', padding: 'var(--yt-space-2)', border: '1px solid var(--yt-border-strong)', borderRadius: 4, background: 'var(--yt-surface-raised)' }}
+                tabIndex={-1}
+                style={{
+                  // sticky 钉顶（复检 P1）：确认条原先插在可滚动列的顶部，
+                  // 编辑器下滚后点别的行，守卫在视口外——像「点了没反应」。
+                  // 负外边距抵消列内边距，钉住时警示带横贯整栏、贴住顶缘。
+                  position: 'sticky', top: 0, zIndex: 1,
+                  margin: 'calc(-1 * var(--yt-space-4)) calc(-1 * var(--yt-space-4)) 0',
+                  padding: 'var(--yt-space-2) var(--yt-space-4)',
+                  display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center', flexWrap: 'wrap',
+                  background: 'var(--yt-warning-bg)', color: 'var(--yt-warning-text)',
+                  borderBottom: '1px solid var(--yt-warning)',
+                }}
               >
                 <span>当前调度还没保存，放弃这些修改？</span>
                 <button data-hover="true" type="button" style={raisedButtonStyle} onClick={confirmAbandon}>放弃修改</button>
-                <button data-hover="true" type="button" style={ghostButtonStyle} onClick={() => { setPendingAbandon(null) }}>继续编辑</button>
+                <button ref={keepEditingRef} data-hover="true" type="button" style={ghostButtonStyle} onClick={() => { setPendingAbandon(null) }}>继续编辑</button>
               </div>
             )}
             <label style={fieldLabelStyle}>

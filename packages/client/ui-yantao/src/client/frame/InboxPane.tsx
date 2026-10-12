@@ -162,6 +162,12 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, capabilitySco
   // 行内丢弃的两击武装（2026-10-12 评审 P1-1）：与全站删除同一教义——
   // 打开裁决卡即解除武装，别让两个毁灭动作同时处于待发。
   const { armedId: armedDiscardId, attempt: attemptDiscard, disarm: disarmDiscard } = useArmedAction()
+  // 开卡的唯一入口（复检 P2）：鼠标与键盘两路都必须先解除行级丢弃的
+  // 武装——否则键盘开卡再关，行级「确认丢弃？」还挂着，下一落点即执行。
+  const openCard = (entry: KbQueuedProposal): void => {
+    disarmDiscard()
+    setOpenId(entry.id)
+  }
   const openEntry = openId === null ? undefined : entries.find(entry => entry.id === openId)
   const openProposal = openEntry === undefined ? null : proposalOfPayload(openEntry.proposal)
   return (
@@ -178,18 +184,21 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, capabilitySco
                   style={pending ? rowMainStyle : { ...rowMainStyle, cursor: 'default' }}
                   role={pending ? 'button' : undefined}
                   tabIndex={pending ? 0 : undefined}
-                  onClick={() => { if (pending) { disarmDiscard(); setOpenId(entry.id) } }}
-                  onKeyDown={pending ? activatable(() => { setOpenId(entry.id) }) : undefined}
+                  onClick={() => { if (pending) openCard(entry) }}
+                  onKeyDown={pending ? activatable(() => { openCard(entry) }) : undefined}
                 >
                   <span style={titleStyle}>{entry.title}</span>
                   {entry.note !== undefined && <span style={noteStyle}>{entry.note}</span>}
-                  <span style={metaStyle}>
-                    {entry.sourceName} · 入队 {formatStamp(entry.createdAt)}
+                  {/* 裁决痕迹独立成段（复检 P2）：' · ' 缀尾是 §8 禁忌——
+                      来源/入队/裁决各是一段证据，flex-wrap 换行不粘连。 */}
+                  <span style={{ ...metaStyle, display: 'flex', flexWrap: 'wrap', columnGap: 'var(--yt-space-2)' }}>
+                    <span>{entry.sourceName}</span>
+                    <span>入队 {formatStamp(entry.createdAt)}</span>
                     {entry.status === 'approved' && entry.decidedAt !== undefined && (
-                      <> · <span style={chipApprovedStyle}>已批准 {formatStamp(entry.decidedAt)}</span></>
+                      <span style={chipApprovedStyle}>已批准 {formatStamp(entry.decidedAt)}</span>
                     )}
                     {entry.status === 'discarded' && entry.decidedAt !== undefined && (
-                      <> · <span style={chipDiscardedStyle}>已丢弃 {formatStamp(entry.decidedAt)}</span></>
+                      <span style={chipDiscardedStyle}>已丢弃 {formatStamp(entry.decidedAt)}</span>
                     )}
                   </span>
                 </div>
