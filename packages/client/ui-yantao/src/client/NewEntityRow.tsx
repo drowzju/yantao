@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import type { WorkbenchT } from './locales.ts'
+import { ghostButtonStyle, raisedButtonStyle } from './buttons.ts'
 
 /** One option of the row's optional picker — the person's relation. */
 export interface NewEntityChoice {
@@ -84,7 +85,7 @@ export function NewEntityRow({ t, label, placeholder, submit, choice, trailing }
     <div style={{ display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'flex-start' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         {!editing && (
-          <button data-hover="true" type="button" style={{ padding: 'var(--yt-space-1) var(--yt-space-1)' }} onClick={() => { setEditing(true) }} disabled={busy}>
+          <button data-hover="true" type="button" style={raisedButtonStyle} onClick={() => { setEditing(true) }} disabled={busy}>
             {label}
           </button>
         )}
@@ -128,7 +129,7 @@ export function NewEntityRow({ t, label, placeholder, submit, choice, trailing }
                 ))}
               </select>
             )}
-            <button data-hover="true" type="button" style={{ padding: 'var(--yt-space-1) var(--yt-space-1)' }} disabled={busy} onClick={close}>{t('common.cancel')}</button>
+            <button data-hover="true" type="button" style={ghostButtonStyle} disabled={busy} onClick={close}>{t('common.cancel')}</button>
           </div>
         )}
         {error !== null && <div style={errorStyle} role="alert">{error}</div>}

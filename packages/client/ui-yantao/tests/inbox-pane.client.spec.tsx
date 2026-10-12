@@ -130,10 +130,14 @@ describe('InboxPane', () => {
     expect((onDiscard.mock.calls[0] as [KbQueuedProposal])[0].id).toBe('prp_1')
   })
 
-  it('offers the row-level 丢弃 without opening the card', () => {
+  it('offers the row-level 丢弃 without opening the card, armed by a second click', () => {
     const onDiscard = vi.fn()
     renderPane([entry()], { onDiscard })
+    // 两击武装（2026-10-12 评审 P1-1）：第一击只点亮确认，第二击才是裁决。
     fireEvent.click(screen.getByText('丢弃'))
+    expect(onDiscard).not.toHaveBeenCalled()
+    expect(screen.getByText('确认丢弃？')).toBeTruthy()
+    fireEvent.click(screen.getByText('确认丢弃？'))
     expect(onDiscard).toHaveBeenCalledTimes(1)
   })
 

@@ -19,6 +19,7 @@ import {
 import { runningCount, type TaskRow } from '../task-view.ts'
 import { STATUS_KEYS, type SaveStatus } from '../editor/FileEditor.tsx'
 import type { WorkbenchT } from '../locales.ts'
+import { tabItemActiveStyle, tabItemStyle } from '../buttons.ts'
 
 /** How an editable markdown file shows: its reading view or its source. */
 export type ViewMode = 'read' | 'source'
@@ -71,24 +72,9 @@ const stripStyle = {
   background: 'var(--yt-surface-primary)',
 } as const
 
-const tabStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 'var(--yt-space-1)',
-  padding: 'var(--yt-space-1) var(--yt-space-1)',
-  // 页签是中列的主点击面之一（2026-10-05 第三轮评审 P2#4）：28px 命中目标
-  // 此前只覆盖了对话框系，这里补上。
-  minHeight: 'var(--yt-control-min-h)',
-  boxSizing: 'border-box',
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: 'transparent',
-  borderBottomWidth: 0,
-  borderRadius: '4px 4px 0 0',
-  background: 'transparent',
-} as const
-
-const activeTabStyle = { ...tabStyle, background: 'var(--yt-surface-raised)', borderColor: 'var(--yt-border-subtle)' } as const
+// 页签本体走 buttons.ts 的 tabItem 面（2026-10-12 起三栏同构）——
+// 此前的凸面页签（surface-raised）与两栏的 accent 洗染并存，是两套
+// 「当前在哪」；本文件只保留条带自身的底线与底色。
 
 const labelButtonStyle = {
   borderWidth: 0,
@@ -172,12 +158,12 @@ export function CenterPane({
   return (
     <div style={paneStyle}>
       <div style={stripStyle}>
-        <div style={conversationActive ? activeTabStyle : tabStyle}>
+        <div style={conversationActive ? tabItemActiveStyle : tabItemStyle}>
           <button type="button" style={labelButtonStyle} data-hover="tab" data-center-tab={CONVERSATION_TAB} onClick={() => { onActivate(CONVERSATION_TAB) }}>
             {t('center.conversation')}
           </button>
         </div>
-        <div style={tasksActive ? activeTabStyle : tabStyle}>
+        <div style={tasksActive ? tabItemActiveStyle : tabItemStyle}>
           <button type="button" style={labelButtonStyle} data-hover="tab" data-center-tab={TASKS_TAB} onClick={() => { onActivate(TASKS_TAB) }}>
             {t('center.tasks')}
           </button>
@@ -199,7 +185,7 @@ export function CenterPane({
             />
           )}
         </div>
-        <div style={insightsActive ? activeTabStyle : tabStyle}>
+        <div style={insightsActive ? tabItemActiveStyle : tabItemStyle}>
           <button type="button" style={labelButtonStyle} data-hover="tab" data-center-tab={INSIGHTS_TAB} onClick={() => { onActivate(INSIGHTS_TAB) }}>
             {t('center.insights')}
           </button>
@@ -211,7 +197,7 @@ export function CenterPane({
         {tabs.files.map((tab) => {
           const status = statuses[tab.path]
           return (
-            <div key={tab.path} style={tabs.active === tab.path ? activeTabStyle : tabStyle}>
+            <div key={tab.path} style={tabs.active === tab.path ? tabItemActiveStyle : tabItemStyle}>
               {status !== undefined && <StatusDot status={status} t={t} />}
               <button
                 type="button"

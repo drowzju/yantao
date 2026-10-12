@@ -16,8 +16,9 @@ import type { KbQueuedProposal } from '@deepseek-ai/dsh-api-yantao-kb-controller
 import { proposalOfPayload } from '../capability-match.ts'
 import type { WorkbenchT } from '../locales.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
-import { toolButtonStyle } from '../buttons.ts'
+import { ghostButtonStyle, toolButtonArmedStyle, toolButtonStyle } from '../buttons.ts'
 import { activatable } from '../activatable.ts'
+import { useArmedAction } from '../use-armed-action.ts'
 import { formatStamp } from '../stamp.ts'
 
 /** The pane's props: the inbox's rows, the in-flight decision, the two verdicts. */
@@ -117,7 +118,7 @@ const chipDiscardedStyle = {
 } as const
 
 // 行内丢弃/关闭钮收敛到 ./buttons.ts 的 tool 面（P1-2 收敛，2026-10-12）——
-// 私养的迷你幽灵退役。
+// 私养的迷你幽灵退役；武装态走共享 toolButtonArmedStyle（P1-1）。
 
 /** The degraded card for a payload the client can no longer parse. */
 const plainCardStyle = {
@@ -158,6 +159,9 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, capabilitySco
   // The open card's entry id; either verdict closes it — the row's chip
   // carries the outcome (取消即丢弃，ADR-0047 验收修正).
   const [openId, setOpenId] = useState<string | null>(null)
+  // 行内丢弃的两击武装（2026-10-12 评审 P1-1）：与全站删除同一教义——
+  // 打开裁决卡即解除武装，别让两个毁灭动作同时处于待发。
+  const { armedId: armedDiscardId, attempt: attemptDiscard, disarm: disarmDiscard } = useArmedAction()
   const openEntry = openId === null ? undefined : entries.find(entry => entry.id === openId)
   const openProposal = openEntry === undefined ? null : proposalOfPayload(openEntry.proposal)
   return (
@@ -174,7 +178,7 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, capabilitySco
                   style={pending ? rowMainStyle : { ...rowMainStyle, cursor: 'default' }}
                   role={pending ? 'button' : undefined}
                   tabIndex={pending ? 0 : undefined}
-                  onClick={() => { if (pending) setOpenId(entry.id) }}
+                  onClick={() => { if (pending) { disarmDiscard(); setOpenId(entry.id) } }}
                   onKeyDown={pending ? activatable(() => { setOpenId(entry.id) }) : undefined}
                 >
                   <span style={titleStyle}>{entry.title}</span>
@@ -192,13 +196,14 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, capabilitySco
                 {pending && (
                   <button
                     type="button"
-                    style={toolButtonStyle}
+                    style={armedDiscardId === entry.id ? toolButtonArmedStyle : toolButtonStyle}
                     data-inbox-row-discard="true"
+                    data-armed={armedDiscardId === entry.id || undefined}
                     data-hover="true"
                     disabled={busyId === entry.id}
-                    onClick={() => { onDiscard(entry) }}
+                    onClick={() => { attemptDiscard(entry.id, () => { onDiscard(entry) }) }}
                   >
-                    丢弃
+                    {armedDiscardId === entry.id ? '确认丢弃？' : '丢弃'}
                   </button>
                 )}
               </div>
@@ -224,12 +229,14 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, capabilitySco
               这条提议的内容无法在本工作台解析（可能来自旧版本），只能丢弃。
             </div>
             <div style={{ display: 'flex', gap: 'var(--yt-space-2)', justifyContent: 'flex-end' }}>
-              <button data-hover="true" type="button" style={toolButtonStyle} onClick={() => { setOpenId(null) }}>
+              {/* 模态内的按钮读得像按钮：与 ProposalCard 底栏同为 ghost 面
+                  （2026-10-12 评审——tool 面在这里像两行说明文字）。 */}
+              <button data-hover="true" type="button" style={ghostButtonStyle} onClick={() => { setOpenId(null) }}>
                 关闭
               </button>
               <button data-hover="true"
                 type="button"
-                style={toolButtonStyle}
+                style={ghostButtonStyle}
                 disabled={busyId === openEntry.id}
                 onClick={() => { onDiscard(openEntry) }}
               >

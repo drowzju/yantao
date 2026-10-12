@@ -35,7 +35,7 @@ import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-contr
 import { remoteMessage } from './remote.ts'
 import type { TabMode } from './tabs.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
-import { ghostButtonStyle } from './buttons.ts'
+import { ghostButtonStyle, raisedButtonStyle, tabItemActiveStyle, tabItemStyle } from './buttons.ts'
 import { NewEntityRow } from './NewEntityRow.tsx'
 import type { ValidateScope } from './validate.ts'
 
@@ -202,7 +202,17 @@ const selectedRowStyle = { ...rowStyle, background: 'var(--yt-accent-bg)', borde
 /** An entity row while a resource drag hovers over it — the drop target's affordance. */
 const dropHoverStyle = { outline: '2px dashed var(--yt-accent-border)', outlineOffset: -2 } as const
 
-const tabRowStyle = { ...rowStyle, width: 'auto', flex: 1, textAlign: 'center' } as const
+/** 资源树每层缩进量：层级是结构信息，不占间距阶梯的档位。 */
+const RESOURCE_INDENT_PX = 14
+
+/** 两栏共用的页签条容器：页签本体走 buttons.ts 的 tabItem 面
+    （2026-10-12 起三栏同构）。 */
+const railTabStripStyle = {
+  display: 'flex',
+  alignItems: 'stretch',
+  gap: 'var(--yt-space-1)',
+  marginBottom: 'var(--yt-space-2)',
+} as const
 
 /** One rail's load state: the sections it renders, the last failure, and the refresh action. */
 interface RailState {
@@ -269,7 +279,9 @@ function FileRow({
       style={{
         ...(selection === file.path ? selectedRowStyle : rowStyle),
         ...(dropHover ? dropHoverStyle : {}),
-        paddingLeft: 'var(--yt-space-2)' + indent * 14,
+        // 缩进必须走 calc：字符串拼接 'var(--yt-space-2)28' 是非法 CSS，
+        // 浏览器静默丢弃——整棵树曾因此视觉全平（2026-10-12 评审 P1-3）。
+        paddingLeft: `calc(var(--yt-space-2) + ${indent * RESOURCE_INDENT_PX}px)`,
       }}
       data-selected={selection === file.path || undefined}
       data-drop-target={drop !== undefined || undefined}
@@ -497,7 +509,7 @@ function ResourceTree({
         <button data-hover="true"
           key={`dir:${child.dir}`}
           type="button"
-          style={{ ...rowStyle, paddingLeft: 'var(--yt-space-2)' + depth * 14, color: 'var(--yt-text-secondary)' }}
+          style={{ ...rowStyle, paddingLeft: `calc(var(--yt-space-2) + ${depth * RESOURCE_INDENT_PX}px)`, color: 'var(--yt-text-secondary)' }}
           data-resource-dir={child.dir}
           aria-expanded={!folded}
           onClick={() => { toggle(child.dir) }}
@@ -1342,7 +1354,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
       onDrop={(event) => { void onDrop(event) }}
     >
       <RailHeader error={error} onRetry={() => { void refresh() }} t={t} />
-      <div style={{ display: 'flex', gap: 'var(--yt-space-1)', marginBottom: 'var(--yt-space-2)' }}>
+      <div style={railTabStripStyle}>
         {INTAKE_PANEL_IDS.map(id => (
           <button
             key={id}
@@ -1351,7 +1363,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
             /* 空串值：CSS 豁免只看属性存在性；data-selected="true" 保留给
                文件行（测试契约 workbench.client.spec.tsx:708,1491）。 */
             data-selected={tab === id ? '' : undefined}
-            style={tab === id ? { ...tabRowStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } : tabRowStyle}
+            style={tab === id ? { ...tabItemActiveStyle, flex: 1 } : { ...tabItemStyle, flex: 1 }}
             onClick={() => { setTab(id) }}
           >
             {t(SECTION_KEYS[id])}
@@ -1546,14 +1558,14 @@ export function WorkspaceRail(props: RailProps): ReactElement {
       onDragLeave={(event) => { event.stopPropagation() }}
     >
       <RailHeader error={error} onRetry={() => { void refresh() }} t={t} />
-      <div style={{ display: 'flex', gap: 'var(--yt-space-1)', marginBottom: 'var(--yt-space-2)' }}>
+      <div style={railTabStripStyle}>
         {WORKSPACE_TAB_IDS.map(id => (
           <button
             key={id}
             type="button"
             data-hover="true"
             data-selected={tab === id ? '' : undefined}
-            style={tab === id ? { ...tabRowStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } : tabRowStyle}
+            style={tab === id ? { ...tabItemActiveStyle, flex: 1 } : { ...tabItemStyle, flex: 1 }}
             onClick={() => { setTab(id) }}
           >
             {t(SECTION_KEYS[id])}
@@ -1582,7 +1594,7 @@ export function WorkspaceRail(props: RailProps): ReactElement {
             trailing={(
               <button data-hover="true"
                 type="button"
-                style={{ padding: 'var(--yt-space-1) var(--yt-space-1)', marginTop: 'var(--yt-space-1)' }}
+                style={{ ...raisedButtonStyle, marginTop: 'var(--yt-space-1)' }}
                 onClick={() => { onValidate(tab === 'people' ? 'person' : 'project') }}
               >
                 {t('workbench.validateButton')}

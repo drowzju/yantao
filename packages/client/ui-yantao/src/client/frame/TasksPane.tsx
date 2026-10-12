@@ -8,6 +8,7 @@
  */
 import { useEffect, useState, type ReactElement } from 'react'
 import { formatElapsed, sortTaskRows, type TaskRow, type TaskStatus } from '../task-view.ts'
+import { raisedButtonStyle } from '../buttons.ts'
 
 /** The pane's props: the frame's rows plus the verbs it offers per row. */
 export interface TasksPaneProps {
@@ -72,18 +73,8 @@ const STATUS_CHIPS: Record<TaskStatus, { label: string; bg: string; color: strin
   failed: { label: '失败', bg: 'var(--yt-error-bg)', color: 'var(--yt-error)' },
 }
 
-const actionButtonStyle = {
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: 'var(--yt-border-strong)',
-  borderRadius: 4,
-  background: 'var(--yt-surface-raised)',
-  cursor: 'pointer',
-  fontFamily: FONT,
-  fontSize: 'var(--yt-type-label)',
-  padding: 'var(--yt-space-1) var(--yt-space-2)',
-  whiteSpace: 'nowrap',
-} as const
+// 行动作钮（取消/查看/详情）收敛到 ./buttons.ts 的 raised 面
+// （P1-2 收敛，2026-10-12）——私养的 border-strong 迷你脸退役。
 
 /** One row of the list. */
 function TaskLine({ row, onCancel, onJump, onDetail }: {
@@ -106,17 +97,17 @@ function TaskLine({ row, onCancel, onJump, onDetail }: {
       <span style={stageStyle}>{row.stage}{row.detail !== null ? ` · ${row.detail}` : ''}</span>
       <span style={elapsedStyle}>{elapsed}</span>
       {row.status === 'running' && (
-        <button data-hover="true" type="button" style={actionButtonStyle} data-task-cancel="true" onClick={() => { onCancel(row) }}>
+        <button data-hover="true" type="button" style={raisedButtonStyle} data-task-cancel="true" onClick={() => { onCancel(row) }}>
           取消
         </button>
       )}
-      <button data-hover="true" type="button" style={actionButtonStyle} data-task-jump="true" onClick={() => { onJump(row) }}>
+      <button data-hover="true" type="button" style={raisedButtonStyle} data-task-jump="true" onClick={() => { onJump(row) }}>
         查看
       </button>
       {/* ADR-0033: the read-only transcript drawer, only where the run made a
           session — script capabilities are bare subprocesses with no log. */}
       {row.sessionId !== null && (
-        <button data-hover="true" type="button" style={actionButtonStyle} data-task-detail="true" onClick={() => { onDetail(row) }}>
+        <button data-hover="true" type="button" style={raisedButtonStyle} data-task-detail="true" onClick={() => { onDetail(row) }}>
           详情
         </button>
       )}

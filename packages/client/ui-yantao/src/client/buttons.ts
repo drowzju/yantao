@@ -67,3 +67,41 @@ export const raisedButtonStyle = {
 
 /** Disabled 的统一弱化：内联样式画不了 :disabled，随 props 现算。 */
 export const disabledOverlay = { opacity: 0.45, cursor: 'default' } as const
+
+/** 栏头页签的唯一构造（2026-10-12 评审 P1-2 + 用户实证的高度不一）：
+    左采集栏、中栏、右工作区栏的 tab 头共用这两面——border-box 28px
+    命中高、同一字阶同一内边距；激活态一律 accent 洗染。此前中栏自养
+    一副凸面页签、两栏用裸 row 按钮撑高度，同屏三种「当前在哪」。
+    激活态只换底与边，不动字色——accent-bg 上的正文墨色对比足够。 */
+export const tabItemStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 'var(--yt-space-1)',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
+  minHeight: 'var(--yt-control-min-h)',
+  boxSizing: 'border-box',
+  border: '1px solid transparent',
+  borderRadius: 4,
+  background: 'transparent',
+  fontFamily: 'inherit',
+  fontSize: 'var(--yt-type-body)',
+  cursor: 'pointer',
+} as const
+
+export const tabItemActiveStyle = {
+  ...tabItemStyle,
+  background: 'var(--yt-accent-bg)',
+  borderColor: 'var(--yt-accent-border)',
+} as const
+
+/** 行内危险钮武装态（2026-10-12 评审 P1-1）：两击武装的首击之后的样子——
+    危险墨色浮起，让「再击就执行」在落地前看得见。配 toolButtonStyle
+    使用：未武装穿 tool 面（§7 幽灵装），武装即换这一面。 */
+export const toolButtonArmedStyle = {
+  ...toolButtonStyle,
+  color: 'var(--yt-error)',
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-border-strong)',
+  whiteSpace: 'nowrap',
+} as const
