@@ -183,7 +183,7 @@ function ProposalRow(props: {
       <div style={textStyle}>
         {entry.text}
         <div style={{ ...proposalMetaStyle, display: 'flex', flexWrap: 'wrap', columnGap: 'var(--yt-space-2)' }}>
-          {metaSegments.map(segment => <span key={segment}>{segment}</span>)}
+          {metaSegments.map((segment, at) => <span key={`${at}-${segment}`}>{segment}</span>)}
         </div>
       </div>
       <div style={proposalActionsStyle}>

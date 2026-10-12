@@ -14,7 +14,7 @@ import type { Proposal, ProposalAction } from './proposal.ts'
 import { allProposalActions, GROUP_KEYS } from './proposal.ts'
 import { lineDiff, type DiffRow } from './diff.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
-import { disabledOverlay, ghostButtonStyle, primaryButtonStyle } from './buttons.ts'
+import { ghostButtonStyle, primaryButtonDisabledStyle, primaryButtonStyle } from './buttons.ts'
 import { entityNameOf } from './validate.ts'
 import { bareSubject } from './mail-threads.ts'
 import { PROPOSAL_MODAL_ID, proposalVerdictSeat, type ProposalVerdictHandler } from './proposal-verdict-seat.ts'
@@ -451,34 +451,39 @@ export function ProposalCard(props: {
   const fingerprint = useMemo(() => JSON.stringify(proposal), [proposal])
   const settledFingerprint = useRef(fingerprint)
 
-  // 键盘裁决路径（2026-10-12 评审 P2-1 批次一）：J/K 移光标、Space 勾选、
-  // Enter 确认写入。光标是纯导航——高亮当前行、滚进视野，从不代替人做
-  // 裁决；Space/Enter 都是对卡内真控件的合成点击，勾选状态与确认闸门
-  // （count===0 / busy）仍然只有一条通路。行几何跟着折叠态走，所以每次
-  // 按键都现查 [data-proposal-row]，不在状态里缓存行表。
+  // 键盘裁决路径（2026-10-12 评审 P2-1 批次一；复检 P2 转正）：J/K 移光标、
+  // Space 勾选、Enter 确认写入。光标是纯导航——高亮当前行、滚进视野，从不
+  // 代替人做裁决；Space/Enter 都是对卡内真控件的合成点击，勾选状态与确认
+  // 闸门（count===0 / busy）仍然只有一条通路。行几何跟着折叠态走，所以每次
+  // 按键都现查 [data-proposal-row]。光标存行的首个动作索引（data-proposal-row
+  // 的戳），高亮由行样式三元声明（复检 P2：不再私改 row.style 与 React 抢笔）。
+  const [cursor, setCursor] = useState(-1)
   const cursorRef = useRef(-1)
-  const cursorRows = (): HTMLElement[] =>
+  const seekCursor = (stamp: number): void => { cursorRef.current = stamp; setCursor(stamp) }
+  const cursorStamps = (): readonly number[] =>
     cardRef.current === null ? [] : Array.from(cardRef.current.querySelectorAll<HTMLElement>('[data-proposal-row]'))
-  function resetCursor(): void {
-    cursorRef.current = -1
-    for (const row of cursorRows()) row.style.background = ''
-  }
+      .map(row => Number(row.dataset.proposalRow))
   const moveCursor = (delta: 1 | -1): void => {
-    const rows = cursorRows()
-    if (rows.length === 0) return
-    const next = cursorRef.current < 0
-      ? (delta === 1 ? 0 : rows.length - 1)
-      : Math.min(rows.length - 1, Math.max(0, cursorRef.current + delta))
-    rows.forEach((row, index) => { row.style.background = index === next ? 'var(--yt-accent-bg)' : '' })
-    rows[next]?.scrollIntoView({ block: 'nearest' })
-    cursorRef.current = next
+    const stamps = cursorStamps()
+    if (stamps.length === 0) return
+    const at = stamps.indexOf(cursorRef.current)
+    const next = at < 0 ? (delta === 1 ? 0 : stamps.length - 1)
+      : Math.min(stamps.length - 1, Math.max(0, at + delta))
+    seekCursor(stamps[next] ?? -1)
   }
+  // 光标挪窝后把行滚进视野；高亮本身交给重渲染的行样式三元。
+  useEffect(() => {
+    if (cursor < 0) return
+    cardRef.current?.querySelector<HTMLElement>(`[data-proposal-row="${cursor}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [cursor])
   const verdictHandler = useMemo<ProposalVerdictHandler>(() => ({
     moveDown: () => { moveCursor(1) },
     moveUp: () => { moveCursor(-1) },
     toggleTick: () => {
-      const row = cursorRows()[cursorRef.current]
-      row?.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click()
+      cardRef.current
+        ?.querySelector<HTMLElement>(`[data-proposal-row="${cursorRef.current}"]`)
+        ?.querySelector<HTMLInputElement>('input[type="checkbox"]')
+        ?.click()
     },
     confirmWrite: () => {
       const button = cardRef.current?.querySelector<HTMLButtonElement>('[data-proposal-confirm]')
@@ -499,7 +504,7 @@ export function ProposalCard(props: {
     setPrescanOpen(false)
     setDigestOpen(false)
     setEscArmed(false)
-    resetCursor()
+    seekCursor(-1)
   }, [fingerprint])
 
   /** Tick or untick one area of one create-project row. */
@@ -645,7 +650,12 @@ export function ProposalCard(props: {
       <div key={`${keyPrefix}group-${at}`} style={groupContainerStyle}>
         <div style={groupTitleStyle} data-proposal-entity-group={group.title}>{group.title}</div>
         {group.rows.map((row, rowIndex) => (
-          <div key={rowIndex} style={rowStyle} data-proposal-row={row.indices.at(0)}>
+          <div
+            key={rowIndex}
+            style={row.indices.at(0) === cursor ? { ...rowStyle, background: 'var(--yt-accent-bg)' } : rowStyle}
+            aria-current={row.indices.at(0) === cursor ? 'true' : undefined}
+            data-proposal-row={row.indices.at(0)}
+          >
             <input
               type="checkbox"
               aria-label={row.label}
@@ -758,7 +768,12 @@ export function ProposalCard(props: {
                     const areasControl = action.kind === 'create-project' && proposal.areas !== undefined && proposal.areas.length > 0
                     const detail = detailOf(action, t, areasControl)
                     return (
-                      <div key={index} style={rowStyle} data-proposal-row={index}>
+                      <div
+                        key={index}
+                        style={index === cursor ? { ...rowStyle, background: 'var(--yt-accent-bg)' } : rowStyle}
+                        aria-current={index === cursor ? 'true' : undefined}
+                        data-proposal-row={index}
+                      >
                         <input
                           type="checkbox"
                           aria-label={label}
@@ -842,6 +857,20 @@ export function ProposalCard(props: {
         // 记到提案卡名下（顶层模态才生效）。
         data-shortcut-modal={PROPOSAL_MODAL_ID}
       >
+        {/* 键盘光标的 sr 播报：J/K 移动时向读屏器宣布位置；视觉用户靠
+          aria-current 行底色，读屏用户听这里。 */}
+        {cursor >= 0 && (() => {
+          const stamps = cursorStamps()
+          const at = stamps.indexOf(cursor)
+          return at >= 0 && (
+            <span
+              aria-live="polite"
+              style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}
+            >
+              {t('proposal.cursorAnnounce', { position: at + 1, total: stamps.length })}
+            </span>
+          )
+        })()}
         <div style={{ flexShrink: 0 }}>
           <div style={{ fontSize: 'var(--yt-type-title)', fontWeight: 600 }}>{proposal.title}</div>
           {proposal.note !== undefined && <div style={{ ...detailStyle, marginTop: 'var(--yt-space-1)' }}>{proposal.note}</div>}
@@ -1017,10 +1046,7 @@ export function ProposalCard(props: {
             type="button"
             data-hover="primary"
             data-proposal-confirm="true"
-            style={{
-              ...primaryButtonStyle,
-              ...(props.busy === true || count === 0 ? disabledOverlay : {}),
-            }}
+            style={props.busy === true || count === 0 ? primaryButtonDisabledStyle : primaryButtonStyle}
             disabled={props.busy === true || count === 0}
             onClick={() => { props.onConfirm(ticked, Object.keys(areaPicks).length > 0 ? areaPicks : undefined) }}
           >

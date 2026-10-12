@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { Proposal } from '../src/client/proposal.ts'
 import { ProposalCard } from '../src/client/ProposalCard.tsx'
 import { proposalVerdictSeat } from '../src/client/proposal-verdict-seat.ts'
@@ -141,23 +141,26 @@ describe('ProposalCard keyboard verdict path (2026-10-12 评审 P2-1)', () => {
   it('moves the cursor with J/K, ticks with Space through the row checkbox', () => {
     render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
     const handler = proposalVerdictSeat.current!
+    // 光标已是 React state（2026-10-12 复检：不再手涂 row.style），座位操作
+    // 必须 act 包裹才会同步冲刷重渲染。
+    const seat = (fn: () => void): void => { act(fn) }
     const rows = () => Array.from(document.querySelectorAll<HTMLElement>('[data-proposal-row]'))
     expect(rows()).toHaveLength(4)
-    handler.moveDown()
+    seat(handler.moveDown)
     expect(rows()[0].style.background).toBe('var(--yt-accent-bg)')
     expect(rows()[1].style.background).toBe('')
-    handler.toggleTick()
+    seat(handler.toggleTick)
     expect(screen.getByText('确认写入（1）')).toBeTruthy()
-    handler.moveDown()
-    handler.toggleTick()
+    seat(handler.moveDown)
+    seat(handler.toggleTick)
     expect(screen.getByText('确认写入（2）')).toBeTruthy()
-    handler.moveDown()
-    handler.moveUp()
-    handler.toggleTick() // back onto row 2: unticks it
+    seat(handler.moveDown)
+    seat(handler.moveUp)
+    seat(handler.toggleTick) // back onto row 2: unticks it
     expect(screen.getByText('确认写入（1）')).toBeTruthy()
     // Clamped at the top: K from row 1 stays put, and the highlight follows.
-    handler.moveUp()
-    handler.moveUp()
+    seat(handler.moveUp)
+    seat(handler.moveUp)
     expect(rows()[0].style.background).toBe('var(--yt-accent-bg)')
   })
 
@@ -165,22 +168,22 @@ describe('ProposalCard keyboard verdict path (2026-10-12 评审 P2-1)', () => {
     const onConfirm = vi.fn()
     render(<ProposalCard proposal={PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} t={t} />)
     const handler = proposalVerdictSeat.current!
-    handler.confirmWrite() // nothing ticked: the button is disabled, a no-op
+    act(handler.confirmWrite) // nothing ticked: the button is disabled, a no-op
     expect(onConfirm).not.toHaveBeenCalled()
     fireEvent.click(screen.getByLabelText('张三'))
-    handler.confirmWrite()
+    act(handler.confirmWrite)
     expect(onConfirm).toHaveBeenCalledWith([0], undefined)
   })
 
   it('resets the cursor when the proposal content changes (fingerprint guard)', () => {
     const { rerender } = render(<ProposalCard proposal={PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
     const handler = proposalVerdictSeat.current!
-    handler.moveDown()
+    act(handler.moveDown)
     rerender(<ProposalCard proposal={{ ...PROPOSAL, note: '第二轮' }} onConfirm={() => {}} onDismiss={() => {}} t={t} />)
     const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-proposal-row]'))
     expect(rows.every(row => row.style.background === '')).toBe(true)
     // A stale cursor would mis-target: the first J after the swap starts at row 1 again.
-    handler.toggleTick()
+    act(handler.toggleTick)
     expect(screen.getByText('确认写入（0）')).toBeTruthy()
   })
 })

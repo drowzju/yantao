@@ -11,7 +11,7 @@
  * Pure presentation: the tab state and every file action arrive as props; the
  * merged tabs' bodies arrive pre-assembled from the frame (ADR-0057).
  */
-import type { ReactElement, ReactNode } from 'react'
+import { Fragment, type CSSProperties, type ReactElement, type ReactNode } from 'react'
 import {
   CONVERSATION_TAB, INSIGHTS_TAB, TASKS_TAB,
   type FileTab, type TabState,
@@ -76,19 +76,28 @@ const stripStyle = {
 // 此前的凸面页签（surface-raised）与两栏的 accent 洗染并存，是两套
 // 「当前在哪」；本文件只保留条带自身的底线与底色。
 
-const labelButtonStyle = {
-  borderWidth: 0,
-  background: 'transparent',
-  cursor: 'pointer',
-  fontFamily: FONT,
-  fontSize: 'var(--yt-type-body)',
+// 页签是单层按钮（2026-10-12 复检 P2）：洗染与焦点环必须落在同一个元素上，
+// 此前 div(tabItem)>button(label) 双层——焦点环画在内层、accent 洗染涂在
+// 外层，键盘用户看到的聚焦位置与「当前在哪」脱节。徽记（运行点/压力点）
+// 作为 aria-hidden 的装饰随钮走；文件页签的关闭钮是独立动作，留在兄弟位。
+const tabFace = (active: boolean): CSSProperties => ({
+  ...(active ? tabItemActiveStyle : tabItemStyle),
   maxWidth: 160,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-} as const
+})
 
-const closeButtonStyle = { borderWidth: 0, background: 'transparent', cursor: 'pointer', color: 'var(--yt-text-muted)' } as const
+const closeButtonStyle = {
+  borderWidth: 0,
+  background: 'transparent',
+  cursor: 'pointer',
+  color: 'var(--yt-text-muted)',
+  fontFamily: 'inherit',
+  fontSize: 'var(--yt-type-body)',
+  padding: '0 var(--yt-space-2)',
+  minHeight: 'var(--yt-control-min-h)',
+  boxSizing: 'border-box',
+} as const
 
 const bodyStyle = { position: 'relative', flex: 1, minHeight: 0, display: 'flex' } as const
 
@@ -158,15 +167,23 @@ export function CenterPane({
   return (
     <div style={paneStyle}>
       <div style={stripStyle}>
-        <div style={conversationActive ? tabItemActiveStyle : tabItemStyle}>
-          <button type="button" style={labelButtonStyle} data-hover="tab" data-center-tab={CONVERSATION_TAB} onClick={() => { onActivate(CONVERSATION_TAB) }}>
-            {t('center.conversation')}
-          </button>
-        </div>
-        <div style={tasksActive ? tabItemActiveStyle : tabItemStyle}>
-          <button type="button" style={labelButtonStyle} data-hover="tab" data-center-tab={TASKS_TAB} onClick={() => { onActivate(TASKS_TAB) }}>
-            {t('center.tasks')}
-          </button>
+        <button
+          type="button"
+          style={tabFace(conversationActive)}
+          data-hover="tab"
+          data-center-tab={CONVERSATION_TAB}
+          onClick={() => { onActivate(CONVERSATION_TAB) }}
+        >
+          {t('center.conversation')}
+        </button>
+        <button
+          type="button"
+          style={tabFace(tasksActive)}
+          data-hover="tab"
+          data-center-tab={TASKS_TAB}
+          onClick={() => { onActivate(TASKS_TAB) }}
+        >
+          {t('center.tasks')}
           {/* The blue dot replaces the twin numeric pills: a number on the
               parent tab could not say which sub-tab it belonged to, so the
               counts now ride the sub-tabs themselves and the parent only
@@ -174,6 +191,7 @@ export function CenterPane({
           {(running > 0 || inboxPending > 0) && (
             <span
               data-tasks-badge="true"
+              aria-hidden="true"
               style={{
                 width: 7,
                 height: 7,
@@ -184,24 +202,28 @@ export function CenterPane({
               }}
             />
           )}
-        </div>
-        <div style={insightsActive ? tabItemActiveStyle : tabItemStyle}>
-          <button type="button" style={labelButtonStyle} data-hover="tab" data-center-tab={INSIGHTS_TAB} onClick={() => { onActivate(INSIGHTS_TAB) }}>
-            {t('center.insights')}
-          </button>
+        </button>
+        <button
+          type="button"
+          style={tabFace(insightsActive)}
+          data-hover="tab"
+          data-center-tab={INSIGHTS_TAB}
+          onClick={() => { onActivate(INSIGHTS_TAB) }}
+        >
+          {t('center.insights')}
           {/* ADR-0057: the context-pressure dot (amber past 80%, red past
               95%) — the retired footer button's stroke, relocated to the tab
               label so the alarm stays globally visible. */}
           {insightsPressure}
-        </div>
+        </button>
         {tabs.files.map((tab) => {
           const status = statuses[tab.path]
           return (
-            <div key={tab.path} style={tabs.active === tab.path ? tabItemActiveStyle : tabItemStyle}>
+            <Fragment key={tab.path}>
               {status !== undefined && <StatusDot status={status} t={t} />}
               <button
                 type="button"
-                style={labelButtonStyle}
+                style={tabFace(tabs.active === tab.path)}
                 title={tab.path}
                 data-tab-button={tab.path}
                 data-hover="tab"
@@ -213,12 +235,13 @@ export function CenterPane({
                 type="button"
                 style={closeButtonStyle}
                 title={t('center.close')}
+                aria-label={`${t('center.close')} ${tab.title}`}
                 data-hover="close"
                 onClick={() => { onClose(tab.path) }}
               >
                 ×
               </button>
-            </div>
+            </Fragment>
           )
         })}
       </div>

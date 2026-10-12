@@ -65,8 +65,18 @@ export const raisedButtonStyle = {
   cursor: 'pointer',
 } as const
 
-/** Disabled 的统一弱化：内联样式画不了 :disabled，随 props 现算。 */
-export const disabledOverlay = { opacity: 0.45, cursor: 'default' } as const
+/** Disabled 的统一弱化：内联样式画不了 :disabled，随 props 现算。
+    2026-10-12 复检对比度审计：opacity 整体减淡会把实心 accent 底与近白字
+    一起向背后的表面收敛（浅色实测 ≈1.9:1、暗色 ≈2.4:1），弱到看不出那
+    里本来有个钮。主行动的禁用态改走专用面——弱表面 + muted 字，muted
+    本就按对表面 ≥4.5:1 调过；WCAG 1.4.3 豁免禁用件，这里求的是可感知。 */
+export const primaryButtonDisabledStyle = {
+  ...primaryButtonStyle,
+  background: 'var(--yt-surface-secondary)',
+  color: 'var(--yt-text-muted)',
+  border: '1px solid var(--yt-border-subtle)',
+  cursor: 'default',
+} as const
 
 /** 栏头页签的唯一构造（2026-10-12 评审 P1-2 + 用户实证的高度不一）：
     左采集栏、中栏、右工作区栏的 tab 头共用这两面——border-box 28px
@@ -86,6 +96,8 @@ export const tabItemStyle = {
   background: 'transparent',
   fontFamily: 'inherit',
   fontSize: 'var(--yt-type-body)',
+  // 长文件名页签不许折行——折行会把 28px 命中高撑爆，条带随之参差。
+  whiteSpace: 'nowrap',
   cursor: 'pointer',
 } as const
 

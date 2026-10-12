@@ -431,6 +431,7 @@ export const zh = {
   'proposal.confirmWrite': '确认写入（{count}）',
   'proposal.escArm': '已勾选 {count} 项——再按一次 Esc 才会丢弃这份裁决',
   'proposal.memoryRewriteHint': '若这条规则其实该写进该能力自身的文件（SKILL.md／脚本），驳回此条并让 agent 改提技能改写更合适。',
+  'proposal.cursorAnnounce': '键盘光标：第 {position} 行，共 {total} 行',
 
   // Selection menu
   'selection.title': '选中文字',
@@ -875,6 +876,7 @@ export const en = {
   'proposal.confirmWrite': 'Confirm write ({count})',
   'proposal.escArm': '{count} rows ticked — press Esc again to discard this verdict',
   'proposal.memoryRewriteHint': 'If this rule really belongs in the capability\'s own files (SKILL.md/scripts), discard it and have the agent propose a skill rewrite instead.',
+  'proposal.cursorAnnounce': 'Keyboard cursor: row {position} of {total}',
 
   // Selection menu
   'selection.title': 'Selected text',
