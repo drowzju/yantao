@@ -175,6 +175,20 @@
 
 设计裁定见 [ADR-0035](../adr/0035-entity-validation.md) 与 [ADR-0036](../adr/0036-entity-validation-v2-pure-diagnosis.md)。第四手势「实体校验 (validate)」补上 Lint 一环:新 RPC `yantaoKb.graph()` 全库双链图 → 客户端确定性预扫(孤儿/失链) → `ValidateVerdict` → 提议卡。~~L1 已按 ADR-0035 施工~~,**v2 纯体检已于 2026-09-29 落地**(五票施工完毕,`.scratch/entity-validate-v2/`):预扫直出确定性区块(不过模型)、`creates` 移除(建页归提炼手势)、诊断窄化为过期/矛盾/缺链机会、代码侧防御核验、失链修复候选由代码相似度生成、卡分确定性/模型两区块。L2(分批通读)前提已变,重新构想后另立 ADR。llm_wiki 对照分析见 `.scratch/entity-validate-v2/analysis.md`。
 
+### 工作空间二批(ADR-0056 短板清偿,2026-10-11 立项)
+
+对照 wegent(D:\code\wegent)agent 调用链路调研后立项的两条,均为 ADR-0056 取舍台账在案短板:
+
+1. **流式回传** —— 现在 `workspace/runtime.ts` 逐步 spawn `codebuddy -p --output-format json`,
+   整步退出才见结果,WorkspacePanel 是黑盒。参照 wegent 的 callback/流分离思路:解析子进程
+   stdout 的 stream-json 行,把「步骤开始/结束 + 尾部文本」增量推到 UI(经 controller 事件或
+   轮询 `workspace-runs.json` 均可,实施时定)。
+2. **超时与并发闸** —— 现状 `-y` 全开、无超时、并发不限(用户自担风险的裁决不变,这里是补
+   保险丝不是收紧信任模型):每步 wall-clock 超时(配置项,缺省宽松或关闭);同一空间同时只允许
+   一条链在跑(tick.ts 现在只防重复入队,防不了双击双跑)。
+
+流水线语义(独立会话+模板)不在本批,另行立项。
+
 ### 设计规则落地(design.md,2026-09-22 截图审视)
 
 规则全文见 [design.md](design.md);以下是余项,改的是现有组件,不动架构,无需 ADR。
