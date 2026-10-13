@@ -1076,9 +1076,9 @@ export interface KbWorkspace {
 }
 
 /** Where one run's distilled process log lives, relative to the KB root —
- * the UI joins `<dir>/<runId>.log` to open a run's log tab. Mirrored from
- * the kb store so the UI never hardcodes the layout. */
-export const WORKSPACE_RUN_LOG_DIR = 'sessions/workspace'
+ * the UI joins `<dir>/<runId>.log` to open a run's log tab. Re-exported from
+ * the kb store so the location has a single authoritative source. */
+export { WORKSPACE_RUN_LOG_DIR } from '@deepseek-ai/dsh-yantao-kb'
 
 /** One chain step's record inside a workspace run (ADR-0056 决定 6). */
 export interface KbWorkspaceRunStep {

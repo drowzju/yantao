@@ -84,7 +84,7 @@ export const WORKSPACE_RUN_LOG_DIR = 'sessions/workspace'
 
 /** Absolute path of one run's log file. */
 export function runLogPath(kbRoot: string, runId: string): string {
-  return join(kbRoot, 'sessions', 'workspace', `${runId}.log`)
+  return join(kbRoot, WORKSPACE_RUN_LOG_DIR, `${runId}.log`)
 }
 
 /** The ring budget (ADR-0056 决定 6): past this, the oldest finalized rows fall off. */

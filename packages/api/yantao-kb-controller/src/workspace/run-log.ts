@@ -23,7 +23,7 @@
 
 import { appendFile, mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { readWorkspaceRuns } from '@deepseek-ai/dsh-yantao-kb'
+import { readWorkspaceRuns, WORKSPACE_RUN_LOG_DIR } from '@deepseek-ai/dsh-yantao-kb'
 
 /** Soft ceiling on one log file; past it the writer stops with a marker line. */
 const MAX_LOG_BYTES = 8 * 1024 * 1024
@@ -110,7 +110,7 @@ export class RunLogWriter {
 
 /** Delete orphaned run logs: files whose run id left the history ring. */
 export async function pruneOrphanRunLogs(kbRoot: string): Promise<void> {
-  const dir = join(kbRoot, 'sessions', 'workspace')
+  const dir = join(kbRoot, WORKSPACE_RUN_LOG_DIR)
   const entries = await readdir(dir).catch(() => undefined)
   if (entries === undefined || entries.length === 0) return
   const runs = await readWorkspaceRuns(kbRoot).catch(() => undefined)
