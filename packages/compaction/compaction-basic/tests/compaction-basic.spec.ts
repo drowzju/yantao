@@ -1383,6 +1383,59 @@ async function summarizerHarness(
   return { ctx, adapter, compact }
 }
 
+/**
+ * Scripted adapter for the ADR-0058 degradation ladder: optionally declares a
+ * context window and fails the first N calls (or every call) with an in-band
+ * context-window-exceeded finish before succeeding.
+ */
+class DegradationAdapter extends LlmAdapter {
+  lastOptions: GenerateOptions | undefined
+  calls = 0
+
+  constructor(
+    private readonly failFirst: number | 'always',
+    private readonly window?: number,
+  ) {
+    super()
+  }
+
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      ...this.window === undefined ? {} : { context: { contextWindow: this.window } },
+    })
+  }
+
+  override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.lastOptions = options
+    this.calls += 1
+    if (this.failFirst === 'always' || this.calls <= this.failFirst) {
+      const failure: LlmFailure = { message: 'context length exceeded', code: CONTEXT_WINDOW_EXCEEDED_CODE }
+      yield { type: 'finish', reason: { kind: 'error', failure } }
+      return
+    }
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text: 'degraded summary' }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+}
+
+async function degradationHarness(
+  failFirst: number | 'always',
+  window?: number,
+): Promise<{ ctx: Context; adapter: DegradationAdapter; compact: ExposedCompactionEngine }> {
+  const ctx = new Context()
+  await ctx.plugin(LlmRuntime)
+  await ctx.plugin(SessionProjectionRegistry)
+  void new TokenMeter(ctx)
+  const adapter = new DegradationAdapter(failFirst, window)
+  ctx.llm.registerAdapter([MODEL], adapter)
+  const compact = new ExposedCompactionEngine(ctx, { auto: false, maxTokens: 65_536 })
+  return { ctx, adapter, compact }
+}
+
 describe('default one-shot summarizer', () => {
   it.each([undefined, '', 'SYSTEM HEAD\n精确前缀\n'])('preserves the routed prefix through region summarization with system %j', async (system) => {
     const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }])
@@ -1669,6 +1722,79 @@ describe('default one-shot summarizer', () => {
     }])
     await expect(compact.runSummarize(promptInput('history'), agent(conversation(1), MODEL)))
       .rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+  })
+
+  it('clamps the summary output reservation to the shared window (ADR-0058)', async () => {
+    const { ctx, adapter, compact } = await degradationHarness(0, 20_000)
+    const system = createSystemMessage('HEAD')
+    const prefix = createUserMessage({ content: [{ type: 'text', text: 'turn' }], source: { kind: 'test' } })
+
+    const output = await compact.runSummarize({ messages: [system, prefix] }, agent(conversation(1), MODEL))
+
+    const sent = adapter.lastOptions?.messages ?? []
+    const estimate = sent.reduce(
+      (total, message) => total + ctx.tokenMeter.estimateMessage(message as unknown as Message),
+      0,
+    )
+    // Nothing was elided, and the cap leaves room for the whole input plus margin.
+    expect(sent.slice(0, -1)).toEqual([system, prefix])
+    expect(adapter.lastOptions?.maxTokens).toBe(Math.min(65_536, 20_000 - 8_192 - estimate))
+    expect(output.maxTokens).toBe(adapter.lastOptions?.maxTokens)
+  })
+
+  it('elides the oldest replay to fit and never strands a tool result (ADR-0058)', async () => {
+    const { adapter, compact } = await degradationHarness(0, 30_000)
+    const system = createSystemMessage('HEAD')
+    const oldest = createUserMessage({ content: [{ type: 'text', text: 'X'.repeat(200_000) }], source: { kind: 'test' } })
+    const stranded = createToolResultMessage({
+      callId: ToolCallId('orphaned'),
+      content: [{ type: 'text', text: 'Y'.repeat(200_000) }],
+      isError: false,
+    })
+    const newest = createUserMessage({ content: [{ type: 'text', text: 'final turn' }], source: { kind: 'test' } })
+
+    await compact.runSummarize({ messages: [system, oldest, stranded, newest] }, agent(conversation(1), MODEL))
+
+    const sent = adapter.lastOptions?.messages ?? []
+    // System head survives; the cut advanced past the orphaned tool result.
+    expect(sent[0]).toBe(system)
+    expect(sent[1]).toBe(newest)
+    expect(sent).toHaveLength(3)
+    const instruction = sent[2]?.content[0]
+    expect(instruction?.type === 'text' ? instruction.text : '').toContain('[System note: 2 older message(s)')
+  })
+
+  it('halves the replay and retries when the provider rejects the window (ADR-0058)', async () => {
+    const { adapter, compact } = await degradationHarness(2)
+    const messages = [1, 2, 3, 4, 5, 6].map(index => createUserMessage({
+      content: [{ type: 'text', text: `turn ${index}` }],
+      source: { kind: 'test' },
+    }))
+
+    await expect(compact.runSummarize({ messages }, agent(conversation(1), MODEL)))
+      .resolves.toMatchObject({ summary: [{ type: 'text', text: 'degraded summary' }] })
+
+    expect(adapter.calls).toBe(3)
+    // Two halvings: 6 -> 3 -> 2 kept messages, 4 elided in total.
+    const sent = adapter.lastOptions?.messages ?? []
+    expect(sent).toHaveLength(3)
+    expect(sent[0]).toBe(messages[4])
+    expect(sent[1]).toBe(messages[5])
+    const instruction = sent[2]?.content[0]
+    expect(instruction?.type === 'text' ? instruction.text : '').toContain('[System note: 4 older message(s)')
+  })
+
+  it('fails closed once degradation cannot shrink further (ADR-0058)', async () => {
+    const { adapter, compact } = await degradationHarness('always')
+    const messages = [1, 2].map(index => createUserMessage({
+      content: [{ type: 'text', text: `turn ${index}` }],
+      source: { kind: 'test' },
+    }))
+
+    await expect(compact.runSummarize({ messages }, agent(conversation(1), MODEL)))
+      .rejects.toMatchObject({ code: CONTEXT_WINDOW_EXCEEDED_CODE })
+    // Initial attempt plus one halving; a lone surviving message cannot halve again.
+    expect(adapter.calls).toBe(2)
   })
 })
 

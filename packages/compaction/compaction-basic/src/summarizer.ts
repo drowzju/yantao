@@ -5,11 +5,13 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { contentHasImage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, BlockAssembler, CONTEXT_WINDOW_EXCEEDED_CODE, createUserMessage, LlmError } from '@deepseek-ai/dsh-llm'
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type {
-  ContentBlock, FinishReason, GenerateOptions, Message, RequestMessage, TokenUsage, ToolSchema,
+  ContentBlock, FinishReason, GenerateOptions, Message, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
+// Type-only: the `ctx.tokenMeter` Context merge for the summarizer's estimation helpers.
+import type {} from '@deepseek-ai/dsh-token-meter'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 interface SummaryConfig {
@@ -17,6 +19,20 @@ interface SummaryConfig {
   readonly summarizationModel: string
   readonly maxTokens: number
 }
+
+/**
+ * Head-room subtracted from the model window before sizing the auxiliary
+ * summarization call's input and output budgets (ADR-0058). The auxiliary call
+ * shares the conversation's window; without a margin, input plus the output
+ * reservation can exceed it and the provider rejects the call outright.
+ */
+const SUMMARIZE_SAFETY_MARGIN = 8_192
+
+/** Smallest usable summary output reservation; below this a checkpoint would be unusably truncated. */
+const MIN_SUMMARY_TOKENS = 1_024
+
+/** Maximum reactive halving retries after the provider still rejects the degraded call. */
+const MAX_SUMMARY_DEGRADATIONS = 4
 
 /** Tags wrapping the structured summary inside the landed checkpoint node. */
 const SUMMARY_OPEN_TAG = '<compacted-summary>'
@@ -110,7 +126,17 @@ export type SummaryResult = {
  * Run the default cache-reusing `ctx.llm.stream()` summarization call: replay
  * the conversation prefix, then append the compaction instruction as the final
  * user message so the provider's warm prefix cache is reused.
- * @param ctx - context providing the LLM service.
+ *
+ * The auxiliary call shares the conversation's context window (ADR-0058), so
+ * the replay is sized defensively before dispatch: the output reservation is
+ * clamped to whatever the window still affords, and when even a minimal
+ * reservation does not fit, the oldest replayed messages are elided (keeping
+ * the system head and never splitting a tool-call/result pair) with an
+ * omission note prepended to the instruction. If the provider still rejects
+ * the call with a context-window failure, the replay is reactively halved and
+ * retried up to {@link MAX_SUMMARY_DEGRADATIONS} times; exhaustion propagates
+ * the failure (fail-closed, unchanged).
+ * @param ctx - context providing the LLM service and token meter.
  * @param config - resolved backend configuration.
  * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
  * @param agent - supplies routed-model history, fallback model, and session id.
@@ -141,42 +167,98 @@ export async function summarizeWithLlm(
     )
   }
 
-  const assembler = new BlockAssembler()
-  const messages: RequestMessage[] = [
-    ...input.messages,
-    deepFreeze({
-      role: 'user',
-      content: [{ type: 'text', text: COMPACTION_INSTRUCTION }],
-    }),
-  ]
-  const options: GenerateOptions = {
-    provider: target.provider,
-    model: target.model,
-    messages,
-    toolHistory: agent.session.toolHistory(),
-    ...input.tools === undefined ? {} : { tools: [...input.tools] },
-    maxTokens: config.maxTokens,
-    sessionId: agent.session.id,
-    purpose: 'compaction',
-    ...signal === undefined ? {} : { signal },
-  }
-  for await (const chunk of ctx.llm.stream(options)) assembler.push(chunk)
-  const error = finishError(assembler.finish)
-  if (error !== undefined) throw error
+  const meter = ctx.tokenMeter
+  const window = await contextWindowOf(ctx, target)
+  const toolsTokens = estimateToolsCost(input.tools)
 
-  const rawOutput = assembler.blocks()
-  const summary = summaryText(rawOutput)
-  if (!summary.some(block => block.text.trim().length > 0)) {
-    throw new Error('summarization produced no text summary content')
-  }
-  return {
-    summary,
-    rawOutput,
-    llmStreamCall: true,
-    provider: options.provider,
-    model: options.model,
-    maxTokens: config.maxTokens,
-    ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
+  let replay: readonly Message[] = input.messages
+  let elidedCount = 0
+  let degradations = 0
+
+  for (;;) {
+    // Proactive degradation: fit the replay into the window minus the safety
+    // margin and a minimal output reservation before dispatching.
+    if (window !== undefined) {
+      const truncated = truncateReplay(meter, replay, window - SUMMARIZE_SAFETY_MARGIN - MIN_SUMMARY_TOKENS - toolsTokens)
+      if (truncated === null) {
+        throw new Error('summarization replay cannot fit the model context window even when fully elided')
+      }
+      replay = truncated.messages
+      elidedCount += truncated.elided
+    }
+
+    const instructionText = elidedCount === 0
+      ? COMPACTION_INSTRUCTION
+      : `${elisionNote(elidedCount)}\n\n${COMPACTION_INSTRUCTION}`
+    const instruction = createUserMessage({ content: [{ type: 'text', text: instructionText }], source: { kind: 'user' } })
+
+    // Clamp the output reservation so input plus reservation stays inside the
+    // same window; with unknown capacity the configured cap is used as-is.
+    let maxTokens = config.maxTokens
+    if (window !== undefined) {
+      const inputEstimate = replay.reduce((total, message) => total + meter.estimateMessage(message), 0)
+        + meter.estimateMessage(instruction)
+        + toolsTokens
+      maxTokens = Math.max(1, Math.min(config.maxTokens, window - SUMMARIZE_SAFETY_MARGIN - inputEstimate))
+    }
+
+    // A fresh assembler per attempt: a degraded retry must not inherit the
+    // failed attempt's partial accumulation.
+    const assembler = new BlockAssembler()
+    const options: GenerateOptions = {
+      provider: target.provider,
+      model: target.model,
+      messages: [
+        ...replay,
+        deepFreeze({
+          role: 'user',
+          content: [{ type: 'text', text: instructionText }],
+        }),
+      ],
+      toolHistory: agent.session.toolHistory(),
+      ...input.tools === undefined ? {} : { tools: [...input.tools] },
+      maxTokens,
+      sessionId: agent.session.id,
+      purpose: 'compaction',
+      ...signal === undefined ? {} : { signal },
+    }
+    try {
+      for await (const chunk of ctx.llm.stream(options)) assembler.push(chunk)
+      const error = finishError(assembler.finish)
+      if (error !== undefined) throw error
+
+      const rawOutput = assembler.blocks()
+      const summary = summaryText(rawOutput)
+      if (!summary.some(block => block.text.trim().length > 0)) {
+        throw new Error('summarization produced no text summary content')
+      }
+      return {
+        summary,
+        rawOutput,
+        llmStreamCall: true,
+        provider: options.provider,
+        model: options.model,
+        maxTokens,
+        ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
+      }
+    } catch (error) {
+      if (
+        (error as { code?: string }).code !== CONTEXT_WINDOW_EXCEEDED_CODE
+        || signal?.aborted
+        || degradations >= MAX_SUMMARY_DEGRADATIONS
+      ) throw error
+      const halved = halveReplay(replay)
+      if (halved === null) throw error
+      degradations += 1
+      replay = halved.messages
+      elidedCount += halved.elided
+      ctx.logger.warn(
+        'summarization call exceeded the context window; retrying with %d older messages elided (degradation %d/%d)',
+        halved.elided,
+        degradations,
+        MAX_SUMMARY_DEGRADATIONS,
+      )
+    }
   }
 }
 
@@ -218,4 +300,99 @@ function summaryText(
     throw new LlmError('compaction summary cannot contain image output', 'UNSUPPORTED_CONTENT')
   }
   return blocks.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+}
+
+/** Split the replay into the preserved system head and the condensable body. */
+function splitHead(messages: readonly Message[]): { head: readonly Message[]; body: readonly Message[] } {
+  let headEnd = 0
+  for (; headEnd < messages.length; headEnd += 1) {
+    const role = messages[headEnd]?.role
+    if (role !== 'system' && role !== 'developer') break
+  }
+  return { head: messages.slice(0, headEnd), body: messages.slice(headEnd) }
+}
+
+/**
+ * Advance a cut point past orphaned tool results so the kept suffix never opens
+ * with a tool result whose assistant tool-call message was elided.
+ */
+function skipOrphanedToolResults(messages: readonly Message[], start: number): number {
+  let index = start
+  for (; index < messages.length; index += 1) {
+    if (messages[index]?.role !== 'tool') break
+  }
+  return index
+}
+
+/**
+ * Elide the oldest body messages that do not fit `budgetTokens`, keeping the
+ * system head and the newest suffix intact (pair-safe). The newest message is
+ * always kept even when oversized, as a best effort the reactive path can
+ * still learn from.
+ * @returns the possibly shortened replay with the elision count, or `null`
+ * when the body is empty and nothing was elidable.
+ */
+function truncateReplay(
+  meter: { estimateMessage(message: Message): number },
+  messages: readonly Message[],
+  budgetTokens: number,
+): { messages: readonly Message[]; elided: number } | null {
+  const { head, body } = splitHead(messages)
+  if (body.length === 0) return { messages: head, elided: 0 }
+  const bodyTokens = body.reduce((total, message) => total + meter.estimateMessage(message), 0)
+  if (bodyTokens <= budgetTokens) return { messages, elided: 0 }
+  let keptFrom = body.length
+  let keptTokens = 0
+  while (keptFrom > 0) {
+    const message = body[keptFrom - 1]
+    if (message === undefined) break
+    const cost = meter.estimateMessage(message)
+    if (keptFrom < body.length && keptTokens + cost > budgetTokens) break
+    keptFrom -= 1
+    keptTokens += cost
+  }
+  const start = skipOrphanedToolResults(body, keptFrom)
+  if (start >= body.length) return { messages: head, elided: body.length }
+  return { messages: [...head, ...body.slice(start)], elided: start }
+}
+
+/**
+ * Drop the oldest half of the body for a reactive retry, pair-safe. Fails when
+ * nothing condensable remains (body under two messages, or the survivors are
+ * all orphaned tool results).
+ */
+function halveReplay(messages: readonly Message[]): { messages: readonly Message[]; elided: number } | null {
+  const { head, body } = splitHead(messages)
+  if (body.length < 2) return null
+  const start = skipOrphanedToolResults(body, Math.floor(body.length / 2))
+  if (start >= body.length) return null
+  return { messages: [...head, ...body.slice(start)], elided: start }
+}
+
+/** Prepend an omission note so the summarizer knows the replay is partial. */
+function elisionNote(count: number): string {
+  return `[System note: ${count} older message(s) of the conversation were omitted so this checkpoint request fits the model's context window.]`
+}
+
+/**
+ * Resolve the summarization target's context window. Unknown capacity (no
+ * declared context or resolution failure) disables proactive clamping and
+ * leaves the reactive ladder as the only defense.
+ */
+async function contextWindowOf(
+  ctx: Context,
+  target: { provider: string; model: string },
+): Promise<number | undefined> {
+  try {
+    const info = await ctx.llm.resolveModelInfo(target.provider, target.model)
+    return info.context?.contextWindow
+  } catch {
+    return undefined
+  }
+}
+
+/** Rough char-density estimate of the tools schema cost (≈4 chars/token). */
+function estimateToolsCost(tools: readonly ToolSchema[] | undefined): number {
+  if (tools === undefined || tools.length === 0) return 0
+  return Math.ceil(JSON.stringify(tools).length / 4)
 }

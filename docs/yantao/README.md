@@ -33,6 +33,7 @@ yantao 的定位是**个人认知工作台(Personal Cognitive Workbench)**:实�
 | `packages/client/ui-conversation/src/client/locales.ts` | hero 标语改为 PARAP(ADR-0013 品牌) |
 | `packages/client/ui-primitives/src/markdown/{render.tsx,MarkdownText.tsx,index.ts}` | 脚注/锚点 fragment 链接放行 + `diagrams` 渲染钩子(ADR-0048 决定 4/5,Obsidian 兼容一期) |
 | `packages/extensions/tool-cordis/src/api-catalog.ts` | 我们 Remote 的生成式目录条目 |
+| `packages/compaction/compaction-basic/src/summarizer.ts` | 摘要辅助调用写不下窗口时的降级阶梯:预检钳制 maxTokens + 头部截断重放 + 反应式半减重试(ADR-0058,2026-10-13 死亡螺旋事故) |
 | `tsconfig.base.json`、`tsconfig.client.json`、`tsconfig.host.json` | 我们包的生成别名与项目引用 |
 | `docs/capability-seams.md`、`docs/config-catalog.md` | 重新生成的文档 |
 | `scripts/gen-cordis-catalog.ts`、`scripts/gen-doc-graphs.ts`、`scripts/type-equiv.manifest.json`、`scripts/verify-subsystem-pages.ts`、`scripts/verify-package-readme-model-experience.ts` | 生成器与门禁旁车,必须知道我们的包存在 |
