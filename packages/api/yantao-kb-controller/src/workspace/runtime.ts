@@ -8,9 +8,10 @@
  * `cwd` pinned to the workspace's directory, the prompt delivered on stdin
  * (keeps argv free of user text — no shell-quoting surface on any platform),
  * and reads the result event back for `session_id` and `result`. The output
- * contract (observed 2026-10-10) is an event ARRAY whose final element is
+ * contract is an event ARRAY whose final element is
  * `{type:'result', result, session_id, …}`; older builds emitted the single
- * object directly, so both shapes parse. Step
+ * object directly — both shapes settle in output-parse.ts, streamed
+ * incrementally (the 2026-10-12 truncation incident is why buffering is gone). Step
  * N+1 resumes step N's session (`--resume`), the 会话延续链 of ADR-0056
  * 决定 3. Any step that exits non-zero, fails to spawn, or answers
  * unparseable output BREAKS the chain (决定 3: no tolerance — the later
@@ -30,14 +31,14 @@ import {
   appendWorkspaceRun,
   finalizeInterruptedRuns,
   patchWorkspaceRun,
+  runLogPath,
   type WorkspaceDef,
   type WorkspaceInstruction,
   type WorkspaceRun,
   type WorkspaceRunStep,
 } from '@deepseek-ai/dsh-yantao-kb'
-
-/** How much of one step's stdout is kept before truncation is marked. */
-const MAX_STEP_STDOUT_BYTES = 1024 * 1024
+import { CodebuddyOutputParser } from './output-parse.ts'
+import { pruneOrphanRunLogs, RunLogWriter, wallClock } from './run-log.ts'
 
 /** How much of one step's stderr feeds a failure message. */
 const MAX_STEP_STDERR_BYTES = 64 * 1024
@@ -140,6 +141,9 @@ export class WorkspaceRuntime {
       trigger,
       steps: instruction.steps,
     })
+    // Ring maintenance is lazy: whatever fell off the history (or was cleared)
+    // leaves its log file behind — sweep it now, off the critical path.
+    void pruneOrphanRunLogs(kbRoot).catch(() => undefined)
     const live: LiveRun = { runId: run.id, instructionId: instruction.id, stopped: false, kill: undefined }
     this.live.set(run.id, live)
     void this.executeChain(kbRoot, run, space, live)
@@ -194,6 +198,10 @@ export class WorkspaceRuntime {
 
   /** Walk the prompt chain, patching the row as it goes; any failure breaks. */
   private async executeChain(kbRoot: string, run: WorkspaceRun, space: WorkspaceDef, live: LiveRun): Promise<void> {
+    // The distilled process log (sessions/workspace/<runId>.log) trails the
+    // chain fire-and-forget: a log failure never touches the run itself.
+    const log = new RunLogWriter(runLogPath(kbRoot, run.id))
+    log.open(`═══ 工作区「${space.name}」· 指令「${run.instructionName}」· ${run.trigger === 'cron' ? '定时' : '手动'} · ${wallClock()} ═══`)
     // The working copy of the step list: every patch rebuilds it so the next
     // patch carries the previous ones too (patches replace the whole list).
     let steps = [...run.steps]
@@ -203,16 +211,21 @@ export class WorkspaceRuntime {
       if (live.stopped) return
       steps = withStepEnd(steps, step.index, { startedAt: new Date().toISOString() })
       await patchWorkspaceRun(kbRoot, run.id, { steps })
+      log.stepHeader(step.index, resumedSessionId)
       let outcome: StepOutcome
       try {
-        outcome = await this.runStep(space, step, resumedSessionId, live)
+        outcome = await this.runStep(space, step, resumedSessionId, live, log)
       } catch (error: unknown) {
         outcome = { exitCode: null, error: (error as Error).message }
       }
-      if (live.stopped) return // stopRun already patched the row; do not overwrite it
+      if (live.stopped) {
+        log.line('\n■ 已停止')
+        return // stopRun already patched the row; do not overwrite it
+      }
       if (outcome.error !== undefined || outcome.exitCode !== 0) {
         const failedAt = new Date().toISOString()
         const errorText = outcome.error ?? `退出码 ${outcome.exitCode ?? '未知'}${outcome.stderrHint === undefined ? '' : `：${outcome.stderrHint}`}`
+        log.line(`\n✘ 第 ${step.index + 1} 步失败：${errorText}`)
         await patchWorkspaceRun(kbRoot, run.id, {
           status: 'failed',
           finishedAt: failedAt,
@@ -232,6 +245,7 @@ export class WorkspaceRuntime {
       })
       await patchWorkspaceRun(kbRoot, run.id, { steps })
     }
+    log.line('\n✔ 完成')
     await patchWorkspaceRun(kbRoot, run.id, {
       status: 'success',
       finishedAt: new Date().toISOString(),
@@ -245,7 +259,13 @@ export class WorkspaceRuntime {
    * `--model` / `--resume`. Resolves when the process settles; the outcome
    * is reported, never thrown (except bookkeeping bugs).
    */
-  private runStep(space: WorkspaceDef, step: WorkspaceRunStep, resumeSessionId: string | undefined, live: LiveRun): Promise<StepOutcome> {
+  private runStep(
+    space: WorkspaceDef,
+    step: WorkspaceRunStep,
+    resumeSessionId: string | undefined,
+    live: LiveRun,
+    log: RunLogWriter,
+  ): Promise<StepOutcome> {
     const args = ['-p', '-y', '--output-format', 'json']
     if (space.model !== undefined) args.push('--model', space.model)
     if (resumeSessionId !== undefined) args.push('--resume', resumeSessionId)
@@ -260,9 +280,13 @@ export class WorkspaceRuntime {
     })
 
     return new Promise<StepOutcome>((resolveStep) => {
-      const stdoutChunks: Buffer[] = []
+      // Stdout streams through the incremental extractor (output-parse.ts):
+      // no buffering cap, no whole-stream JSON.parse — the 2026-10-12 事故
+      // (a 2h10m session's event array blowing past the old 1 MiB cap and
+      // then failing the parse) is structurally impossible now. Every parsed
+      // event is distilled into the run log on the way past.
+      const parser = new CodebuddyOutputParser({ onEvent: (event) => { log.event(event) } })
       const stderrChunks: Buffer[] = []
-      let stdoutBytes = 0
       let stderrBytes = 0
 
       /** Kill the whole tree — the exec bridge's recipe (ADR-0043 决定 2). */
@@ -297,16 +321,15 @@ export class WorkspaceRuntime {
       child.stdin.end(step.promptSnapshot, 'utf8')
 
       child.stdout.on('data', (chunk: Buffer | string) => {
-        if (stdoutBytes > MAX_STEP_STDOUT_BYTES) return
-        const bytes = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk
-        stdoutChunks.push(bytes)
-        stdoutBytes += bytes.length
+        parser.feed(chunk)
       })
       child.stderr.on('data', (chunk: Buffer | string) => {
-        if (stderrBytes > MAX_STEP_STDERR_BYTES) return
         const bytes = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk
-        stderrChunks.push(bytes)
-        stderrBytes += bytes.length
+        if (stderrBytes <= MAX_STEP_STDERR_BYTES) {
+          stderrChunks.push(bytes)
+          stderrBytes += bytes.length
+        }
+        log.stderr(typeof chunk === 'string' ? chunk : bytes.toString('utf8'))
       })
       child.on('error', (error: Error) => {
         settle({ exitCode: null, error: `无法启动 codebuddy：${error.message}` })
@@ -320,34 +343,21 @@ export class WorkspaceRuntime {
           })
           return
         }
-        // `--output-format json` emits an event ARRAY whose final element is
-        // the result event (`{type:'result', result, session_id, …}`);
-        // older builds emitted the single object directly — accept both.
-        const raw = Buffer.concat(stdoutChunks).toString('utf8')
-        let parsed: unknown
-        try {
-          parsed = JSON.parse(raw)
-        } catch {
-          const clipped = raw.length > 300 ? `${raw.slice(0, 300)}…` : raw
-          settle({ exitCode: code, error: `codebuddy 输出不是合法 JSON：${clipped}` })
+        // The extractor settled the stream: the result event (array tail or
+        // legacy single object) or the precise reason there is none.
+        const output = parser.finish()
+        if (!output.ok) {
+          settle({ exitCode: code, error: output.error })
           return
         }
-        const record = (Array.isArray(parsed)
-          ? [...parsed].reverse().find(event => typeof event === 'object' && event !== null && (event as { type?: unknown }).type === 'result')
-          : parsed) as { result?: unknown; session_id?: unknown; is_error?: unknown } | undefined
-        const result = typeof record?.result === 'string' ? record.result : undefined
-        if (record === undefined || result === undefined) {
-          settle({ exitCode: code, error: 'codebuddy 输出缺少 result 字段' })
-          return
-        }
-        if (record.is_error === true) {
-          settle({ exitCode: code, error: `codebuddy 报告运行失败：${result.slice(0, MAX_STEP_STDERR_BYTES)}` })
+        if (output.event.isError) {
+          settle({ exitCode: code, error: `codebuddy 报告运行失败：${output.event.result.slice(0, MAX_STEP_STDERR_BYTES)}` })
           return
         }
         settle({
           exitCode: code,
-          result,
-          ...(typeof record.session_id === 'string' && record.session_id !== '' ? { sessionId: record.session_id } : {}),
+          result: output.event.result,
+          ...(output.event.sessionId !== undefined ? { sessionId: output.event.sessionId } : {}),
         })
       })
     })

@@ -60,6 +60,7 @@ import {
   readWorkspaces, writeWorkspaces, markInstruction, WORKSPACES_DISPLAY_PATH,
   readWorkspaceRuns, appendWorkspaceRun, clearWorkspaceRuns, WORKSPACE_RUNS_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
+import { pruneOrphanRunLogs } from './workspace/run-log.ts'
 import type { EntityType, WorkspaceDef } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities, seedBuiltinRoutes } from './capability/builtin.ts'
 import { applySkillRewrite } from './capability/rewrite.ts'
@@ -1905,6 +1906,8 @@ export class YantaoKbController extends TypertRemoteService {
     this.requireKbRootForWorkspaces(WORKSPACE_RUNS_DISPLAY_PATH)
     try {
       const cleared = await clearWorkspaceRuns(this.kbRoot)
+      // Cleared rows leave orphaned logs in sessions/workspace/ — sweep them.
+      void pruneOrphanRunLogs(this.kbRoot).catch(() => undefined)
       return { cleared, runs: (await readWorkspaceRuns(this.kbRoot)).slice().reverse() }
     } catch (error: unknown) {
       throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)

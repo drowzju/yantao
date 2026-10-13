@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   CONVERSATION_TAB, TAB_STORAGE_KEY, TASKS_TAB,
-  activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs, readOnlyPath, restoreTabs, tabFor, tabTitle,
+  activateTab, activeFile, closeTab, emptyTabs, isRunLogPath, openTab, persistTabs, readOnlyPath, restoreTabs, tabFor, tabTitle,
   type TabMode, type TabState, type TabStorage,
 } from '../src/client/tabs.ts'
 
@@ -40,6 +40,22 @@ describe('readOnlyPath', () => {
 
   it('treats a .md note under 资源 as editable — it is not an original', () => {
     expect(readOnlyPath('resources/汇报模板.md')).toBe(false)
+  })
+})
+
+describe('isRunLogPath', () => {
+  it('flags run logs and nothing else under sessions/', () => {
+    expect(isRunLogPath('sessions/workspace/run_abc_01.log')).toBe(true)
+    expect(isRunLogPath('sessions/workspace/not-a-log.txt')).toBe(false)
+    expect(isRunLogPath('sessions/archive/notes.md')).toBe(false)
+    expect(isRunLogPath('resources/周报.eml')).toBe(false)
+  })
+
+  it('keeps the mirrored run-log dir literal equal to the controller’s definition', async () => {
+    // The client bundle purity gate forbids value imports from controllers,
+    // so tabs.ts hand-copies the literal; this pin catches a one-sided edit.
+    const controller = await import('@deepseek-ai/dsh-api-yantao-kb-controller/types')
+    expect((await import('../src/client/tabs.ts')).WORKSPACE_RUN_LOG_DIR).toBe(controller.WORKSPACE_RUN_LOG_DIR)
   })
 })
 

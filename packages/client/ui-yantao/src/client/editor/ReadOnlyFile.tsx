@@ -16,6 +16,7 @@ import type { KbResourceView } from '@deepseek-ai/dsh-api-yantao-kb-controller/t
 import type { ResourceViewReader } from '../remote.ts'
 import { remoteMessage } from '../remote.ts'
 import type { WorkbenchT } from '../locales.ts'
+import { isRunLogPath } from '../tabs.ts'
 
 /** Read-only view props. */
 export interface ReadOnlyFileProps {
@@ -42,6 +43,12 @@ const bannerStyle = {
 } as const
 
 const errorStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', background: 'var(--yt-error-bg)', color: 'var(--yt-error)' } as const
+
+/** Poll cadence of the run-log auto-follow. */
+const WATCH_POLL_MS = 5000
+
+/** Consecutive unchanged polls before the watch stops (30s of stillness). */
+const WATCH_QUIET_ROUNDS = 6
 
 const preStyle = {
   flex: 1,
@@ -148,6 +155,9 @@ export function ReadOnlyFile({ path, readView, t }: ReadOnlyFileProps): ReactEle
   // mount-per-path effect reads it through a ref.
   const latest = useRef(readView)
   latest.current = readView
+  // The text pane's node — the auto-follow keeps the reader's viewport put
+  // (or glued to the bottom) across content swaps.
+  const preRef = useRef<HTMLPreElement | null>(null)
 
   useEffect(() => {
     let stale = false
@@ -159,6 +169,43 @@ export function ReadOnlyFile({ path, readView, t }: ReadOnlyFileProps): ReactEle
     )
     return () => {
       stale = true
+    }
+  }, [path])
+
+  // Auto-follow for workspace run logs (ADR-0056 附：运行可观测性): while the
+  // run appends, the tab re-reads on a cadence; thirty seconds of stillness
+  // stops the watch — reopening the tab resumes it. Polls that fail (the run
+  // was cleared mid-watch) are swallowed; the initial load already showed it.
+  useEffect(() => {
+    if (!isRunLogPath(path)) return undefined
+    let cancelled = false
+    let quiet = 0
+    let lastText: string | null = null
+    const timer = setInterval(() => {
+      const pre = preRef.current
+      const stick = pre !== null && pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4
+      const prevTop = pre?.scrollTop ?? 0
+      void latest.current(path).then((loaded) => {
+        if (cancelled || loaded.kind !== 'text') return
+        if (loaded.content === lastText) {
+          quiet += 1
+          if (quiet >= WATCH_QUIET_ROUNDS) clearInterval(timer)
+          return
+        }
+        quiet = 0
+        lastText = loaded.content
+        setView(loaded)
+        setError(null)
+        requestAnimationFrame(() => {
+          const node = preRef.current
+          if (node === null) return
+          node.scrollTop = stick ? node.scrollHeight : prevTop
+        })
+      }, () => undefined)
+    }, WATCH_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
     }
   }, [path])
 
@@ -218,7 +265,7 @@ export function ReadOnlyFile({ path, readView, t }: ReadOnlyFileProps): ReactEle
             )}
         </div>
       )}
-      {view?.kind === 'text' && <pre style={preStyle} data-readonly="true">{view.content}</pre>}
+      {view?.kind === 'text' && <pre ref={preRef} style={preStyle} data-readonly="true">{view.content}</pre>}
     </div>
   )
 }

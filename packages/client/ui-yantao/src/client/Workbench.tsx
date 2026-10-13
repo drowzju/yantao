@@ -33,7 +33,7 @@ import { WorkspacePanel } from './WorkspacePanel.tsx'
 import { createMailRun, useMailRun, type MailRunStore } from './mail-run.ts'
 import type { KbCreatableEntityType } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { remoteMessage } from './remote.ts'
-import type { TabMode } from './tabs.ts'
+import { type TabMode, WORKSPACE_RUN_LOG_DIR } from './tabs.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 import { ghostButtonStyle, raisedButtonStyle, tabItemActiveStyle, tabItemStyle } from './buttons.ts'
 import { NewEntityRow } from './NewEntityRow.tsx'
@@ -1457,6 +1457,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
             stop={workspaceRunStop}
             listRuns={workspaceRunsList}
             clearRuns={workspaceRunsClear}
+            onOpenLog={(runId) => { onOpenFile(`${WORKSPACE_RUN_LOG_DIR}/${runId}.log`, 'read') }}
           />
         )}
         {tab === 'resources' && (

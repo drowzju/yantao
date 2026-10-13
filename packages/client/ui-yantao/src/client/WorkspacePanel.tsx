@@ -26,6 +26,7 @@ import type {
 import { remoteMessage, type WorkspaceLister, type WorkspaceRunner, type WorkspaceRunsClearer, type WorkspaceRunsLister, type WorkspaceRunStopper, type WorkspaceSaver } from './remote.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 import { ghostButtonStyle, primaryButtonStyle, toolButtonStyle } from './buttons.ts'
+import { formatStamp } from './stamp.ts'
 
 /** What the panel needs: the five workspace RPCs, already bound to the context. */
 export interface WorkspacePanelProps {
@@ -43,6 +44,8 @@ export interface WorkspacePanelProps {
   readonly listRuns: WorkspaceRunsLister
   /** Clear the run history's finalized rows. */
   readonly clearRuns: WorkspaceRunsClearer
+  /** Open one run's distilled process log as a read-only centre tab. */
+  readonly onOpenLog: (runId: string) => void
 }
 
 /** A client-minted store id — same recipe as the kb store's (`<prefix>_<base36 ms>_<random>`). */
@@ -86,13 +89,10 @@ function rangeEndStamp(startIso: string, endIso: string): string {
   return sameDay ? end.toLocaleTimeString() : end.toLocaleString()
 }
 
-/** The 最近 column's compact stamp (`10/12 13:00`): 全量 toLocaleString 在
-    窄栏里把名称列挤到硬折行；完整时间留在单元格的 title 里。 */
+/** The 最近 column's compact stamp: the shared `formatStamp`（P3-1 收敛，
+    2026-10-12——全工作台一个口径 `M-D HH:mm`）; invalid ISO passes through. */
 function stampShort(iso: string): string {
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return iso
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  return Number.isNaN(new Date(iso).getTime()) ? iso : formatStamp(iso)
 }
 
 const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-2)', padding: 'var(--yt-space-1) var(--yt-space-2)' } as const
@@ -316,7 +316,7 @@ function InstructionForm(props: {
  * @param props - see {@link WorkspacePanelProps}.
  * @returns the panel element.
  */
-export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns }: WorkspacePanelProps): ReactElement {
+export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, onOpenLog }: WorkspacePanelProps): ReactElement {
   // Every seam is a fresh closure on each render (inject face), so the loads
   // and writes read them through a ref — the same discipline MemoryPanel uses.
   const latest = useRef({ list, save, run, stop, listRuns, clearRuns })
@@ -731,6 +731,13 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns }
                   {t('workspace.stop')}
                 </button>
               )}
+              {/* The distilled process log — every triggered run keeps one;
+                  a run still live is auto-followed by the log tab itself. */}
+              <button data-hover="true" type="button" style={ghostButtonStyle}
+                data-workspace-run-view={entry.id}
+                onClick={() => { onOpenLog(entry.id) }}>
+                {t('workspace.viewLog')}
+              </button>
             </div>
             {entry.failedStep !== undefined && (
               <div style={errorStyle}>{t('workspace.failStep', { n: entry.failedStep + 1 })}</div>

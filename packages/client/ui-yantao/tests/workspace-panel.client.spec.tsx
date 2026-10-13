@@ -63,6 +63,7 @@ function props(overrides: Partial<WorkspacePanelProps> = {}): WorkspacePanelProp
     stop: vi.fn(async () => ({ runs: RUNS.runs })),
     listRuns: vi.fn(async () => RUNS),
     clearRuns: vi.fn(async (): Promise<KbWorkspaceRunsClearResult> => ({ cleared: 2, runs: [RUNS.runs[0]] })),
+    onOpenLog: vi.fn(),
     ...overrides,
   }
 }
@@ -152,6 +153,18 @@ describe('WorkspacePanel', () => {
     })
     expect(panel.stop).toHaveBeenCalledWith('run_live')
     expect(await screen.findByText('已请求停止。')).toBeTruthy()
+  })
+
+  it('offers 查看 on every history row and opens the run log through the callback', async () => {
+    const panel = props()
+    const { container } = render(<WorkspacePanel {...panel} />)
+    await screen.findByText('报告目录')
+    // Every run row — settled or live — carries the view gesture.
+    expect(container.querySelectorAll('[data-workspace-run-view]')).toHaveLength(3)
+    await act(async () => {
+      fireEvent.click(container.querySelector('[data-workspace-run-view="run_old"]') as Element)
+    })
+    expect(panel.onOpenLog).toHaveBeenCalledWith('run_old')
   })
 
   it('arms the instruction delete: the first click arms, the second deletes', async () => {

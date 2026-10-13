@@ -74,6 +74,19 @@ export interface WorkspaceRunsFile {
 /** Where the store lives, relative to the KB root. */
 export const WORKSPACE_RUNS_DISPLAY_PATH = '.dsh/yantao/workspace-runs.json'
 
+/**
+ * Where one run's distilled process log lives, relative to the KB root:
+ * `<dir>/<runId>.log`. The KB's `sessions/` is the archive zone (「流水」区
+ * 只追加) — a run's distilled process log belongs beside the archived
+ * sessions, browsable in the resource tree and openable in any editor.
+ */
+export const WORKSPACE_RUN_LOG_DIR = 'sessions/workspace'
+
+/** Absolute path of one run's log file. */
+export function runLogPath(kbRoot: string, runId: string): string {
+  return join(kbRoot, 'sessions', 'workspace', `${runId}.log`)
+}
+
 /** The ring budget (ADR-0056 决定 6): past this, the oldest finalized rows fall off. */
 export const RUN_HISTORY_CAP = 100
 

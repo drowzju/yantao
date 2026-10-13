@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ChildProcess, SpawnOptions } from 'node:child_process'
@@ -316,6 +316,79 @@ describe('yantaoKb.workspaceRun', () => {
     await until('run settles failed', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'failed')
     const [run] = await readWorkspaceRuns(kbRoot)
     expect(run?.steps[0]?.error).toContain('JSON')
+  })
+
+  it('distills the run process into sessions/workspace/<runId>.log (header, prose, tool trail, verdict)', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const fake = fakeSpawn(({ child }) => {
+      answerWith(child, JSON.stringify([
+        { type: 'system', subtype: 'init', session_id: 'sessLOG' },
+        { type: 'file-history-snapshot' },
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: '回显的提示词' }] },
+        { type: 'message', role: 'assistant', content: [
+          { type: 'output_text', text: '我先看看目录结构。' },
+          { type: 'tool_use', name: 'read_file', input: { path: 'notes/a.md' } },
+        ] },
+        { type: 'message', role: 'user', content: [{ type: 'tool_result', content: '文件内容共 3 行' }] },
+        { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '看完了，结论如下。' }] },
+        { type: 'result', subtype: 'success', is_error: false, result: '看完了，结论如下。', session_id: 'sessLOG' },
+      ]))
+    })
+    ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+
+    await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+    await until('run settles success', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
+    const [run] = await readWorkspaceRuns(kbRoot)
+    const logPath = join(kbRoot, 'sessions', 'workspace', `${run?.id}.log`)
+    await until('log carries the verdict', async () => (await readFile(logPath, 'utf8').catch(() => '')).includes('✔ 完成'))
+    const log = await readFile(logPath, 'utf8')
+    expect(log).toContain('工作区「试验场」· 指令「打招呼」· 手动')
+    expect(log).toContain('第 1 步')
+    expect(log).toContain('我先看看目录结构。') // agent prose, verbatim
+    expect(log).toContain('→ 工具 read_file：{"path":"notes/a.md"}')
+    expect(log).toContain('← 文件内容共 3 行') // tool result line
+    expect(log).toContain('看完了，结论如下。')
+    expect(log).toContain('✔ 完成')
+    expect(log).not.toContain('回显的提示词') // prompt echo stays in the run row
+    expect(log).not.toContain('file-history-snapshot') // machinery noise skipped
+  })
+
+  it('logs a failed chain with the stderr trail and the verdict line', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const fake = fakeSpawn(({ child }) => {
+      queueMicrotask(() => {
+        child.stderr.emit('data', Buffer.from('boom\n'))
+        child.emit('close', 1)
+      })
+    })
+    ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+
+    await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+    await until('run settles failed', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'failed')
+    const [run] = await readWorkspaceRuns(kbRoot)
+    const logPath = join(kbRoot, 'sessions', 'workspace', `${run?.id}.log`)
+    await until('log carries the failure', async () => (await readFile(logPath, 'utf8').catch(() => '')).includes('✘'))
+    const log = await readFile(logPath, 'utf8')
+    expect(log).toContain('! boom')
+    expect(log).toContain('✘ 第 1 步失败：退出码 1：boom')
+  })
+
+  it('prunes orphaned run logs on the next trigger, keeping the living ones', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const fake = fakeSpawn(({ child }) => { succeedWith(child, '第一轮') })
+    ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+    await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+    await until('first run settles', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
+    const [kept] = await readWorkspaceRuns(kbRoot)
+    const logDir = join(kbRoot, 'sessions', 'workspace')
+    await writeFile(join(logDir, 'run_orphan.log'), '孤儿', 'utf8')
+
+    const fake2 = fakeSpawn(({ child }) => { succeedWith(child, '第二轮') })
+    ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake2.impl as never
+    await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+    await until('second run settles', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
+    await until('orphan swept', async () => !(await readdir(logDir)).includes('run_orphan.log'))
+    expect((await readdir(logDir)).filter(name => name === `${kept?.id}.log`)).toHaveLength(1)
   })
 
   it('stops a running chain: kill observed, row marked stopped', async () => {

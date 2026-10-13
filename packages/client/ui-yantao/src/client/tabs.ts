@@ -6,6 +6,15 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/tabs
  */
 
+/**
+ * KB-relative directory holding one distilled log per workspace run.
+ * Mirrored from the controller's `types.ts` on purpose: the client bundle
+ * purity gate forbids value imports from controllers (type-only imports are
+ * erased; constants are not), so the literal lives here too — the tabs spec
+ * pins the two copies equal.
+ */
+export const WORKSPACE_RUN_LOG_DIR = 'sessions/workspace'
+
 /** How a tab presents a file: `read` is the read-only resource view. */
 export type TabMode = 'edit' | 'read'
 
@@ -29,6 +38,16 @@ export const TASKS_TAB = 'tasks'
 /** Tab key of the permanent 洞察 tab (ADR-0050; ADR-0057 merged 图谱 into it)
     — never closeable, never persisted. */
 export const INSIGHTS_TAB = 'insights'
+
+/**
+ * Whether a path is a workspace run log — those tabs auto-follow while the
+ * run is still appending (the file grows; polling stops when it settles).
+ * @param path - KB-relative path.
+ * @returns true when the file deserves the watch treatment.
+ */
+export function isRunLogPath(path: string): boolean {
+  return path.startsWith(`${WORKSPACE_RUN_LOG_DIR}/`) && path.endsWith('.log')
+}
 
 /** The centre pane's tab state. */
 export interface TabState {
