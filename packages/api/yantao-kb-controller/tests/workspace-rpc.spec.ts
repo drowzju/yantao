@@ -106,10 +106,10 @@ function fakeSpawn(script: (call: RecordedSpawn) => void): {
   return { calls, impl }
 }
 
-/** Emit one single-result JSON answer, then close cleanly. */
+/** Emit one single-result JSON answer line, then close cleanly. */
 function succeedWith(child: FakeChild, result: string, sessionId?: string): void {
   queueMicrotask(() => {
-    child.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', result, ...(sessionId !== undefined ? { session_id: sessionId } : {}) })))
+    child.stdout.emit('data', Buffer.from(`${JSON.stringify({ type: 'result', result, ...(sessionId !== undefined ? { session_id: sessionId } : {}) })}\n`))
     child.emit('close', 0)
   })
 }
@@ -202,29 +202,27 @@ describe('yantaoKb.workspaceRun', () => {
 
     const call = fake.calls[0]
     expect(call?.command).toBe('codebuddy')
-    expect(call?.args).toEqual(['-p', '-y', '--output-format', 'json'])
+    expect(call?.args).toEqual(['-p', '-y', '--output-format', 'stream-json'])
     expect(call?.options?.cwd).toBe(kbRoot)
     expect(call?.child.promptReceived).toBe('向目录里的代码打个招呼')
   })
 
-  it('parses the event-array output shape (real `--output-format json` contract, 2026-10-10)', async () => {
+  it('parses the stream-json line protocol (real contract, probed 2026-10-13)', async () => {
     await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
     const fake = fakeSpawn(({ child }) => {
-      answerWith(child, JSON.stringify([
-        { type: 'message', role: 'user', content: [{ type: 'input_text', text: '…' }] },
-        { type: 'file-history-snapshot' },
-        { type: 'reasoning' },
-        { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '数组答' }] },
-        { type: 'result', subtype: 'success', is_error: false, result: '数组答', session_id: 'sessARR' },
-      ]))
+      answerWith(child, [
+        JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sessSTR' }),
+        JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: '流式答' }] } }),
+        JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: '流式答', session_id: 'sessSTR' }),
+      ].join('\n') + '\n')
     })
     ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
 
     await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
-    await until('array run settles success', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
+    await until('stream run settles success', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
     const [run] = await readWorkspaceRuns(kbRoot)
-    expect(run?.finalResult).toBe('数组答')
-    expect(run?.steps[0]).toMatchObject({ exitCode: 0, sessionId: 'sessARR', resultExcerpt: '数组答' })
+    expect(run?.finalResult).toBe('流式答')
+    expect(run?.steps[0]).toMatchObject({ exitCode: 0, sessionId: 'sessSTR', resultExcerpt: '流式答' })
   })
 
   it('strips session-scoped env vars from the spawned environment (SERVER__PORT wedge, 2026-10-10)', async () => {
@@ -271,8 +269,8 @@ describe('yantaoKb.workspaceRun', () => {
     await until('chain settles success', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
 
     expect(fake.calls).toHaveLength(2)
-    expect(fake.calls[0]?.args).toEqual(['-p', '-y', '--output-format', 'json', '--model', 'glm-5.1'])
-    expect(fake.calls[1]?.args).toEqual(['-p', '-y', '--output-format', 'json', '--model', 'glm-5.1', '--resume', 'sessAAA'])
+    expect(fake.calls[0]?.args).toEqual(['-p', '-y', '--output-format', 'stream-json', '--model', 'glm-5.1'])
+    expect(fake.calls[1]?.args).toEqual(['-p', '-y', '--output-format', 'stream-json', '--model', 'glm-5.1', '--resume', 'sessAAA'])
     const [run] = await readWorkspaceRuns(kbRoot)
     expect(run?.finalResult).toBe('第二答')
     expect(run?.steps[0]).toMatchObject({ sessionId: 'sessAAA', resultExcerpt: '第一答' })
@@ -302,7 +300,7 @@ describe('yantaoKb.workspaceRun', () => {
     expect(fake.calls).toHaveLength(1) // 第二步不动（断链）
   })
 
-  it('fails a step whose stdout is not the single-result JSON', async () => {
+  it('fails a step whose stdout is not the result-line protocol', async () => {
     await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
     const fake = fakeSpawn(({ child }) => {
       queueMicrotask(() => {
@@ -321,18 +319,30 @@ describe('yantaoKb.workspaceRun', () => {
   it('distills the run process into sessions/workspace/<runId>.log (header, prose, tool trail, verdict)', async () => {
     await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
     const fake = fakeSpawn(({ child }) => {
-      answerWith(child, JSON.stringify([
-        { type: 'system', subtype: 'init', session_id: 'sessLOG' },
-        { type: 'file-history-snapshot' },
-        { type: 'message', role: 'user', content: [{ type: 'input_text', text: '回显的提示词' }] },
-        { type: 'message', role: 'assistant', content: [
-          { type: 'output_text', text: '我先看看目录结构。' },
-          { type: 'tool_use', name: 'read_file', input: { path: 'notes/a.md' } },
-        ] },
-        { type: 'message', role: 'user', content: [{ type: 'tool_result', content: '文件内容共 3 行' }] },
-        { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '看完了，结论如下。' }] },
-        { type: 'result', subtype: 'success', is_error: false, result: '看完了，结论如下。', session_id: 'sessLOG' },
-      ]))
+      // Real stream-json contract (probed 2026-10-13): one NDJSON event per
+      // line, Claude dialect (message.content), thinking/init noise included.
+      answerWith(child, [
+        JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sessLOG' }),
+        JSON.stringify({
+          type: 'assistant',
+          message: { content: [
+            { type: 'thinking', thinking: '想想' },
+            { type: 'text', text: '我先看看目录结构。' },
+            { type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'notes/a.md' } },
+          ] },
+        }),
+        JSON.stringify({
+          type: 'user',
+          message: { content: [{
+            type: 'tool_result',
+            tool_use_id: 't1',
+            content: [{ type: 'text', text: '文件内容共 3 行' }],
+          }] },
+        }),
+        JSON.stringify({ type: 'user', message: { content: [{ type: 'input_text', text: '回显的提示词' }] } }),
+        JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: '看完了，结论如下。' }] } }),
+        JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: '看完了，结论如下。', session_id: 'sessLOG' }),
+      ].join('\n') + '\n')
     })
     ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
 
@@ -350,7 +360,8 @@ describe('yantaoKb.workspaceRun', () => {
     expect(log).toContain('看完了，结论如下。')
     expect(log).toContain('✔ 完成')
     expect(log).not.toContain('回显的提示词') // prompt echo stays in the run row
-    expect(log).not.toContain('file-history-snapshot') // machinery noise skipped
+    expect(log).not.toContain('想想') // thinking noise skipped
+    expect(log).not.toContain('sessLOG') // init banner and result envelope skipped
   })
 
   it('logs a failed chain with the stderr trail and the verdict line', async () => {
@@ -387,6 +398,11 @@ describe('yantaoKb.workspaceRun', () => {
     ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake2.impl as never
     await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
     await until('second run settles', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
+    const second = (await readWorkspaceRuns(kbRoot)).find(run => run.id !== kept?.id)
+    // 「✔ 完成」是成功路径上 writer 的最后一句（runtime 串行队列）：它在文件里，
+    // 就证明 fire-and-forget 写队列已排干，afterEach 的 rmdir 不会撞上在途 append。
+    await until('second log carries the verdict', async () =>
+      (await readFile(join(logDir, `${second?.id}.log`), 'utf8').catch(() => '')).includes('✔ 完成'))
     await until('orphan swept', async () => !(await readdir(logDir)).includes('run_orphan.log'))
     expect((await readdir(logDir)).filter(name => name === `${kept?.id}.log`)).toHaveLength(1)
   })

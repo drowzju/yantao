@@ -266,7 +266,7 @@ export class WorkspaceRuntime {
     live: LiveRun,
     log: RunLogWriter,
   ): Promise<StepOutcome> {
-    const args = ['-p', '-y', '--output-format', 'json']
+    const args = ['-p', '-y', '--output-format', 'stream-json']
     if (space.model !== undefined) args.push('--model', space.model)
     if (resumeSessionId !== undefined) args.push('--resume', resumeSessionId)
     const child = this.spawnImpl('codebuddy', args, {
@@ -280,11 +280,12 @@ export class WorkspaceRuntime {
     })
 
     return new Promise<StepOutcome>((resolveStep) => {
-      // Stdout streams through the incremental extractor (output-parse.ts):
-      // no buffering cap, no whole-stream JSON.parse — the 2026-10-12 事故
-      // (a 2h10m session's event array blowing past the old 1 MiB cap and
-      // then failing the parse) is structurally impossible now. Every parsed
-      // event is distilled into the run log on the way past.
+      // Stdout streams through the line-wise extractor (output-parse.ts):
+      // `stream-json` delivers events LIVE while the agent works (the
+      // buffered `json` format prints its whole array only at exit — the run
+      // log sat empty mid-run, and the 2026-10-12 事故 of a 2h10m session
+      // blowing past the old 1 MiB cap was that format's child). Every
+      // parsed event is distilled into the run log on the way past.
       const parser = new CodebuddyOutputParser({ onEvent: (event) => { log.event(event) } })
       const stderrChunks: Buffer[] = []
       let stderrBytes = 0
@@ -343,8 +344,8 @@ export class WorkspaceRuntime {
           })
           return
         }
-        // The extractor settled the stream: the result event (array tail or
-        // legacy single object) or the precise reason there is none.
+        // The extractor settled the stream: the result line, or the precise
+        // reason there is none.
         const output = parser.finish()
         if (!output.ok) {
           settle({ exitCode: code, error: output.error })

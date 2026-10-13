@@ -136,7 +136,8 @@ function clip(text: string, max: number): string {
 
 /**
  * Distill one parsed stdout event into log text ('' to skip). The event
- * shapes follow the observed `--output-format json` contract; anything else
+ * shapes follow the observed `--output-format stream-json` contract (Claude
+ * dialect: assistant/user events carry `message.content`); anything else
  * degrades to a one-line JSON summary rather than throwing.
  */
 function summarizeEvent(event: unknown): string {
