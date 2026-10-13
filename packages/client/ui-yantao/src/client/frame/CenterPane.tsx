@@ -171,6 +171,10 @@ export function CenterPane({
           type="button"
           style={tabFace(conversationActive)}
           data-hover="tab"
+          /* data-selected 是激活页签的 hover 豁免凭证（2026-10-12 截图评审）：
+             没有它，悬停激活页签被通用规则涂成中性灰——左栏激活页签悬停
+             保持 accent，中栏闪灰，「一会蓝一会黑」的分裂感即来源于此。 */
+          data-selected={conversationActive ? '' : undefined}
           data-center-tab={CONVERSATION_TAB}
           onClick={() => { onActivate(CONVERSATION_TAB) }}
         >
@@ -180,6 +184,7 @@ export function CenterPane({
           type="button"
           style={tabFace(tasksActive)}
           data-hover="tab"
+          data-selected={tasksActive ? '' : undefined}
           data-center-tab={TASKS_TAB}
           onClick={() => { onActivate(TASKS_TAB) }}
         >
@@ -207,6 +212,7 @@ export function CenterPane({
           type="button"
           style={tabFace(insightsActive)}
           data-hover="tab"
+          data-selected={insightsActive ? '' : undefined}
           data-center-tab={INSIGHTS_TAB}
           onClick={() => { onActivate(INSIGHTS_TAB) }}
         >
@@ -227,6 +233,7 @@ export function CenterPane({
                 title={tab.path}
                 data-tab-button={tab.path}
                 data-hover="tab"
+                data-selected={tabs.active === tab.path ? '' : undefined}
                 onClick={() => { onActivate(tab.path) }}
               >
                 {tab.title}

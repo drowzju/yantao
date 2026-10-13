@@ -224,6 +224,7 @@ export const zh = {
 
   // Workspace (ADR-0056) — the 工作区 tab: directory-bound agent orchestration.
   'workspace.description': '工作空间：绑定一个目录与 agent（当前为 codebuddy），指令到点或手动在该目录下拉起 agent 干活。这里可以新建、编辑、删除与立即运行。',
+  'workspace.descriptionToggle': '什么是工作空间',
   'workspace.loading': '载入中…',
   'workspace.empty': '还没有工作空间。',
   'workspace.addSpace': '新建空间',
@@ -669,6 +670,7 @@ export const en = {
 
   // Workspace (ADR-0056)
   'workspace.description': 'Workspaces bind a directory and an agent (currently codebuddy); instructions fire on a schedule or on demand, running the agent in that directory. Create, edit, delete and run them here.',
+  'workspace.descriptionToggle': 'What workspaces are',
   'workspace.loading': 'Loading…',
   'workspace.empty': 'No workspaces yet.',
   'workspace.addSpace': 'New workspace',

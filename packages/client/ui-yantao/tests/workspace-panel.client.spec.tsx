@@ -72,7 +72,11 @@ describe('WorkspacePanel', () => {
     const { container } = render(<WorkspacePanel {...props()} />)
     await screen.findByText('报告目录')
     expect(container.querySelector('[data-workspace-space="wsp_a_1"]')).not.toBeNull()
-    expect(container.querySelector('[data-workspace-instruction="ins_a_1"]')?.textContent).toContain('定时：0 9 * * 1-5')
+    // 触发列只答「怎么触发」；cron 表达式收在单元格的 title 里
+    // （2026-10-12 截图评审：裸 cron 把名称列挤到硬折行）。
+    const triggerCell = container.querySelector('[data-workspace-instruction="ins_a_1"] td[title]')
+    expect(triggerCell?.textContent).toBe('定时')
+    expect(triggerCell?.getAttribute('title')).toBe('0 9 * * 1-5')
     expect(container.querySelector('[data-workspace-instruction="ins_a_1"]')?.textContent).toContain('2 步')
     expect(container.querySelector('[data-workspace-instruction="ins_b_1"]')?.textContent).toContain('已停用')
     expect(container.querySelector('[data-workspace-instruction="ins_b_1"]')?.textContent).toContain('手动')

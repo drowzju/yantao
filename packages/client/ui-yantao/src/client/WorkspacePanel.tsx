@@ -17,13 +17,15 @@
  * cron instruction instantly "miss" a window that passed before it existed.
  * @module @deepseek-ai/dsh-client-ui-yantao/WorkspacePanel
  */
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   KbWorkspace, KbWorkspaceInstruction, KbWorkspaceRun,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { remoteMessage, type WorkspaceLister, type WorkspaceRunner, type WorkspaceRunsClearer, type WorkspaceRunsLister, type WorkspaceRunStopper, type WorkspaceSaver } from './remote.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
-import { ghostButtonStyle, primaryButtonStyle } from './buttons.ts'
+import { ghostButtonStyle, primaryButtonStyle, toolButtonStyle } from './buttons.ts'
 
 /** What the panel needs: the five workspace RPCs, already bound to the context. */
 export interface WorkspacePanelProps {
@@ -69,6 +71,28 @@ function stamp(iso: string | undefined): string {
   if (iso === undefined) return '—'
   const date = new Date(iso)
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString()
+}
+
+/** The run-history range's end stamp: time-only when it lands on the
+    start's own day — `2026/10/12 13:00:30 → 2026/10/12 13:00:49` 把同一天
+    说两遍，日期部分纯属噪音（2026-10-12 截图评审）。 */
+function rangeEndStamp(startIso: string, endIso: string): string {
+  const start = new Date(startIso)
+  const end = new Date(endIso)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return stamp(endIso)
+  const sameDay = start.getFullYear() === end.getFullYear()
+    && start.getMonth() === end.getMonth()
+    && start.getDate() === end.getDate()
+  return sameDay ? end.toLocaleTimeString() : end.toLocaleString()
+}
+
+/** The 最近 column's compact stamp (`10/12 13:00`): 全量 toLocaleString 在
+    窄栏里把名称列挤到硬折行；完整时间留在单元格的 title 里。 */
+function stampShort(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-2)', padding: 'var(--yt-space-1) var(--yt-space-2)' } as const
@@ -172,8 +196,11 @@ const runRowStyle = {
 
 const runHeadStyle = { display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'baseline', flexWrap: 'wrap' } as const
 
+/** The run result's markdown wrapper: agent 输出按 markdown 渲染（2026-10-12
+    截图评审：此前 ** 与 | 表格语法裸奔）。颜色随 wrapper 走次墨色，字阶由
+    MarkdownText 的 compact 面自带。 */
 const resultStyle = {
-  color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+  color: 'var(--yt-text-secondary)', minWidth: 0,
 } as const
 const collapsedResultStyle = { ...resultStyle, maxHeight: 120, overflow: 'hidden' } as const
 
@@ -188,9 +215,15 @@ const RESULT_COLLAPSE_CHARS = 300
 function RunResult(props: { readonly t: WorkbenchT; readonly text: string }): ReactElement {
   const [expanded, setExpanded] = useState(false)
   const collapsible = props.text.length > RESULT_COLLAPSE_CHARS
+  const labels = useMemo((): MarkdownLabels => ({
+    code: { copyLabel: props.t('md.copy'), copiedLabel: props.t('md.copied') },
+    footnotes: props.t('md.footnotes'),
+  }), [props.t])
   return (
     <>
-      <div style={collapsible && !expanded ? collapsedResultStyle : resultStyle}>{props.text}</div>
+      <div style={collapsible && !expanded ? collapsedResultStyle : resultStyle}>
+        <MarkdownText text={props.text} labels={labels} variant="compact" />
+      </div>
       {collapsible && (
         <button data-hover="true" type="button" style={ghostButtonStyle}
           onClick={() => { setExpanded(value => !value) }}>
@@ -306,6 +339,9 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns }
   } | null>(null)
   const [armedDelete, setArmedDelete] = useState<string | null>(null)
   const [armedClear, setArmedClear] = useState(false)
+  // 顶部说明默认收起（2026-10-12 截图评审：四行说明每个会话都占着首屏，
+  // 老用户早已读过）；展开态会话内保持，与资源树/归档组的折叠惯例一致。
+  const [aboutOpen, setAboutOpen] = useState(false)
 
   const reload = useCallback(async (): Promise<void> => {
     try {
@@ -476,7 +512,15 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns }
 
   return (
     <div style={wrapStyle} data-workspace-panel="true">
-      <div style={mutedStyle}>{t('workspace.description')}</div>
+      <div>
+        <button data-hover="true" type="button" style={toolButtonStyle}
+          aria-expanded={aboutOpen}
+          data-workspace-about="true"
+          onClick={() => { setAboutOpen(open => !open) }}>
+          {aboutOpen ? '▾' : '▸'} {t('workspace.descriptionToggle')}
+        </button>
+        {aboutOpen && <div style={mutedStyle}>{t('workspace.description')}</div>}
+      </div>
       {(spaceDraft !== null || instructionDraft !== null) ? null : (
         <button data-hover="true" type="button" style={addOpenStyle} disabled={busy}
           title={t('workspace.addSpace')}
@@ -559,16 +603,22 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns }
                       {instruction.name}
                       {!instruction.enabled && <span style={mutedStyle}> · {t('workspace.disabledTag')}</span>}
                     </td>
-                    <td style={tdMetaStyle}>
+                    <td style={tdMetaStyle} title={instruction.cron}>
+                      {/* cron 表达式收进 tooltip（2026-10-12 截图评审）：原始
+                          五段式把窄栏的名称列挤到硬折行；单元格只答「怎么触发」。 */}
                       {instruction.cron === undefined
                         ? t('workspace.triggerManual')
-                        : `${t('workspace.triggerCron')}：${instruction.cron}`}
+                        : t('workspace.triggerCron')}
                     </td>
                     <td style={tdMetaStyle}>{t('workspace.stepsCount', { count: instruction.steps.length })}</td>
-                    <td style={tdMetaStyle}>
-                      {instruction.lastFiredAt !== undefined && `${t('workspace.lastFired')} ${stamp(instruction.lastFiredAt)}`}
+                    <td style={tdMetaStyle}
+                      title={[
+                        instruction.lastFiredAt !== undefined ? `${t('workspace.lastFired')} ${stamp(instruction.lastFiredAt)}` : '',
+                        instruction.lastMissedAt !== undefined ? `${t('workspace.lastMissed')} ${stamp(instruction.lastMissedAt)}` : '',
+                      ].filter(entry => entry !== '').join('\n') || undefined}>
+                      {instruction.lastFiredAt !== undefined && stampShort(instruction.lastFiredAt)}
                       {instruction.lastFiredAt !== undefined && instruction.lastMissedAt !== undefined && ' · '}
-                      {instruction.lastMissedAt !== undefined && `${t('workspace.lastMissed')} ${stamp(instruction.lastMissedAt)}`}
+                      {instruction.lastMissedAt !== undefined && `${t('workspace.lastMissed')} ${stampShort(instruction.lastMissedAt)}`}
                       {instruction.lastFiredAt === undefined && instruction.lastMissedAt === undefined && '—'}
                     </td>
                     <td style={tdActionsStyle}>
@@ -672,7 +722,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns }
                 {entry.trigger === 'cron' ? t('workspace.triggerCron') : t('workspace.triggerManual')}
                 {' · '}{t(STATUS_KEYS[entry.status])}
                 {' · '}{stamp(entry.startedAt)}
-                {entry.finishedAt !== undefined && ` → ${stamp(entry.finishedAt)}`}
+                {entry.finishedAt !== undefined && ` → ${rangeEndStamp(entry.startedAt, entry.finishedAt)}`}
               </span>
               {live && (
                 <button data-hover="true" type="button" style={buttonStyle} disabled={busy}

@@ -144,11 +144,13 @@ const FONT = 'var(--yt-font-ui)'
 
 /** The expanded rail: it fills the column the frame hands it. A flex column —
     the tab strip stays pinned while only the content beneath it scrolls
-    (2026-10-09: the whole rail used to scroll, sweeping the tabs away). */
+    (2026-10-09: the whole rail used to scroll, sweeping the tabs away).
+    顶内边距与中栏页签条一致（space-1，2026-10-12 截图评审）：三栏页签
+    同高同顶，不再左右低一截。 */
 const railStyle = {
   width: '100%',
   height: '100%',
-  padding: 'var(--yt-space-3)',
+  padding: 'var(--yt-space-1) var(--yt-space-3) var(--yt-space-3)',
   boxSizing: 'border-box',
   display: 'flex',
   flexDirection: 'column',
@@ -164,7 +166,7 @@ const railScrollStyle = { flex: 1, minHeight: 0, overflowY: 'auto' } as const
 const compactStyle = {
   width: '100%',
   height: '100%',
-  paddingTop: 'var(--yt-space-3)',
+  paddingTop: 'var(--yt-space-1)',
   boxSizing: 'border-box',
   display: 'flex',
   flexDirection: 'column',
@@ -195,6 +197,11 @@ const rowStyle = {
   borderRadius: 4,
   background: 'transparent',
   cursor: 'pointer',
+  // 行一律单行省略（2026-10-12 截图评审）：长文件名三折行把资源树撑得
+  // 无法扫读；完整路径一直在行的 title 里。
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
 } as const
 
 const selectedRowStyle = { ...rowStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } as const
@@ -257,6 +264,7 @@ function FileRow({
   onSelect,
   onMenu,
   indent = 0,
+  leaf = false,
   drag,
   drop,
 }: {
@@ -267,6 +275,9 @@ function FileRow({
   onMenu?: ((file: KbTreeFile, x: number, y: number) => void) | undefined
   /** Indentation level inside the resource tree; 0 for flat sections. */
   indent?: number
+  /** 资源树的叶子标记（2026-10-12 截图评审）：目录行有 ▸/▾，文件行此前
+      一无所有，根层文件与目录混排只能靠猜。弱墨圆点与目录的三角成对。 */
+  leaf?: boolean
   /** Make the row a drag source — resource rows hand their KB path over (ADR-0029 决定 2). */
   drag?: ((file: KbTreeFile, event: React.DragEvent<HTMLButtonElement>) => void) | undefined
   /** Make the row a drop target — entity rows receive a resource drop (ADR-0029 决定 2). */
@@ -315,6 +326,7 @@ function FileRow({
     >
       {file.relation === undefined ? (
         <>
+          {leaf && <span aria-hidden="true" style={{ color: 'var(--yt-text-muted)' }}>• </span>}
           {file.name}
           {file.archived === true && <span style={{ color: 'var(--yt-text-muted)' }}>{t('workbench.archived')}</span>}
         </>
@@ -540,6 +552,7 @@ function ResourceTree({
           onMenu={onMenu}
           drag={drag}
           indent={depth}
+          leaf
         />,
       )
     }
@@ -1128,18 +1141,18 @@ export interface IntakeRailProps extends RailProps {
 
 /** The rail's error row: the load failure stays interactive — readable in
     place, with 重试 to reload (2026-10-09 评审 P2：此前是一个不可交互、正文
-    藏在 title 里的"！"). */
-function RailHeader({ error, onRetry, t }: { error: string | null; onRetry: () => void; t: WorkbenchT }): ReactElement {
+    藏在 title 里的"！"). 无错误时整行不渲染——此前的空壳 div 白吃 8px
+    外边距，栏头页签与中栏页签的顶边因此对不齐（2026-10-12 截图评审）。 */
+function RailHeader({ error, onRetry, t }: { error: string | null; onRetry: () => void; t: WorkbenchT }): ReactElement | null {
+  if (error === null) return null
   return (
     <div style={{ marginBottom: 'var(--yt-space-2)' }}>
-      {error !== null && (
-        <div style={errorStyle} role="alert" data-rail-error="true">
-          <span style={{ display: 'block', marginBottom: 'var(--yt-space-1)' }}>{error}</span>
-          <button type="button" style={ghostButtonStyle} data-hover="true" onClick={onRetry}>
-            {t('workbench.retry')}
-          </button>
-        </div>
-      )}
+      <div style={errorStyle} role="alert" data-rail-error="true">
+        <span style={{ display: 'block', marginBottom: 'var(--yt-space-1)' }}>{error}</span>
+        <button type="button" style={ghostButtonStyle} data-hover="true" onClick={onRetry}>
+          {t('workbench.retry')}
+        </button>
+      </div>
     </div>
   )
 }

@@ -91,7 +91,11 @@ export const tabItemStyle = {
   padding: 'var(--yt-space-1) var(--yt-space-2)',
   minHeight: 'var(--yt-control-min-h)',
   boxSizing: 'border-box',
-  border: '1px solid transparent',
+  // 拆开写而非 border 简写：激活面只改 borderColor，简写+单属性混用会
+  // 触发 React 的 shorthand 冲突警告（vitest stderr 实测）。
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'transparent',
   borderRadius: 4,
   background: 'transparent',
   fontFamily: 'inherit',
