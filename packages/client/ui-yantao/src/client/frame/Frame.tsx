@@ -15,7 +15,7 @@ import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
 import type {
   CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, CapabilityRouteUpdater,
   CapabilityUnregisterer,
-  DirectoryPicker, EntityArchiver, EntityCreator,
+  DirectoryPicker, EntityArchiver, EntityCreator, EntityResolver,
   ExternalOpener, FileReader, FileWriter, ImageBinaryLoader, LinksLoader,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
@@ -93,6 +93,8 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly archiveEntity: EntityArchiver
   /** Restore one archived entity (ADR-0041 决定 7) — the entity gestures' 「还原」. */
   readonly restoreEntity: EntityArchiver
+  /** Resolve one entity locator (`type:name` or path) to its KB-relative path — the proposal applier's normalization. */
+  readonly resolveEntity: EntityResolver
   /** Rewrite one person entity's relation — the 人物 row's 「关系」. */
   readonly setRelation: RelationSetter
   /** Create one entity and resolve its path. */
@@ -510,7 +512,8 @@ function DragHandle(props: {
  * @returns the frame element.
  */
 export function Frame({
-  t, renderSlot, panels, sidebarFiles, intake, workspace, read, readView, readImage, write, archiveEntity, restoreEntity, setRelation,
+  t, renderSlot, panels, sidebarFiles, intake, workspace, read, readView, readImage, write, archiveEntity, restoreEntity,
+  resolveEntity, setRelation,
   createEntity, root, setRoot,
   pickDirectory, links, revision, openExternal, todos, writeTodos, mailFetch, mailMarkRead, analyseMail, refine, validate,
   registerResource, deleteResource, capabilityList, capabilityCreate, capabilityAdopt,
@@ -701,13 +704,14 @@ export function Frame({
         ...options,
         target: {
           createEntity, read, write, todos, writeTodos, memoryAdd, archiveEntity, memoryDelete, deleteResource,
+          resolveEntity,
           ...(mailDelete !== undefined ? { deleteMails: mailDelete } : {}),
           ...(mailArchive !== undefined ? { archiveMails: mailArchive } : {}),
           ...(skillRewriteApply !== undefined ? { skillRewrite: skillRewriteApply } : {}),
         },
       }),
     [createEntity, read, write, todos, writeTodos, memoryAdd, archiveEntity, memoryDelete, deleteResource,
-      mailDelete, mailArchive, skillRewriteApply],
+      resolveEntity, mailDelete, mailArchive, skillRewriteApply],
   )
 
   // The one confirm path every proposal card shares (capability runs'
@@ -1837,6 +1841,7 @@ export function Frame({
           write={write}
           archiveEntity={railArchive}
           restoreEntity={railRestore}
+          resolveEntity={resolveEntity}
           setRelation={setRelation}
           workspace={workspace}
           mailFetch={bookedMailFetch}
@@ -2050,6 +2055,7 @@ export function Frame({
           write={write}
           archiveEntity={railArchive}
           restoreEntity={railRestore}
+          resolveEntity={resolveEntity}
           setRelation={setRelation}
           workspace={workspace}
           mailFetch={bookedMailFetch}

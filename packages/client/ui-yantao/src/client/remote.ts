@@ -48,6 +48,7 @@ import type {
   KbProposalInboxEnqueueArgs, KbProposalInboxEnqueueResult, KbProposalInboxListResult,
   KbProposalInboxResolveArgs, KbProposalInboxResolveResult,
   KbRelationGraphResult,
+  KbResolveEntityResult,
   KbResourceView,
   KbScheduleListResult, KbScheduleMarkArgs, KbScheduleMarkResult, KbScheduleSaveArgs, KbScheduleSaveResult,
   KbRegisterResourceArgs, KbRegisterResourceResult, KbResourceBinary, KbRevisionResult,
@@ -78,6 +79,8 @@ export interface KbRemote {
   archiveEntity(locator: string): Promise<RemoteResult<KbSetEntityArchivedResult>>
   /** Restore one archived entity (ADR-0041 决定 6) — the same mechanism, the other direction. */
   restoreEntity(locator: string): Promise<RemoteResult<KbSetEntityArchivedResult>>
+  /** Resolve one entity locator (`type:name` or path) to its KB-relative path — the proposal applier's normalization. */
+  resolveEntity(locator: string): Promise<RemoteResult<KbResolveEntityResult>>
   /**
    * Delete one resource file under `resources/` (ADR-0020) — the workbench's
    * right-click 「删除」. Entities stay undeletable (ADR-0041 决定 8); the host
@@ -212,6 +215,13 @@ export type FileWriter = (path: string, content: string) => Promise<void>
  * mechanism. Resolves the path and the flag now in effect.
  */
 export type EntityArchiver = (locator: string) => Promise<KbSetEntityArchivedResult>
+
+/**
+ * Resolve one entity locator (`type:name` or an entity file path) to its
+ * KB-relative path — the proposal applier's normalization step for an
+ * approved card's `entityPath` (2026-10-13 周报流水事故).
+ */
+export type EntityResolver = (locator: string) => Promise<string>
 
 /** Rewrite one person entity's relation; rejects with the Remote's own message. */
 export type RelationSetter = (path: string, relation: KbPersonRelation) => Promise<void>
@@ -547,6 +557,21 @@ export async function restoreEntity(ctx: Context, locator: string): Promise<KbSe
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.restoreEntity(locator))
+}
+
+/**
+ * Resolve one entity locator (`type:name` or an entity file path) to its
+ * KB-relative path — the proposal applier's normalization step: an approved
+ * card's `entityPath` may carry the locator form the nomination examples
+ * teach, and a literal read of `project:某项目` finds nothing.
+ * @param ctx - client root context.
+ * @param locator - the entity locator as written.
+ * @returns the KB-relative path of the entity file.
+ */
+export async function resolveEntity(ctx: Context, locator: string): Promise<string> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.resolveEntity(locator)).path
 }
 
 /**

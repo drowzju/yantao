@@ -80,7 +80,7 @@ import {
   discardMemoryProposal, fetchMail, fillComposerWithShortcut, listMemory, listMemoryProposals,
   loadCapabilities, loadIntake, loadLinks, loadPromptInjection, loadPromptShortcuts,
   loadRevision, loadRoot, loadTodos,
-  loadWorkspace, loadResourceView, markMailRead, openExternal, readFile, registerCapability, registerResource, restoreEntity,
+  loadWorkspace, loadResourceView, markMailRead, openExternal, readFile, registerCapability, registerResource, resolveEntity, restoreEntity,
   loadImageBinary,
   loadSchedules, markSchedule, savePromptShortcuts, saveSchedules, setKbRoot,
   enqueueInboxProposal, loadProposalInbox, loadRelationGraph, resolveInboxProposal,
@@ -294,6 +294,10 @@ export function apply(ctx: Context): void {
       // directions; the delete gesture belongs to resources alone (below).
       archiveEntity: (locator: string) => archiveEntity(ctx, locator),
       restoreEntity: (locator: string) => restoreEntity(ctx, locator),
+      // The proposal applier's locator normalization (2026-10-13 周报流水事故):
+      // an approved card's `entityPath` may be `project:某项目` — resolve it
+      // before the applier's literal read.
+      resolveEntity: (locator: string) => resolveEntity(ctx, locator),
       // ADR-0020: resources are dumb raw material — unlike entities they may
       // be deleted, through the workbench's right-click 「删除」.
       deleteResource: (path: string) => deleteResource(ctx, path),

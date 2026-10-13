@@ -28,6 +28,7 @@ import {
   type Archiver,
   type EntityArchiver,
   type EntityCreator,
+  type EntityResolver,
   type FileReader,
   type FileWriter,
   type MailDeleter,
@@ -87,6 +88,15 @@ export interface ProposalTarget {
   readonly memoryDelete?: MemoryDeleter
   /** Delete one resource file — likewise undo-only, hence optional. */
   readonly deleteResource?: ResourceDeleter
+  /**
+   * Resolve one entity locator (`type:name` or an entity file path) to its
+   * KB-relative path — optional: a caller without it keeps the literal-path
+   * behavior. The nomination examples teach the locator form, so without
+   * this seam an approved `project:某项目` row dies on a literal read
+   * (2026-10-13 周报流水事故) — the human channel wires it; the refine
+   * loop's target names real paths already and ships without it.
+   */
+  readonly resolveEntity?: EntityResolver
 }
 
 /** One reversible write's inverse: what it was, and how to take it back. */
@@ -580,6 +590,14 @@ export async function applyProposal(options: {
       if (entityPath === '') {
         skipped.push(`实体 ${action.entityName}：知识库里没有这个实体`)
         continue
+      }
+      // Locator normalization (2026-10-13 周报流水事故): the examples teach
+      // `project:某项目`, which a literal read cannot find — resolve it to
+      // the entity's real path first. A target without the seam (the refine
+      // loop) keeps the literal-path behavior; a locator that resolves to
+      // nothing fails the read below and is skipped, never guessed.
+      if (target.resolveEntity !== undefined) {
+        entityPath = await target.resolveEntity(entityPath)
       }
       const content = await target.read(entityPath)
       if (action.kind === 'append-log') {

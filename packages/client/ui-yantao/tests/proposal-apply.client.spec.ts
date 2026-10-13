@@ -142,6 +142,45 @@ describe('applyProposal', () => {
     expect(result.skipped).toEqual(['实体 不存在的项目：知识库里没有这个实体'])
   })
 
+  it('resolves a locator entityPath through the resolveEntity seam (2026-10-13 周报流水事故)', async () => {
+    const t = target({
+      resolveEntity: vi.fn(async (locator: string) => {
+        expect(locator).toBe('project:飞书迁移')
+        return 'entities/projects/飞书迁移.md'
+      }),
+    })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{
+        kind: 'append-log', entityPath: 'project:飞书迁移', entityName: '飞书迁移', text: '确认了时间', reason: 'r',
+      }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(t.resolveEntity).toHaveBeenCalledWith('project:飞书迁移')
+    const [path, content] = (t.write as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
+    expect(path).toBe('entities/projects/飞书迁移.md')
+    expect(content).toContain('- 2026-01-01 创建')
+    expect(content).toMatch(/- \d{4}-\d{2}-\d{2} 确认了时间/)
+    expect(result.written).toEqual(['项目动态 飞书迁移'])
+    expect(result.skipped).toEqual([])
+  })
+
+  it('skips an entity action whose locator the resolver rejects', async () => {
+    const t = target({
+      resolveEntity: vi.fn(async () => { throw new Error('找不到实体：project:不存在') }),
+    })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [{
+        kind: 'append-log', entityPath: 'project:不存在', entityName: '不存在', text: 'x', reason: 'r',
+      }],
+    }
+    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    expect(t.read).not.toHaveBeenCalled()
+    expect(t.write).not.toHaveBeenCalled()
+    expect(result.skipped).toEqual(['项目动态 不存在：找不到实体：project:不存在'])
+  })
+
   it('batches every ticked todo into one optimistic-concurrency write', async () => {
     const t = target()
     const proposal: Proposal = {

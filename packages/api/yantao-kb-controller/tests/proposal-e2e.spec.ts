@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,6 +9,8 @@ import type { SkillRegistry } from '@deepseek-ai/dsh-skill'
 import type { YantaoKbService } from '@deepseek-ai/dsh-yantao-kb'
 import YantaoKbController from '../src/index.ts'
 import { proposalOfPayload } from '../../../client/ui-yantao/src/client/capability-match.ts'
+import { applyProposal } from '../../../client/ui-yantao/src/client/proposal-apply.ts'
+import type { ProposalTarget } from '../../../client/ui-yantao/src/client/proposal-apply.ts'
 import { runScheduledTask } from '../../../client/ui-yantao/src/client/scheduler.ts'
 
 /**
@@ -294,5 +296,52 @@ describe('端到端：调度 → 邮件能力 → 提名工具 → 提议卡（A
       .toBe(new Date('2026-10-10T08:00:00+08:00').toISOString())
     expect(result.proposalId).toBe(entry.id)
     expect(proposalOfPayload(entry.proposal)).not.toBeNull()
+  })
+
+  it('locator 提名全链路：entityPath 用 project:名字 入队 → resolveEntity 归一 → 流水落盘（2026-10-13 周报流水事故）', async () => {
+    // 种子项目实体：agent 提名的 locator 在真实 KB 里所指的文件。
+    const entityRel = 'entities/projects/周报项目.md'
+    await mkdir(join(home, 'entities', 'projects'), { recursive: true })
+    await writeFile(join(home, entityRel), '# 周报项目\n\n## 状态\n\n进行中\n\n## 流水\n\n- 2026-01-01 创建\n', 'utf8')
+
+    const { client } = stage([{
+      reply: '周报已归档。',
+      nominate: () => proposeTool().execute({
+        title: '周报归档提议',
+        actions: [{ kind: 'append-log', entityPath: 'project:周报项目', entityName: '周报项目', text: '批次归档', reason: '调度周报' }],
+        source: 'schedule:sch_e2e',
+        sourceName: '周报',
+      }, {} as never),
+    }])
+
+    const result = await runScheduledTask({ ctx: client, id: 'sch_e2e', name: '周报', prompt: '归档周报', capability: 'mail' })
+
+    // A2：locator 形态被服务端放行（形状校验不拒），真磁盘恰好一条 pending。
+    expect(result.proposalId).toBeDefined()
+    const listed = await ctx.yantaoKbController.proposalInboxList()
+    expect(listed.proposals).toHaveLength(1)
+    const card = proposalOfPayload(listed.proposals[0].proposal)
+    expect(card).not.toBeNull()
+    expect(card?.actions[0]).toMatchObject({ kind: 'append-log', entityPath: 'project:周报项目' })
+
+    // 人类批准后的回写：ProposalTarget 的读写与归一缝全部接真 controller RPC。
+    const controller = ctx.yantaoKbController
+    const target = {
+      read: async (path: string) => (await controller.read(path)).content,
+      write: async (path: string, content: string) => { await controller.write(path, content) },
+      resolveEntity: async (locator: string) => (await controller.resolveEntity(locator)).path,
+    } as unknown as ProposalTarget
+    const applied = await applyProposal({
+      proposal: card!,
+      ticked: card!.actions.map((_, index) => index),
+      target,
+    })
+    expect(applied.written).toEqual(['项目动态 周报项目'])
+    expect(applied.skipped).toEqual([])
+
+    // 磁盘实体文件的流水出现了带日期的一行——事故里丢的就是这一行。
+    const onDisk = await readFile(join(home, entityRel), 'utf8')
+    expect(onDisk).toContain('- 2026-01-01 创建')
+    expect(onDisk).toMatch(/- \d{4}-\d{2}-\d{2} 批次归档/)
   })
 })

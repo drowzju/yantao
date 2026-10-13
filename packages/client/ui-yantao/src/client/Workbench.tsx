@@ -12,7 +12,7 @@ import type {
 import type {
   CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, CapabilityRouteUpdater,
   CapabilityUnregisterer,
-  EntityArchiver, EntityCreator, FileReader,
+  EntityArchiver, EntityCreator, EntityResolver, FileReader,
   FileWriter,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
@@ -1028,6 +1028,8 @@ export interface RailProps {
   readonly archiveEntity: EntityArchiver
   /** Restore one archived entity (ADR-0041 决定 7) — the archived row menu's 「还原」. */
   readonly restoreEntity: EntityArchiver
+  /** Resolve one entity locator (`type:name` or path) to its KB-relative path — the proposal applier's normalization. */
+  readonly resolveEntity: EntityResolver
   /** Rewrite one person entity's relation — the row menu's 「关系」. */
   readonly setRelation: RelationSetter
   /** Load the workspace side, so the mail analysis can name what exists (ADR-0019). */
@@ -1218,7 +1220,7 @@ async function dropOnEntity(args: {
 export function IntakeRail(props: IntakeRailProps): ReactElement {
   const {
     t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, loadTodos, writeTodos, createEntity,
-    read, write, archiveEntity, restoreEntity, setRelation, workspace, mailFetch, mailMarkRead, analyseMail,
+    read, write, archiveEntity, restoreEntity, resolveEntity, setRelation, workspace, mailFetch, mailMarkRead, analyseMail,
     registerResource, deleteResource, onRefine,
     capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRouteUpdate, capabilityUnregister,
     onRunCapability, kbRoot = '',
@@ -1316,6 +1318,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   // the proposal card's tick is what arms it.
   const mailTarget: ProposalTarget = {
     createEntity, read, write, todos: loadTodos, writeTodos, memoryAdd,
+    resolveEntity,
     ...(mailDelete !== undefined ? { deleteMails: mailDelete } : {}),
     ...(mailArchive !== undefined ? { archiveMails: mailArchive } : {}),
   }
