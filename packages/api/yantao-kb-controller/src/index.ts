@@ -49,7 +49,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
   createEntity, entityDisplayPath, initKb, KbError, linkGraphOf, linksOf, listEntities, parseEml, parseFrontmatter,
   parseTodoFile, PERSON_RELATIONS, readCapabilityRecord, readCapabilityState, recordCapabilityRun,
-  registerResourceContent, relationGraphOf, resolveWithinKb, serializeTodoFile, setEntityArchived, todayStamp,
+  registerResourceContent, relationGraphOf, resolveEntityPath, resolveWithinKb, serializeTodoFile, setEntityArchived, todayStamp,
   writeCapabilityState, writeMailWatermark,
   appendMemoryEntry, listMemoryScopes, readMemoryScope, removeMemoryEntry, renderCapabilityMemoryBlock,
   listProposalScopes, proposalDisplayPath, removeMemoryProposalByText,
@@ -113,6 +113,7 @@ import type {
   KbProposalInboxResolveResult,
   KbQueuedProposal,
   KbRelationGraphResult,
+  KbResolveEntityResult,
   KbScheduleListResult,
   KbScheduleMarkArgs,
   KbScheduleMarkResult,
@@ -1170,6 +1171,30 @@ export class YantaoKbController extends TypertRemoteService {
         ? error.message
         : `无法${archived ? '归档' : '还原'}实体 ${locator}：${(error as Error).message}`
       throw new RemoteError('yantao-kb/rejected', message, { path: locator }, { cause: error })
+    }
+  }
+
+  /**
+   * Resolve one entity locator to its KB-relative path — the proposal
+   * applier's normalization step (2026-10-13 周报流水事故): the
+   * `kb_propose_actions` examples teach the `type:name` locator form, so an
+   * approved card's `entityPath` may be `project:某项目`, which a literal
+   * read would miss entirely. The grammar is exactly the kb layer's
+   * (`type:name` with plural spellings, entity file paths, meeting
+   * date-prefix matching); a locator that points nowhere is a not-found, so
+   * the applier skips the row honestly.
+   * @param locator - entity locator: `type:name` or an entity file path.
+   * @returns the KB-relative path of the entity file.
+   */
+  @Remote('resolveEntity')
+  async resolveEntity(locator: string): Promise<KbResolveEntityResult> {
+    try {
+      return resolveEntityPath(this.kbRoot, locator)
+    } catch (error) {
+      if (error instanceof KbError) {
+        throw new RemoteError('yantao-kb/not-found', error.message, { path: locator }, { cause: error })
+      }
+      throw new RemoteError('yantao-kb/rejected', `无法解析实体定位 ${locator}：${(error as Error).message}`, { path: locator }, { cause: error })
     }
   }
 

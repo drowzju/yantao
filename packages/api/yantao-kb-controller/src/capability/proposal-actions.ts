@@ -46,6 +46,20 @@ export const EMPTY_OK_FIELDS: ReadonlySet<string> = new Set([
   'edit-section:path', 'append-section:path', 'add-todo:body',
 ])
 
+/**
+ * The entity-bodied kinds whose `entityPath` names an entity: beyond being a
+ * string, it must be a locator the applier can resolve — a `type:name`
+ * locator (the examples' form; the applier resolves it through the
+ * controller's `resolveEntity`) or an entity file path. A bare display name
+ * (`某项目`) or a directory-ish value passes the field tables but can only
+ * die as a not-found at apply time — named back here instead, while the
+ * model can still repair the row in the same turn (2026-10-13 周报流水事故
+ * 的姊妹防线).
+ */
+const ENTITY_PATH_KINDS: ReadonlySet<string> = new Set(['append-log', 'write-state', 'create-link'])
+
+const ENTITY_TYPE_PREFIX = /^(project|projects|area|areas|person|people|meeting|meetings|todo|todos)[:：]/
+
 /** One minimal valid example per kind, inlined into missing-field
  * diagnostics (2026-10-10 补提事故：the drop note named the missing fields
  * but not the shape, and a post-compaction repair rebuilt the rows without
@@ -88,9 +102,16 @@ function diagnoseAction(entry: unknown, at: number): string {
   const missing = required.filter(field =>
     typeof bag[field] !== 'string'
     || (bag[field] === '' && !EMPTY_OK_FIELDS.has(`${kind}:${field}`)))
-  return missing.length > 0
-    ? `第 ${at + 1} 项「${kind}」缺必填字段 ${missing.join('、')}（该项形如 ${KIND_EXAMPLES[kind as ActionKind]}）`
-    : ''
+  if (missing.length > 0) {
+    return `第 ${at + 1} 项「${kind}」缺必填字段 ${missing.join('、')}（该项形如 ${KIND_EXAMPLES[kind as ActionKind]}）`
+  }
+  if (ENTITY_PATH_KINDS.has(kind as string)) {
+    const entityPath = bag.entityPath as string
+    if (entityPath !== '' && !ENTITY_TYPE_PREFIX.test(entityPath) && !entityPath.endsWith('.md')) {
+      return `第 ${at + 1} 项「${kind}」的 entityPath 不是可解析的实体定位（应为 type:name 或实体文件路径，形如 ${KIND_EXAMPLES[kind as ActionKind]}）`
+    }
+  }
+  return ''
 }
 
 /**

@@ -378,6 +378,29 @@ export async function setEntityArchived(kbRoot: string, locator: string, archive
 }
 
 /**
+ * Resolve one entity locator to its KB-relative path — the same grammar
+ * {@link setEntityArchived} locates by: `type:name` (plural spellings
+ * accepted) or an entity file path, KB-relative or absolute under kbRoot.
+ * The proposal applier's human channel normalizes an approved action's
+ * `entityPath` through this before reading or writing, so a locator-spelled
+ * nomination (`project:某项目`, the shape the `kb_propose_actions` examples
+ * teach) lands instead of dying on a literal read. A locator that points at
+ * a missing file is a not-found here — the caller skips the row honestly
+ * instead of failing mid-read.
+ * @param kbRoot - the knowledge-base root the entity lives under.
+ * @param locator - the entity locator as written.
+ * @returns the KB-relative path of the entity file.
+ */
+export function resolveEntityPath(kbRoot: string, locator: string): { path: string } {
+  const root = resolveWithinKb(kbRoot)
+  const target = resolveEntityLocator(root, locator)
+  if (!existsSync(target)) {
+    throw new KbError('entity-not-found', `找不到实体：${locator}`)
+  }
+  return { path: displayPath(root, target) }
+}
+
+/**
  * Return one entity file's complete content. The entity is located like
  * {@link appendLog}, so a meeting is found by its bare name even though its
  * file carries the meeting's own date as a prefix.

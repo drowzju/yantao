@@ -135,6 +135,12 @@ export interface KbSetEntityArchivedResult {
   readonly archived: boolean
 }
 
+/** Result of `yantaoKb.resolveEntity` — the proposal applier's locator normalization. */
+export interface KbResolveEntityResult {
+  /** The KB-relative path of the entity file the locator names. */
+  readonly path: string
+}
+
 /** The answer to one resource deletion — the workbench's 「删除」 gesture. */
 export interface KbDeleteResourceResult {
   /** The KB-relative path of the resource that no longer exists. */

@@ -46,6 +46,18 @@ describe('validateProposedActions（ADR-0055 提名工具的服务端校验）',
     expect(validateProposedActions([{ kind: 'append-log', entityName: 'x', text: 'y' }]))
       .toEqual(['第 1 项「append-log」缺必填字段 entityPath（该项形如 {"kind":"append-log","entityPath":"project:某项目","entityName":"某项目","text":"一条动态"}）'])
   })
+
+  it('entityPath 必须是可解析的实体定位：type:name 或实体路径（2026-10-13 周报流水事故）', () => {
+    // 示例教的 locator 形态放行——applier 会经 resolveEntity 解析
+    expect(validateProposedActions([{ kind: 'append-log', entityPath: 'project:某项目', entityName: '某项目', text: '一条动态' }])).toEqual([])
+    // 实体文件路径放行；裸名字与目录值只能在落盘时哑死，这里就点名
+    expect(validateProposedActions([{ kind: 'append-log', entityPath: '某项目', entityName: '某项目', text: 'x' }]))
+      .toEqual(['第 1 项「append-log」的 entityPath 不是可解析的实体定位（应为 type:name 或实体文件路径，形如 {"kind":"append-log","entityPath":"project:某项目","entityName":"某项目","text":"一条动态"}）'])
+    expect(validateProposedActions([{ kind: 'write-state', entityPath: '某项目', entityName: '某项目', text: 'x' }]))
+      .toEqual(['第 1 项「write-state」的 entityPath 不是可解析的实体定位（应为 type:name 或实体文件路径，形如 {"kind":"write-state","entityPath":"","entityName":"某项目","text":"当前状态一行"}）'])
+    // 非实体类动作不受此约束
+    expect(validateProposedActions([{ kind: 'save-resource', path: '某项目', content: 'x' }])).toEqual([])
+  })
 })
 
 describe('partitionProposedActions（2026-10-10 裁决：逐项容错，一跑一卡的船不再整沉）', () => {
