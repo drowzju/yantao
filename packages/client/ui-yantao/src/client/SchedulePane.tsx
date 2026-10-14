@@ -18,7 +18,6 @@ import type { KbPromptShortcut, KbSchedule } from '@deepseek-ai/dsh-api-yantao-k
 import { cronNextFire } from './cron.ts'
 import { ghostButtonStyle, primaryButtonStyle, raisedButtonStyle, toolButtonArmedStyle, toolButtonStyle } from './buttons.ts'
 import { useArmedAction } from './use-armed-action.ts'
-import { activatable } from './activatable.ts'
 import { formatStamp } from './stamp.ts'
 import type { PromptShortcutLister } from './remote.ts'
 
@@ -133,13 +132,27 @@ const rowStyle = {
   borderColor: 'transparent',
   borderRadius: 4,
   background: 'transparent',
-  cursor: 'pointer',
   padding: 'var(--yt-space-2)',
   fontFamily: FONT,
   fontSize: 'var(--yt-type-body)',
 } as const
 
 const activeRowStyle = { ...rowStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } as const
+
+/** 调度名称是打开编辑器的一等按钮（2026-10-14 impeccable P3 修复）：此前
+    整行 role=button 里套着启用勾选框——按钮里嵌交互控件，读屏行为错乱。
+    行降级为普通容器，名称独立成钮，勾选框并列。 */
+const nameButtonStyle = {
+  background: 'transparent',
+  border: 'none',
+  padding: 0,
+  fontFamily: 'inherit',
+  fontSize: 'inherit',
+  fontWeight: 500,
+  color: 'inherit',
+  cursor: 'pointer',
+  textAlign: 'left',
+} as const
 
 const editColStyle = {
   flex: 1,
@@ -371,25 +384,28 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
             return (
               <div
                 key={schedule.id}
-                role="button"
-                tabIndex={0}
                 style={selectedId === schedule.id ? activeRowStyle : rowStyle}
                 data-schedule-row={schedule.id}
-                // theme-presenter 的 role=button hover 兜底带 !important，会压过
-                // 内联 accent——选中行靠这个属性豁免兜底（2026-10-10 ocr 评审）。
-                data-selected={selectedId === schedule.id || undefined}
-                onClick={() => { openEditor(schedule) }}
-                onKeyDown={activatable(() => { openEditor(schedule) })}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--yt-space-2)' }}>
                   <input
                     type="checkbox"
                     checked={schedule.enabled}
                     title={schedule.enabled ? '停用' : '启用'}
-                    onClick={(event) => { event.stopPropagation() }}
+                    aria-label={schedule.enabled ? `停用 ${schedule.name}` : `启用 ${schedule.name}`}
                     onChange={() => { void toggleEnabled(schedule) }}
                   />
-                  <span style={{ fontWeight: 500 }}>{schedule.name}</span>
+                  {/* 选中行里的名称钮带 data-selected：悬停豁免通用涂灰规则，
+                      保持 accent 洗染（theme-presenter 的按钮豁免链）。 */}
+                  <button
+                    type="button"
+                    data-hover="true"
+                    data-selected={selectedId === schedule.id || undefined}
+                    style={nameButtonStyle}
+                    onClick={() => { openEditor(schedule) }}
+                  >
+                    {schedule.name}
+                  </button>
                 </div>
                 <div style={{ ...metaLineStyle, fontFamily: CODE_FONT }}>{schedule.cron}</div>
                 {schedule.capability !== undefined && schedule.capability !== '' && (

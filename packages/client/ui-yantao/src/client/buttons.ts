@@ -5,14 +5,16 @@
  * vs 调度面板的 accent-bg 淡底），淡底回归它的文档角色——选中态。
  */
 
-/** 主行动钮（写入 N 项 / 保存 / 批准 / 提交回答）：实心 accent，字随主题取表面色。 */
+/** 主行动钮（写入 N 项 / 保存 / 批准 / 提交回答）：实心 accent，字走 --yt-on-accent
+    （2026-10-14 落地：暗色的 strong 是亮 accent，文字翻墨色才过对比度——
+    此前取 --yt-surface-primary 碰巧同值，语义不对）。 */
 export const primaryButtonStyle = {
   padding: 'var(--yt-space-1) var(--yt-space-3)',
   minHeight: 'var(--yt-control-min-h)',
   background: 'var(--yt-accent-strong)',
   border: '1px solid transparent',
   borderRadius: 6,
-  color: 'var(--yt-surface-primary)',
+  color: 'var(--yt-on-accent)',
   fontFamily: 'inherit',
   fontSize: 'var(--yt-type-body)',
   cursor: 'pointer',

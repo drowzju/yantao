@@ -195,6 +195,16 @@ const escArmStyle = {
   flexShrink: 0,
 } as const
 
+/** 底栏上方的键帽提示条（2026-10-14 可发现性修复）：热键在用得着的地方
+    自己报数——裁决键注册了四轮评审却零可见入口，不能只靠快捷键目录偶遇。 */
+const keyhintStyle = {
+  margin: 0,
+  flexShrink: 0,
+  textAlign: 'right',
+  color: 'var(--yt-text-muted)',
+  fontSize: 'var(--yt-type-label)',
+} as const
+
 /** The kinds in the order the card lists their groups. */
 const GROUP_ORDER: readonly ProposalAction['kind'][] = [
   'create-entity', 'create-project', 'add-todo', 'append-log', 'write-state', 'edit-section', 'append-section', 'create-link', 'save-resource', 'add-memory', 'delete-mails', 'archive-mails', 'skill-rewrite',
@@ -1027,6 +1037,11 @@ export function ProposalCard(props: {
             {t('proposal.escArm', { count: ticked.length })}
           </p>
         )}
+        {/* 裁决键就地可见（2026-10-14）：Esc 的含义随卡走——收件箱卡是丢弃，
+            其余卡是关闭。 */}
+        <p style={keyhintStyle} data-proposal-keyhint="true">
+          {t(props.onDiscard !== undefined ? 'proposal.keyhintDiscard' : 'proposal.keyhintClose')}
+        </p>
         <div style={footerStyle}>
           <button type="button" style={ghostButtonStyle} data-hover="true" disabled={props.busy === true || nothing} onClick={all}>
             {t('proposal.acceptAll')}

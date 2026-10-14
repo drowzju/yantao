@@ -1393,12 +1393,14 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       workspaceRunStop={kb.workspaceRunStop}
       workspaceRunsList={kb.workspaceRunsList}
       shortcutCatalog={{ getSnapshot: () => [], subscribe: () => () => {} }}
+      shortcutFixedCatalog={{ getSnapshot: () => [], subscribe: () => () => {} }}
       scheduleList={kb.scheduleList}
       scheduleSave={kb.scheduleSave}
       scheduleMark={kb.scheduleMark}
       runSchedule={kb.runSchedule}
       proposalInboxList={kb.proposalInboxList}
       proposalInboxResolve={kb.proposalInboxResolve}
+      proposalInboxEnqueue={async () => ({ proposals: [], id: 'prp_new', path: 'proposal-inbox.json' })}
       relationGraph={kb.relationGraph}
       sessionDetail={kb.sessionDetail}
       memoryProposalList={kb.memoryProposalList}

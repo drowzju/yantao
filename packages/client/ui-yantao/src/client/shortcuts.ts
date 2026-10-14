@@ -19,6 +19,9 @@
  * `web:linux` stays unset — the browser binding whitelist has no branch for
  * either chord there, so declaring one would throw at registration; the
  * registry treats a missing profile as unbound.
+ *
+ * 注意：registerFixed 的裁决键进的是注册表的 fixedCatalog，不是 catalog
+ * （2026-10-14 快捷键目录缺 J/K/空格/回车 的病灶）——读面要订两个目录。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { ShortcutCommand, ShortcutCommandId, ShortcutFixedInput } from '@deepseek-ai/dsh-client-shortcuts/client'

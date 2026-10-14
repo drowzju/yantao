@@ -27,6 +27,7 @@ function entry(overrides: Partial<KbQueuedProposal> = {}): KbQueuedProposal {
 function renderPane(entries: readonly KbQueuedProposal[], overrides: {
   onConfirm?: (entry: KbQueuedProposal, ticked: readonly number[]) => void
   onDiscard?: (entry: KbQueuedProposal) => void
+  onReenqueue?: (entry: KbQueuedProposal) => void
 } = {}): ReturnType<typeof render> {
   return render(
     <InboxPane
@@ -34,6 +35,7 @@ function renderPane(entries: readonly KbQueuedProposal[], overrides: {
       busyId={null}
       onConfirm={overrides.onConfirm ?? (() => {})}
       onDiscard={overrides.onDiscard ?? (() => {})}
+      onReenqueue={overrides.onReenqueue ?? (() => {})}
       t={t}
     />,
   )
@@ -77,6 +79,7 @@ describe('InboxPane', () => {
         busyId={null}
         onConfirm={() => {}}
         onDiscard={() => {}}
+        onReenqueue={() => {}}
         t={t}
       />,
     )
@@ -121,6 +124,7 @@ describe('InboxPane', () => {
       busyId={null}
       onConfirm={() => {}}
       onDiscard={onDiscard}
+      onReenqueue={() => {}}
       t={t}
     />)
     fireEvent.click(screen.getByText('调度「每日摘要」的提议'))
@@ -130,15 +134,22 @@ describe('InboxPane', () => {
     expect((onDiscard.mock.calls[0] as [KbQueuedProposal])[0].id).toBe('prp_1')
   })
 
-  it('offers the row-level 丢弃 without opening the card, armed by a second click', () => {
+  it('offers the row-level 丢弃 without opening the card, settled by one click', () => {
     const onDiscard = vi.fn()
     renderPane([entry()], { onDiscard })
-    // 两击武装（2026-10-12 评审 P1-1）：第一击只点亮确认，第二击才是裁决。
+    // 2026-10-14 危险分级裁决：丢弃是轻裁决（留痕 + 可重新入队），单击即决——
+    // 此前的两击武装（2026-10-12 P1-1）已退役，武装只留给真删除。
     fireEvent.click(screen.getByText('丢弃'))
-    expect(onDiscard).not.toHaveBeenCalled()
-    expect(screen.getByText('确认丢弃？')).toBeTruthy()
-    fireEvent.click(screen.getByText('确认丢弃？'))
     expect(onDiscard).toHaveBeenCalledTimes(1)
+    expect((onDiscard.mock.calls[0] as [KbQueuedProposal])[0].id).toBe('prp_1')
+  })
+
+  it('offers 重新入队 on a discarded row — the discard recovery (2026-10-14)', () => {
+    const onReenqueue = vi.fn()
+    renderPane([entry({ status: 'discarded', decidedAt: '2026-10-05T09:30:00.000Z' })], { onReenqueue })
+    fireEvent.click(screen.getByText('重新入队'))
+    expect(onReenqueue).toHaveBeenCalledTimes(1)
+    expect((onReenqueue.mock.calls[0] as [KbQueuedProposal])[0].id).toBe('prp_1')
   })
 
   it('degrades an unparsable payload to a discard-only dialog', () => {
@@ -148,6 +159,7 @@ describe('InboxPane', () => {
       busyId={null}
       onConfirm={() => {}}
       onDiscard={onDiscard}
+      onReenqueue={() => {}}
       t={t}
     />)
     fireEvent.click(screen.getByText('调度「每日摘要」的提议'))

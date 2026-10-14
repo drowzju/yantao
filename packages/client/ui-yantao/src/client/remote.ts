@@ -366,6 +366,10 @@ export type RelationGraphLoader = () => Promise<KbRelationGraphResult>
 /** Record the human's decision on one pending inbox entry (ADR-0047). */
 export type ProposalInboxResolver = (args: KbProposalInboxResolveArgs) => Promise<KbProposalInboxResolveResult>
 
+/** Re-queue one decided entry's content as a fresh pending proposal
+    (2026-10-14 丢弃后悔药：误丢弃的恢复不是撤销决策，而是内容原样重新入队). */
+export type ProposalInboxEnqueuer = (args: KbProposalInboxEnqueueArgs) => Promise<KbProposalInboxEnqueueResult>
+
 /**
  * Fill the current conversation's composer with `/alias ` without sending
  * (ADR-0040 决定 5) — the 能力 tab row's click. Throws when no session is

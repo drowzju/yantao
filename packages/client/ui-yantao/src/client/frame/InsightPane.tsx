@@ -21,6 +21,7 @@
 
 import { useState, type ReactElement, type ReactNode } from 'react'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import { tabItemActiveStyle, tabItemStyle } from '../buttons.ts'
 
 export type InsightPaneProps = PropsRenderSlots<'insights.overview' | 'insights.session'> & {
   /**
@@ -51,27 +52,9 @@ const SUB_LABELS: Record<InsightSub, string> = {
   context: '上下文信息',
 }
 
-const subButtonStyle = {
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: 'transparent',
-  borderRadius: 4,
-  background: 'transparent',
-  cursor: 'pointer',
-  fontFamily: 'var(--yt-font-ui)',
-  fontSize: 'var(--yt-type-label)',
-  padding: 'var(--yt-space-1) var(--yt-space-2)',
-  minHeight: 'var(--yt-control-min-h)',
-  boxSizing: 'border-box',
-  color: 'var(--yt-text-secondary)',
-} as const
-
-const activeSubButtonStyle = {
-  ...subButtonStyle,
-  background: 'var(--yt-surface-raised)',
-  borderColor: 'var(--yt-border-subtle)',
-  color: 'inherit',
-} as const
+// 子页签本体走 buttons.ts 的 tabItem 面（2026-10-14 impeccable 第三轮 P1
+// 修复）：同 TasksHubPane——凸面私养样式退役，激活态一律 accent 洗染；
+// 激活子页签带 data-selected 豁免悬停涂灰（DESIGN.md §5）。
 
 export function InsightPane({ renderSlot, onSwitchToConversation, active = true, graph }: InsightPaneProps): ReactElement {
   // Remembered for the session only (ADR-0057): switching centre tabs hides
@@ -91,8 +74,9 @@ export function InsightPane({ renderSlot, onSwitchToConversation, active = true,
             key={key}
             type="button"
             data-hover="tab"
+            data-selected={sub === key ? '' : undefined}
             data-insights-sub={key}
-            style={sub === key ? activeSubButtonStyle : subButtonStyle}
+            style={sub === key ? tabItemActiveStyle : tabItemStyle}
             onClick={() => { setSub(key) }}
           >
             {SUB_LABELS[key]}

@@ -12,6 +12,7 @@
  * touches is the sub-tabs' own counter badges (2026-10-12).
  */
 import { useState, type ReactElement, type ReactNode } from 'react'
+import { tabItemActiveStyle, tabItemStyle } from '../buttons.ts'
 
 export interface TasksHubPaneProps {
   /** The 任务 sub-page: the task list (with the 详情 drawer's overlay seat). */
@@ -36,27 +37,10 @@ const SUB_LABELS: Record<TasksSub, string> = {
   schedule: '调度',
 }
 
-const subButtonStyle = {
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: 'transparent',
-  borderRadius: 4,
-  background: 'transparent',
-  cursor: 'pointer',
-  fontFamily: 'var(--yt-font-ui)',
-  fontSize: 'var(--yt-type-label)',
-  padding: 'var(--yt-space-1) var(--yt-space-3)',
-  minHeight: 'var(--yt-control-min-h)',
-  boxSizing: 'border-box',
-  color: 'var(--yt-text-secondary)',
-} as const
-
-const activeSubButtonStyle = {
-  ...subButtonStyle,
-  background: 'var(--yt-surface-raised)',
-  borderColor: 'var(--yt-border-subtle)',
-  color: 'inherit',
-} as const
+// 子页签本体走 buttons.ts 的 tabItem 面（2026-10-14 impeccable 第三轮 P1
+// 修复）：此前此处私养一副凸面选中（surface-raised + border-subtle），与
+// 三栏页签的 accent 洗染同屏并存，是两套「当前在哪」。激活子页签必须带
+// data-selected，否则悬停被通用规则涂灰（DESIGN.md §5）。
 
 /** Counter pill riding a sub-tab label (the count the parent tab dropped). */
 const subBadgeStyle = {
@@ -100,8 +84,9 @@ export function TasksHubPane({ tasks, inbox, schedule, badges }: TasksHubPanePro
               key={key}
               type="button"
               data-hover="tab"
+              data-selected={sub === key ? '' : undefined}
               data-tasks-sub-button={key}
-              style={{ ...(sub === key ? activeSubButtonStyle : subButtonStyle), display: 'flex', alignItems: 'center', gap: 'var(--yt-space-1)' }}
+              style={sub === key ? tabItemActiveStyle : tabItemStyle}
               onClick={() => { setSub(key) }}
             >
               {SUB_LABELS[key]}

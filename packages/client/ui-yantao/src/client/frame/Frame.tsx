@@ -21,7 +21,7 @@ import type {
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
   PromptShortcutSaver, RelationGraphLoader, RelationSetter, ResourceDeleter, ResourceRegistrar, RevisionLoader,
   ScheduleLister, ScheduleMarker,
-  ScheduleSaver, ProposalInboxLister, ProposalInboxResolver, ShortcutFiller,
+  ScheduleSaver, ProposalInboxEnqueuer, ProposalInboxLister, ProposalInboxResolver, ShortcutFiller,
   WorkspaceLister, WorkspaceRunner, WorkspaceRunsClearer, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
   RootLoader, RootSetter,
   Archiver, SkillRewriteApplier,
@@ -67,7 +67,7 @@ import type { PanelToggles } from './layout.ts'
 import type { SidebarRightFileSeat } from '../sidebar-right.ts'
 import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
 import type { WorkbenchT } from '../locales.ts'
-import { ShortcutsDialog, type ShortcutCatalogFace } from '../ShortcutsDialog.tsx'
+import { ShortcutsDialog, type ShortcutCatalogFace, type ShortcutFixedCatalogFace } from '../ShortcutsDialog.tsx'
 
 /** Full props: the render share for the four seats this frame declares, plus the panel-action seat. */
 export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.insights' | 'center.insights.pressure'> & {
@@ -208,12 +208,16 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly proposalInboxList: ProposalInboxLister
   /** Record the human's decision on one pending inbox entry (ADR-0047). */
   readonly proposalInboxResolve: ProposalInboxResolver
+  /** Re-queue one decided entry's content as a fresh pending proposal — the 提议 tab's discard recovery (2026-10-14). */
+  readonly proposalInboxEnqueue: ProposalInboxEnqueuer
   /** Read the whole KB's typed relation graph (ADR-0049) — the 图谱 tab's read. */
   readonly relationGraph: RelationGraphLoader
   /** Read the model gateway's config view — the 配置 dialog's open read. */
   readonly loadModelsConfig: () => Promise<ModelsConfigView>
   /** The shortcuts registry's live catalog — the 快捷键 directory's read face. */
   readonly shortcutCatalog: ShortcutCatalogFace
+  /** The registry's fixed-command catalog — the verdict keys (J/K/空格/回车) live here (2026-10-14 目录修复). */
+  readonly shortcutFixedCatalog: ShortcutFixedCatalogFace
   /** Commit a 配置 dialog draft; the result separates conflict from refusal. */
   readonly saveModelsConfig: (draft: ModelsConfigDraft) => Promise<ModelsConfigSaveResult>
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
@@ -523,8 +527,8 @@ export function Frame({
   promptShortcutList, promptShortcutSave, fillShortcut,
   scheduleList, scheduleSave, scheduleMark, runSchedule,
   workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList, workspaceRunsClear,
-  proposalInboxList, proposalInboxResolve, relationGraph,
-  loadModelsConfig, saveModelsConfig, shortcutCatalog,
+  proposalInboxList, proposalInboxResolve, proposalInboxEnqueue, relationGraph,
+  loadModelsConfig, saveModelsConfig, shortcutCatalog, shortcutFixedCatalog,
 }: FrameProps): ReactElement {
   const [configOpen, setConfigOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
@@ -972,6 +976,30 @@ export function Frame({
       },
     )
   }, [proposalInboxResolve, moveMailCursor])
+
+  // 重新入队（2026-10-14 丢弃后悔药）：误丢弃的恢复不是撤销旧决策（决策
+  // 终态不可改，入库闸门单向），而是把条目内容原样投回队列——新 id、新
+  // 时间戳、pending 等待重新裁决；旧的已丢弃条目留在列表里当痕迹。
+  const reenqueueInboxEntry = useCallback((entry: KbQueuedProposal): void => {
+    setInboxBusyId(entry.id)
+    void proposalInboxEnqueue({
+      source: entry.source,
+      sourceName: entry.sourceName,
+      title: entry.title,
+      ...(entry.note !== undefined ? { note: entry.note } : {}),
+      proposal: entry.proposal,
+    }).then(
+      (result) => {
+        setInboxBusyId(null)
+        setInboxEntries(result.proposals)
+        setCapabilityNotice(`已重新入队提议「${entry.title}」，等待重新裁决。`, { severity: 'info' })
+      },
+      (failure: unknown) => {
+        setInboxBusyId(null)
+        setCapabilityNotice(`重新入队失败：${remoteMessage(failure)}`, { severity: 'error' })
+      },
+    )
+  }, [proposalInboxEnqueue])
 
   // 批准: the writes land first — the same applyConfirmed every card shares —
   // and then the row settles by outcome (ADR-0059 决定 5): every ticked
@@ -1950,6 +1978,7 @@ export function Frame({
                 busyId={inboxBusyId}
                 onConfirm={confirmInboxEntry}
                 onDiscard={discardInboxEntry}
+                onReenqueue={reenqueueInboxEntry}
                 capabilityScopes={capabilityScopes}
                 t={t}
               />
@@ -2134,7 +2163,7 @@ export function Frame({
         />
       )}
       {shortcutsOpen && (
-        <ShortcutsDialog t={t} catalog={shortcutCatalog} onClose={() => { setShortcutsOpen(false) }} />
+        <ShortcutsDialog t={t} catalog={shortcutCatalog} fixedCatalog={shortcutFixedCatalog} onClose={() => { setShortcutsOpen(false) }} />
       )}
       {refineProposal !== null && (
         <ProposalCard

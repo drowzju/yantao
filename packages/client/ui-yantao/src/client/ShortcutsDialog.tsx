@@ -3,7 +3,9 @@
  * keyboard commands, opened from the frame footer. Rows stream live from the
  * shortcuts registry's catalog (filtered to this plugin's `yantao.*` ids), so
  * the keycaps always match what the dispatch layer honours — user rebindings
- * and platform differences ride along for free. Editing lives upstream
+ * and platform differences ride along for free. The fixed verdict keys
+ * (J/K/空格/回车) stream from the registry's separate fixedCatalog
+ * (2026-10-14 修复：此前只订 catalog，四条裁决键从未在此露出). Editing lives upstream
  * (ui-shortcuts); this face exists to make the bindings discoverable
  * (2026-10-09 第四轮评审 P1：8 条热键注册后全 UI 无处可见).
  *
@@ -12,13 +14,21 @@
  */
 import { useSyncExternalStore, type ReactElement } from 'react'
 import { ShortcutKeys } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
+import type { ShortcutCatalogEntry, ShortcutFixedCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import { useDialogModal } from './use-dialog-modal.ts'
 import type { WorkbenchT } from './locales.ts'
 
 /** The catalog slice of the shortcuts service, typed structurally (no store dep). */
 export interface ShortcutCatalogFace {
   readonly getSnapshot: () => readonly ShortcutCatalogEntry[]
+  readonly subscribe: (listener: () => void) => () => void
+}
+
+/** The fixed-command slice: read-only reserved keys (裁决键 J/K/空格/回车等)
+    live here, NOT in `catalog` — 2026-10-14 之前本对话框只订 catalog，
+    四条裁决键从未露出（shortcuts.ts 的 registerFixed 进的是 fixedCatalog）。 */
+export interface ShortcutFixedCatalogFace {
+  readonly getSnapshot: () => readonly ShortcutFixedCatalogEntry[]
   readonly subscribe: (listener: () => void) => () => void
 }
 
@@ -89,17 +99,23 @@ export interface ShortcutsDialogProps {
   readonly t: WorkbenchT
   /** The shortcuts registry's live catalog (the plugin body threads the service face). */
   readonly catalog: ShortcutCatalogFace
+  /** The registry's fixed-command catalog — the verdict keys' home. */
+  readonly fixedCatalog: ShortcutFixedCatalogFace
   readonly onClose: () => void
 }
 
 /**
  * The workbench's 快捷键 directory: every `yantao.*` command with its
- * effective keycaps. Read-only — rebinding belongs to the upstream
+ * effective keycaps, plus the fixed verdict keys (J/K/空格/回车) from the
+ * fixed catalog. Read-only — rebinding belongs to the upstream
  * shortcut editor, not to this face.
  */
-export function ShortcutsDialog({ t, catalog, onClose }: ShortcutsDialogProps): ReactElement {
+export function ShortcutsDialog({ t, catalog, fixedCatalog, onClose }: ShortcutsDialogProps): ReactElement {
   const rows = useSyncExternalStore(catalog.subscribe, catalog.getSnapshot)
     .filter(row => row.id.startsWith('yantao.'))
+  const fixedRows = useSyncExternalStore(fixedCatalog.subscribe, fixedCatalog.getSnapshot)
+    .filter(row => row.id.startsWith('yantao.'))
+  const total = rows.length + fixedRows.length
   const { cardRef, onPanelKeyDown } = useDialogModal({ onClose })
   return (
     <div style={backdropStyle} onClick={onClose} data-shortcuts-backdrop="true" onKeyDown={onPanelKeyDown}>
@@ -108,15 +124,22 @@ export function ShortcutsDialog({ t, catalog, onClose }: ShortcutsDialogProps): 
           <h2 style={titleStyle}>{t('shortcuts.title')}</h2>
           <button data-hover="true" style={closeButtonStyle} onClick={onClose}>{t('shortcuts.close')}</button>
         </header>
-        {rows.length === 0
+        {total === 0
           ? <p style={emptyStyle}>{t('shortcuts.empty')}</p>
           : <ul style={listStyle}>
             {rows.map((row, index) => (
-              <li key={row.id} style={index === rows.length - 1 ? rowStyle : { ...rowStyle, ...rowBorderStyle }}>
+              <li key={row.id} style={index === total - 1 ? rowStyle : { ...rowStyle, ...rowBorderStyle }}>
                 <span style={labelStyle}>{row.label}</span>
                 {row.keys.length === 0
                   ? <span style={unboundStyle}>{t('shortcuts.unbound')}</span>
                   : <ShortcutKeys keys={row.keys} />}
+              </li>
+            ))}
+            {/* 固定键不可改绑，键帽直接读注册的 keys——没有 unbound 态。 */}
+            {fixedRows.map((row, index) => (
+              <li key={row.id} style={rows.length + index === total - 1 ? rowStyle : { ...rowStyle, ...rowBorderStyle }}>
+                <span style={labelStyle}>{row.label}</span>
+                <ShortcutKeys keys={row.keys} />
               </li>
             ))}
           </ul>}

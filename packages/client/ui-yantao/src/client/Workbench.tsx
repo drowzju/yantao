@@ -1387,6 +1387,10 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
                 waiting) somewhere the human cannot currently see. */}
             {id === 'connector' && (mailState.review !== null || mailState.phase === 'analysing') && (
               <span
+                // ● 是文本字符，读屏可能念「黑圆」也可能跳过——用 img 角色
+                // 加可读名（2026-10-14 impeccable P2 修复）。
+                role="img"
+                aria-label={t(mailState.review !== null ? 'mail.tab.awaiting' : 'mail.tab.running')}
                 style={{ marginLeft: 'var(--yt-space-1)', color: mailState.review !== null ? 'var(--yt-error)' : 'var(--yt-text-muted)' }}
                 title={t(mailState.review !== null ? 'mail.tab.awaiting' : 'mail.tab.running')}
               >

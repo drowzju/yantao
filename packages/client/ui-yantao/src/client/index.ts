@@ -447,6 +447,8 @@ export function apply(ctx: Context): void {
       // 快捷键目录的读面：注册表的 live catalog（键帽已按平台呈现，
       // 用户改键自动跟随），Frame 只过滤 yantao.* 展示。
       shortcutCatalog: ctx.shortcuts.catalog,
+      // 裁决键等固定键在另一个目录（2026-10-14 目录缺 J/K/空格/回车 的修复）。
+      shortcutFixedCatalog: ctx.shortcuts.fixedCatalog,
     }),
   }, Frame), 'ui-yantao: root frame')
 

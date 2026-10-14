@@ -325,6 +325,9 @@ export const zh = {
   // Center pane
   'center.conversation': '对话',
   'center.tasks': '任务',
+  // 任务页签蓝点的读屏文案（2026-10-14 impeccable P2 修复）：点本身仍
+  // aria-hidden，信号由页签按钮的 aria-label 报出。
+  'center.tasks.signal': '有任务进行中或提议待决策',
   'center.insights': '洞察',
   'center.close': '关闭',
   'center.read': '阅读',
@@ -432,6 +435,9 @@ export const zh = {
   'proposal.ignoreAll': '全部忽略',
   'proposal.confirmWrite': '确认写入（{count}）',
   'proposal.escArm': '已勾选 {count} 项——再按一次 Esc 才会丢弃这份裁决',
+  // 裁决卡底栏上方的键帽提示（2026-10-14 可发现性修复）：热键在用得着的地方可见。
+  'proposal.keyhintDiscard': 'J/K 移动 · 空格 勾选 · 回车 确认 · Esc 丢弃',
+  'proposal.keyhintClose': 'J/K 移动 · 空格 勾选 · 回车 确认 · Esc 关闭',
   'proposal.memoryRewriteHint': '若这条规则其实该写进该能力自身的文件（SKILL.md／脚本），驳回此条并让 agent 改提技能改写更合适。',
   'proposal.cursorAnnounce': '键盘光标：第 {position} 行，共 {total} 行',
 
@@ -772,6 +778,9 @@ export const en = {
   // Center pane
   'center.conversation': 'Conversation',
   'center.tasks': 'Tasks',
+  // The 任务 tab dot's screen-reader wording (2026-10-14 impeccable P2 fix):
+  // the dot stays aria-hidden; the tab button's aria-label carries the signal.
+  'center.tasks.signal': 'tasks running or proposals awaiting decision',
   'center.insights': 'Insights',
   'center.close': 'Close',
   'center.read': 'Read',
@@ -879,6 +888,9 @@ export const en = {
   'proposal.ignoreAll': 'Ignore all',
   'proposal.confirmWrite': 'Confirm write ({count})',
   'proposal.escArm': '{count} rows ticked — press Esc again to discard this verdict',
+  // The keycap hint above the verdict card's footer (2026-10-14 discoverability fix).
+  'proposal.keyhintDiscard': 'J/K move · Space tick · Enter confirm · Esc discard',
+  'proposal.keyhintClose': 'J/K move · Space tick · Enter confirm · Esc close',
   'proposal.memoryRewriteHint': 'If this rule really belongs in the capability\'s own files (SKILL.md/scripts), discard it and have the agent propose a skill rewrite instead.',
   'proposal.cursorAnnounce': 'Keyboard cursor: row {position} of {total}',
 

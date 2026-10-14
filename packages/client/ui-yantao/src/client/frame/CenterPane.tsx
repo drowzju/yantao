@@ -114,11 +114,15 @@ const DOT_COLORS: Record<SaveStatus, string> = {
   conflict: 'var(--yt-error)',
 }
 
-/** The status dot beside a file tab's title. */
+/** The status dot beside a file tab's title. Sits outside the tab button
+    (sibling, not adornment), so it must speak for itself — title alone does
+    not reach screen readers (2026-10-14 impeccable P2 修复). */
 function StatusDot({ status, t }: { status: SaveStatus; t: WorkbenchT }): ReactElement {
   return (
     <span
       data-status={status}
+      role="img"
+      aria-label={t(STATUS_KEYS[status])}
       title={t(STATUS_KEYS[status])}
       style={{
         width: 6,
@@ -166,9 +170,13 @@ export function CenterPane({
   const running = runningCount(taskRows)
   return (
     <div style={paneStyle}>
-      <div style={stripStyle}>
+      {/* 页签条带补语义角色（2026-10-14 impeccable P2 修复）：读屏此前只听到
+          一排裸按钮，不知道这是一组页签、哪一个是当前页。 */}
+      <div style={stripStyle} role="tablist">
         <button
           type="button"
+          role="tab"
+          aria-selected={conversationActive}
           style={tabFace(conversationActive)}
           data-hover="tab"
           /* data-selected 是激活页签的 hover 豁免凭证（2026-10-12 截图评审）：
@@ -182,10 +190,17 @@ export function CenterPane({
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={tasksActive}
           style={tabFace(tasksActive)}
           data-hover="tab"
           data-selected={tasksActive ? '' : undefined}
           data-center-tab={TASKS_TAB}
+          // 蓝点本身保持 aria-hidden（装饰随钮走），但信号必须抵达读屏——
+          // 由页签按钮的可访问名报出（2026-10-14 impeccable P2 修复）。
+          aria-label={running > 0 || inboxPending > 0
+            ? `${t('center.tasks')}，${t('center.tasks.signal')}`
+            : undefined}
           onClick={() => { onActivate(TASKS_TAB) }}
         >
           {t('center.tasks')}
@@ -210,6 +225,8 @@ export function CenterPane({
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={insightsActive}
           style={tabFace(insightsActive)}
           data-hover="tab"
           data-selected={insightsActive ? '' : undefined}
@@ -229,6 +246,8 @@ export function CenterPane({
               {status !== undefined && <StatusDot status={status} t={t} />}
               <button
                 type="button"
+                role="tab"
+                aria-selected={tabs.active === tab.path}
                 style={tabFace(tabs.active === tab.path)}
                 title={tab.path}
                 data-tab-button={tab.path}

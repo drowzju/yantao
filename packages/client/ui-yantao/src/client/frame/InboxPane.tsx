@@ -16,9 +16,8 @@ import type { KbQueuedProposal } from '@deepseek-ai/dsh-api-yantao-kb-controller
 import { proposalOfPayload } from '../capability-match.ts'
 import type { WorkbenchT } from '../locales.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
-import { ghostButtonStyle, toolButtonArmedStyle, toolButtonStyle } from '../buttons.ts'
+import { ghostButtonStyle, toolButtonStyle } from '../buttons.ts'
 import { activatable } from '../activatable.ts'
-import { useArmedAction } from '../use-armed-action.ts'
 import { formatStamp } from '../stamp.ts'
 
 /** The pane's props: the inbox's rows, the in-flight decision, the two verdicts. */
@@ -31,6 +30,8 @@ export interface InboxPaneProps {
   readonly onConfirm: (entry: KbQueuedProposal, ticked: readonly number[]) => void
   /** Drop one pending entry without writing anything. */
   readonly onDiscard: (entry: KbQueuedProposal) => void
+  /** Re-queue one discarded entry's content as a fresh pending proposal (2026-10-14 丢弃后悔药). */
+  readonly onReenqueue: (entry: KbQueuedProposal) => void
   /** The registered capabilities' names — add-memory rows scoped to one carry the rewrite hint (2026-10-10). */
   readonly capabilityScopes?: readonly string[]
   /** The workbench dictionary's bound translator — the shared card's tongue. */
@@ -140,8 +141,8 @@ const errorListStyle = {
   fontSize: 'var(--yt-type-label)',
 } as const
 
-// 行内丢弃/关闭钮收敛到 ./buttons.ts 的 tool 面（P1-2 收敛，2026-10-12）——
-// 私养的迷你幽灵退役；武装态走共享 toolButtonArmedStyle（P1-1）。
+// 行内丢弃/重新入队钮收敛到 ./buttons.ts 的 tool 面（P1-2 收敛，2026-10-12）——
+// 私养的迷你幽灵退役；丢弃 2026-10-14 起单击即决（危险分级裁决），不再穿武装面。
 
 /** The degraded card for a payload the client can no longer parse. */
 const plainCardStyle = {
@@ -178,19 +179,11 @@ function ordered(entries: readonly KbQueuedProposal[]): readonly KbQueuedProposa
  * @param props - see {@link InboxPaneProps}.
  * @returns the pane element.
  */
-export function InboxPane({ entries, busyId, onConfirm, onDiscard, capabilityScopes, t }: InboxPaneProps): ReactElement {
+export function InboxPane({ entries, busyId, onConfirm, onDiscard, onReenqueue, capabilityScopes, t }: InboxPaneProps): ReactElement {
   // The open card's entry id; either verdict closes it — the row's chip
   // carries the outcome (取消即丢弃，ADR-0047 验收修正).
   const [openId, setOpenId] = useState<string | null>(null)
-  // 行内丢弃的两击武装（2026-10-12 评审 P1-1）：与全站删除同一教义——
-  // 打开裁决卡即解除武装，别让两个毁灭动作同时处于待发。
-  const { armedId: armedDiscardId, attempt: attemptDiscard, disarm: disarmDiscard } = useArmedAction()
-  // 开卡的唯一入口（复检 P2）：鼠标与键盘两路都必须先解除行级丢弃的
-  // 武装——否则键盘开卡再关，行级「确认丢弃？」还挂着，下一落点即执行。
-  const openCard = (entry: KbQueuedProposal): void => {
-    disarmDiscard()
-    setOpenId(entry.id)
-  }
+  const openCard = (entry: KbQueuedProposal): void => { setOpenId(entry.id) }
   const openEntry = openId === null ? undefined : entries.find(entry => entry.id === openId)
   const openProposal = openEntry === undefined ? null : proposalOfPayload(openEntry.proposal)
   return (
@@ -242,17 +235,33 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, capabilitySco
                     </span>
                   )}
                 </div>
+                {/* 丢弃是轻裁决，单击即决（2026-10-14 危险分级裁决，DESIGN.md
+                    「裁决动作的危险分级」）：什么都不写、条目留痕、可重新入队。
+                    此前的行级两击武装（2026-10-12 P1-1）是形归并的误伤——武装
+                    只留给真删除（记忆/调度/待办/能力）。 */}
                 {pending && (
                   <button
                     type="button"
-                    style={armedDiscardId === entry.id ? toolButtonArmedStyle : toolButtonStyle}
+                    style={toolButtonStyle}
                     data-inbox-row-discard="true"
-                    data-armed={armedDiscardId === entry.id || undefined}
                     data-hover="true"
                     disabled={busyId === entry.id}
-                    onClick={() => { attemptDiscard(entry.id, () => { onDiscard(entry) }) }}
+                    onClick={() => { onDiscard(entry) }}
                   >
-                    {armedDiscardId === entry.id ? '确认丢弃？' : '丢弃'}
+                    丢弃
+                  </button>
+                )}
+                {/* 误丢弃的后悔药：内容原样投回队列等重新裁决，本条留痕不动。 */}
+                {entry.status === 'discarded' && (
+                  <button
+                    type="button"
+                    style={toolButtonStyle}
+                    data-inbox-row-reenqueue="true"
+                    data-hover="true"
+                    disabled={busyId === entry.id}
+                    onClick={() => { onReenqueue(entry) }}
+                  >
+                    重新入队
                   </button>
                 )}
               </div>
