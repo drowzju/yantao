@@ -56,7 +56,9 @@ describe('isRunLogPath', () => {
     // so tabs.ts hand-copies the literal; this pin catches a one-sided edit.
     const controller = await import('@deepseek-ai/dsh-api-yantao-kb-controller/types')
     expect((await import('../src/client/tabs.ts')).WORKSPACE_RUN_LOG_DIR).toBe(controller.WORKSPACE_RUN_LOG_DIR)
-  })
+    // 全量并发下控制器包的动态 import 会被 worker 争用拖过 5s 默认超时
+    // （单跑 1.6s，并发 5s+）——超时放宽，钉的语义不变（2026-10-14）。
+  }, 20000)
 })
 
 describe('openTab', () => {

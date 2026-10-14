@@ -485,6 +485,10 @@ export function MemoryPanel({
                     disabled={busy}
                     data-armed={armedDeleteId === entry.id || undefined}
                     data-memory-delete={entry.id}
+                    // ✕ 不是名字（2026-10-14 impeccable P2 修复）：非确认态的
+                    // 纯符号对读屏无意义，带上所删内容的节选。
+                    aria-label={`${t('workbench.delete')}「${entry.text.length > 20 ? `${entry.text.slice(0, 20)}…` : entry.text}」`}
+                    title={t('workbench.delete')}
                     onClick={() => { attemptDelete(entry.id, () => { void forget(group, entry.id) }) }}
                   >
                     {armedDeleteId === entry.id ? t('workbench.deleteArm') : '✕'}

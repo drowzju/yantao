@@ -263,7 +263,9 @@ const inputStyle = {
   borderColor: 'var(--yt-border-subtle)',
   borderRadius: 4,
   fontFamily: 'inherit',
-  fontSize: 'var(--yt-type-label)',
+  // 输入类控件是正文面（DESIGN.md §3「正文、列表、表格、输入」），不为密度
+  // 缩字号——ConfigDialog 2026-10-09 已立法，此处 2026-10-14 归队。
+  fontSize: 'var(--yt-type-body)',
 } as const
 
 const textareaStyle = {

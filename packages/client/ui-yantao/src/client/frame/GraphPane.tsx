@@ -13,6 +13,7 @@ import type { KbRelationGraphResult, KbWireRelationEdge } from '@deepseek-ai/dsh
 import { createLayout, stepLayout, type ForceLayout } from '../graph/graphLayout.ts'
 import { defaultEnabledKinds, kindOf, visibleSubgraph } from '../graph/subgraph.ts'
 import { tabTitle } from '../tabs.ts'
+import { tabItemActiveStyle, tabItemStyle } from '../buttons.ts'
 import type { WorkbenchT } from '../locales.ts'
 
 /** The pane's fixed coordinate space; the SVG scales it to fit. */
@@ -142,7 +143,11 @@ interface ExtraViews {
  * @param props - see {@link GraphPaneProps}.
  * @returns the pane element.
  */
-export function GraphPane({ data, onOpen, onReload = undefined, t }: GraphPaneProps): ReactElement {
+export function GraphPane({ data, onOpen, onReload, t }: GraphPaneProps): ReactElement {
+  // 图谱/列表双视图（2026-10-14 impeccable P2 修复）：力导图只认指针事件，
+  // 对键盘与读屏是整面白墙——列表视图是同一数据的文本通道，节点行是真
+  // 按钮（回车打开实体），关系逐行成文；图例过滤对两个视图同样生效。
+  const [mode, setMode] = useState<'graph' | 'list'>('graph')
   const svgRef = useRef<SVGSVGElement | null>(null)
   const layoutRef = useRef<ForceLayout | null>(null)
   const alphaRef = useRef(0)
@@ -413,67 +418,117 @@ export function GraphPane({ data, onOpen, onReload = undefined, t }: GraphPanePr
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
       {onReload !== undefined && <ReloadButton onReload={onReload} t={t} />}
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-        preserveAspectRatio="xMidYMid meet"
-        style={{ width: '100%', height: '100%', display: 'block', fontFamily: 'var(--yt-font-ui)', touchAction: 'none' }}
-        onPointerDown={onBackgroundDown}
-        onPointerMove={onBackgroundMove}
-        onPointerUp={onBackgroundUp}
-        onPointerCancel={onBackgroundUp}
-      >
-        <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
-          {layout !== null && layout.edges.map((edge, i) => {
-            const a = layout.nodes[edge.source]
-            const b = layout.nodes[edge.target]
-            if (a === undefined || b === undefined) return null
-            const kind = edgeKindOf(a.id, b.id)
-            const highlighted = focusId !== null && neighbours !== null
-              && (a.id === focusId || b.id === focusId) && neighbours.has(a.id) && neighbours.has(b.id)
+      {/* 视图切换：与页签同构（tabItem 面 + data-selected 豁免）。 */}
+      <div style={{ position: 'absolute', top: 8, left: 12, zIndex: 1, display: 'flex', gap: 'var(--yt-space-1)' }}>
+        {(['graph', 'list'] as const).map(option => (
+          <button
+            key={option}
+            type="button"
+            data-hover="tab"
+            data-selected={mode === option ? '' : undefined}
+            aria-pressed={mode === option}
+            style={mode === option ? tabItemActiveStyle : tabItemStyle}
+            onClick={() => { setMode(option) }}
+          >
+            {t(option === 'graph' ? 'graph.viewGraph' : 'graph.viewList')}
+          </button>
+        ))}
+      </div>
+      {mode === 'list' ? (
+        <div
+          style={{
+            position: 'absolute', inset: 0, overflow: 'auto',
+            padding: 'var(--yt-space-6) var(--yt-space-3) var(--yt-space-3)',
+            fontSize: 'var(--yt-type-body)',
+          }}
+          data-graph-list="true"
+        >
+          <div style={listHeadStyle}>{t('graph.nodes')}</div>
+          {filtered.nodes.map((id) => {
+            const kind = kindOf(id)
             return (
-              <line
-                key={`${kind}:${a.id}:${b.id}:${i}`}
-                x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                stroke={EDGE_STROKE[kind]}
-                strokeWidth={highlighted ? 3 : 1.5}
-                strokeOpacity={neighbours === null ? 0.75 : (highlighted ? 1 : DIM_OPACITY)}
-                {...(kind === 'person-person' ? { strokeDasharray: '5 4' } : {})}
-              />
-            )
-          })}
-          {layout !== null && layout.nodes.map((node, index) => {
-            const kind = kindOf(node.id)
-            const isolated = (degree.get(node.id) ?? 0) === 0
-            const focused = node.id === focusId
-            const dimmed = neighbours !== null && !neighbours.has(node.id)
-            return (
-              <g
-                key={node.id}
-                transform={`translate(${node.x},${node.y})${focused ? ` scale(${FOCUS_NODE_SCALE})` : ''}`}
-                style={{ cursor: 'pointer', opacity: dimmed ? DIM_OPACITY : 1 }}
-                onPointerDown={(event) => { onNodeDown(event, index) }}
-                onPointerMove={onNodeMove}
-                onPointerUp={onNodeUp}
-                onPointerCancel={onNodeUp}
-                onDoubleClick={(event) => { onNodeDoubleClick(event, node.id) }}
+              <button
+                key={id}
+                type="button"
+                data-hover="true"
+                style={nodeRowStyle}
+                onClick={() => { onOpen(id) }}
               >
-                <title>{node.id}</title>
-                {kind !== null && <NodeShape kind={kind} isolated={isolated} />}
-                <text
-                  y={kind === 'person' ? 23 : 26}
-                  textAnchor="middle"
-                  fontSize={12}
-                  fill={isolated ? 'var(--yt-text-muted)' : 'var(--yt-text-primary)'}
-                  style={{ pointerEvents: 'none', userSelect: 'none' }}
-                >
-                  {tabTitle(node.id)}
-                </text>
-              </g>
+                <span>{tabTitle(id)}</span>
+                {kind !== null && <span style={kindChipStyle}>{t(KIND_KEYS[kind])}</span>}
+              </button>
             )
           })}
-        </g>
-      </svg>
+          <div style={listHeadStyle}>{t('graph.edges')}</div>
+          {filtered.edges.map((edge, index) => (
+            <div key={`${edge.from}:${edge.kind}:${edge.to}:${index}`} style={edgeRowStyle}>
+              {`${tabTitle(edge.from)} — ${t(GRAPH_LEGEND_KEYS[edge.kind])} — ${tabTitle(edge.to)}`}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+          preserveAspectRatio="xMidYMid meet"
+          style={{ width: '100%', height: '100%', display: 'block', fontFamily: 'var(--yt-font-ui)', touchAction: 'none' }}
+          onPointerDown={onBackgroundDown}
+          onPointerMove={onBackgroundMove}
+          onPointerUp={onBackgroundUp}
+          onPointerCancel={onBackgroundUp}
+        >
+          <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
+            {layout !== null && layout.edges.map((edge, i) => {
+              const a = layout.nodes[edge.source]
+              const b = layout.nodes[edge.target]
+              if (a === undefined || b === undefined) return null
+              const kind = edgeKindOf(a.id, b.id)
+              const highlighted = focusId !== null && neighbours !== null
+              && (a.id === focusId || b.id === focusId) && neighbours.has(a.id) && neighbours.has(b.id)
+              return (
+                <line
+                  key={`${kind}:${a.id}:${b.id}:${i}`}
+                  x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                  stroke={EDGE_STROKE[kind]}
+                  strokeWidth={highlighted ? 3 : 1.5}
+                  strokeOpacity={neighbours === null ? 0.75 : (highlighted ? 1 : DIM_OPACITY)}
+                  {...(kind === 'person-person' ? { strokeDasharray: '5 4' } : {})}
+                />
+              )
+            })}
+            {layout !== null && layout.nodes.map((node, index) => {
+              const kind = kindOf(node.id)
+              const isolated = (degree.get(node.id) ?? 0) === 0
+              const focused = node.id === focusId
+              const dimmed = neighbours !== null && !neighbours.has(node.id)
+              return (
+                <g
+                  key={node.id}
+                  transform={`translate(${node.x},${node.y})${focused ? ` scale(${FOCUS_NODE_SCALE})` : ''}`}
+                  style={{ cursor: 'pointer', opacity: dimmed ? DIM_OPACITY : 1 }}
+                  onPointerDown={(event) => { onNodeDown(event, index) }}
+                  onPointerMove={onNodeMove}
+                  onPointerUp={onNodeUp}
+                  onPointerCancel={onNodeUp}
+                  onDoubleClick={(event) => { onNodeDoubleClick(event, node.id) }}
+                >
+                  <title>{node.id}</title>
+                  {kind !== null && <NodeShape kind={kind} isolated={isolated} />}
+                  <text
+                    y={kind === 'person' ? 23 : 26}
+                    textAnchor="middle"
+                    fontSize={12}
+                    fill={isolated ? 'var(--yt-text-muted)' : 'var(--yt-text-primary)'}
+                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                  >
+                    {tabTitle(node.id)}
+                  </text>
+                </g>
+              )
+            })}
+          </g>
+        </svg>
+      )}
       <div
         style={{
           position: 'absolute',
@@ -492,38 +547,57 @@ export function GraphPane({ data, onOpen, onReload = undefined, t }: GraphPanePr
       >
         {(Object.keys(EDGE_STROKE) as KbWireRelationEdge['kind'][]).map((kind) => {
           // The person–person base has no switch (ADR-0051); the other two
-          // rows are their own toggles.
+          // rows are their own toggles — 真按钮（2026-10-14 impeccable P2
+          // 修复）：此前是 span onClick，键盘与读屏够不到；aria-pressed
+          // 报开关态，色块承担视觉态。
           const switchKey: keyof ExtraViews | null = kind === 'area-project' ? 'areaProject' : kind === 'person-project' ? 'personProject' : null
           const on = switchKey === null || extra[switchKey]
+          const chip = (
+            <svg width={22} height={8} aria-hidden="true">
+              <line
+                x1={0} y1={4} x2={22} y2={4}
+                stroke={EDGE_STROKE[kind]}
+                strokeWidth={1.5}
+                {...(kind === 'person-person' ? { strokeDasharray: '5 4' } : {})}
+              />
+            </svg>
+          )
+          if (switchKey === null) {
+            return (
+              <span
+                key={kind}
+                style={{ display: 'flex', alignItems: 'center', gap: 'var(--yt-space-1)', userSelect: 'none' }}
+              >
+                {chip}
+                {t(GRAPH_LEGEND_KEYS[kind])}
+              </span>
+            )
+          }
           return (
-            <span
+            <button
               key={kind}
-              onClick={switchKey === null ? undefined : () => { toggleSwitch(switchKey) }}
+              type="button"
+              data-hover="true"
+              aria-pressed={on}
+              onClick={() => { toggleSwitch(switchKey) }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 'var(--yt-space-1)',
-                cursor: switchKey === null ? 'default' : 'pointer',
-                userSelect: 'none',
+                background: 'transparent', border: 'none', padding: 0,
+                fontFamily: 'inherit', fontSize: 'inherit', color: 'inherit',
+                cursor: 'pointer', userSelect: 'none',
               }}
             >
-              {switchKey !== null && (
-                <span
-                  style={{
-                    width: 11, height: 11, borderRadius: 3, flexShrink: 0,
-                    border: '1px solid var(--yt-border-strong)',
-                    background: on ? EDGE_STROKE[kind] : 'transparent',
-                  }}
-                />
-              )}
-              <svg width={22} height={8}>
-                <line
-                  x1={0} y1={4} x2={22} y2={4}
-                  stroke={EDGE_STROKE[kind]}
-                  strokeWidth={1.5}
-                  {...(kind === 'person-person' ? { strokeDasharray: '5 4' } : {})}
-                />
-              </svg>
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 11, height: 11, borderRadius: 3, flexShrink: 0,
+                  border: '1px solid var(--yt-border-strong)',
+                  background: on ? EDGE_STROKE[kind] : 'transparent',
+                }}
+              />
+              {chip}
               {t(GRAPH_LEGEND_KEYS[kind])}
-            </span>
+            </button>
           )
         })}
       </div>
@@ -537,6 +611,46 @@ const GRAPH_LEGEND_KEYS: Record<KbWireRelationEdge['kind'], Parameters<Workbench
   'area-project': 'graph.legend.areaProject',
   'person-person': 'graph.legend.personPerson',
 }
+
+/** The node kind's label key in the list view. */
+const KIND_KEYS: Record<'project' | 'person' | 'area', Parameters<WorkbenchT>[0]> = {
+  project: 'graph.kind.project',
+  person: 'graph.kind.person',
+  area: 'graph.kind.area',
+}
+
+/** The list view's section head (节点 / 关系) — 从属证据的 label 档弱墨。 */
+const listHeadStyle = {
+  marginTop: 'var(--yt-space-3)',
+  marginBottom: 'var(--yt-space-1)',
+  fontSize: 'var(--yt-type-label)',
+  color: 'var(--yt-text-muted)',
+} as const
+
+/** A node row in the list view: full-width text button, Enter opens the entity. */
+const nodeRowStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: 'var(--yt-space-2)',
+  width: '100%',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
+  background: 'transparent',
+  border: 'none',
+  borderRadius: 4,
+  fontFamily: 'inherit',
+  fontSize: 'inherit',
+  color: 'inherit',
+  textAlign: 'left',
+  cursor: 'pointer',
+} as const
+
+const kindChipStyle = { fontSize: 'var(--yt-type-label)', color: 'var(--yt-text-muted)' } as const
+
+const edgeRowStyle = {
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
+  color: 'var(--yt-text-secondary)',
+} as const
 
 /** The 刷新 button's ghost face — top-left, mirroring the legend card (top-right). */
 const reloadButtonStyle = {

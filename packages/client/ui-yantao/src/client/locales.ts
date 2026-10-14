@@ -402,12 +402,25 @@ export const zh = {
   // 图谱 tab (ADR-0049)
   'graph.empty': '暂无实体',
   'graph.refresh': '刷新',
+  // 图谱/列表双视图（2026-10-14 键盘与读屏可达化）：力导图是视觉增强，
+  // 列表是信息的兜底通道。
+  'graph.viewGraph': '图谱',
+  'graph.viewList': '列表',
+  'graph.nodes': '节点',
+  'graph.edges': '关系',
+  'graph.kind.project': '项目',
+  'graph.kind.person': '人物',
+  'graph.kind.area': '领域',
   'graph.legend.personProject': '人 — 项目',
   'graph.legend.areaProject': '领域 — 项目',
   'graph.legend.personPerson': '人 — 人',
 
   // Proposal inbox (ADR-0047)
   'inbox.discard': '丢弃',
+  // 只读裁决卡的底栏（2026-10-14 已裁决提议可读化）：关闭卡片 / 把已丢弃
+  // 的提议内容原样投回队列。
+  'inbox.close': '关闭',
+  'inbox.reenqueue': '重新入队',
 
   // Onboarding
   'onboarding.title': '选择知识库目录',
@@ -855,12 +868,23 @@ export const en = {
   // 图谱 tab (ADR-0049)
   'graph.empty': 'No entities yet',
   'graph.refresh': 'Refresh',
+  // The graph/list dual view (2026-10-14 keyboard & screen-reader access).
+  'graph.viewGraph': 'Graph',
+  'graph.viewList': 'List',
+  'graph.nodes': 'Nodes',
+  'graph.edges': 'Relations',
+  'graph.kind.project': 'project',
+  'graph.kind.person': 'person',
+  'graph.kind.area': 'area',
   'graph.legend.personProject': 'person — project',
   'graph.legend.areaProject': 'area — project',
   'graph.legend.personPerson': 'person — person',
 
   // Proposal inbox (ADR-0047)
   'inbox.discard': 'Discard',
+  // The read-only verdict card's footer (2026-10-14 settled-proposal readability).
+  'inbox.close': 'Close',
+  'inbox.reenqueue': 'Re-queue',
 
   // Onboarding
   'onboarding.title': 'Choose the KB directory',

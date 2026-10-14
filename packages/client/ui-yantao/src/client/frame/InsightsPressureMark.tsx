@@ -28,6 +28,12 @@ export function InsightsPressureMark({ useProjection }: InsightsPressureMarkProp
   return (
     <span
       data-insights-pressure={occupancy.percent}
+      // 读屏通道（2026-10-14 impeccable P2 修复）：点渲染在洞察页签按钮内，
+      // img 角色 + 可读名会让页签的可访问名自动带上压力读数（名字由内容
+      // 计算），无需 CenterPane 回传——与任务蓝点同一解法。文案对齐
+      // locales.ts 的 context.aria（本组件不经 slot 拿 t，沿用 title 的直写）。
+      role="img"
+      aria-label={`上下文已用 ${Math.round(occupancy.percent)}%`}
       title={`上下文占用 ${Math.round(occupancy.percent)}%`}
       style={{
         width: 7,

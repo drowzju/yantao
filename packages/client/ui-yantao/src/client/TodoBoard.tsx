@@ -97,7 +97,18 @@ const titleButtonStyle = { cursor: 'pointer', flex: 1, minWidth: 0, textAlign: '
 
 const editorStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)', padding: 'var(--yt-space-1) var(--yt-space-2) var(--yt-space-2) var(--yt-space-5)' } as const
 
-const fieldStyle = { width: '100%', boxSizing: 'border-box' } as const
+/** 编辑器的输入行：此前全裸（只有宽度），2026-10-14 穿上与 ConfigDialog
+    同款的输入面（impeccable P1 收敛）——正文面字号，不为密度缩。 */
+const fieldStyle = {
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
+  border: '1px solid var(--yt-border-subtle)',
+  borderRadius: 6,
+  background: 'var(--yt-surface-primary)',
+  color: 'inherit',
+  fontSize: 'var(--yt-type-body)',
+} as const
 
 /** The armed delete's inline face: danger ink on the raised surface, the same
     cut MemoryPanel's armed ✕ wears — it must override the css.action hover

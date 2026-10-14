@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { FileReader, FileWriter } from '../remote.ts'
 import { remoteMessage } from '../remote.ts'
+import { ghostButtonStyle, raisedButtonStyle } from '../buttons.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from '../locales.ts'
 
 /** Autosave delay after the last keystroke. */
@@ -296,9 +297,11 @@ export function FileEditor({
       {status === 'conflict' && serverCopy !== null && (
         <div style={barStyle} data-conflict="true">
           <span>{t('editor.conflictNote')}</span>
-          <button data-hover="true" type="button" onClick={overwrite}>{t('editor.overwrite')}</button>
-          <button data-hover="true" type="button" onClick={discard}>{t('editor.discardMine')}</button>
-          <button data-hover="true" type="button" onClick={() => { setShowDiff(open => !open) }}>
+          {/* 决定数据生死的按钮穿共享面孔（2026-10-14 impeccable P1 修复）：
+              此前是三个浏览器默认灰钮，与暖纸界面像两个软件拼的。 */}
+          <button data-hover="true" type="button" style={raisedButtonStyle} onClick={overwrite}>{t('editor.overwrite')}</button>
+          <button data-hover="true" type="button" style={raisedButtonStyle} onClick={discard}>{t('editor.discardMine')}</button>
+          <button data-hover="true" type="button" style={ghostButtonStyle} onClick={() => { setShowDiff(open => !open) }}>
             {showDiff ? t('editor.hideDiff') : t('editor.showDiff')}
           </button>
         </div>

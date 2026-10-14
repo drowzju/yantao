@@ -23,6 +23,7 @@ import { groupThreads, rollupImportance, THREAD_COLLAPSE_MIN } from './mail-thre
 import type { MailEntities } from './mail-apply.ts'
 import type { ProposalTarget } from './proposal-apply.ts'
 import { ProposalCard } from './ProposalCard.tsx'
+import { ghostButtonStyle, primaryButtonStyle, raisedButtonStyle } from './buttons.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 
 export type { MailProcessedRange } from './mail-run.ts'
@@ -86,9 +87,11 @@ const IMPORTANCE_KEYS: Record<MailImportance, WorkbenchLocaleKey> = {
   normal: 'mail.importance.normal',
 }
 
-/** How each importance badge is styled: 重点 shouts, 汇总 mumbles, 普通 stays quiet. */
+/** How each importance badge is styled: 重点 用 accent 墨（2026-10-14 裁决：
+    红还给错误——此前借 --yt-error，真错误的警觉性被稀释，违 DESIGN.md §8
+    「不给重要的内容上色」）；汇总 mumbles, 普通 stays quiet. */
 const IMPORTANCE_STYLES: Record<MailImportance, CSSProperties> = {
-  focus: { color: 'var(--yt-error)', fontWeight: 600 },
+  focus: { color: 'var(--yt-accent-text)', fontWeight: 600 },
   digest: { color: 'var(--yt-text-muted)' },
   normal: { color: 'var(--yt-text-secondary)' },
 }
@@ -97,7 +100,9 @@ const IMPORTANCE_STYLES: Record<MailImportance, CSSProperties> = {
 // 阶梯——之前 4px/6px 的挤压节奏让三个节拍糊成一团。
 const wrapStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-2)', padding: 'var(--yt-space-2) var(--yt-space-3)' } as const
 
-const buttonStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', minHeight: 'var(--yt-control-min-h)', boxSizing: 'border-box', alignSelf: 'flex-start' } as const
+// 按钮面孔收敛到 ./buttons.ts（2026-10-14 impeccable P1 修复）：此前这里的
+// 按钮只有 padding 和最小高，是浏览器默认灰壳——导航/记住穿 raised 面，
+// 取消穿 ghost 面，「分析这 N 封」是面板主节拍、穿 primary 面。
 
 const mutedStyle = { color: 'var(--yt-text-muted)', fontSize: 'var(--yt-type-label)' } as const
 
@@ -228,7 +233,7 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
       <div style={{ display: 'flex', gap: 'var(--yt-space-1)' }}>
         <button data-hover="true"
           type="button"
-          style={buttonStyle}
+          style={raisedButtonStyle}
           disabled={busy}
           onClick={() => { void run.read('older') }}
         >
@@ -236,7 +241,7 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
         </button>
         <button data-hover="true"
           type="button"
-          style={buttonStyle}
+          style={raisedButtonStyle}
           disabled={busy}
           onClick={() => { void run.read('newer') }}
         >
@@ -298,12 +303,12 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
       )}
       {stale && <div style={hintStyle}>{t('mail.longGap')}</div>}
       {mails.length > 0 && (
-        <button data-hover="true" type="button" style={buttonStyle} disabled={busy} onClick={() => { void run.run() }}>
+        <button data-hover="primary" type="button" style={{ ...primaryButtonStyle, alignSelf: 'flex-start' }} disabled={busy} onClick={() => { void run.run() }}>
           {phase === 'analysing' ? t('mail.analysing') : t('mail.analyseBatch', { count: mails.length })}
         </button>
       )}
       {phase === 'analysing' && (
-        <button data-hover="true" type="button" style={buttonStyle} data-mail-cancel="true" onClick={() => { run.cancel() }}>
+        <button data-hover="true" type="button" style={ghostButtonStyle} data-mail-cancel="true" onClick={() => { run.cancel() }}>
           {t('common.cancel')}
         </button>
       )}
@@ -324,7 +329,16 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
       {memoryAdd !== undefined && (
         <div style={{ display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center' }} data-mail-memory="true">
           <input
-            style={{ flex: 1, minWidth: 0, padding: 'var(--yt-space-1) var(--yt-space-2)' }}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              padding: 'var(--yt-space-1) var(--yt-space-2)',
+              border: '1px solid var(--yt-border-subtle)',
+              borderRadius: 6,
+              background: 'var(--yt-surface-primary)',
+              color: 'inherit',
+              fontSize: 'var(--yt-type-body)',
+            }}
             value={memory}
             placeholder={t('memory.addPlaceholder')}
             onChange={(event) => { setMemory(event.target.value) }}
@@ -335,7 +349,7 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
               if (event.key === 'Enter') { void remember() }
             }}
           />
-          <button data-hover="true" type="button" style={buttonStyle} disabled={memory.trim() === ''} onClick={() => { void remember() }}>
+          <button data-hover="true" type="button" style={raisedButtonStyle} disabled={memory.trim() === ''} onClick={() => { void remember() }}>
             {t('memory.addButton')}
           </button>
         </div>

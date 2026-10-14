@@ -152,6 +152,34 @@ describe('InboxPane', () => {
     expect((onReenqueue.mock.calls[0] as [KbQueuedProposal])[0].id).toBe('prp_1')
   })
 
+  it('opens a discarded row as a read-only audit card — look before you re-queue (2026-10-14)', () => {
+    const onReenqueue = vi.fn()
+    const { container } = renderPane([entry({ status: 'discarded', decidedAt: '2026-10-05T09:30:00.000Z' })], { onReenqueue })
+    fireEvent.click(screen.getByText('调度「每日摘要」的提议'))
+    // 内容可读（不是墓碑），但没有任何裁决控件：勾选框、确认写入、键帽提示都不在。
+    expect(screen.getByText('发周报')).toBeTruthy()
+    const card = container.querySelector('[data-proposal-card="true"]') as HTMLElement
+    expect(within(card).queryByRole('checkbox')).toBeNull()
+    expect(within(card).queryByText(/确认写入/)).toBeNull()
+    expect(within(card).queryByText(/J\/K 移动/)).toBeNull()
+    // 底栏只有关闭与重新入队；后者看完再投，不是行尾的盲投。
+    fireEvent.click(within(card).getByText('重新入队'))
+    expect(onReenqueue).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes the read-only audit card with Esc and the 关闭 button', () => {
+    const { container } = renderPane([entry({ status: 'approved', decidedAt: '2026-10-05T09:00:00.000Z' })])
+    fireEvent.click(screen.getByText('调度「每日摘要」的提议'))
+    const card = container.querySelector('[data-proposal-card="true"]') as HTMLElement
+    // 已批准的只读卡没有重新入队，只有关闭。
+    expect(within(card).queryByText('重新入队')).toBeNull()
+    fireEvent.keyDown(card, { key: 'Escape' })
+    expect(container.querySelector('[data-proposal-card="true"]')).toBeNull()
+    fireEvent.click(screen.getByText('调度「每日摘要」的提议'))
+    fireEvent.click(screen.getByText('关闭'))
+    expect(container.querySelector('[data-proposal-card="true"]')).toBeNull()
+  })
+
   it('degrades an unparsable payload to a discard-only dialog', () => {
     const onDiscard = vi.fn()
     const { container } = render(<InboxPane

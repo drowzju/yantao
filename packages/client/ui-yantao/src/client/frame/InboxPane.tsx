@@ -1,6 +1,8 @@
 /**
  * The 提议 tab's pane (ADR-0047): the inbox's rows — pending first, decided
- * after — with the shared ProposalCard opening over a clicked pending row.
+ * after — with the shared ProposalCard opening over any clicked row: pending
+ * rows open the decision card, decided rows open the same card in readOnly
+ * audit mode (2026-10-14 已裁决可读化——留痕不该是只能看标题的墓碑）.
  * The card is the one decision surface (零新面孔，样式统一裁决直接适用):
  * 批准 ticks rows and writes through the frame's human-channel seams, and
  * leaving the card any other way — 丢弃钮、取消、Esc — is the discard verdict
@@ -197,11 +199,14 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, onReenqueue, 
             return (
               <div key={entry.id} style={rowStyle} data-inbox-entry={entry.id} data-inbox-status={entry.status}>
                 <div
-                  style={pending ? rowMainStyle : { ...rowMainStyle, cursor: 'default' }}
-                  role={pending ? 'button' : undefined}
-                  tabIndex={pending ? 0 : undefined}
-                  onClick={() => { if (pending) openCard(entry) }}
-                  onKeyDown={pending ? activatable(() => { openCard(entry) }) : undefined}
+                  style={rowMainStyle}
+                  role="button"
+                  tabIndex={0}
+                  // 已裁决行同样可点开（2026-10-14 已裁决可读化）：留痕不该是
+                  // 只能看标题的墓碑——pending 开裁决卡，已裁决开同一张卡的
+                  // 只读审计面。
+                  onClick={() => { openCard(entry) }}
+                  onKeyDown={activatable(() => { openCard(entry) })}
                 >
                   <span style={titleStyle}>{entry.title}</span>
                   {entry.note !== undefined && <span style={noteStyle}>{entry.note}</span>}
@@ -272,8 +277,19 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, onReenqueue, 
       {openEntry !== undefined && openProposal !== null && (
         <ProposalCard
           proposal={openProposal}
-          onConfirm={(ticked) => { setOpenId(null); onConfirm(openEntry, ticked) }}
-          onDiscard={() => { setOpenId(null); onDiscard(openEntry) }}
+          {...(openEntry.status === 'pending'
+            ? {
+              onConfirm: (ticked: readonly number[]) => { setOpenId(null); onConfirm(openEntry, ticked) },
+              onDiscard: () => { setOpenId(null); onDiscard(openEntry) },
+            }
+            : {
+              // 只读审计面：看完再决定要不要投回队列——重新入队不再是盲投。
+              readOnly: true,
+              onDismiss: () => { setOpenId(null) },
+              ...(openEntry.status === 'discarded'
+                ? { onReenqueue: () => { setOpenId(null); onReenqueue(openEntry) } }
+                : {}),
+            })}
           busy={busyId === openEntry.id}
           {...(capabilityScopes !== undefined ? { capabilityScopes } : {})}
           t={t}
@@ -284,7 +300,9 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, onReenqueue, 
           <div style={plainInnerStyle}>
             <div style={titleStyle}>{openEntry.title}</div>
             <div style={{ ...noteStyle, margin: 'var(--yt-space-2) 0 var(--yt-space-3)' }}>
-              这条提议的内容无法在本工作台解析（可能来自旧版本），只能丢弃。
+              {openEntry.status === 'pending'
+                ? '这条提议的内容无法在本工作台解析（可能来自旧版本），只能丢弃。'
+                : '这条提议的内容无法在本工作台解析（可能来自旧版本）。'}
             </div>
             <div style={{ display: 'flex', gap: 'var(--yt-space-2)', justifyContent: 'flex-end' }}>
               {/* 模态内的按钮读得像按钮：与 ProposalCard 底栏同为 ghost 面
@@ -292,14 +310,26 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, onReenqueue, 
               <button data-hover="true" type="button" style={ghostButtonStyle} onClick={() => { setOpenId(null) }}>
                 关闭
               </button>
-              <button data-hover="true"
-                type="button"
-                style={ghostButtonStyle}
-                disabled={busyId === openEntry.id}
-                onClick={() => { onDiscard(openEntry) }}
-              >
-                丢弃
-              </button>
+              {openEntry.status === 'pending' && (
+                <button data-hover="true"
+                  type="button"
+                  style={ghostButtonStyle}
+                  disabled={busyId === openEntry.id}
+                  onClick={() => { onDiscard(openEntry) }}
+                >
+                  丢弃
+                </button>
+              )}
+              {openEntry.status === 'discarded' && (
+                <button data-hover="true"
+                  type="button"
+                  style={ghostButtonStyle}
+                  disabled={busyId === openEntry.id}
+                  onClick={() => { setOpenId(null); onReenqueue(openEntry) }}
+                >
+                  重新入队
+                </button>
+              )}
             </div>
           </div>
         </div>

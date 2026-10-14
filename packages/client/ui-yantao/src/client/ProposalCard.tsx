@@ -14,7 +14,7 @@ import type { Proposal, ProposalAction } from './proposal.ts'
 import { allProposalActions, GROUP_KEYS } from './proposal.ts'
 import { lineDiff, type DiffRow } from './diff.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
-import { ghostButtonStyle, primaryButtonDisabledStyle, primaryButtonStyle } from './buttons.ts'
+import { ghostButtonStyle, primaryButtonDisabledStyle, primaryButtonStyle, raisedButtonStyle } from './buttons.ts'
 import { entityNameOf } from './validate.ts'
 import { bareSubject } from './mail-threads.ts'
 import { PROPOSAL_MODAL_ID, proposalVerdictSeat, type ProposalVerdictHandler } from './proposal-verdict-seat.ts'
@@ -78,14 +78,17 @@ const sectionTitleStyle = { ...groupTitleStyle, margin: 'var(--yt-space-3) 0 var
     the row's own alignment decides. */
 const foldTitleStyle = { ...groupTitleStyle, margin: 0 } as const
 
-const focusTitleStyle = { margin: 'var(--yt-space-3) 0 var(--yt-space-1)', fontSize: 'var(--yt-type-section)', fontWeight: 700, color: 'var(--yt-error)' } as const
+/** 「重点提醒」的标题与行（2026-10-14 裁决：红还给错误——此前 error 红 +
+    阶梯外 700 字重 + error-bg 行底，违 DESIGN.md §3 字重三档与 §8 不给
+    重要内容上色的禁令；accent 是唯一被允许抢视线的色）。 */
+const focusTitleStyle = { margin: 'var(--yt-space-3) 0 var(--yt-space-1)', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-accent-text)' } as const
 
 const focusRowStyle = {
   display: 'flex',
   gap: 'var(--yt-space-2)',
   alignItems: 'baseline',
   padding: 'var(--yt-space-1) var(--yt-space-2)',
-  background: 'var(--yt-error-bg)',
+  background: 'var(--yt-accent-bg)',
   borderRadius: 6,
   fontSize: 'var(--yt-type-label)',
 } as const
@@ -399,13 +402,23 @@ interface EntityRow {
  */
 export function ProposalCard(props: {
   readonly proposal: Proposal
-  readonly onConfirm: (ticked: readonly number[], areaPicks?: Readonly<Record<number, readonly string[]>>) => void
+  /** The approve verdict — required unless `readOnly` (a settled entry's audit view has nothing to approve). */
+  readonly onConfirm?: (ticked: readonly number[], areaPicks?: Readonly<Record<number, readonly string[]>>) => void
   /** The close-only escape — required unless `onDiscard` replaces it (ADR-0047 验收修正). */
   readonly onDismiss?: () => void
   /** The free-input continuation — present only when the run can take instructions. */
   readonly onInstruction?: (text: string) => Promise<void>
   /** The explicit 丢弃 verdict (ADR-0047) — renders the ghost beside the primary confirm. */
   readonly onDiscard?: () => void
+  /**
+   * Audit mode for a settled inbox entry (2026-10-14 已裁决可读化）：no
+   * checkboxes, no verdict footer — the card shows what was proposed and
+   * nothing can be re-decided; the footer's only verbs are 关闭 and, for a
+   * discarded entry, 重新入队.
+   */
+  readonly readOnly?: boolean
+  /** The discarded entry's 重新入队 (readOnly mode only) — re-queue the content as a fresh pending proposal. */
+  readonly onReenqueue?: () => void
   /**
    * The registered capabilities' names (2026-10-10 分流提示): an add-memory
    * row scoped to one of them carries the rewrite-or-remember hint — the
@@ -417,6 +430,7 @@ export function ProposalCard(props: {
   readonly t: WorkbenchT
 }): ReactElement {
   const { proposal, t } = props
+  const readOnly = props.readOnly === true
   // Nothing is ticked to begin with: writing into a knowledge base is the one
   // action here that cannot be undone by looking again.
   const [ticked, setTicked] = useState<readonly number[]>([])
@@ -678,12 +692,14 @@ export function ProposalCard(props: {
             aria-current={row.indices.at(0) === cursor ? 'true' : undefined}
             data-proposal-row={row.indices.at(0)}
           >
-            <input
-              type="checkbox"
-              aria-label={row.label}
-              checked={row.indices.every(index => ticked.includes(index))}
-              onChange={() => { toggleRow(row.indices) }}
-            />
+            {!readOnly && (
+              <input
+                type="checkbox"
+                aria-label={row.label}
+                checked={row.indices.every(index => ticked.includes(index))}
+                onChange={() => { toggleRow(row.indices) }}
+              />
+            )}
             <div style={{ minWidth: 0 }}>
               <div>{row.label}</div>
               {row.detail !== '' && <div style={detailStyle}>{row.detail}</div>}
@@ -753,13 +769,15 @@ export function ProposalCard(props: {
         <div key={`${keyPrefix}${kind}-${base}`} style={groupContainerStyle}>
           <div style={groupTitleStyle} data-proposal-group={kind}>
             {/* 决定 10: three-state select-all over the whole group. */}
-            <input
-              type="checkbox"
-              aria-label={t(GROUP_KEYS[kind])}
-              checked={allOn}
-              ref={(el) => { if (el !== null) el.indeterminate = !allOn && someOn }}
-              onChange={() => { toggleRow(groupIndices) }}
-            />
+            {!readOnly && (
+              <input
+                type="checkbox"
+                aria-label={t(GROUP_KEYS[kind])}
+                checked={allOn}
+                ref={(el) => { if (el !== null) el.indeterminate = !allOn && someOn }}
+                onChange={() => { toggleRow(groupIndices) }}
+              />
+            )}
             {t(GROUP_KEYS[kind])}
           </div>
           {layers.map((layer, layerAt) => {
@@ -772,13 +790,15 @@ export function ProposalCard(props: {
               <div key={layerAt}>
                 {layer.subject !== undefined && (
                   <div style={subHeaderStyle} data-proposal-mail-layer={layer.subject} title={layer.subject}>
-                    <input
-                      type="checkbox"
-                      aria-label={layer.subject}
-                      checked={layerAllOn}
-                      ref={(el) => { if (el !== null) el.indeterminate = !layerAllOn && layerSomeOn }}
-                      onChange={() => { toggleRow(layerIndices) }}
-                    />
+                    {!readOnly && (
+                      <input
+                        type="checkbox"
+                        aria-label={layer.subject}
+                        checked={layerAllOn}
+                        ref={(el) => { if (el !== null) el.indeterminate = !layerAllOn && layerSomeOn }}
+                        onChange={() => { toggleRow(layerIndices) }}
+                      />
+                    )}
                     <span style={subHeaderTextStyle}>{bareSubject(layer.subject) || layer.subject}</span>
                   </div>
                 )}
@@ -796,12 +816,14 @@ export function ProposalCard(props: {
                         aria-current={index === cursor ? 'true' : undefined}
                         data-proposal-row={index}
                       >
-                        <input
-                          type="checkbox"
-                          aria-label={label}
-                          checked={rowIndices.every(entry => ticked.includes(entry))}
-                          onChange={() => { toggleRow(rowIndices) }}
-                        />
+                        {!readOnly && (
+                          <input
+                            type="checkbox"
+                            aria-label={label}
+                            checked={rowIndices.every(entry => ticked.includes(entry))}
+                            onChange={() => { toggleRow(rowIndices) }}
+                          />
+                        )}
                         <div style={{ minWidth: 0 }}>
                           <div>{label}</div>
                           {detail !== '' && <div style={detailStyle}>{detail}</div>}
@@ -838,12 +860,14 @@ export function ProposalCard(props: {
                                   const on = current.includes(area)
                                   return (
                                     <label key={area} style={{ display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center', fontSize: 'var(--yt-type-label)' }}>
-                                      <input
-                                        type="checkbox"
-                                        aria-label={`${action.name}·${area}`}
-                                        checked={on}
-                                        onChange={() => { toggleArea(index, area, action.areas ?? []) }}
-                                      />
+                                      {!readOnly && (
+                                        <input
+                                          type="checkbox"
+                                          aria-label={`${action.name}·${area}`}
+                                          checked={on}
+                                          onChange={() => { toggleArea(index, area, action.areas ?? []) }}
+                                        />
+                                      )}
                                       {area}
                                     </label>
                                   )
@@ -1038,48 +1062,71 @@ export function ProposalCard(props: {
           </p>
         )}
         {/* 裁决键就地可见（2026-10-14）：Esc 的含义随卡走——收件箱卡是丢弃，
-            其余卡是关闭。 */}
-        <p style={keyhintStyle} data-proposal-keyhint="true">
-          {t(props.onDiscard !== undefined ? 'proposal.keyhintDiscard' : 'proposal.keyhintClose')}
-        </p>
-        <div style={footerStyle}>
-          <button type="button" style={ghostButtonStyle} data-hover="true" disabled={props.busy === true || nothing} onClick={all}>
-            {t('proposal.acceptAll')}
-          </button>
-          <button type="button" style={ghostButtonStyle} data-hover="true" disabled={props.busy === true} onClick={none}>
-            {t('proposal.ignoreAll')}
-          </button>
-          <span style={{ flex: 1 }} />
-          {/* ADR-0047 验收修正: with onDiscard the cancel ghost *becomes* the
+            其余卡是关闭。只读审计卡无裁决键，不挂提示。 */}
+        {!readOnly && (
+          <p style={keyhintStyle} data-proposal-keyhint="true">
+            {t(props.onDiscard !== undefined ? 'proposal.keyhintDiscard' : 'proposal.keyhintClose')}
+          </p>
+        )}
+        {readOnly ? (
+          <div style={footerStyle}>
+            <span style={{ flex: 1 }} />
+            {props.onReenqueue !== undefined && (
+              <button
+                type="button"
+                style={raisedButtonStyle}
+                data-inbox-reenqueue="true"
+                data-hover="true"
+                disabled={props.busy === true}
+                onClick={props.onReenqueue}
+              >
+                {t('inbox.reenqueue')}
+              </button>
+            )}
+            <button type="button" style={ghostButtonStyle} data-hover="true" data-proposal-close="true" onClick={() => { props.onDismiss?.() }}>
+              {t('inbox.close')}
+            </button>
+          </div>
+        ) : (
+          <div style={footerStyle}>
+            <button type="button" style={ghostButtonStyle} data-hover="true" disabled={props.busy === true || nothing} onClick={all}>
+              {t('proposal.acceptAll')}
+            </button>
+            <button type="button" style={ghostButtonStyle} data-hover="true" disabled={props.busy === true} onClick={none}>
+              {t('proposal.ignoreAll')}
+            </button>
+            <span style={{ flex: 1 }} />
+            {/* ADR-0047 验收修正: with onDiscard the cancel ghost *becomes* the
               丢弃 verdict — one button, one meaning; the separate discard
               ghost beside it was a second click for the same judgement. */}
-          {props.onDiscard !== undefined ? (
+            {props.onDiscard !== undefined ? (
+              <button
+                type="button"
+                style={ghostButtonStyle}
+                data-inbox-discard="true"
+                data-hover="true"
+                disabled={props.busy === true}
+                onClick={props.onDiscard}
+              >
+                {t('inbox.discard')}
+              </button>
+            ) : (
+              <button type="button" style={ghostButtonStyle} data-hover="true" disabled={props.busy === true} onClick={() => { props.onDismiss?.() }}>
+                {t('common.cancel')}
+              </button>
+            )}
             <button
               type="button"
-              style={ghostButtonStyle}
-              data-inbox-discard="true"
-              data-hover="true"
-              disabled={props.busy === true}
-              onClick={props.onDiscard}
+              data-hover="primary"
+              data-proposal-confirm="true"
+              style={props.busy === true || count === 0 ? primaryButtonDisabledStyle : primaryButtonStyle}
+              disabled={props.busy === true || count === 0}
+              onClick={() => { props.onConfirm?.(ticked, Object.keys(areaPicks).length > 0 ? areaPicks : undefined) }}
             >
-              {t('inbox.discard')}
+              {t('proposal.confirmWrite', { count })}
             </button>
-          ) : (
-            <button type="button" style={ghostButtonStyle} data-hover="true" disabled={props.busy === true} onClick={() => { props.onDismiss?.() }}>
-              {t('common.cancel')}
-            </button>
-          )}
-          <button
-            type="button"
-            data-hover="primary"
-            data-proposal-confirm="true"
-            style={props.busy === true || count === 0 ? primaryButtonDisabledStyle : primaryButtonStyle}
-            disabled={props.busy === true || count === 0}
-            onClick={() => { props.onConfirm(ticked, Object.keys(areaPicks).length > 0 ? areaPicks : undefined) }}
-          >
-            {t('proposal.confirmWrite', { count })}
-          </button>
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )
