@@ -10,7 +10,7 @@
 
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { parseFrontmatter } from './frontmatter.ts'
 import { entityFilePath, resolveEntityLocator, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
 import { appendToLogSection, logBullet, replaceSection, replaceStateSection } from './splice.ts'
@@ -394,7 +394,10 @@ export async function setEntityArchived(kbRoot: string, locator: string, archive
 export function resolveEntityPath(kbRoot: string, locator: string): { path: string } {
   const root = resolveWithinKb(kbRoot)
   const target = resolveEntityLocator(root, locator)
-  if (!existsSync(target)) {
+  // A directory satisfies existsSync but every downstream reader/writer
+  // expects an entity .md file — answer this function's honest not-found
+  // instead of an opaque EISDIR downstream.
+  if (!existsSync(target) || !statSync(target).isFile()) {
     throw new KbError('entity-not-found', `找不到实体：${locator}`)
   }
   return { path: displayPath(root, target) }

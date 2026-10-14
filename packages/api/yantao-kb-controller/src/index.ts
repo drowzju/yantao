@@ -1212,7 +1212,11 @@ export class YantaoKbController extends TypertRemoteService {
     try {
       return resolveEntityPath(this.kbRoot, locator)
     } catch (error) {
-      if (error instanceof KbError) {
+      // Classified like the sibling setArchived: a missing entity is a benign
+      // not-found (the applier skips the row honestly), while a containment
+      // breach (`path-escape`) or an ambiguous dated meeting is a refusal —
+      // labeling those as not-found would mask a traversal attempt.
+      if (error instanceof KbError && error.code === 'entity-not-found') {
         throw new RemoteError('yantao-kb/not-found', error.message, { path: locator }, { cause: error })
       }
       throw new RemoteError('yantao-kb/rejected', `无法解析实体定位 ${locator}：${(error as Error).message}`, { path: locator }, { cause: error })

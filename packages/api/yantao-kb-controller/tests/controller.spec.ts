@@ -317,6 +317,24 @@ describe('yantaoKb.archiveEntity / yantaoKb.restoreEntity (ADR-0041)', () => {
   })
 })
 
+describe('yantaoKb.resolveEntity', () => {
+  it('answers the KB-relative path for a locator and classifies failures like setArchived', async () => {
+    await seedKb()
+    expect(await ctx.yantaoKbController.resolveEntity('project:dsh 学习'))
+      .toEqual({ path: 'entities/projects/dsh 学习.md' })
+
+    const missing = await ctx.yantaoKbController.resolveEntity('project:不存在').catch((error: unknown) => error)
+    expect(remoteErrorOf(missing)).toMatchObject({
+      code: 'yantao-kb/not-found',
+      details: { path: 'project:不存在' },
+    })
+
+    // A containment breach is a refusal, never a benign missing file.
+    const escape = await ctx.yantaoKbController.resolveEntity('../escape-victim.md').catch((error: unknown) => error)
+    expect(remoteErrorOf(escape)).toMatchObject({ code: 'yantao-kb/rejected' })
+  })
+})
+
 describe('yantaoKb.root', () => {
   it('reports the live root and an unconfigured state', async () => {
     expect(await ctx.yantaoKbController.root()).toEqual({ root: kbRoot, configured: false })

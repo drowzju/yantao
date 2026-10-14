@@ -623,7 +623,7 @@ export function apply(ctx: Context, config: Config): void {
 // plugin above remains the model-facing shell over the same operations.
 export { appendLog, createEntity, editSection, initKb, listEntities, readEntity, readResource, registerResource, registerResourceContent, resolveEntityPath, setEntityArchived, writeResource, writeState } from './core.ts'
 export type { InitKbResult, ListedEntity, ListedResource, ReadResourceResult } from './core.ts'
-export { entityDisplayPath, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
+export { entityDisplayPath, isEntityLocatorPrefix, resolveWithinKb, sanitizeFileName, todayStamp } from './paths.ts'
 export {
   capabilityStatePath, importLegacyRootState, readCapabilityRecord, readCapabilityState,
   recordCapabilityRun, writeCapabilityState, writeMailWatermark,

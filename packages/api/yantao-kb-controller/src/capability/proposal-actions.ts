@@ -56,9 +56,30 @@ export const EMPTY_OK_FIELDS: ReadonlySet<string> = new Set([
  * model can still repair the row in the same turn (2026-10-13 周报流水事故
  * 的姊妹防线).
  */
+import { isEntityLocatorPrefix } from '@deepseek-ai/dsh-yantao-kb'
+
+/** The entity-bodied kinds whose `entityPath` names an entity: beyond being a
+ * string, it must be a locator the applier can resolve — a `type:name`
+ * locator (the examples' form; the applier resolves it through the
+ * controller's `resolveEntity`) or an entity file path. A bare display name
+ * (`某项目`) or a directory-ish value passes the field tables but can only
+ * die as a not-found at apply time — named back here instead, while the
+ * model can still repair the row in the same turn (2026-10-13 周报流水事故
+ * 的姊妹防线).
+ */
 const ENTITY_PATH_KINDS: ReadonlySet<string> = new Set(['append-log', 'write-state', 'create-link'])
 
-const ENTITY_TYPE_PREFIX = /^(project|projects|area|areas|person|people|meeting|meetings|todo|todos)[:：]/
+/**
+ * Mirror of the kb resolver's locator grammar: `type:name` with a non-empty
+ * name, the type spelling tested through the kb package's own predicate
+ * (`isEntityLocatorPrefix`) so what enqueuing accepts is mechanically pinned
+ * to what `resolveEntity` resolves — case-insensitively and after trimming,
+ * exactly like the resolver.
+ */
+function isLocatorShaped(value: string): boolean {
+  const match = /^([A-Za-z]+)[:：].+$/.exec(value)
+  return match !== null && isEntityLocatorPrefix(match[1] as string)
+}
 
 /**
  * The provenance fields (ADR-0059 决定 1): an entity-landing action may carry
@@ -170,8 +191,10 @@ function diagnoseAction(entry: unknown, at: number, readSource?: (path: string) 
     return `第 ${at + 1} 项「${kind}」缺必填字段 ${missing.join('、')}（该项形如 ${KIND_EXAMPLES[kind as ActionKind]}）`
   }
   if (ENTITY_PATH_KINDS.has(kind as string)) {
-    const entityPath = bag.entityPath as string
-    if (entityPath !== '' && !ENTITY_TYPE_PREFIX.test(entityPath) && !entityPath.endsWith('.md')) {
+    // Trim like the resolver does (`locator.trim()` in paths.ts), so the
+    // enqueuing verdict agrees with what resolveEntity will do with the value.
+    const entityPath = (bag.entityPath as string).trim()
+    if (entityPath !== '' && !isLocatorShaped(entityPath) && !entityPath.endsWith('.md')) {
       return `第 ${at + 1} 项「${kind}」的 entityPath 不是可解析的实体定位（应为 type:name 或实体文件路径，形如 ${KIND_EXAMPLES[kind as ActionKind]}）`
     }
     // ADR-0059 决定 1: provenance fields are optional but honest — present

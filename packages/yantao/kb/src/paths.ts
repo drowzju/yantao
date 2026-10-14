@@ -154,7 +154,7 @@ export function resolveEntityLocator(kbRoot: string, locator: string): string {
   const typeMatch = /^([A-Za-z]+)[:：](.+)$/s.exec(trimmed)
   if (typeMatch !== null) {
     const prefix = typeMatch[1] as string
-    if (/^(project|projects|area|areas|person|people|meeting|meetings|todo|todos)$/i.test(prefix)) {
+    if (isEntityLocatorPrefix(prefix)) {
       const type = normalizeEntityType(prefix)
       const name = (typeMatch[2] as string).trim()
       const target = entityFilePath(kbRoot, type, name)
@@ -162,4 +162,14 @@ export function resolveEntityLocator(kbRoot: string, locator: string): string {
     }
   }
   return resolveWithinKb(kbRoot, trimmed)
+}
+
+/**
+ * Whether one `type:` prefix spelling names a known entity type — the
+ * resolver grammar's checkable piece, exported so the controller's enqueuing
+ * gate (ADR-0055) tests against the very same predicate instead of a
+ * hand-copied word list that can drift from what the resolver resolves.
+ */
+export function isEntityLocatorPrefix(prefix: string): boolean {
+  return /^(project|projects|area|areas|person|people|meeting|meetings|todo|todos)$/i.test(prefix)
 }
