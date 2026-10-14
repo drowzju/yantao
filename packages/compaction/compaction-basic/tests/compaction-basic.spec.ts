@@ -1796,6 +1796,24 @@ describe('default one-shot summarizer', () => {
     // Initial attempt plus one halving; a lone surviving message cannot halve again.
     expect(adapter.calls).toBe(2)
   })
+
+  it('exhausts the degradation counter on a body that keeps halving (ADR-0058)', async () => {
+    // No declared window: proactive clamping stays out of the way, so the
+    // counter guard (degradations >= MAX_SUMMARY_DEGRADATIONS) is the only
+    // rung deciding exhaustion — a body of many small messages survives every
+    // halving, unlike the 2-message fixtures above.
+    const { adapter, compact } = await degradationHarness('always')
+    const messages = Array.from({ length: 16 }, (_, index) => createUserMessage({
+      content: [{ type: 'text', text: `turn ${index}` }],
+      source: { kind: 'test' },
+    }))
+
+    await expect(compact.runSummarize({ messages }, agent(conversation(1), MODEL)))
+      .rejects.toMatchObject({ code: CONTEXT_WINDOW_EXCEEDED_CODE })
+    // Initial attempt plus one retry per degradation (MAX_SUMMARY_DEGRADATIONS = 4);
+    // the counter guard, not the uncuttable-body branch, ends the ladder.
+    expect(adapter.calls).toBe(5)
+  })
 })
 
 describe('automatic listener and loader composition', () => {

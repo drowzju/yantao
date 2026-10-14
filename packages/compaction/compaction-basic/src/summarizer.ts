@@ -5,10 +5,12 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { contentHasImage, BlockAssembler, CONTEXT_WINDOW_EXCEEDED_CODE, createUserMessage, LlmError } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, BlockAssembler, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
+import { estimateContent, estimateToolsTokens, ROLE_OVERHEAD } from '@deepseek-ai/dsh-token-meter/estimate'
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
+import type { EpochHeader } from '@deepseek-ai/dsh-session'
 import type {
-  ContentBlock, FinishReason, GenerateOptions, Message, TokenUsage, ToolSchema,
+  ContentBlock, FinishReason, GenerateOptions, Message, RequestUserInput, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 // Type-only: the `ctx.tokenMeter` Context merge for the summarizer's estimation helpers.
 import type {} from '@deepseek-ai/dsh-token-meter'
@@ -168,8 +170,12 @@ export async function summarizeWithLlm(
   }
 
   const meter = ctx.tokenMeter
-  const window = await contextWindowOf(ctx, target)
-  const toolsTokens = estimateToolsCost(input.tools)
+  const window = await contextWindowOf(ctx, target, signal)
+  // The dispatched declarations are the union of the active schemas and the
+  // historical definitions the projection retains — price the union, not the
+  // active schemas alone, or a history-only definition under-counts input and
+  // degraded calls keep drawing CONTEXT_WINDOW_EXCEEDED rejections.
+  const toolsTokens = estimateToolsCost(input.tools, agent.session.toolHistory().tools)
 
   let replay: readonly Message[] = input.messages
   let elidedCount = 0
@@ -185,19 +191,32 @@ export async function summarizeWithLlm(
       }
       replay = truncated.messages
       elidedCount += truncated.elided
+      if (truncated.elided > 0) {
+        // The instruction note travels only inside the ephemeral instruction,
+        // never with the checkpoint — the log line is the durable trace.
+        ctx.logger.warn(
+          `summarization replay does not fit the model context window; eliding ${truncated.elided} oldest message(s) before dispatch`,
+        )
+      }
     }
 
     const instructionText = elidedCount === 0
       ? COMPACTION_INSTRUCTION
       : `${elisionNote(elidedCount)}\n\n${COMPACTION_INSTRUCTION}`
-    const instruction = createUserMessage({ content: [{ type: 'text', text: instructionText }], source: { kind: 'user' } })
+    // One construction feeds both the input estimate and the dispatch, so the
+    // priced estimate cannot drift from the message actually sent. The wire
+    // shape is the id-less RequestUserInput, not a logged Message.
+    const instruction = deepFreeze({
+      role: 'user',
+      content: [{ type: 'text', text: instructionText }],
+    } satisfies RequestUserInput)
 
     // Clamp the output reservation so input plus reservation stays inside the
     // same window; with unknown capacity the configured cap is used as-is.
     let maxTokens = config.maxTokens
     if (window !== undefined) {
       const inputEstimate = replay.reduce((total, message) => total + meter.estimateMessage(message), 0)
-        + meter.estimateMessage(instruction)
+        + estimateContent(instruction.content) + ROLE_OVERHEAD
         + toolsTokens
       maxTokens = Math.max(1, Math.min(config.maxTokens, window - SUMMARIZE_SAFETY_MARGIN - inputEstimate))
     }
@@ -208,13 +227,7 @@ export async function summarizeWithLlm(
     const options: GenerateOptions = {
       provider: target.provider,
       model: target.model,
-      messages: [
-        ...replay,
-        deepFreeze({
-          role: 'user',
-          content: [{ type: 'text', text: instructionText }],
-        }),
-      ],
+      messages: [...replay, instruction],
       toolHistory: agent.session.toolHistory(),
       ...input.tools === undefined ? {} : { tools: [...input.tools] },
       maxTokens,
@@ -330,7 +343,8 @@ function skipOrphanedToolResults(messages: readonly Message[], start: number): n
  * always kept even when oversized, as a best effort the reactive path can
  * still learn from.
  * @returns the possibly shortened replay with the elision count, or `null`
- * when the body is empty and nothing was elidable.
+ * when nothing elidable remains: the body is empty, or the head alone crowds
+ * out the minimal reservation (the caller's fast-fail diagnostic).
  */
 function truncateReplay(
   meter: { estimateMessage(message: Message): number },
@@ -338,16 +352,26 @@ function truncateReplay(
   budgetTokens: number,
 ): { messages: readonly Message[]; elided: number } | null {
   const { head, body } = splitHead(messages)
+  // The head is never elidable, so it must consume budget here; leaving it
+  // uncharged let a large system prompt silently eat the MIN_SUMMARY_TOKENS
+  // output floor — the clamp below floored maxTokens to 1 exactly when
+  // truncation engaged. A non-positive budget means the window cannot afford
+  // margin plus reservation even for empty input: no head check there (the
+  // best-effort newest message still ships and the reactive ladder owns it),
+  // but a positive budget crowded out by the head alone is the fast-fail.
+  const headTokens = head.reduce((total, message) => total + meter.estimateMessage(message), 0)
+  if (budgetTokens > 0 && headTokens > budgetTokens) return null
+  const spendable = budgetTokens - headTokens
   if (body.length === 0) return { messages: head, elided: 0 }
   const bodyTokens = body.reduce((total, message) => total + meter.estimateMessage(message), 0)
-  if (bodyTokens <= budgetTokens) return { messages, elided: 0 }
+  if (bodyTokens <= spendable) return { messages, elided: 0 }
   let keptFrom = body.length
   let keptTokens = 0
   while (keptFrom > 0) {
     const message = body[keptFrom - 1]
     if (message === undefined) break
     const cost = meter.estimateMessage(message)
-    if (keptFrom < body.length && keptTokens + cost > budgetTokens) break
+    if (keptFrom < body.length && keptTokens + cost > spendable) break
     keptFrom -= 1
     keptTokens += cost
   }
@@ -382,17 +406,37 @@ function elisionNote(count: number): string {
 async function contextWindowOf(
   ctx: Context,
   target: { provider: string; model: string },
+  signal?: AbortSignal,
 ): Promise<number | undefined> {
   try {
-    const info = await ctx.llm.resolveModelInfo(target.provider, target.model)
+    const info = await ctx.llm.resolveModelInfo(target.provider, target.model, signal)
     return info.context?.contextWindow
-  } catch {
+  } catch (error) {
+    // A mere undeclared window legitimately skips proactive clamping; an
+    // exception is unexpected and deserves a trace, so a misconfigured
+    // catalog is distinguishable from quiet degradation in the logs.
+    ctx.logger.debug(
+      `could not resolve the context window for ${target.provider}/${target.model}; relying on reactive degradation only: ${(error as Error).message}`,
+    )
     return undefined
   }
 }
 
-/** Rough char-density estimate of the tools schema cost (≈4 chars/token). */
-function estimateToolsCost(tools: readonly ToolSchema[] | undefined): number {
-  if (tools === undefined || tools.length === 0) return 0
-  return Math.ceil(JSON.stringify(tools).length / 4)
+/**
+ * Price the tools schema the way the meter books it everywhere: the union of
+ * the active schemas and the historical definitions the projection retains
+ * (deduplicated by name, active wins), run through the shared
+ * `estimateToolsTokens` heuristic — not a privately re-derived copy that
+ * silently drops the block overhead.
+ */
+function estimateToolsCost(
+  tools: readonly ToolSchema[] | undefined,
+  historyTools: readonly ToolSchema[],
+): number {
+  if (tools === undefined && historyTools.length === 0) return 0
+  const byName = new Map<string, ToolSchema>()
+  for (const schema of historyTools) byName.set(schema.name, schema)
+  for (const schema of tools ?? []) byName.set(schema.name, schema)
+  if (byName.size === 0) return 0
+  return estimateToolsTokens({ tools: [...byName.values()] } as EpochHeader)
 }
