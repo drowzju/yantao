@@ -65,13 +65,15 @@ export class CodebuddyOutputParser {
   /** Feed one stdout chunk (Buffer or string; Buffers decode chunk-safe). */
   feed(chunk: Buffer | string): void {
     const text = typeof chunk === 'string' ? chunk : this.decoder.write(chunk)
-    if (this.head.length < HEAD_CLIP) this.head = (this.head + text).slice(0, HEAD_CLIP)
+    this.trackHead(text)
     let start = 0
-    for (let i = 0; i < text.length; i += 1) {
-      if (text[i] === '\n') {
-        this.completeLine(text.slice(start, i))
-        start = i + 1
-      }
+    // Native substring search, not a per-index walk: the pathological case
+    // this cap targets is a giant over-limit line inside the live handler.
+    let newlineAt = text.indexOf('\n', start)
+    while (newlineAt !== -1) {
+      this.completeLine(text.slice(start, newlineAt))
+      start = newlineAt + 1
+      newlineAt = text.indexOf('\n', start)
     }
     if (start < text.length) this.append(text.slice(start))
   }
@@ -80,11 +82,10 @@ export class CodebuddyOutputParser {
   finish(): CodebuddyOutput {
     const tail = this.decoder.end()
     if (tail !== '') {
+      this.trackHead(tail)
       this.append(tail)
-      this.completeLine('')
-    } else {
-      this.completeLine('')
     }
+    this.completeLine('')
     if (this.lastResult !== undefined) return { ok: true, event: this.lastResult }
     if (!this.sawEvent) {
       if (this.malformed) {
@@ -93,6 +94,11 @@ export class CodebuddyOutputParser {
       return { ok: false, error: 'codebuddy 没有任何输出' }
     }
     return { ok: false, error: 'codebuddy 输出缺少 result 字段' }
+  }
+
+  /** Track the first HEAD_CLIP chars of the stream, for failure diagnostics. */
+  private trackHead(text: string): void {
+    if (this.head.length < HEAD_CLIP) this.head = (this.head + text).slice(0, HEAD_CLIP)
   }
 
   /** Append one line segment unless the line blew the cap. */
@@ -127,7 +133,9 @@ export class CodebuddyOutputParser {
       this.malformed = true
       return
     }
-    if (typeof parsed !== 'object' || parsed === null) {
+    // Arrays are not events: admitting one (`typeof [] === 'object'`) let a
+    // stray array fragment count as sawEvent and skew the terminal verdict.
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       this.malformed = true
       return
     }

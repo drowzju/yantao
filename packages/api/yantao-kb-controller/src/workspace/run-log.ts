@@ -121,11 +121,12 @@ export async function pruneOrphanRunLogs(kbRoot: string): Promise<void> {
     .map(name => rm(join(dir, name), { force: true }).catch(() => undefined)))
 }
 
-/** Local wall-clock stamp `YYYY/M/D HH:mm:ss` — the one formatter for run-log
-    and runtime alike; time-only callers slice off the date half. */
+/** Local wall-clock stamp `YYYY/MM/DD HH:mm:ss` — the one formatter for run-log
+    and runtime alike; time-only callers slice off the date half, so month and
+    day are zero-padded to keep that slice a constant 11 characters. */
 export function wallClock(at: Date = new Date()): string {
   const pad = (n: number): string => String(n).padStart(2, '0')
-  return `${at.getFullYear()}/${at.getMonth() + 1}/${at.getDate()} ${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`
+  return `${at.getFullYear()}/${pad(at.getMonth() + 1)}/${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`
 }
 
 /** Clip one line of text to a budget. */

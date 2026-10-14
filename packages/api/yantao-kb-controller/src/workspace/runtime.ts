@@ -4,14 +4,16 @@
  * owns the child processes, so a run survives the UI hiding, refreshing, or
  * dying — the renderer never spawns anything.
  *
- * Per step the runtime spawns `codebuddy -p -y --output-format json` with
- * `cwd` pinned to the workspace's directory, the prompt delivered on stdin
- * (keeps argv free of user text — no shell-quoting surface on any platform),
- * and reads the result event back for `session_id` and `result`. The output
- * contract is an event ARRAY whose final element is
- * `{type:'result', result, session_id, …}`; older builds emitted the single
- * object directly — both shapes settle in output-parse.ts, streamed
- * incrementally (the 2026-10-12 truncation incident is why buffering is gone). Step
+ * Per step the runtime spawns `codebuddy -p -y --output-format stream-json`
+ * with `cwd` pinned to the workspace's directory, the prompt delivered on
+ * stdin (keeps argv free of user text — no shell-quoting surface on any
+ * platform), and reads the result event back for `session_id` and `result`.
+ * The output contract is newline-delimited JSON — one event object per line,
+ * arriving live while the agent works, with a final
+ * `{type:'result', result, session_id, …}` line (the buffered `json` format
+ * printed a whole event ARRAY only at exit — the 2026-10-12 truncation
+ * incident is why it is gone); both shapes settle in output-parse.ts,
+ * streamed incrementally. Step
  * N+1 resumes step N's session (`--resume`), the 会话延续链 of ADR-0056
  * 决定 3. Any step that exits non-zero, fails to spawn, or answers
  * unparseable output BREAKS the chain (决定 3: no tolerance — the later
@@ -27,6 +29,7 @@
  */
 
 import { spawn as nodeSpawn } from 'node:child_process'
+import { StringDecoder } from 'node:string_decoder'
 import {
   appendWorkspaceRun,
   finalizeInterruptedRuns,
@@ -254,10 +257,11 @@ export class WorkspaceRuntime {
   }
 
   /**
-   * Spawn one chain step: `codebuddy -p -y --output-format json` with the
-   * prompt on stdin, `cwd` pinned to the workspace directory, optional
-   * `--model` / `--resume`. Resolves when the process settles; the outcome
-   * is reported, never thrown (except bookkeeping bugs).
+   * Spawn one chain step: `codebuddy -p -y --output-format stream-json`
+   * (NDJSON, one event per line) with the prompt on stdin, `cwd` pinned to
+   * the workspace directory, optional `--model` / `--resume`. Resolves when
+   * the process settles; the outcome is reported, never thrown (except
+   * bookkeeping bugs).
    */
   private runStep(
     space: WorkspaceDef,
@@ -289,6 +293,11 @@ export class WorkspaceRuntime {
       const parser = new CodebuddyOutputParser({ onEvent: (event) => { log.event(event) } })
       const stderrChunks: Buffer[] = []
       let stderrBytes = 0
+      // stderr decodes chunk-safely: raw pipe Buffers split multi-byte UTF-8
+      // sequences at chunk boundaries, and the CJK diagnostics this pipeline
+      // expects would land in the run log as U+FFFD garbage. (The stderrChunks
+      // byte-buffer path for the RPC hint is byte-accurate and needs no change.)
+      const stderrDecoder = new StringDecoder('utf8')
 
       /** Kill the whole tree — the exec bridge's recipe (ADR-0043 决定 2). */
       const killTree = (): void => {
@@ -330,12 +339,14 @@ export class WorkspaceRuntime {
           stderrChunks.push(bytes)
           stderrBytes += bytes.length
         }
-        log.stderr(typeof chunk === 'string' ? chunk : bytes.toString('utf8'))
+        log.stderr(typeof chunk === 'string' ? chunk : stderrDecoder.write(bytes))
       })
       child.on('error', (error: Error) => {
         settle({ exitCode: null, error: `无法启动 codebuddy：${error.message}` })
       })
       child.on('close', (code: number | null) => {
+        const stderrTail = stderrDecoder.end()
+        if (stderrTail !== '') log.stderr(stderrTail)
         const stderrText = Buffer.concat(stderrChunks).toString('utf8')
         if (code !== 0) {
           settle({

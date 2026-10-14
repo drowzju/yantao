@@ -7,11 +7,11 @@
  * settled promise and never serialized). These tests pin the ordering
  * promise through `settled()`.
  */
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { RunLogWriter } from '../src/workspace/run-log.ts'
+import { pruneOrphanRunLogs, RunLogWriter } from '../src/workspace/run-log.ts'
 
 let dir: string
 
@@ -61,5 +61,33 @@ describe('RunLogWriter', () => {
     log.line('迟到的一行')
     await log.settled()
     expect(await readFile(blocker, 'utf8')).toBe('x')
+  })
+})
+
+describe('pruneOrphanRunLogs', () => {
+  it('deletes only the logs whose run id left the history ring', async () => {
+    const kbRoot = dir
+    const logDir = join(kbRoot, 'sessions', 'workspace')
+    await mkdir(logDir, { recursive: true })
+    await mkdir(join(kbRoot, '.dsh', 'yantao'), { recursive: true })
+    await writeFile(join(kbRoot, '.dsh', 'yantao', 'workspace-runs.json'), JSON.stringify({
+      version: 1,
+      runs: [{
+        id: 'run_keep', workspaceId: 'ws_1', instructionId: 'ins_1', instructionName: '周报', trigger: 'manual',
+        status: 'success', startedAt: '2026-10-14T00:00:00.000Z', finishedAt: '2026-10-14T00:01:00.000Z',
+      }],
+    }), 'utf8')
+    await writeFile(join(logDir, 'run_keep.log'), '留下', 'utf8')
+    await writeFile(join(logDir, 'run_stray.log'), '孤儿', 'utf8')
+    await writeFile(join(logDir, 'notes.txt'), '非日志', 'utf8')
+
+    await pruneOrphanRunLogs(kbRoot)
+
+    const remaining = await readdir(logDir)
+    expect(remaining.sort()).toEqual(['notes.txt', 'run_keep.log'])
+  })
+
+  it('resolves without throwing when the log directory is absent', async () => {
+    await expect(pruneOrphanRunLogs(join(dir, '没有 sessions 的根'))).resolves.toBeUndefined()
   })
 })
