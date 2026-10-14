@@ -495,7 +495,7 @@ export function ProposalCard(props: {
     },
     confirmWrite: () => {
       const button = cardRef.current?.querySelector<HTMLButtonElement>('[data-proposal-confirm]')
-      if (button != null && !button.disabled) button.click()
+      if (button !== null && button !== undefined && !button.disabled) button.click()
     },
   }), [])
   // 占住键盘座位：卡片活着才应答，卸载即让位（收件箱换卡、验证卡关闭）。

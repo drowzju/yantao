@@ -18,8 +18,7 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/WorkspacePanel
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MarkdownText, type MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   KbWorkspace, KbWorkspaceInstruction, KbWorkspaceRun,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
@@ -89,8 +88,8 @@ function rangeEndStamp(startIso: string, endIso: string): string {
   return sameDay ? end.toLocaleTimeString() : end.toLocaleString()
 }
 
-/** The 最近 column's compact stamp: the shared `formatStamp`（P3-1 收敛，
-    2026-10-12——全工作台一个口径 `M-D HH:mm`）; invalid ISO passes through. */
+/** The 最近 column's compact stamp (`M-D HH:mm`, the shared `formatStamp`);
+    run rows above keep the full `toLocaleString` on purpose — invalid ISO passes through. */
 function stampShort(iso: string): string {
   return Number.isNaN(new Date(iso).getTime()) ? iso : formatStamp(iso)
 }
@@ -197,10 +196,11 @@ const runRowStyle = {
 const runHeadStyle = { display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'baseline', flexWrap: 'wrap' } as const
 
 /** The run result's markdown wrapper: agent 输出按 markdown 渲染（2026-10-12
-    截图评审：此前 ** 与 | 表格语法裸奔）。颜色随 wrapper 走次墨色，字阶由
-    MarkdownText 的 compact 面自带。 */
+    截图评审：此前 ** 与 | 表格语法裸奔）。颜色与字阶均由 MarkdownText 的
+    compact 面决定（.compact 自带次级内容档的 token 与 13px 字阶），此处不设
+    color——wrapper 只留 minWidth 防弹性溢出。 */
 const resultStyle = {
-  color: 'var(--yt-text-secondary)', minWidth: 0,
+  minWidth: 0,
 } as const
 const collapsedResultStyle = { ...resultStyle, maxHeight: 120, overflow: 'hidden' } as const
 
@@ -732,12 +732,15 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
                 </button>
               )}
               {/* The distilled process log — every triggered run keeps one;
-                  a run still live is auto-followed by the log tab itself. */}
-              <button data-hover="true" type="button" style={ghostButtonStyle}
-                data-workspace-run-view={entry.id}
-                onClick={() => { onOpenLog(entry.id) }}>
-                {t('workspace.viewLog')}
-              </button>
+                  a run still live is auto-followed by the log tab itself.
+                  Missed cron runs never spawned, so no log exists to open. */}
+              {entry.status !== 'missed' && (
+                <button data-hover="true" type="button" style={ghostButtonStyle}
+                  data-workspace-run-view={entry.id}
+                  onClick={() => { onOpenLog(entry.id) }}>
+                  {t('workspace.viewLog')}
+                </button>
+              )}
             </div>
             {entry.failedStep !== undefined && (
               <div style={errorStyle}>{t('workspace.failStep', { n: entry.failedStep + 1 })}</div>

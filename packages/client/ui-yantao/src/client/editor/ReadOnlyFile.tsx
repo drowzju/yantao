@@ -47,8 +47,17 @@ const errorStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', background:
 /** Poll cadence of the run-log auto-follow. */
 const WATCH_POLL_MS = 5000
 
-/** Consecutive unchanged polls before the watch stops (30s of stillness). */
+/** Consecutive unchanged polls before the watch slows to the idle cadence
+    (30s of stillness — slowing, never stopping: a live run can sit silent
+    far longer while a long generation or tool grinds). */
 const WATCH_QUIET_ROUNDS = 6
+
+/** Idle poll cadence after the quiet threshold. */
+const WATCH_IDLE_POLL_MS = 30_000
+
+/** Consecutive failed polls that end the watch — the run (and its log) was
+    swept mid-watch, and polling a nonexistent file forever helps nobody. */
+const WATCH_MISS_LIMIT = 3
 
 const preStyle = {
   flex: 1,
@@ -174,35 +183,52 @@ export function ReadOnlyFile({ path, readView, t }: ReadOnlyFileProps): ReactEle
 
   // Auto-follow for workspace run logs (ADR-0056 附：运行可观测性): while the
   // run appends, the tab re-reads on a cadence; thirty seconds of stillness
-  // stops the watch — reopening the tab resumes it. Polls that fail (the run
-  // was cleared mid-watch) are swallowed; the initial load already showed it.
+  // SLOWS the watch to an idle poll instead of stopping it — a live run can
+  // sit silent for minutes (a long generation, a slow tool), and a hard stop
+  // stranded the tab until it was closed and reopened. Teardown (close or
+  // unmount) is the only quiet ending; repeated failures (清空历史 swept the
+  // run mid-watch) are the other — they stop the loop deterministically
+  // instead of spinning an RPC against a file that no longer exists.
   useEffect(() => {
     if (!isRunLogPath(path)) return undefined
     let cancelled = false
     let quiet = 0
+    let misses = 0
     let lastText: string | null = null
-    const timer = setInterval(() => {
+    let timer: ReturnType<typeof setInterval>
+    const tick = (): void => {
       const pre = preRef.current
       const stick = pre !== null && pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4
       const prevTop = pre?.scrollTop ?? 0
       void latest.current(path).then((loaded) => {
         if (cancelled || loaded.kind !== 'text') return
+        // Content arriving at all implies the file is alive — any stale
+        // banner from an earlier hiccup goes, changed or not.
+        setError(null)
         if (loaded.content === lastText) {
           quiet += 1
-          if (quiet >= WATCH_QUIET_ROUNDS) clearInterval(timer)
+          if (quiet === WATCH_QUIET_ROUNDS) {
+            clearInterval(timer)
+            timer = setInterval(tick, WATCH_IDLE_POLL_MS)
+          }
           return
         }
         quiet = 0
         lastText = loaded.content
         setView(loaded)
-        setError(null)
         requestAnimationFrame(() => {
           const node = preRef.current
           if (node === null) return
           node.scrollTop = stick ? node.scrollHeight : prevTop
         })
-      }, () => undefined)
-    }, WATCH_POLL_MS)
+      }, () => {
+        if (cancelled) return
+        quiet = 0
+        misses += 1
+        if (misses >= WATCH_MISS_LIMIT) clearInterval(timer)
+      })
+    }
+    timer = setInterval(tick, WATCH_POLL_MS)
     return () => {
       cancelled = true
       clearInterval(timer)

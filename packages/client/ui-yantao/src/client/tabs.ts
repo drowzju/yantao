@@ -40,6 +40,15 @@ export const TASKS_TAB = 'tasks'
 export const INSIGHTS_TAB = 'insights'
 
 /**
+ * KB-relative path of one run's distilled log — the mirror of the backend's
+ * `runLogPath`, derived from the directory constant so the builder and the
+ * {@link isRunLogPath} matcher cannot drift apart.
+ */
+export function WORKSPACE_RUN_LOG_PATH(runId: string): string {
+  return `${WORKSPACE_RUN_LOG_DIR}/${runId}.log`
+}
+
+/**
  * Whether a path is a workspace run log — those tabs auto-follow while the
  * run is still appending (the file grows; polling stops when it settles).
  * @param path - KB-relative path.

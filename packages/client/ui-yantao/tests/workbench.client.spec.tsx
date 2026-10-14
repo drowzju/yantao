@@ -11,7 +11,7 @@ import { CENTER_MIN, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_MIN, clampRail, solveCol
 import { WorkbenchLayout, createPanelSeat, type PanelToggles } from '../src/client/frame/layout.ts'
 import { createSidebarRightFileSeat } from '../src/client/sidebar-right.ts'
 import type {
-  CapabilityDeclarationLoader, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityArchiver, EntityCreator,
+  CapabilityDeclarationLoader, CapabilityLoader, CapabilityRunner, DirectoryPicker, EntityArchiver, EntityCreator, EntityResolver,
   ExternalOpener, FileReader,
   FileWriter, ImageBinaryLoader, LinksLoader, MailFetcher, MailMarker, PromptShortcutLister, PromptShortcutSaver, RelationSetter,
   ResourceDeleter, ResourceViewReader, RevisionLoader, RelationGraphLoader, RootLoader, RootSetter,
@@ -107,6 +107,7 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     write: () => Promise.resolve(),
     archiveEntity: locator => Promise.resolve({ path: locator, archived: true }),
     restoreEntity: locator => Promise.resolve({ path: locator, archived: false }),
+    resolveEntity: locator => Promise.resolve(locator),
     setRelation: () => Promise.resolve(),
     workspace: loader(workspace),
     mailFetch: () => Promise.resolve({ since: '', stale: false, hasMore: false, messages: [] }),
@@ -1213,6 +1214,7 @@ interface FrameFaces {
   readonly write: FileWriter
   readonly archiveEntity: EntityArchiver
   readonly restoreEntity: EntityArchiver
+  readonly resolveEntity: EntityResolver
   readonly setRelation: RelationSetter
   readonly todos: TodoLoader
   readonly writeTodos: TodoWriter
@@ -1283,6 +1285,7 @@ function faces(overrides: Partial<FrameFaces> = {}): FrameFaces {
     write: () => Promise.resolve(),
     archiveEntity: locator => Promise.resolve({ path: locator, archived: true }),
     restoreEntity: locator => Promise.resolve({ path: locator, archived: false }),
+    resolveEntity: locator => Promise.resolve(locator),
     setRelation: () => Promise.resolve(),
     todos: () => Promise.resolve(TODOS),
     writeTodos: () => Promise.resolve({ path: 'entities/todos.md', text: TODO_FILE }),
@@ -1354,6 +1357,7 @@ function renderFrame(override: Partial<FrameFaces> = {}, onKbRootChanged: () => 
       write={kb.write}
       archiveEntity={kb.archiveEntity}
       restoreEntity={kb.restoreEntity}
+      resolveEntity={kb.resolveEntity}
       setRelation={kb.setRelation}
       createEntity={kb.createEntity}
       root={kb.root}
@@ -1593,6 +1597,7 @@ describe('Frame', () => {
         write={kb.write}
         archiveEntity={kb.archiveEntity}
         restoreEntity={kb.restoreEntity}
+        resolveEntity={kb.resolveEntity}
         setRelation={kb.setRelation}
         createEntity={kb.createEntity}
         root={kb.root}
