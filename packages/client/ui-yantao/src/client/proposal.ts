@@ -77,6 +77,15 @@ export type ProposalAction =
     readonly mail?: number
     /** That mail's subject line, shown on the row's detail (ADR-0038). */
     readonly mailSubject?: string
+    /**
+     * The resource this statement was distilled from (ADR-0059 决定 1) —
+     * mandatory in resource-distillation schedules by convention, enforced
+     * by the scheduler's read-closure scan (校验 B); optional at the schema
+     * layer because the tool cannot know its caller's context.
+     */
+    readonly sourcePath?: string
+    /** The source's verbatim snippet, when the model quoted one (ADR-0059 决定 1). */
+    readonly sourceQuote?: string
   }
   | {
     /** Append one line to an entity's `## 状态`. */
@@ -85,6 +94,10 @@ export type ProposalAction =
     readonly entityName: string
     readonly text: string
     readonly reason: string
+    /** The distillation source, same convention as `append-log`'s (ADR-0059 决定 1). */
+    readonly sourcePath?: string
+    /** The source's verbatim snippet (ADR-0059 决定 1). */
+    readonly sourceQuote?: string
   }
   | {
     /** Write one file under `resources/` (or anywhere the path names). */
@@ -102,6 +115,10 @@ export type ProposalAction =
     readonly reason: string
     /** Same create-follows-create resolution as `append-log`'s (ADR-0030). */
     readonly afterCreate?: string
+    /** The distillation source, same convention as `append-log`'s (ADR-0059 决定 1). */
+    readonly sourcePath?: string
+    /** The source's verbatim snippet (ADR-0059 决定 1). */
+    readonly sourceQuote?: string
   }
   | {
     /** Join one line of work into the todo singleton, under optimistic concurrency. */

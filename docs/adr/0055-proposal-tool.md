@@ -84,7 +84,8 @@ status: accepted
   `withProposalEnvelope` 更名 `withProposalConvention`（改教工具）、`runScheduledTask`
   双路径互斥。
 - mail 能力 SKILL.md v16：「提议的邮件扩展」节从信封 JSON 改教工具参数形态（逐封字段、
-  mails 水位、批量形态整单被拒）。
+  mails 水位、批量形态整单被拒——**此拒绝粒度已被文末 2026-10-10 修订推翻为逐项容错**，
+  见修订段）。
 - 测试：`proposal-tool.spec.ts`（校验器 / parity / 工具 harness 三组）、
   `scheduler.client.spec.ts` 工具提名路径三例。
 - 生效条件：宿主持旧模块，需**重启工作台**；builtin SKILL.md 播种在重启时覆写数据目录副本。

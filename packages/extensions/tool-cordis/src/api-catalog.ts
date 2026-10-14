@@ -4022,6 +4022,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the full list as stored after the resolve.',
       },
       {
+        signature: '@Remote(\'proposalInboxAnnotate\') async proposalInboxAnnotate(args: KbProposalInboxAnnotateArgs): Promise<KbProposalInboxAnnotateResult>',
+        description: 'Append machine verification\'s warnings to one pending entry\'s card (ADR-0059 决定 2): the scheduler\'s read-closure scan runs after the nomination tool has already enqueued, so its findings land as this second write — merged into the payload\'s `highlights`, the channel the 提议 card already renders. Pending rows only; a decided card is settled history. Human-channel code (the scheduler) is the only caller.',
+        parameters: [{ name: 'args', description: 'the entry id and the warnings to append.' }],
+        returns: 'the full list as stored after the merge.',
+      },
+      {
         signature: '@Remote(\'skillRewriteApply\') async skillRewriteApply(args: KbSkillRewriteApplyArgs): Promise<KbSkillRewriteApplyResult>',
         description: 'Write one approved skill rewrite back (ADR-0054 决定 3/4): the human channel\'s verdict on a `skill-rewrite` proposal row, landing as bytes. The writeback re-resolves the route, refuses a stale diff, backs the pre-write content up, and clamps SKILL.md\'s `metadata.yantao.version` to the original\'s — the whole procedure lives in `capability/rewrite.ts`, and this RPC only guards the KB root and dresses the failure.',
         parameters: [{ name: 'args', description: 'the approved rewrite\'s envelope.' }],
@@ -6074,6 +6080,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbLinksResult {\n    readonly path: string;\n    readonly outgoing: readonly KbWireLinkTarget[];\n    readonly incoming: readonly KbWireLinkSource[];\n}',
   },
   {
+    name: 'KbInboxAnnotation',
+    declaration: 'export interface KbInboxAnnotation {\n    readonly sender: string;\n    readonly subject: string;\n    readonly why: string;\n}',
+  },
+  {
     name: 'KbMailMarkReadArgs',
     declaration: 'export interface KbMailMarkReadArgs {\n    readonly lastReadAt?: string;\n    readonly firstReadAt?: string;\n}',
   },
@@ -6162,6 +6172,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbPromptShortcutSaveResult {\n    readonly shortcuts: readonly KbPromptShortcut[];\n    readonly path: string;\n}',
   },
   {
+    name: 'KbProposalApplyRecord',
+    declaration: 'export interface KbProposalApplyRecord {\n    readonly index: number;\n    readonly ok: boolean;\n    readonly error: string;\n}',
+  },
+  {
+    name: 'KbProposalInboxAnnotateArgs',
+    declaration: 'export interface KbProposalInboxAnnotateArgs {\n    readonly id: string;\n    readonly highlights: readonly KbInboxAnnotation[];\n}',
+  },
+  {
+    name: 'KbProposalInboxAnnotateResult',
+    declaration: 'export interface KbProposalInboxAnnotateResult {\n    readonly proposals: readonly KbQueuedProposal[];\n    readonly path: string;\n}',
+  },
+  {
     name: 'KbProposalInboxEnqueueArgs',
     declaration: 'export interface KbProposalInboxEnqueueArgs {\n    readonly source: string;\n    readonly sourceName: string;\n    readonly title: string;\n    readonly note?: string;\n    readonly proposal: JsonValue;\n}',
   },
@@ -6175,7 +6197,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbProposalInboxResolveArgs',
-    declaration: 'export interface KbProposalInboxResolveArgs {\n    readonly id: string;\n    readonly status: \'approved\' | \'discarded\';\n}',
+    declaration: 'export interface KbProposalInboxResolveArgs {\n    readonly id: string;\n    readonly status: \'approved\' | \'approved-with-errors\' | \'failed\' | \'discarded\';\n    readonly applyResults?: readonly KbProposalApplyRecord[];\n}',
   },
   {
     name: 'KbProposalInboxResolveResult',
@@ -6183,7 +6205,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbQueuedProposal',
-    declaration: 'export interface KbQueuedProposal {\n    readonly id: string;\n    readonly createdAt: string;\n    readonly source: string;\n    readonly sourceName: string;\n    readonly title: string;\n    readonly note?: string;\n    readonly proposal: JsonValue;\n    readonly status: \'pending\' | \'approved\' | \'discarded\';\n    readonly decidedAt?: string;\n}',
+    declaration: 'export interface KbQueuedProposal {\n    readonly id: string;\n    readonly createdAt: string;\n    readonly source: string;\n    readonly sourceName: string;\n    readonly title: string;\n    readonly note?: string;\n    readonly proposal: JsonValue;\n    readonly status: \'pending\' | \'approved\' | \'approved-with-errors\' | \'failed\' | \'discarded\';\n    readonly decidedAt?: string;\n    readonly applyResults?: readonly KbProposalApplyRecord[];\n}',
   },
   {
     name: 'KbRegisterResourceArgs',

@@ -115,14 +115,54 @@ export interface ProposalUndo {
   readonly irreversible: readonly string[]
 }
 
+/** One action's settlement record (ADR-0059 决定 5). */
+export interface ProposalActionResult {
+  /** The action's index in the canonical concatenation the card ticks over. */
+  readonly index: number
+  /** Whether the write landed. */
+  readonly ok: boolean
+  /** The failure's reason, verbatim, when `ok` is false. */
+  readonly error: string
+}
+
 /** What one confirmed card produced. */
 export interface ProposalApplyResult {
   /** One line per thing written, for the caller's summary. */
   readonly written: readonly string[]
   /** Actions that could not be written, with the reason. */
   readonly skipped: readonly string[]
+  /** Per-action trail (ADR-0059 决定 5), one record per ticked action in index order. */
+  readonly perAction: readonly ProposalActionResult[]
   /** Present only when at least one write is reversible. */
   readonly undo?: ProposalUndo
+}
+
+/**
+ * Raised before the first write when every probeable entity target in the
+ * batch is unreachable (ADR-0059 决定 6): an all-unreachable batch is an
+ * environmental root cause (the 2026-10-13 incident's stale bundle taught
+ * exactly this shape), and per-row skips would bury it — the whole batch is
+ * blocked, nothing is written, and the caller keeps the row pending.
+ */
+export class ProposalPreflightError extends Error {
+  /** The failed actions' display lines. */
+  readonly unreachable: readonly string[]
+  constructor(unreachable: readonly string[]) {
+    super(
+      `全部 ${unreachable.length} 项实体定位都不可达，本批一字未落。`
+      + '此批提议可能产生于旧版客户端，请重启工作台后重试。不可达项：'
+      + unreachable.join('；'),
+    )
+    this.name = 'ProposalPreflightError'
+    this.unreachable = unreachable
+  }
+}
+
+/** One statically-addressable entity target the preflight probes (ADR-0059 决定 6). */
+interface ProbeRow {
+  readonly index: number
+  readonly action: Exclude<ProposalAction, { kind: 'add-todo' }>
+  readonly locator: string
 }
 
 /**
@@ -278,7 +318,10 @@ function failedLine(action: ProposalAction, error: unknown): string {
  * @param options - the proposal, the ticked indexes, the create-project rows'
  *   adjusted 领域勾选 keyed by action index (absent: keep the model's
  *   suggestion, ADR-0034 决定 4), and the KB seams.
- * @returns what was written and what was skipped.
+ * @returns what was written, what was skipped, and the per-action trail
+ *   (ADR-0059 决定 5) the caller settles the card with. Throws
+ *   {@link ProposalPreflightError} before the first write when every
+ *   probeable entity target is unreachable (ADR-0059 决定 6).
  */
 export async function applyProposal(options: {
   readonly proposal: Proposal
@@ -297,6 +340,13 @@ export async function applyProposal(options: {
     .filter((row): row is { index: number; action: ProposalAction } => row.action !== undefined)
   const written: string[] = []
   const skipped: string[] = []
+  // Per-action settlement trail (ADR-0059 决定 5): every ticked action is ok
+  // unless one of its failure sites marked it; the todos batch settles as a
+  // whole further down.
+  const failures = new Map<number, string>()
+  const failAction = (index: number, message: string): void => {
+    if (!failures.has(index)) failures.set(index, message)
+  }
   const reportedWarnings = new Set<string>()
   // The undo safety net: every branch that can be taken back records its
   // inverse here; the knife kinds (mails) and the append-only 流水 name
@@ -314,13 +364,60 @@ export async function applyProposal(options: {
       row.action.kind !== 'add-todo',
   )
 
+  // ADR-0059 决定 6, the dry-run: resolve every statically-addressable
+  // entity target before the first write. All-unreachable blocks the batch
+  // (an environmental root cause — the row stays pending for a restart);
+  // partially unreachable marks its rows dead and lets the rest land (个案
+  // 容错不连坐，ADR-0037 决定 7's precedent). Resolved paths are cached —
+  // the main loop reuses them instead of paying the RPC twice.
+  let live = rest
+  const prefetched = new Map<number, string>()
+  if (target.resolveEntity !== undefined) {
+    const resolver = target.resolveEntity
+    const probeable = rest
+      .map((row): ProbeRow | null => {
+        const action = row.action
+        if ((action.kind === 'append-log' || action.kind === 'write-state' || action.kind === 'create-link')
+          && action.entityPath !== '') {
+          return { index: row.index, action: row.action, locator: action.entityPath }
+        }
+        if ((action.kind === 'edit-section' || action.kind === 'append-section') && action.path !== '') {
+          return { index: row.index, action: row.action, locator: action.path }
+        }
+        return null
+      })
+      .filter((row): row is ProbeRow => row !== null)
+    if (probeable.length > 0) {
+      const probed = await Promise.all(probeable.map(async probe => ({
+        index: probe.index,
+        label: writtenLine(probe.action),
+        path: await resolver(probe.locator).catch(() => null),
+      })))
+      const dead = probed.filter(entry => entry.path === null)
+      if (dead.length === probed.length) {
+        throw new ProposalPreflightError(dead.map(entry => entry.label))
+      }
+      if (dead.length > 0) {
+        const deadIndexes = new Set(dead.map(entry => entry.index))
+        live = rest.filter(row => !deadIndexes.has(row.index))
+        for (const entry of dead) {
+          skipped.push(`${entry.label}：实体定位不可达（入笔前预检）`)
+          failures.set(entry.index, '实体定位不可达')
+        }
+      }
+      for (const entry of probed) {
+        if (entry.path !== null) prefetched.set(entry.index, entry.path)
+      }
+    }
+  }
+
   // The paths of the entities this very card created, by name: a create's own
   // edits, links, and log follow it (ADR-0030). A create that was not ticked
   // or that failed leaves no entry, and its followers are skipped, not guessed.
   const created = new Map<string, string>()
   const resolveAfterCreate = (name: string): string | undefined => created.get(name)
 
-  for (const { index, action } of rest) {
+  for (const { index, action } of live) {
     try {
       if (action.kind === 'create-entity') {
         // Only the mail path names a person's address; its analysis also
@@ -379,6 +476,7 @@ export async function applyProposal(options: {
       if (action.kind === 'save-resource') {
         if (action.path.endsWith('/.md')) {
           skipped.push(`资源「${action.reason}」：名字不能作为文件名`)
+          failAction(index, '名字不能作为文件名')
           continue
         }
         // A resource that already exists rolls back to its prior bytes; a
@@ -428,9 +526,16 @@ export async function applyProposal(options: {
             irreversible.push(writtenLine(action))
           }
         } catch (error: unknown) {
-          skipped.push(isDuplicateMemory(error)
-            ? `${writtenLine(action)}：已记得，无需重记`
-            : failedLine(action, error))
+          if (isDuplicateMemory(error)) {
+            // ADR-0032 批次③: the host refuses an exact duplicate — that is
+            // the rule already being remembered, which reads as 已记得, not
+            // a failure; the trail counts it ok.
+            skipped.push(`${writtenLine(action)}：已记得，无需重记`)
+          } else {
+            const message = error instanceof Error ? error.message : String(error)
+            skipped.push(failedLine(action, error))
+            failAction(index, message)
+          }
         }
         continue
       }
@@ -442,6 +547,7 @@ export async function applyProposal(options: {
         const deleter = target.deleteMails
         if (deleter === undefined) {
           skipped.push(`${writtenLine(action)}：这条通道没有挂删除刀`)
+          failAction(index, '这条通道没有挂删除刀')
           continue
         }
         const outcome: KbMailDeleteResult = await deleter([action.entryId])
@@ -452,9 +558,12 @@ export async function applyProposal(options: {
           irreversible.push(writtenLine(action))
         } else if (outcome.missing.includes(action.entryId)) {
           skipped.push(`${writtenLine(action)}：邮箱里找不到这封邮件（可能已被移走）`)
+          failAction(index, '邮箱里找不到这封邮件（可能已被移走）')
         } else {
           const failure = outcome.failed.find(entry => entry.id === action.entryId)
-          skipped.push(`${writtenLine(action)}：${failure?.message ?? '未知原因'}`)
+          const message = failure?.message ?? '未知原因'
+          skipped.push(`${writtenLine(action)}：${message}`)
+          failAction(index, message)
         }
         continue
       }
@@ -466,6 +575,7 @@ export async function applyProposal(options: {
         const archiver = target.archiveMails
         if (archiver === undefined) {
           skipped.push(`${writtenLine(action)}：这条通道没有挂保存动词`)
+          failAction(index, '这条通道没有挂保存动词')
           continue
         }
         const outcome: KbMailArchiveResult = await archiver([{ entryId: action.entryId, summary: action.summary }])
@@ -484,10 +594,13 @@ export async function applyProposal(options: {
           written.push(`${writtenLine(action)}：原件过大未存（已记入索引，附件照存）`)
         } else if (outcome.missing.includes(action.entryId)) {
           skipped.push(`${writtenLine(action)}：邮箱里找不到这封邮件（可能已被移走）`)
+          failAction(index, '邮箱里找不到这封邮件（可能已被移走）')
         } else {
           const skip = outcome.skipped.find(entry => entry.id === action.entryId)
           const failure = outcome.failed.find(entry => entry.id === action.entryId)
-          skipped.push(`${writtenLine(action)}：${skip?.reason ?? failure?.message ?? '未知原因'}`)
+          const message = skip?.reason ?? failure?.message ?? '未知原因'
+          skipped.push(`${writtenLine(action)}：${message}`)
+          failAction(index, message)
         }
         // 降级/环境类提示（缺转换器、单封降级）是给人看的批级信息，此前落
         // 在结果里无人消费；并入报告且去重，避免同一条提示随行重复刷屏。
@@ -508,6 +621,7 @@ export async function applyProposal(options: {
         const applier = target.skillRewrite
         if (applier === undefined) {
           skipped.push(`${writtenLine(action)}：这条通道没有挂技能写回动词`)
+          failAction(index, '这条通道没有挂技能写回动词')
           continue
         }
         const outcome: KbSkillRewriteApplyResult = await applier({
@@ -527,6 +641,7 @@ export async function applyProposal(options: {
         const heading = action.section.startsWith('#') ? action.section : `## ${action.section}`
         if (heading === '## 流水') {
           skipped.push(`${writtenLine(action)}：流水只增不改`)
+          failAction(index, '流水只增不改')
           continue
         }
         // A create-following edit lands in the freshly created entity; an
@@ -536,9 +651,15 @@ export async function applyProposal(options: {
           const fresh = resolveAfterCreate(action.afterCreate)
           if (fresh === undefined) {
             skipped.push(`${writtenLine(action)}：前置的新建「${action.afterCreate}」没有落地`)
+            failAction(index, `前置的新建「${action.afterCreate}」没有落地`)
             continue
           }
           path = fresh
+        }
+        // The same locator normalization the entity-bodied kinds get
+        // (ADR-0059 决定 6's preflight caches the resolved path).
+        if (action.path !== '' && target.resolveEntity !== undefined) {
+          path = prefetched.get(index) ?? await target.resolveEntity(path)
         }
         // Re-read at apply time: the proposal's `before` may be stale — the
         // section is re-located in the current file, never snapshot-written.
@@ -554,6 +675,7 @@ export async function applyProposal(options: {
         const heading = action.section.startsWith('#') ? action.section : `## ${action.section}`
         if (heading === '## 流水') {
           skipped.push(`${writtenLine(action)}：流水只增不改`)
+          failAction(index, '流水只增不改')
           continue
         }
         let path = action.path
@@ -561,13 +683,18 @@ export async function applyProposal(options: {
           const fresh = resolveAfterCreate(action.afterCreate)
           if (fresh === undefined) {
             skipped.push(`${writtenLine(action)}：前置的新建「${action.afterCreate}」没有落地`)
+            failAction(index, `前置的新建「${action.afterCreate}」没有落地`)
             continue
           }
           path = fresh
         }
         if (path === '') {
           skipped.push(`${writtenLine(action)}：知识库里没有这个实体`)
+          failAction(index, '知识库里没有这个实体')
           continue
+        }
+        if (action.path !== '' && target.resolveEntity !== undefined) {
+          path = prefetched.get(index) ?? await target.resolveEntity(path)
         }
         // Re-read at apply time and append at the section's end: enrichment
         // adds to what the section holds, it never replaces (ADR-0034 决定 4).
@@ -583,21 +710,25 @@ export async function applyProposal(options: {
         const fresh = resolveAfterCreate(action.afterCreate)
         if (fresh === undefined) {
           skipped.push(`${writtenLine(action)}：前置的新建「${action.afterCreate}」没有落地`)
+          failAction(index, `前置的新建「${action.afterCreate}」没有落地`)
           continue
         }
         entityPath = fresh
       }
       if (entityPath === '') {
         skipped.push(`实体 ${action.entityName}：知识库里没有这个实体`)
+        failAction(index, '知识库里没有这个实体')
         continue
       }
       // Locator normalization (2026-10-13 周报流水事故): the examples teach
       // `project:某项目`, which a literal read cannot find — resolve it to
       // the entity's real path first. A target without the seam (the refine
       // loop) keeps the literal-path behavior; a locator that resolves to
-      // nothing fails the read below and is skipped, never guessed.
+      // nothing fails the read below and is skipped, never guessed. The
+      // preflight (决定 6) already resolved the statically-addressable rows —
+      // reuse its answer instead of paying the RPC twice.
       if (target.resolveEntity !== undefined) {
-        entityPath = await target.resolveEntity(entityPath)
+        entityPath = prefetched.get(index) ?? await target.resolveEntity(entityPath)
       }
       const content = await target.read(entityPath)
       if (action.kind === 'append-log') {
@@ -617,8 +748,11 @@ export async function applyProposal(options: {
       written.push(writtenLine(action))
     } catch (error) {
       // One failed action is marked, not fatal: the rest of the human's
-      // ticks still land (ADR-0029 决定 4).
+      // ticks still land (ADR-0029 决定 4) — and the trail records it
+      // (ADR-0059 决定 5).
+      const message = error instanceof Error ? error.message : String(error)
       skipped.push(failedLine(action, error))
+      failAction(index, message)
     }
   }
 
@@ -657,12 +791,25 @@ export async function applyProposal(options: {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       skipped.push(`待办 ${todos.length} 条：${message}`)
+      // The batch is the unit of settlement here (ADR-0018's optimistic
+      // concurrency): one failure marks every todo row in the trail.
+      for (const row of picked) {
+        if (row.action.kind === 'add-todo') failAction(row.index, message)
+      }
     }
   }
+
+  const perAction = picked.map((row): ProposalActionResult => {
+    const error = failures.get(row.index)
+    return error === undefined
+      ? { index: row.index, ok: true, error: '' }
+      : { index: row.index, ok: false, error }
+  })
 
   return {
     written,
     skipped,
+    perAction,
     ...(undoSteps.length > 0 ? { undo: { steps: undoSteps, irreversible } } : {}),
   }
 }

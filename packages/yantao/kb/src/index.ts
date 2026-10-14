@@ -669,10 +669,10 @@ export {
 } from './workspace-runs.ts'
 export type { WorkspaceRun, WorkspaceRunPatch, WorkspaceRunSeed, WorkspaceRunStep, WorkspaceRunsFile } from './workspace-runs.ts'
 export {
-  enqueueProposal, INBOX_PENDING_SOFT_CAP, newProposalInboxId, normalizeInboxEntries,
+  annotateProposalInboxEntry, enqueueProposal, INBOX_PENDING_SOFT_CAP, newProposalInboxId, normalizeInboxEntries,
   PROPOSAL_INBOX_DISPLAY_PATH, readProposalInbox, resolveProposalInboxEntry, writeProposalInbox,
 } from './proposal-inbox.ts'
-export type { InboxEnqueueInput, ProposalInboxFile, QueuedProposal } from './proposal-inbox.ts'
+export type { InboxAnnotation, InboxEnqueueInput, ProposalApplyRecord, ProposalInboxFile, QueuedProposal } from './proposal-inbox.ts'
 export { linksOf, linkGraphOf, resolveWikiLink, wikilinks } from './links.ts'
 export type { KbGraph, KbGraphEdge, KbLinkSource, KbLinkTarget, KbLinks, WikiLink } from './links.ts'
 export { relationGraphOf } from './relations.ts'

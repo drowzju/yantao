@@ -1197,6 +1197,17 @@ export interface KbWorkspaceRunsClearResult {
 }
 
 /**
+ * One action's settlement record (ADR-0059 决定 5): `index` positions the
+ * action in the unified proposal's canonical action order, `ok` says whether
+ * its write landed, `error` carries the failure reason when `ok` is false.
+ */
+export interface KbProposalApplyRecord {
+  readonly index: number
+  readonly ok: boolean
+  readonly error: string
+}
+
+/**
  * One queued proposal in the inbox (ADR-0047): a structured proposal produced
  * outside a human-initiated card flow — today, a schedule's background
  * session — awaiting the human's decision. The `proposal` payload is the
@@ -1218,10 +1229,16 @@ export interface KbQueuedProposal {
   readonly note?: string
   /** The unified proposal, opaque on this wire. */
   readonly proposal: JsonValue
-  /** Pending until the human decides; a decision is final. */
-  readonly status: 'pending' | 'approved' | 'discarded'
+  /**
+   * Pending until the human decides; a decision is final. ADR-0059 决定 5
+   * splits the approve verdict by outcome: `approved` (everything landed),
+   * `approved-with-errors` (partial), `failed` (nothing landed).
+   */
+  readonly status: 'pending' | 'approved' | 'approved-with-errors' | 'failed' | 'discarded'
   /** ISO timestamp of the decision; present exactly when status is not `pending`. */
   readonly decidedAt?: string
+  /** Per-action settlement trail (ADR-0059 决定 5); present on rows settled from a non-clean apply. */
+  readonly applyResults?: readonly KbProposalApplyRecord[]
 }
 
 /** Result of `yantaoKb.proposalInboxList` (ADR-0047). */
@@ -1256,17 +1273,48 @@ export interface KbProposalInboxEnqueueResult {
   readonly path: string
 }
 
-/** Parameters of `yantaoKb.proposalInboxResolve` (ADR-0047). */
+/** Parameters of `yantaoKb.proposalInboxResolve` (ADR-0047; ADR-0059 决定 5). */
 export interface KbProposalInboxResolveArgs {
   /** The entry to resolve. */
   readonly id: string
-  /** The decision: `approved` (the applier runs separately) or `discarded`. */
-  readonly status: 'approved' | 'discarded'
+  /**
+   * The decision: `approved` / `approved-with-errors` / `failed` (an apply
+   * ran beforehand and reports through `applyResults`) or `discarded`.
+   */
+  readonly status: 'approved' | 'approved-with-errors' | 'failed' | 'discarded'
+  /** The applier's per-action trail, carried on apply settlements (ADR-0059 决定 5). */
+  readonly applyResults?: readonly KbProposalApplyRecord[]
 }
 
 /** Result of `yantaoKb.proposalInboxResolve` (ADR-0047). */
 export interface KbProposalInboxResolveResult {
   /** The full list as stored after the resolve. */
+  readonly proposals: readonly KbQueuedProposal[]
+  /** KB-relative path of the store, for the UI's error copy. */
+  readonly path: string
+}
+
+/** One machine verification's warning on a pending card (ADR-0059 决定 2). */
+export interface KbInboxAnnotation {
+  /** The warning's issuer, e.g. `读取闭合`. */
+  readonly sender: string
+  /** The warned-at thing: a resource path or an action summary. */
+  readonly subject: string
+  /** What the machine saw that a human should double-check. */
+  readonly why: string
+}
+
+/** Parameters of `yantaoKb.proposalInboxAnnotate` (ADR-0059 决定 2). */
+export interface KbProposalInboxAnnotateArgs {
+  /** The pending entry to annotate. */
+  readonly id: string
+  /** The warnings to append to the payload's `highlights`. */
+  readonly highlights: readonly KbInboxAnnotation[]
+}
+
+/** Result of `yantaoKb.proposalInboxAnnotate` (ADR-0059 决定 2). */
+export interface KbProposalInboxAnnotateResult {
+  /** The full list as stored after the merge. */
   readonly proposals: readonly KbQueuedProposal[]
   /** KB-relative path of the store, for the UI's error copy. */
   readonly path: string

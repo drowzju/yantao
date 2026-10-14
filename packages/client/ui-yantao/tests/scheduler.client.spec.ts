@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
 import { envelopeRejectionOf, proposalOfAnswer, proposalOfPayload } from '../src/client/capability-match.ts'
+import type { ProposalAction, ProposalHighlight } from '../src/client/proposal.ts'
 import {
-  formatRunStats, runScheduledTask, scheduleBaseline, scheduleCreatedAt, scheduleScan, statsFromEvents,
-  toolNominationSucceeded, withInlineInstructions, withProposalConvention,
+  formatRunStats, readClosureWarnings, readPathsFromEvents, runScheduledTask, scheduleBaseline, scheduleCreatedAt,
+  scheduleScan, statsFromEvents, toolNominationSucceeded, withInlineInstructions, withProposalConvention,
 } from '../src/client/scheduler.ts'
 
 /** One enabled daily-9am row; overrides land on top. */
@@ -123,6 +124,15 @@ describe('withProposalConvention（ADR-0047/0055 修订：约定教工具提名�
     expect(composed).toContain('source="schedule:sch_x"')
     expect(composed).toContain('sourceName="晨检"')
     expect(withProposalConvention('任意任务')).not.toContain('source=')
+  })
+
+  it('约定教溯源纪律（ADR-0059 决定 1/2）：资源提炼带 sourcePath，无要点要声明', () => {
+    const composed = withProposalConvention('任意任务')
+    expect(composed).toContain('溯源（ADR-0059）')
+    expect(composed).toContain('"sourcePath"')
+    expect(composed).toContain('sourceQuote')
+    expect(composed).toContain('本期无要点')
+    expect(composed).toContain('不要编造来源')
   })
 })
 
@@ -288,7 +298,12 @@ describe('statsFromEvents / formatRunStats（2026-10-10 调度性能统计）', 
 function harness(
   replies: readonly string[],
   kb: Record<string, unknown> = {},
-  opts: { readonly toolCall?: string; readonly toolCallTurn?: number; readonly toolFailed?: boolean } = {},
+  opts: {
+    readonly toolCall?: string
+    readonly toolCallTurn?: number
+    readonly toolFailed?: boolean
+    readonly readPaths?: readonly string[]
+  } = {},
 ): { ctx: Context; prompts: string[] } {
   const prompts: string[] = []
   const allEvents: SessionWireEvent[] = []
@@ -319,6 +334,12 @@ function harness(
       // kb_propose_actions. The paired result decides success (2026-10-10
       // ocr 评审 #4: a failed result is NOT a nomination).
       if (turn === (opts.toolCallTurn ?? 0) && opts.toolCall !== undefined) {
+        // ADR-0059 决定 2：先把 kb_read_resource 见证织进日志，再织提名调用。
+        for (const path of opts.readPaths ?? []) {
+          const callId = `read${seq}`
+          events.push(wireEvent(seq++, 'tool/call', { callId, name: 'kb_read_resource', arguments: JSON.stringify({ path }) }))
+          events.push(wireEvent(seq++, 'tool/result', { callId, message: { content: [{ type: 'text', text: 'ok' }] } }))
+        }
         events.push(wireEvent(seq++, 'tool/call', { callId: 'call1', name: opts.toolCall, arguments: '{}' }))
         events.push(opts.toolFailed
           ? wireEvent(seq++, 'tool/result', { callId: 'call1', error: { name: '校验', code: 'bad-action' } })
@@ -339,6 +360,7 @@ function harness(
       session,
       yantaoKb: {
         proposalInboxEnqueue: async () => ({ ok: true as const, value: { id: 'prop1', entries: [] } }),
+        proposalInboxAnnotate: async () => ({ ok: true as const, value: { proposals: [], path: '.dsh/yantao/proposal-inbox.json' } }),
         ...kb,
       },
     },
@@ -591,5 +613,155 @@ describe('toolNominationSucceeded（ocr 评审 #4：提名判定看结果成败�
       wireEvent(1, 'tool/call', { callId: 'c1', name: 'kb_run_capability' }),
       wireEvent(2, 'tool/result', { callId: 'c1', message: { content: [] } }),
     ])).toBe(false)
+  })
+})
+
+describe('readPathsFromEvents（ADR-0059 决定 2：读取见证折叠）', () => {
+  it('折叠 kb_read_resource 的 path 参数并去重、修剪空白', () => {
+    const events = [
+      wireEvent(1, 'tool/call', { callId: 'c1', name: 'kb_read_resource', arguments: '{"path":"resources/mails/周报.eml"}' }),
+      wireEvent(2, 'tool/call', { callId: 'c2', name: 'kb_read_resource', arguments: '{"path":"resources/mails/周报.eml"}' }),
+      wireEvent(3, 'tool/call', { callId: 'c3', name: 'kb_read_resource', arguments: '{"path":"  resources/notes.md  "}' }),
+    ]
+    expect([...readPathsFromEvents(events)]).toEqual(['resources/mails/周报.eml', 'resources/notes.md'])
+  })
+
+  it('畸形参数、非字符串 path、别的工具、非 tool/call 事件都不是读取见证', () => {
+    const events = [
+      wireEvent(1, 'tool/call', { callId: 'c1', name: 'kb_read_resource', arguments: '{ 不是 json' }),
+      wireEvent(2, 'tool/call', { callId: 'c2', name: 'kb_read_resource', arguments: '{"path":42}' }),
+      wireEvent(3, 'tool/call', { callId: 'c3', name: 'kb_exec_capability_script', arguments: '{"path":"resources/x.md"}' }),
+      wireEvent(4, 'tool/result', { callId: 'c4', name: 'kb_read_resource', arguments: '{"path":"resources/y.md"}' }),
+    ]
+    expect(readPathsFromEvents(events).size).toBe(0)
+  })
+
+  it('空事件集折出空集合', () => {
+    expect(readPathsFromEvents([]).size).toBe(0)
+  })
+})
+
+describe('readClosureWarnings（ADR-0059 决定 2：正向伪证 + 反向遗漏）', () => {
+  const sourced = (sourcePath: string): ProposalAction => ({
+    kind: 'append-log', entityPath: '项目/x.md', entityName: 'x', text: '有进展', reason: '晨检', sourcePath,
+  })
+
+  it('声称了没读过的来源 → 溯源校验警告（伪证嫌疑）', () => {
+    // 读集为空：没有反向遗漏可报，剩下的全是正向伪证
+    const warnings = readClosureWarnings(new Set(), [sourced('resources/phantom.md')])
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({ sender: '溯源校验', subject: 'resources/phantom.md' })
+    expect(warnings[0]?.why).toContain('从未读取')
+  })
+
+  it('读过却没有任何动作引用 → 读取闭合警告（遗漏嫌疑）', () => {
+    const warnings = readClosureWarnings(new Set(['resources/a.md', 'resources/unclaimed.md']), [sourced('resources/a.md')])
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({ sender: '读取闭合', subject: 'resources/unclaimed.md' })
+    expect(warnings[0]?.why).toContain('无要点')
+  })
+
+  it('note 声明「本期无要点」豁免反向闭合，但正向伪证照点', () => {
+    const exempt = readClosureWarnings(new Set(['resources/a.md']), [], '扫了一遍，本期无要点。')
+    expect(exempt).toEqual([])
+    const stillPhantom = readClosureWarnings(new Set(), [sourced('resources/ghost.md')], '本期无要点')
+    expect(stillPhantom).toHaveLength(1)
+    expect(stillPhantom[0]?.sender).toBe('溯源校验')
+  })
+
+  it('双向闭合：无警告', () => {
+    const warnings = readClosureWarnings(new Set(['resources/a.md']), [sourced('resources/a.md')], '有要点')
+    expect(warnings).toEqual([])
+  })
+
+  it('纯决策动作不带溯源也不参与闭合（豁免条款）', () => {
+    const todo: ProposalAction = { kind: 'add-todo', title: '跟进', body: '跟进一下', reason: 'r' }
+    expect(readClosureWarnings(new Set(), [todo])).toEqual([])
+  })
+
+  it('警告封顶 20 条', () => {
+    const actions = Array.from({ length: 25 }, (_, at) => sourced(`resources/phantom-${at}.md`))
+    expect(readClosureWarnings(new Set(), actions)).toHaveLength(20)
+  })
+})
+
+describe('runScheduledTask 读取闭合附卡（ADR-0059 决定 2：收尾扫描 → proposalInboxAnnotate）', () => {
+  const TOOL_ENTRY = {
+    id: 'prp_tool',
+    source: 'schedule:sch_x',
+    sourceName: 'x',
+    title: '新',
+    status: 'pending',
+    proposal: {
+      title: 'x',
+      actions: [{ kind: 'append-log', entityPath: '项目/x.md', entityName: 'x', text: '有进展', reason: '晨检', sourcePath: 'resources/phantom.md' }],
+    },
+  }
+
+  function inboxWith(proposal: unknown) {
+    return {
+      proposalInboxList: async () => ({
+        ok: true as const,
+        // createdAt 在调用时打点：查找有 startedAt 下界，模块加载时的旧戳会被当上一轮的旧条目
+        value: { proposals: [{ ...TOOL_ENTRY, createdAt: new Date().toISOString(), proposal }], path: '.dsh/yantao/proposal-inbox.json' },
+      }),
+    }
+  }
+
+  it('伪证来源被点名：annotate 被调用，警告计数进结果', async () => {
+    const annotated: unknown[] = []
+    const { ctx } = harness(
+      ['已通过工具提交提议。'],
+      {
+        ...inboxWith(TOOL_ENTRY.proposal),
+        proposalInboxAnnotate: async (args: { id: string; highlights: readonly ProposalHighlight[] }) => {
+          annotated.push(args)
+          return { ok: true as const, value: { proposals: [], path: 'x' } }
+        },
+      },
+      { toolCall: 'kb_propose_actions' },
+    )
+    const result = await runScheduledTask({ ctx, id: 'sch_x', name: 'x', prompt: '做晨检' })
+    expect(result.proposalId).toBe('prp_tool')
+    expect(annotated).toHaveLength(1)
+    expect(annotated[0]).toMatchObject({
+      id: 'prp_tool',
+      highlights: [{ sender: '溯源校验', subject: 'resources/phantom.md' }],
+    })
+    expect(result.warnings).toEqual(['溯源校验：resources/phantom.md — 有动作声称提炼自此文件，但本轮从未读取过它（疑似伪证，请抽查内容）'])
+  })
+
+  it('双向闭合时不起草警告：annotate 不被调用，结果不带 warnings', async () => {
+    let annotated = 0
+    const closed = {
+      title: 'x',
+      actions: [{ kind: 'append-log', entityPath: '项目/x.md', entityName: 'x', text: '有进展', reason: '晨检', sourcePath: 'resources/a.md' }],
+    }
+    const { ctx } = harness(
+      ['已通过工具提交提议。'],
+      {
+        ...inboxWith(closed),
+        proposalInboxAnnotate: async () => { annotated += 1; return { ok: true as const, value: { proposals: [], path: 'x' } } },
+      },
+      { toolCall: 'kb_propose_actions', readPaths: ['resources/a.md'] },
+    )
+    const result = await runScheduledTask({ ctx, id: 'sch_x', name: 'x', prompt: '做晨检' })
+    expect(result.proposalId).toBe('prp_tool')
+    expect(annotated).toBe(0)
+    expect(result.warnings).toBeUndefined()
+  })
+
+  it('annotate 失败不炸运行：卡片裸奔上线，结果不带 warnings', async () => {
+    const { ctx } = harness(
+      ['已通过工具提交提议。'],
+      {
+        ...inboxWith(TOOL_ENTRY.proposal),
+        proposalInboxAnnotate: async () => { throw new Error('磁盘坏了') },
+      },
+      { toolCall: 'kb_propose_actions' },
+    )
+    const result = await runScheduledTask({ ctx, id: 'sch_x', name: 'x', prompt: '做晨检' })
+    expect(result.proposalId).toBe('prp_tool')
+    expect(result.warnings).toBeUndefined()
   })
 })

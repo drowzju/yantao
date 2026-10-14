@@ -60,6 +60,71 @@ describe('validateProposedActions（ADR-0055 提名工具的服务端校验）',
   })
 })
 
+describe('溯源字段与校验 A（ADR-0059 决定 1/2：内容与出处重叠核对）', () => {
+  // 袁文茂事故样本回放（ADR-0059 出发点）：text 的 token 全部命中的其实是
+  // 周我要的周报文件，却声称来源是袁文茂的纪要——张冠李戴，校验 A 拦下。
+  const ZHOU_SOURCE = '# 周我要周报 2026-W41\n本周 MCA-255 网关黑洞定位完成，压测吞吐提升 37%，QPS 达 12000。'
+  const YUAN_SOURCE = '# 袁文茂 一对一\n讨论了晋升材料与团队梯队，下周跟进调薪流程。'
+
+  const reader = (files: Record<string, string>) =>
+    (path: string): string | null => files[path] ?? null
+
+  it('内容 token 与声称来源重叠：放行', () => {
+    const action = {
+      kind: 'append-log', entityPath: 'project:x', entityName: 'x',
+      text: 'MCA-255 网关黑洞定位完成，吞吐提升 37%', sourcePath: 'resources/周我要.md',
+    }
+    expect(validateProposedActions([action], reader({ 'resources/周我要.md': ZHOU_SOURCE }))).toEqual([])
+  })
+
+  it('袁文茂张冠李戴回放：token 命中另一文件，被判坏项（校验 A）', () => {
+    const action = {
+      kind: 'append-log', entityPath: 'person:袁文茂', entityName: '袁文茂',
+      text: 'MCA-255 网关黑洞定位完成，压测吞吐提升 37%', sourcePath: 'resources/袁文茂.md',
+    }
+    const diagnostics = validateProposedActions([action], reader({
+      'resources/袁文茂.md': YUAN_SOURCE,
+      'resources/周我要.md': ZHOU_SOURCE,
+    }))
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0]).toContain('校验 A')
+    expect(diagnostics[0]).toContain('重叠过低')
+    expect(diagnostics[0]).toContain('resources/袁文茂.md')
+    // 逐项容错的同一裁决：坏项走 dropped 通道，不整批退回
+    const { valid, diagnostics: dropped } = partitionProposedActions([action], reader({ 'resources/袁文茂.md': YUAN_SOURCE }))
+    expect(valid).toEqual([])
+    expect(dropped).toHaveLength(1)
+  })
+
+  it('来源读不到、纯中文零 token、无 readSource 接缝：都不判罪', () => {
+    const chinese = { kind: 'append-log', entityPath: 'person:x', entityName: 'x', text: '讨论了晋升材料与团队氛围', sourcePath: 'resources/袁文茂.md' }
+    expect(validateProposedActions([chinese], reader({ 'resources/袁文茂.md': YUAN_SOURCE }))).toEqual([])
+    const unreadable = { kind: 'append-log', entityPath: 'person:x', entityName: 'x', text: 'MCA-255 完成 37%', sourcePath: 'resources/不存在.md' }
+    expect(validateProposedActions([unreadable], reader({}))).toEqual([])
+    expect(validateProposedActions([unreadable])).toEqual([])
+  })
+
+  it('sourcePath/sourceQuote 形状不诚实被点名；纯决策类动作不得携带（豁免条款）', () => {
+    // 空串与非字符串都点名
+    expect(validateProposedActions([{ kind: 'append-log', entityPath: 'person:x', entityName: 'x', text: 'y', sourcePath: '' }]))
+      .toEqual(['第 1 项「append-log」的 sourcePath 出现了但不是非空字符串——要么不带，要么给出来源资源的路径'])
+    expect(validateProposedActions([{ kind: 'write-state', entityPath: 'person:x', entityName: 'x', text: 'y', sourceQuote: 42 }])[0])
+      .toContain('sourceQuote 出现了但不是非空字符串')
+    // add-todo 是纯决策类：不要求溯源，也不许装饰来源
+    expect(validateProposedActions([{ kind: 'add-todo', title: 't', body: 'b', sourcePath: 'resources/x.md' }])[0])
+      .toContain('不携带溯源字段 sourcePath')
+    // 带 sourceQuote 的合法样本照样放行
+    expect(validateProposedActions([{
+      kind: 'append-log', entityPath: 'person:袁文茂', entityName: '袁文茂',
+      text: '讨论了晋升材料', sourcePath: 'resources/袁文茂.md', sourceQuote: '讨论了晋升材料',
+    }], reader({ 'resources/袁文茂.md': YUAN_SOURCE }))).toEqual([])
+  })
+
+  it('溯源字段是可选的：不带照样过（强制在调度约定层，不由工具层执法）', () => {
+    expect(validateProposedActions([{ kind: 'append-log', entityPath: 'person:x', entityName: 'x', text: 'y' }])).toEqual([])
+  })
+})
+
 describe('partitionProposedActions（2026-10-10 裁决：逐项容错，一跑一卡的船不再整沉）', () => {
   const VALID_APPEND_LOG = { kind: 'append-log', entityPath: '项目/dsh 学习.md', entityName: 'dsh 学习', text: '有进展' }
   const VALID_DELETE_MAIL = { kind: 'delete-mails', entryId: 'a', sender: 's@example.com', subject: '周报' }

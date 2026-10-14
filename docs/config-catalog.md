@@ -4345,7 +4345,7 @@ export interface Config {
 
 - `inject`: `tools` · `systemPrompt` · `settings`
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/yantao/kb/src/index.ts:47`](../packages/yantao/kb/src/index.ts)
+- `source`: [`packages/yantao/kb/src/index.ts:50`](../packages/yantao/kb/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config; `kbRoot` is the only knob. */
@@ -4396,6 +4396,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-api-account-controller` | `deepseekAccount` · `agents` | [`packages/api/account-controller/src/index.ts`](../packages/api/account-controller/src/index.ts) |
 | `@deepseek-ai/dsh-api-remotes` | `typertGateway` | [`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts) |
 | `@deepseek-ai/dsh-api-yantao-kb-controller` | `yantaoKb` · `skills` · `tools` | [`packages/api/yantao-kb-controller/src/index.ts`](../packages/api/yantao-kb-controller/src/index.ts) |
+| `@deepseek-ai/dsh-api-yantao-usage-controller` | `yantaoUsage` | [`packages/api/yantao-usage-controller/src/index.ts`](../packages/api/yantao-usage-controller/src/index.ts) |
 | `@deepseek-ai/dsh-authorization` | `credentials` | [`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts) |
 | `@deepseek-ai/dsh-browser-use` | — | [`packages/browser-use/browser-use/src/index.ts`](../packages/browser-use/browser-use/src/index.ts) |
 | `@deepseek-ai/dsh-client-file-upload` | `agents` · `attachments` · `commands` · `connection` | [`packages/client/file-upload/src/index.ts`](../packages/client/file-upload/src/index.ts) |
@@ -4529,7 +4530,6 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 | --- | --- | --- |
 | `@deepseek-ai/dsh-agent-loop-testkit` | — | [`packages/test-support/agent-loop-testkit/src/index.ts`](../packages/test-support/agent-loop-testkit/src/index.ts) |
 | `@deepseek-ai/dsh-anonymous-user-id` | — | [`packages/identity/anonymous-user-id/src/index.ts`](../packages/identity/anonymous-user-id/src/index.ts) |
-| `@deepseek-ai/dsh-api-yantao-usage-controller` | — | [`packages/api/yantao-usage-controller/src/index.ts`](../packages/api/yantao-usage-controller/src/index.ts) |
 | `@deepseek-ai/dsh-app-boot` | — | [`packages/boot/app-boot/src/index.ts`](../packages/boot/app-boot/src/index.ts) |
 | `@deepseek-ai/dsh-atomic-write` | — | [`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts) |
 | `@deepseek-ai/dsh-base` | — | [`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts) |

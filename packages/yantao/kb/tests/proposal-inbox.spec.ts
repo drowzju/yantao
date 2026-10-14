@@ -1,11 +1,11 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  enqueueProposal, INBOX_PENDING_SOFT_CAP, newProposalInboxId, normalizeInboxEntries,
-  PROPOSAL_INBOX_DISPLAY_PATH, readProposalInbox, resolveProposalInboxEntry, writeProposalInbox,
-  type QueuedProposal,
+  annotateProposalInboxEntry, APPLY_LEDGER_DISPLAY_PATH, enqueueProposal, INBOX_PENDING_SOFT_CAP,
+  newProposalInboxId, normalizeInboxEntries, PROPOSAL_INBOX_DISPLAY_PATH, readProposalInbox,
+  resolveProposalInboxEntry, writeProposalInbox, type QueuedProposal,
 } from '../src/proposal-inbox.ts'
 import { KbError } from '../src/types.ts'
 
@@ -71,6 +71,28 @@ describe('normalizeInboxEntries', () => {
     expect(() => normalizeInboxEntries([entry({ decidedAt: '2026-10-05T09:00:00.000Z' })])).toThrow(/不应带有决策时间/)
     const [ok] = normalizeInboxEntries([entry({ status: 'discarded', decidedAt: '2026-10-05T09:00:00.000Z' })])
     expect(ok?.decidedAt).toBe('2026-10-05T09:00:00.000Z')
+  })
+
+  it('接受三分结算状态并校验逐项结果的形状（ADR-0059 决定 5）', () => {
+    const trail = [{ index: 0, ok: false, error: '实体定位不可达' }]
+    const [ok] = normalizeInboxEntries([entry({
+      status: 'approved-with-errors', decidedAt: '2026-10-05T09:00:00.000Z', applyResults: trail,
+    })])
+    expect(ok?.applyResults).toEqual(trail)
+    // 序号负数、ok 非布尔、错误说明缺席都是响亮的形状错误——逐项结果是
+    // 已结算卡片的权威展示数据，坏了不能静默丢。
+    expect(() => normalizeInboxEntries([entry({
+      status: 'failed', decidedAt: '2026-10-05T09:00:00.000Z',
+      applyResults: [{ index: -1, ok: true, error: '' }],
+    })])).toThrow(/逐项结果/)
+    expect(() => normalizeInboxEntries([entry({
+      status: 'failed', decidedAt: '2026-10-05T09:00:00.000Z',
+      applyResults: [{ index: 0, ok: 'yes' as unknown as boolean, error: '' }],
+    })])).toThrow(/逐项结果/)
+    expect(() => normalizeInboxEntries([entry({
+      status: 'failed', decidedAt: '2026-10-05T09:00:00.000Z',
+      applyResults: [{ index: 0, ok: true }],
+    })])).toThrow(/逐项结果/)
   })
 
   it('总量软帽之上拒绝', () => {
@@ -190,6 +212,34 @@ describe('resolveProposalInboxEntry', () => {
     await resolveProposalInboxEntry(kbRoot, first!.id, 'discarded', now)
     await expect(resolveProposalInboxEntry(kbRoot, first!.id, 'approved', now)).rejects.toThrow(/已经决策/)
   })
+
+  it('部分失败结算把逐项结果存进行并持久化（ADR-0059 决定 5）', async () => {
+    const now = new Date('2026-10-05T09:00:00.000Z')
+    await enqueueProposal(kbRoot, { source: 'schedule:sch_a', sourceName: '晨检', title: '晨检发现', proposal: payload() }, now)
+    const [first] = await readProposalInbox(kbRoot)
+    const trail = [{ index: 0, ok: true, error: '' }, { index: 1, ok: false, error: '实体定位不可达' }]
+    const resolved = await resolveProposalInboxEntry(kbRoot, first!.id, 'approved-with-errors', now, trail)
+    expect(resolved[0]).toMatchObject({ status: 'approved-with-errors', applyResults: trail })
+    await expect(readProposalInbox(kbRoot)).resolves.toEqual(resolved)
+  })
+
+  it('每次结算追加 apply-ledger 一行；环形截断保最新弃最老（ADR-0059 决定 5）', async () => {
+    const now = new Date('2026-10-05T09:00:00.000Z')
+    await enqueueProposal(kbRoot, { source: 'schedule:sch_a', sourceName: '晨检', title: '晨检发现', proposal: payload() }, now)
+    const [first] = await readProposalInbox(kbRoot)
+    // 预填 501 行假账，再结算一次：应只剩 500 行且最老的丢了、新行在尾。
+    const stale = Array.from({ length: 501 }, (_, at) => JSON.stringify({ at, seq: at }))
+    await writeFile(join(kbRoot, APPLY_LEDGER_DISPLAY_PATH), `${stale.join('\n')}\n`, 'utf8')
+    await resolveProposalInboxEntry(kbRoot, first!.id, 'failed', now, [{ index: 0, ok: false, error: 'boom' }])
+    const raw = await readFile(join(kbRoot, APPLY_LEDGER_DISPLAY_PATH), 'utf8')
+    const lines = raw.trim().split('\n')
+    expect(lines).toHaveLength(500)
+    // 501 行旧账 + 1 行新账裁成 500：最老的两行（seq 0/1）出局，seq 2 带头。
+    expect(lines[0]).toBe(JSON.stringify({ at: 2, seq: 2 }))
+    const fresh = JSON.parse(lines.at(-1)!) as { id: string; status: string; title: string; applyResults: unknown }
+    expect(fresh).toMatchObject({ id: first!.id, status: 'failed', title: '晨检发现' })
+    expect(fresh.applyResults).toEqual([{ index: 0, ok: false, error: 'boom' }])
+  })
 })
 
 describe('newProposalInboxId', () => {
@@ -199,5 +249,70 @@ describe('newProposalInboxId', () => {
     const second = newProposalInboxId(now)
     expect(first.startsWith(`prp_${now.getTime().toString(36)}`)).toBe(true)
     expect(first).not.toBe(second)
+  })
+})
+
+describe('annotateProposalInboxEntry（ADR-0059 决定 2：校验警告附卡）', () => {
+  const WARN = { sender: '读取闭合', subject: 'resources/a.md', why: '本轮读过该资源，但没有动作引用它' }
+
+  function highlightsOf(row: QueuedProposal | undefined): unknown {
+    return (row?.proposal as { highlights?: unknown }).highlights
+  }
+
+  it('pending 条目合并 highlights 并持久化', async () => {
+    await enqueueProposal(kbRoot, { source: 'schedule:sch_a', sourceName: '晨检', title: '晨检发现', proposal: payload() })
+    const [first] = await readProposalInbox(kbRoot)
+    const rows = await annotateProposalInboxEntry(kbRoot, first!.id, [WARN])
+    expect(highlightsOf(rows[0])).toEqual([WARN])
+    // 其余字段不动
+    expect(rows[0]).toMatchObject({ id: first!.id, status: 'pending', title: '晨检发现' })
+    await expect(readProposalInbox(kbRoot)).resolves.toEqual(rows)
+  })
+
+  it('已有 highlights 保留，新警告追加在后', async () => {
+    await enqueueProposal(kbRoot, { source: 'schedule:sch_a', sourceName: '晨检', title: '晨检发现', proposal: payload() })
+    const [first] = await readProposalInbox(kbRoot)
+    const firstWarn = { sender: '溯源校验', subject: 'resources/ghost.md', why: '从未读取' }
+    await annotateProposalInboxEntry(kbRoot, first!.id, [firstWarn])
+    const rows = await annotateProposalInboxEntry(kbRoot, first!.id, [WARN])
+    expect(highlightsOf(rows[0])).toEqual([firstWarn, WARN])
+  })
+
+  it('未知 id 与已决策条目都拒绝', async () => {
+    await enqueueProposal(kbRoot, { source: 'schedule:sch_a', sourceName: '晨检', title: '晨检发现', proposal: payload() })
+    await expect(annotateProposalInboxEntry(kbRoot, 'prp_ghost', [WARN])).rejects.toThrow(/不存在/)
+    const [first] = await readProposalInbox(kbRoot)
+    await resolveProposalInboxEntry(kbRoot, first!.id, 'discarded')
+    await expect(annotateProposalInboxEntry(kbRoot, first!.id, [WARN])).rejects.toThrow(/已经决策/)
+  })
+
+  it('畸形警告响亮拒绝：缺字段、空串、why 超长', async () => {
+    await enqueueProposal(kbRoot, { source: 'schedule:sch_a', sourceName: '晨检', title: '晨检发现', proposal: payload() })
+    const [first] = await readProposalInbox(kbRoot)
+    await expect(annotateProposalInboxEntry(kbRoot, first!.id, [{ subject: 'x', why: 'y' } as never])).rejects.toThrow(/格式不对/)
+    await expect(annotateProposalInboxEntry(kbRoot, first!.id, [{ sender: '', subject: 'x', why: 'y' }])).rejects.toThrow(/格式不对/)
+    await expect(annotateProposalInboxEntry(kbRoot, first!.id, [{
+      sender: 's', subject: 'x', why: '长'.repeat(301),
+    }])).rejects.toThrow(/上限 300 字/)
+    // 拒绝后文件未被污染
+    const [after] = await readProposalInbox(kbRoot)
+    expect(highlightsOf(after)).toBeUndefined()
+  })
+
+  it('合并后超出 20 条：截断保最新弃最老', async () => {
+    await enqueueProposal(kbRoot, { source: 'schedule:sch_a', sourceName: '晨检', title: '晨检发现', proposal: payload() })
+    const [first] = await readProposalInbox(kbRoot)
+    // 种子 18 条旧高亮，再附 3 条 → 21 裁成 20，最老的 0 号出局。
+    const stale = Array.from({ length: 18 }, (_, at) => ({ sender: '旧', subject: `s${at}`, why: 'w' }))
+    await writeProposalInbox(kbRoot, [entry({
+      id: first!.id,
+      proposal: { title: '晨检发现', actions: [{ kind: 'append-log', entityPath: '人物/张三.md', text: '见了客户' }], highlights: stale },
+    })])
+    const fresh = Array.from({ length: 3 }, (_, at) => ({ sender: '新', subject: `n${at}`, why: 'w' }))
+    const rows = await annotateProposalInboxEntry(kbRoot, first!.id, fresh)
+    const merged = highlightsOf(rows[0]) as { subject: string }[]
+    expect(merged).toHaveLength(20)
+    expect(merged[0]?.subject).toBe('s1')
+    expect(merged.at(-1)?.subject).toBe('n2')
   })
 })

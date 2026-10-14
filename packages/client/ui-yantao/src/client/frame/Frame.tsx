@@ -35,7 +35,7 @@ import { formatElapsed, runningCount, type TaskKind, type TaskRow, type TaskStat
 import type { SessionDetailLoader } from '../session-detail.ts'
 import { SessionDetailDrawer } from '../SessionDetailDrawer.tsx'
 import type { Proposal, ProposalMailRange } from '../proposal.ts'
-import { applyProposal, runUndo, type ProposalApplyResult } from '../proposal-apply.ts'
+import { applyProposal, ProposalPreflightError, runUndo, type ProposalApplyResult } from '../proposal-apply.ts'
 import { proposalOfPayload } from '../capability-match.ts'
 import { capabilityGestureMessage } from '../capability-gesture.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
@@ -974,28 +974,52 @@ export function Frame({
   }, [proposalInboxResolve, moveMailCursor])
 
   // 批准: the writes land first — the same applyConfirmed every card shares —
-  // and only then is the row settled approved. A failed apply leaves the row
-  // pending for another try; a failed settle after successful writes patches
-  // the row out locally and re-pushes the discard in the background (the
-  // writes landed — a second apply would replay them verbatim), so the 30s
-  // scan never reads the row back as pending.
+  // and then the row settles by outcome (ADR-0059 决定 5): every ticked
+  // action landed → approved; some did → approved-with-errors, the per-action
+  // trail riding on the row; nothing did → failed, loudly. A preflight block
+  // (决定 6: every locator unreachable) rejects the apply before the first
+  // write and keeps the row pending — the remedy is a restart, not a re-ask.
+  // A failed settle after landed writes patches the row out locally and
+  // re-pushes the discard in the background (the writes landed — a second
+  // apply would replay them verbatim), so the 30s scan never reads the row
+  // back as pending; a failed settle after a zero-write apply just leaves
+  // the row pending — nothing is on disk, there is nothing to double-apply.
   const confirmInboxEntry = useCallback((entry: KbQueuedProposal, ticked: readonly number[]): void => {
     const proposal = proposalOfPayload(entry.proposal)
     if (proposal === null) return
     setInboxBusyId(entry.id)
     void applyConfirmed({ proposal, ticked }).then((result) => {
-      // The writes landed — the covered mails count as processed now, in
-      // both settle branches (ADR-0047 验收修正 2).
-      moveMailCursor(proposal.mails)
-      void proposalInboxResolve({ id: entry.id, status: 'approved' }).then(
+      // Something landed — the covered mails count as processed now (ADR-0047
+      // 验收修正 2); a zero-write apply leaves the mails unprocessed so the
+      // nomination can come again.
+      if (result.perAction.some(row => row.ok)) moveMailCursor(proposal.mails)
+      const okCount = result.perAction.filter(row => row.ok).length
+      const status = okCount === 0 && result.perAction.length > 0 ? 'failed'
+        : okCount === result.perAction.length ? 'approved' : 'approved-with-errors'
+      void proposalInboxResolve({
+        id: entry.id,
+        status,
+        ...(status !== 'approved' ? { applyResults: result.perAction } : {}),
+      }).then(
         (resolved) => {
           setInboxBusyId(null)
           setInboxEntries(resolved.proposals)
+          if (status === 'failed') {
+            const detail = result.perAction.filter(row => !row.ok).map(row => row.error).join('；')
+            setCapabilityNotice(`提议「${entry.title}」零写入，已记为失败：${detail}`, { severity: 'error' })
+            return
+          }
           setTreeKey(key => key + 1)
           confirmWritten(result)
         },
         (failure: unknown) => {
           setInboxBusyId(null)
+          if (status === 'failed') {
+            // Nothing landed and the settle failed: the row stays pending on
+            // disk — honest, and a second apply cannot replay anything.
+            setCapabilityNotice(`提议写入失败，且失败标记未能落账（行保持待决）：${remoteMessage(failure)}`, { severity: 'error' })
+            return
+          }
           // The writes landed; only the settle failed, so the disk still
           // holds the row as pending — the optimistic patch below buys the
           // next seconds, but the 30s scan's loadInbox replaces the list
@@ -1019,7 +1043,12 @@ export function Frame({
       )
     }, (failure: unknown) => {
       setInboxBusyId(null)
-      setCapabilityNotice(`写入失败：${remoteMessage(failure)}`, { severity: 'error' })
+      // A preflight block names its own remedy (restart); anything else is
+      // an apply-level surprise — the row stays pending either way.
+      setCapabilityNotice(
+        failure instanceof ProposalPreflightError ? failure.message : `写入失败：${remoteMessage(failure)}`,
+        { severity: 'error' },
+      )
     })
   }, [applyConfirmed, proposalInboxResolve, moveMailCursor])
 
@@ -1087,10 +1116,15 @@ export function Frame({
         // ADR-0047: a run that filed a proposal points at the decision
         // surface instead of paraphrasing itself — the card is the answer.
         const statsSuffix = statsLine !== undefined ? `（${statsLine}）` : ''
+        // ADR-0059 决定 2：读取闭合的违例已附到卡上，通知里点名数量——
+        // 无人值守场景下这是「先去看警告再批准」的第一声铃。
+        const warningSuffix = result.warnings !== undefined && result.warnings.length > 0
+          ? `，校验警告 ${result.warnings.length} 条`
+          : ''
         notifySchedule({
           title: `调度「${schedule.name}」完成`,
           body: result.proposalId !== undefined
-            ? `产生了待决策的提议，去「提议」页处理${statsSuffix}`
+            ? `产生了待决策的提议，去「提议」页处理${warningSuffix}${statsSuffix}`
             : [result.answer.replace(/\s+/g, ' ').trim().slice(0, 80), statsLine].filter(Boolean).join(' · ') || '已完成',
         })
         // The proposal is on the disk store the moment the run ends: pull it

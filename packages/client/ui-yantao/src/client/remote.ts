@@ -45,6 +45,7 @@ import type {
   KbMemoryProposalDiscardResult, KbMemoryProposalListResult,
   KbOpenExternalResult, KbPersonRelation, KbPromptInjectionResult, KbPromptShortcutListResult,
   KbPromptShortcutSaveArgs, KbPromptShortcutSaveResult,
+  KbProposalInboxAnnotateArgs, KbProposalInboxAnnotateResult,
   KbProposalInboxEnqueueArgs, KbProposalInboxEnqueueResult, KbProposalInboxListResult,
   KbProposalInboxResolveArgs, KbProposalInboxResolveResult,
   KbRelationGraphResult,
@@ -162,6 +163,8 @@ export interface KbRemote {
   proposalInboxEnqueue(args: KbProposalInboxEnqueueArgs): Promise<RemoteResult<KbProposalInboxEnqueueResult>>
   /** Record the human's decision on one pending inbox entry (ADR-0047); a decision is final. */
   proposalInboxResolve(args: KbProposalInboxResolveArgs): Promise<RemoteResult<KbProposalInboxResolveResult>>
+  /** Append machine verification's warnings to one pending entry's card (ADR-0059 决定 2). */
+  proposalInboxAnnotate(args: KbProposalInboxAnnotateArgs): Promise<RemoteResult<KbProposalInboxAnnotateResult>>
   /** Write one approved skill rewrite back (ADR-0054): backup, version clamp, atomic write. */
   skillRewriteApply(args: KbSkillRewriteApplyArgs): Promise<RemoteResult<KbSkillRewriteApplyResult>>
 }
@@ -1251,6 +1254,21 @@ export async function resolveInboxProposal(ctx: Context, args: KbProposalInboxRe
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.proposalInboxResolve(args))
+}
+
+/**
+ * Append machine verification's warnings to one pending inbox entry's card
+ * (ADR-0059 决定 2): the scheduler's read-closure scan runs after the
+ * nomination tool has already enqueued, so its findings land as this second
+ * write — merged into the payload's `highlights`, pending rows only.
+ * @param ctx - client root context.
+ * @param args - the entry id and the warnings to append.
+ * @returns the full list as stored after the merge.
+ */
+export async function annotateInboxProposal(ctx: Context, args: KbProposalInboxAnnotateArgs): Promise<KbProposalInboxAnnotateResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.proposalInboxAnnotate(args))
 }
 
 /**

@@ -56,7 +56,7 @@ import {
   loadSectionText, renderGlobalMemorySection, readGlobalMemoryEntries, YANTAO_SECTIONS,
   readPromptShortcuts, writePromptShortcuts, PROMPT_SHORTCUTS_DISPLAY_PATH,
   readSchedules, writeSchedules, markSchedule, SCHEDULES_DISPLAY_PATH,
-  enqueueProposal, readProposalInbox, resolveProposalInboxEntry, PROPOSAL_INBOX_DISPLAY_PATH,
+  enqueueProposal, readProposalInbox, resolveProposalInboxEntry, annotateProposalInboxEntry, PROPOSAL_INBOX_DISPLAY_PATH,
   readWorkspaces, writeWorkspaces, markInstruction, WORKSPACES_DISPLAY_PATH,
   readWorkspaceRuns, appendWorkspaceRun, clearWorkspaceRuns, WORKSPACE_RUNS_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
@@ -106,6 +106,8 @@ import type {
   KbPromptShortcutListResult,
   KbPromptShortcutSaveArgs,
   KbPromptShortcutSaveResult,
+  KbProposalInboxAnnotateArgs,
+  KbProposalInboxAnnotateResult,
   KbProposalInboxEnqueueArgs,
   KbProposalInboxEnqueueResult,
   KbProposalInboxListResult,
@@ -620,7 +622,26 @@ export class YantaoKbController extends TypertRemoteService {
         // 一条坏行沉掉整船。合格项照常入队，坏项点名随结果带回；只有全军覆没
         // 才拒绝——那时也没有任何东西可入队。信任锚不动：入队的每一项仍然
         // 要等人在提议卡上批准。
-        const { valid, diagnostics } = partitionProposedActions(actions)
+        // 校验 A 的供料（ADR-0059 决定 2）：先把本批声称的全部 sourcePath
+        // 各读一次（读不到记 null），再以同步查找表喂给校验器——校验器保持
+        // 纯函数，测试可以喂夹具；读不到的来源不判罪（那是校验 B 正向闭合
+        // 的事），这里只拦「读了但内容对不上」的张冠李戴。
+        const sourcePaths = [...new Set(actions
+          .filter((entry): entry is { sourcePath: string } =>
+            typeof entry === 'object' && entry !== null
+            && typeof (entry as { sourcePath?: unknown }).sourcePath === 'string')
+          .map(entry => entry.sourcePath.trim())
+          .filter(path => path !== ''))]
+        const sourceCache = new Map<string, string | null>()
+        for (const path of sourcePaths) {
+          try {
+            sourceCache.set(path, await readFile(resolveWithinKb(this.kbRoot, path), 'utf8'))
+          } catch {
+            sourceCache.set(path, null)
+          }
+        }
+        const { valid, diagnostics } = partitionProposedActions(actions,
+          path => sourceCache.get(path) ?? null)
         if (valid.length === 0) {
           throw new Error(`提议未通过校验，没有一项合格（整单未入队）：${diagnostics.join('；')}`)
         }
@@ -2029,17 +2050,40 @@ export class YantaoKbController extends TypertRemoteService {
 
   /**
    * Record the human's decision on one pending proposal (ADR-0047): approve
-   * or discard. The apply itself is the UI's business (the human channel's
-   * `applyProposal`), this only settles the row — a decision is final, an
+   * (clean, partial, or failed — ADR-0059 决定 5's three-way settlement) or
+   * discard. The apply itself is the UI's business (the human channel's
+   * `applyProposal`), this only settles the row, stores the per-action trail
+   * and appends the apply-ledger line — a decision is final, an
    * already-decided entry refuses.
-   * @param args - the entry id and the decision.
+   * @param args - the entry id, the decision, and the apply's per-action trail.
    * @returns the full list as stored after the resolve.
    */
   @Remote('proposalInboxResolve')
   async proposalInboxResolve(args: KbProposalInboxResolveArgs): Promise<KbProposalInboxResolveResult> {
     this.requireKbRootForInbox()
     try {
-      const stored = await resolveProposalInboxEntry(this.kbRoot, args.id, args.status)
+      const stored = await resolveProposalInboxEntry(this.kbRoot, args.id, args.status, new Date(), args.applyResults)
+      return { proposals: stored as readonly KbQueuedProposal[], path: PROPOSAL_INBOX_DISPLAY_PATH }
+    } catch (error: unknown) {
+      throw this.inboxError(error)
+    }
+  }
+
+  /**
+   * Append machine verification's warnings to one pending entry's card
+   * (ADR-0059 决定 2): the scheduler's read-closure scan runs after the
+   * nomination tool has already enqueued, so its findings land as this
+   * second write — merged into the payload's `highlights`, the channel the
+   * 提议 card already renders. Pending rows only; a decided card is settled
+   * history. Human-channel code (the scheduler) is the only caller.
+   * @param args - the entry id and the warnings to append.
+   * @returns the full list as stored after the merge.
+   */
+  @Remote('proposalInboxAnnotate')
+  async proposalInboxAnnotate(args: KbProposalInboxAnnotateArgs): Promise<KbProposalInboxAnnotateResult> {
+    this.requireKbRootForInbox()
+    try {
+      const stored = await annotateProposalInboxEntry(this.kbRoot, args.id, args.highlights)
       return { proposals: stored as readonly KbQueuedProposal[], path: PROPOSAL_INBOX_DISPLAY_PATH }
     } catch (error: unknown) {
       throw this.inboxError(error)

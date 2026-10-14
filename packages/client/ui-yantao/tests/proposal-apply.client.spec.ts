@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { KbTodosResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { Proposal } from '../src/client/proposal.ts'
 import type { ProposalTarget } from '../src/client/proposal-apply.ts'
-import { applyProposal, insertIntoSection, insertIntoStateSection, replaceSection, runUndo } from '../src/client/proposal-apply.ts'
+import { applyProposal, ProposalPreflightError, insertIntoSection, insertIntoStateSection, replaceSection, runUndo } from '../src/client/proposal-apply.ts'
 
 const TODOS_PATH = 'entities/todos.md'
 const TEXT = '- [ ] 已有的待办\n'
@@ -163,9 +163,10 @@ describe('applyProposal', () => {
     expect(content).toMatch(/- \d{4}-\d{2}-\d{2} 确认了时间/)
     expect(result.written).toEqual(['项目动态 飞书迁移'])
     expect(result.skipped).toEqual([])
+    expect(result.perAction).toEqual([{ index: 0, ok: true, error: '' }])
   })
 
-  it('skips an entity action whose locator the resolver rejects', async () => {
+  it('blocks the whole batch when every locator the resolver rejects (ADR-0059 决定 6)', async () => {
     const t = target({
       resolveEntity: vi.fn(async () => { throw new Error('找不到实体：project:不存在') }),
     })
@@ -175,10 +176,36 @@ describe('applyProposal', () => {
         kind: 'append-log', entityPath: 'project:不存在', entityName: '不存在', text: 'x', reason: 'r',
       }],
     }
-    const result = await applyProposal({ proposal, ticked: [0], target: t })
+    // 全灭 = 环境性根因（旧 bundle 解析不了 locator）：整批一字不落，行保持
+    // 待决，报因里点名重启的出路。
+    await expect(applyProposal({ proposal, ticked: [0], target: t })).rejects.toBeInstanceOf(ProposalPreflightError)
     expect(t.read).not.toHaveBeenCalled()
     expect(t.write).not.toHaveBeenCalled()
-    expect(result.skipped).toEqual(['项目动态 不存在：找不到实体：project:不存在'])
+  })
+
+  it('drops only the unreachable rows of a mixed batch and trails them (ADR-0059 决定 5/6)', async () => {
+    const t = target({
+      resolveEntity: vi.fn(async (locator: string) => {
+        if (locator === 'project:不存在') throw new Error('找不到实体：project:不存在')
+        return 'entities/projects/飞书迁移.md'
+      }),
+    })
+    const proposal: Proposal = {
+      title: 't',
+      actions: [
+        { kind: 'append-log', entityPath: 'project:不存在', entityName: '不存在', text: 'x', reason: 'r' },
+        { kind: 'append-log', entityPath: 'project:飞书迁移', entityName: '飞书迁移', text: '确认了时间', reason: 'r' },
+      ],
+    }
+    const result = await applyProposal({ proposal, ticked: [0, 1], target: t })
+    // 个案失败不连坐好项：坏项入笔前剔出，好项照常落地。
+    expect(t.write).toHaveBeenCalledTimes(1)
+    expect(result.written).toEqual(['项目动态 飞书迁移'])
+    expect(result.skipped).toEqual(['项目动态 不存在：实体定位不可达（入笔前预检）'])
+    expect(result.perAction).toEqual([
+      { index: 0, ok: false, error: '实体定位不可达' },
+      { index: 1, ok: true, error: '' },
+    ])
   })
 
   it('batches every ticked todo into one optimistic-concurrency write', async () => {

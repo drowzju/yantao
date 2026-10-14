@@ -12,7 +12,7 @@
  * @module @deepseek-ai/dsh-client-ui-yantao/capability-match
  */
 import type { KbCapabilitySummary } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import type { Proposal, ProposalAction, ProposalMailRange } from './proposal.ts'
+import type { Proposal, ProposalAction, ProposalHighlight, ProposalMailRange } from './proposal.ts'
 
 /** The row a menu is open for, in the shape the matcher reads. */
 export type CapabilityRowTarget =
@@ -227,6 +227,26 @@ export function envelopeRejectionOf(answer: string): string | undefined {
 }
 
 /**
+ * The payload's optional `highlights` (the mail analyses' 重点 blocks, and
+ * since ADR-0059 决定 2 also the read-closure verifier's warnings): kept
+ * only when every entry is a `{sender, subject, why}` triple of strings —
+ * anything else is treated as no highlights, the same degrade-quietly rule
+ * the mails range follows.
+ */
+function highlightsOf(raw: unknown): ProposalHighlight[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined
+  const highlights: ProposalHighlight[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) return undefined
+    const candidate = entry as Record<string, unknown>
+    if (typeof candidate.sender !== 'string' || typeof candidate.subject !== 'string'
+      || typeof candidate.why !== 'string') return undefined
+    highlights.push({ sender: candidate.sender, subject: candidate.subject, why: candidate.why })
+  }
+  return highlights
+}
+
+/**
  * Read one inbox entry's stored payload back as a proposal (ADR-0047): the
  * store kept it opaquely, so the client re-validates here — a `title` string
  * and a non-empty, known-kind `actions` array, the same invariant the parser
@@ -243,5 +263,11 @@ export function proposalOfPayload(raw: unknown): Proposal | null {
   const actions = actionsOf(candidate.actions)
   if (actions.length === 0) return null
   const mails = mailsOf(candidate.mails)
-  return { title: candidate.title.trim(), actions, ...(mails !== undefined ? { mails } : {}) }
+  const highlights = highlightsOf(candidate.highlights)
+  return {
+    title: candidate.title.trim(),
+    actions,
+    ...(mails !== undefined ? { mails } : {}),
+    ...(highlights !== undefined ? { highlights } : {}),
+  }
 }

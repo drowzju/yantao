@@ -60,6 +60,65 @@ const ENTITY_PATH_KINDS: ReadonlySet<string> = new Set(['append-log', 'write-sta
 
 const ENTITY_TYPE_PREFIX = /^(project|projects|area|areas|person|people|meeting|meetings|todo|todos)[:：]/
 
+/**
+ * The provenance fields (ADR-0059 决定 1): an entity-landing action may carry
+ * `sourcePath` (the resource the statement was distilled from) and an
+ * optional `sourceQuote` (the source's verbatim snippet). Optional at the
+ * schema layer on purpose — mandatoriness is a scheduling-convention matter
+ * (the tool cannot know whether its caller is a resource-distillation run);
+ * the convention teaches it and 校验 B enforces it at the run-end scan.
+ * When present, though, the shape must be honest: a `sourcePath` that is not
+ * a non-empty string is named back, never silently kept.
+ */
+const PROVENANCE_FIELDS: ReadonlySet<string> = new Set(['sourcePath', 'sourceQuote'])
+
+/** Below this hit rate a sourced action's content is judged not to match its claimed source (校验 A). */
+const OVERLAP_HIT_RATE = 0.5
+
+/**
+ * The token pattern for 校验 A's overlap probe: project codes, model numbers,
+ * percentages — the ASCII identifiers a distilled line cannot help carrying.
+ * Pure-Chinese prose yields no tokens and passes unchecked (heuristic,
+ * ADR-0059 台账 #2); the match is case-insensitive via lowercasing.
+ */
+const TOKEN_PATTERN = /[A-Za-z0-9][A-Za-z0-9._+%\-]*/g
+
+/**
+ * Extract the comparable tokens from one text (校验 A): ASCII identifiers of
+ * two+ characters, deduplicated case-insensitively.
+ * @param text - the action's landing text.
+ * @returns the tokens, lowercased, in first-seen order.
+ */
+export function contentTokens(text: string): readonly string[] {
+  const seen = new Set<string>()
+  for (const raw of text.match(TOKEN_PATTERN) ?? []) {
+    if (raw.length >= 2) seen.add(raw.toLowerCase())
+  }
+  return [...seen]
+}
+
+/**
+ * 校验 A (ADR-0059 决定 2): an action claiming `sourcePath` must have its
+ * text's tokens overlap the source file's content — the 张冠李戴 guard.
+ * Zero tokens (pure-Chinese prose) or an unreadable source passes: the check
+ * is a cheap grep-grade heuristic, not a semantics judge, and a missing
+ * source file is 校验 B's forward closure's business, not the enqueuer's.
+ * @param text - the action's landing text.
+ * @param sourcePath - the claimed source resource path.
+ * @param content - the source file's content, or null when unreadable.
+ * @returns the diagnostic, or '' when the overlap holds (or cannot be judged).
+ */
+export function sourceOverlapDiagnostic(text: string, sourcePath: string, content: string | null): string {
+  if (content === null) return ''
+  const tokens = contentTokens(text)
+  if (tokens.length === 0) return ''
+  const haystack = content.toLowerCase()
+  const hits = tokens.filter(token => haystack.includes(token)).length
+  const rate = hits / tokens.length
+  if (rate >= OVERLAP_HIT_RATE) return ''
+  return `内容与出处重叠过低（命中 ${hits}/${tokens.length}，来源 ${sourcePath}），疑似张冠李戴（校验 A）`
+}
+
 /** One minimal valid example per kind, inlined into missing-field
  * diagnostics (2026-10-10 补提事故：the drop note named the missing fields
  * but not the shape, and a post-compaction repair rebuilt the rows without
@@ -85,13 +144,18 @@ const KIND_EXAMPLES: Record<ActionKind, string> = {
 }
 
 /**
- * Diagnose one proposed action against the kind tables (ADR-0055): the one
- * row-level check both the whole-list and the per-item tolerant faces share.
+ * Diagnose one proposed action against the kind tables (ADR-0055) plus the
+ * provenance checks (ADR-0059 决定 1/2): the one row-level check both the
+ * whole-list and the per-item tolerant faces share.
  * @param entry - one action exactly as the model handed it over.
  * @param at - the action's 0-based position, for the named diagnostic.
+ * @param readSource - the KB file reader behind 校验 A: maps a claimed
+ *   `sourcePath` to its content, or null when unreadable. Absent (or a null
+ *   answer) skips the overlap check — the tool's caller wires it to the
+ *   live KB; tests wire it to fixtures.
  * @returns the diagnostic line, or '' when the row passes.
  */
-function diagnoseAction(entry: unknown, at: number): string {
+function diagnoseAction(entry: unknown, at: number, readSource?: (path: string) => string | null): string {
   if (typeof entry !== 'object' || entry === null) return `第 ${at + 1} 项不是对象`
   const bag = entry as Record<string, unknown>
   const kind = typeof bag.kind === 'string' ? bag.kind : undefined
@@ -110,6 +174,33 @@ function diagnoseAction(entry: unknown, at: number): string {
     if (entityPath !== '' && !ENTITY_TYPE_PREFIX.test(entityPath) && !entityPath.endsWith('.md')) {
       return `第 ${at + 1} 项「${kind}」的 entityPath 不是可解析的实体定位（应为 type:name 或实体文件路径，形如 ${KIND_EXAMPLES[kind as ActionKind]}）`
     }
+    // ADR-0059 决定 1: provenance fields are optional but honest — present
+    // yet malformed is named back, and only these entity-landing kinds may
+    // carry them (a source on add-todo is exactly the fabrication the
+    // exemption clause fears: the model dressing a pure-decision row as
+    // evidenced).
+    for (const field of PROVENANCE_FIELDS) {
+      if (!(field in bag) || bag[field] === undefined) continue
+      if (typeof bag[field] !== 'string' || (bag[field] as string).trim() === '') {
+        return `第 ${at + 1} 项「${kind}」的 ${field} 出现了但不是非空字符串——要么不带，要么给出来源资源的路径`
+      }
+    }
+  } else {
+    // 豁免条款的另一面：纯决策类动作（add-todo 等）不要求溯源，也不许装饰
+    // 来源——给决策行贴一个出处正是张冠李戴式的伪装，点名让模型摘掉。
+    for (const field of PROVENANCE_FIELDS) {
+      if (!(field in bag) || bag[field] === undefined) continue
+      return `第 ${at + 1} 项「${kind}」是纯决策类动作，不携带溯源字段 ${field}——出处只属于落地类动作（append-log/write-state/create-link）`
+    }
+  }
+  // ADR-0059 决定 2 校验 A: the claimed source's content must carry the
+  // text's tokens — the 张冠李戴 guard, one grep of cost.
+  if (readSource !== undefined && typeof bag.sourcePath === 'string' && typeof bag.text === 'string') {
+    const sourcePath = bag.sourcePath.trim()
+    if (sourcePath !== '') {
+      const line = sourceOverlapDiagnostic(bag.text, sourcePath, readSource(sourcePath))
+      if (line !== '') return `第 ${at + 1} 项「${kind}」${line}`
+    }
   }
   return ''
 }
@@ -119,12 +210,16 @@ function diagnoseAction(entry: unknown, at: number): string {
  * the client's parser — which silently drops unknown rows — the tool is the
  * nomination's front door, so every bad row is named back to the model.
  * @param raw - the `actions` array exactly as the model handed it over.
+ * @param readSource - the KB file reader behind 校验 A (ADR-0059 决定 2).
  * @returns one diagnostic line per offending action; empty means the whole
  *   list passes and may be enqueued verbatim.
  */
-export function validateProposedActions(raw: readonly unknown[]): readonly string[] {
+export function validateProposedActions(
+  raw: readonly unknown[],
+  readSource?: (path: string) => string | null,
+): readonly string[] {
   if (raw.length === 0) return ['actions 不能为空——没有值得提议的就不要调用本工具']
-  return raw.map((entry, at) => diagnoseAction(entry, at)).filter(line => line !== '')
+  return raw.map((entry, at) => diagnoseAction(entry, at, readSource)).filter(line => line !== '')
 }
 
 /**
@@ -132,13 +227,19 @@ export function validateProposedActions(raw: readonly unknown[]): readonly strin
  * and named diagnostics for the rest (2026-10-10 裁决：逐项容错). The old
  * whole-order gate made one bad row sink a whole run-sized nomination — the
  * mail schedule's one-card-per-run shape needs the opposite: valid rows
- * enqueue, bad rows are named back for an in-turn repair.
+ * enqueue, bad rows are named back for an in-turn repair. ADR-0059's 校验 A
+ * rides the same partition: a row whose content does not overlap its claimed
+ * `sourcePath` is a dropped bad row, never a whole-batch rejection.
  * @param raw - the `actions` array exactly as the model handed it over.
+ * @param readSource - the KB file reader behind 校验 A (ADR-0059 决定 2).
  * @returns the passing rows (enqueue these) and one diagnostic line per
  *   dropped row; an empty `raw` yields no valid rows and the empty-input
  *   diagnostic, so the caller's all-dropped face covers it naturally.
  */
-export function partitionProposedActions(raw: readonly unknown[]): {
+export function partitionProposedActions(
+  raw: readonly unknown[],
+  readSource?: (path: string) => string | null,
+): {
   valid: readonly unknown[]
   diagnostics: readonly string[]
 } {
@@ -148,7 +249,7 @@ export function partitionProposedActions(raw: readonly unknown[]): {
   const valid: unknown[] = []
   const diagnostics: string[] = []
   raw.forEach((entry, at) => {
-    const line = diagnoseAction(entry, at)
+    const line = diagnoseAction(entry, at, readSource)
     if (line === '') valid.push(entry)
     else diagnostics.push(line)
   })

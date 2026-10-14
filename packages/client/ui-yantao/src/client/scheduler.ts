@@ -19,8 +19,8 @@ import type { KbSchedule } from '@deepseek-ai/dsh-api-yantao-kb-controller/types
 import type { SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
 import { cronNextAfter, parseCron } from './cron.ts'
 import { envelopeRejectionOf, proposalOfAnswer } from './capability-match.ts'
-import { cancelSessionTurnOnAbort, enqueueInboxProposal, capabilityInstructions, loadProposalInbox, sessionRemoteOf } from './remote.ts'
-import type { Proposal } from './proposal.ts'
+import { annotateInboxProposal, cancelSessionTurnOnAbort, enqueueInboxProposal, capabilityInstructions, loadProposalInbox, sessionRemoteOf } from './remote.ts'
+import type { Proposal, ProposalAction, ProposalHighlight } from './proposal.ts'
 import { askTurn } from './turn-answer.ts'
 import { collectEvents, textOfContent } from './session-detail.ts'
 import { formatTokens } from './insights.ts'
@@ -102,6 +102,13 @@ export interface ScheduleRunResult {
    */
   readonly proposalId?: string
   /**
+   * The read-closure scan's warnings (ADR-0059 决定 2), one line each —
+   * attached to the card's highlight channel and echoed here so the
+   * completion notice can name the count. Absent when the scan found
+   * nothing (or could not run).
+   */
+  readonly warnings?: readonly string[]
+  /**
    * The run's performance accounting (2026-10-10 晨间事故的性能追问): folded
    * from the session's durable event log after the final answer — wall-clock
    * span, gateway retries and their accumulated waits, tool-call volume,
@@ -138,6 +145,89 @@ export const TRUNCATION_MARKER = '输出超过 64KB'
 
 /** The tool the ADR-0055 convention teaches (nomination probe + stats share the name). */
 const PROPOSE_TOOL = 'kb_propose_actions'
+
+/** The read tool whose calls are 校验 B's read witnesses (ADR-0059 决定 2). */
+const READ_RESOURCE_TOOL = 'kb_read_resource'
+
+/** Cap on one scan's closure warnings — the store caps the card's highlights at 20 anyway. */
+const CLOSURE_WARNINGS_MAX = 20
+
+/**
+ * The resource paths this run actually read, folded from the durable events
+ * (ADR-0059 决定 2): every `kb_read_resource` call's `path` argument. The
+ * log is the machine's account of what the round truly read — 溯源核对
+ * cross-checks the model's claims against it, not against the model's
+ * self-report. Defensive throughout: a malformed envelope contributes nothing.
+ * @param events - the session's durable events, oldest first.
+ * @returns the read paths, deduplicated, in first-seen order.
+ */
+export function readPathsFromEvents(events: readonly SessionWireEvent[]): ReadonlySet<string> {
+  const paths = new Set<string>()
+  for (const event of events) {
+    if (event.type !== 'tool/call') continue
+    const data = event.data as { name?: unknown; arguments?: unknown }
+    if (data.name !== READ_RESOURCE_TOOL || typeof data.arguments !== 'string') continue
+    try {
+      const parsed = JSON.parse(data.arguments) as { path?: unknown }
+      if (typeof parsed.path === 'string' && parsed.path.trim() !== '') paths.add(parsed.path.trim())
+    } catch { /* a malformed arguments blob is not a read witness */ }
+  }
+  return paths
+}
+
+/**
+ * 校验 B（ADR-0059 决定 2）——读取闭合的双向核对：
+ *
+ * 正向（伪证）：每条动作声称的 `sourcePath` 必须 ∈ 实际读取集合——引用了
+ * 没读过的文件就是伪证，纯精确匹配零误杀。
+ *
+ * 反向（遗漏）：读取集合中每个资源要么被至少一条动作引用，要么在 note 里
+ * 声明「无要点」——读了没写就是遗漏。决定 1 的强制也由此兜底执法：缺
+ * `sourcePath` 的提炼动作使其来源资源在反向闭合中无着落而被点名。
+ *
+ * 违例不阻塞任何东西——此处已是 run 收尾，入队早已发生——而是以警告附着
+ * 到卡片（走既有 ProposalHighlight 通道），在人审批准前可见。
+ * @param readPaths - the run's actual read set (from {@link readPathsFromEvents}).
+ * @param actions - the enqueued proposal's actions.
+ * @param note - the entry's note, whose 「无要点」declaration exempts the reverse check.
+ * @returns the warnings, each shaped for the card's highlight channel.
+ */
+export function readClosureWarnings(
+  readPaths: ReadonlySet<string>,
+  actions: readonly ProposalAction[],
+  note?: string,
+): readonly ProposalHighlight[] {
+  const warnings: ProposalHighlight[] = []
+  const cited = new Set<string>()
+  const phantom = new Set<string>()
+  for (const action of actions) {
+    const sourcePath = action.kind === 'append-log' || action.kind === 'write-state' || action.kind === 'create-link'
+      ? action.sourcePath?.trim()
+      : undefined
+    if (sourcePath === undefined || sourcePath === '') continue
+    cited.add(sourcePath)
+    if (!readPaths.has(sourcePath) && !phantom.has(sourcePath)) {
+      phantom.add(sourcePath)
+      warnings.push({
+        sender: '溯源校验',
+        subject: sourcePath,
+        why: '有动作声称提炼自此文件，但本轮从未读取过它（疑似伪证，请抽查内容）',
+      })
+    }
+  }
+  // 反向闭合的豁免：模型如实声明「本期无要点」即免——读了没写不算遗漏。
+  if (!note?.includes('无要点')) {
+    for (const path of readPaths) {
+      if (cited.has(path)) continue
+      warnings.push({
+        sender: '读取闭合',
+        subject: path,
+        why: '本轮读过该资源，但没有动作引用它，note 也未声明「本期无要点」（疑似遗漏）',
+      })
+    }
+  }
+  return warnings.slice(0, CLOSURE_WARNINGS_MAX)
+}
 
 /**
  * Whether the durable log shows a `kb_propose_actions` call that SUCCEEDED —
@@ -292,6 +382,7 @@ export function withProposalConvention(
 - {"kind":"save-resource","path":"resources/<名>.md","content":"<全文>","reason":"<缘由>"}
 - {"kind":"add-todo","title":"<题目>","due":"YYYY-MM-DD 或省略","body":"<详情>","reason":"<缘由>"}
 - {"kind":"add-memory","scope":"<能力名>","text":"<规则一句话>","reason":"<缘由>"}
+- 溯源（ADR-0059）：若本任务是资源提炼（从 resources/ 等文件提炼实体的动态、状态），每条陈述事实的实体动作（append-log/write-state/create-link）必须携带 "sourcePath":"<来源资源路径>"，可选 "sourceQuote":"<原文摘句>"；纯决策类动作（add-todo、create-entity 命名等）不要求溯源，也不要编造来源。读过但没写成动作的资源若确无要点，须在 note 里声明「本期无要点」——调度收尾的读取闭合校验会把读过却无着落的资源当遗漏点名。
 规则：只把值得人批准的写入列进提议，不为凑数编造；没有值得提议的就完全不调用本工具（纯文字汇报即可）；入队成功后不要再在回答里重复输出提议 JSON。动作不要自行执行（不要经 kb_write_state / kb_edit_section / kb_append_log 等落库），留给人在「提议」卡上勾选批准后再写入。${provenanceLine}`
 }
 
@@ -441,6 +532,11 @@ export async function runScheduledTask(options: {
   // bare tool/call and silently dropped a valid prose envelope behind it).
   let nominatedViaTool = toolNominationSucceeded(events)
 
+  // 校验 B 的供料（ADR-0059 决定 2）：工具入队路径下，命中条目的载荷与
+  // note 在这里一并取回——闭合扫描要用它的 actions 和「无要点」豁免声明。
+  let freshActions: readonly ProposalAction[] | undefined
+  let freshNote: string | undefined
+
   // Anti-silent-loss (2026-10-10 早晨事故): an answer that clearly TRIED to
   // close with an envelope but failed field validation used to vanish —
   // proposalOfAnswer returned null, nothing warned, the nomination was gone.
@@ -495,7 +591,12 @@ export async function runScheduledTask(options: {
       const fresh = [...inbox.proposals].reverse()
         .find(row => row.source === `schedule:${id}` && row.status === 'pending'
           && Date.parse(row.createdAt) >= startedAt)
-      if (fresh !== undefined) proposalId = fresh.id
+      if (fresh !== undefined) {
+        proposalId = fresh.id
+        const payload = fresh.proposal as { actions?: ProposalAction[] } | null
+        freshActions = Array.isArray(payload?.actions) ? payload.actions : []
+        freshNote = fresh.note
+      }
     } catch (reason: unknown) {
       console.warn(`inbox lookup for schedule ${id} failed; keeping the plain notice:`, reason)
     }
@@ -520,7 +621,7 @@ export async function runScheduledTask(options: {
         note: inboxNoteOf(proposal),
         proposal: proposal as unknown as Parameters<typeof enqueueInboxProposal>[1]['proposal'],
       })
-      return { sessionId, answer: finalAnswer, proposalId: enqueued.id, ...(stats !== undefined ? { stats } : {}) }
+      proposalId = enqueued.id
     } catch (reason: unknown) {
       // The plain completion notice stays the fallback, but the loss must
       // stay diagnosable — the 50-pending soft cap rejecting silently would
@@ -529,7 +630,35 @@ export async function runScheduledTask(options: {
       proposalId = undefined
     }
   }
-  return { sessionId, answer: finalAnswer, ...(proposalId !== undefined ? { proposalId } : {}), ...(stats !== undefined ? { stats } : {}) }
+
+  // 校验 B（读取闭合，ADR-0059 决定 2）：run 收尾扫描——同一份事件日志既
+  // 作证「本轮读过什么」，也作证「写了什么出处」。违例不阻塞（入队早已
+  // 发生，ToolRunContext 无 sessionId 的既有限制使工具层也做不了这次核
+  // 对），而是附到卡片的高亮通道上，人审批准前可见，并随结果计入完成通知。
+  let warnings: readonly string[] | undefined
+  if (proposalId !== undefined && eventsRead) {
+    const actions = freshActions ?? proposal?.actions ?? []
+    const note = freshNote ?? (proposal !== null ? inboxNoteOf(proposal) : undefined)
+    const highlights = readClosureWarnings(readPathsFromEvents(events), actions, note)
+    if (highlights.length > 0) {
+      try {
+        await annotateInboxProposal(ctx, { id: proposalId, highlights })
+        warnings = highlights.map(highlight => `${highlight.sender}：${highlight.subject} — ${highlight.why}`)
+      } catch (reason: unknown) {
+        console.warn(`read-closure annotation for schedule ${id} failed; the card ships unannotated:`, reason)
+      }
+    }
+  }
+  if (proposalId !== undefined) {
+    return {
+      sessionId,
+      answer: finalAnswer,
+      proposalId,
+      ...(warnings !== undefined ? { warnings } : {}),
+      ...(stats !== undefined ? { stats } : {}),
+    }
+  }
+  return { sessionId, answer: finalAnswer, ...(stats !== undefined ? { stats } : {}) }
 }
 
 declare global {

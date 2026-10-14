@@ -253,6 +253,14 @@ function detailOf(action: ProposalAction, t: WorkbenchT, hasAreasControl = false
   if (action.kind === 'delete-mails') return `${action.sender}：${action.reason}`
   if (action.kind === 'archive-mails') return `${action.sender}：${action.summary || action.reason}`
   if (action.kind === 'skill-rewrite') return `${action.name}：${action.why}`
+  // ADR-0059 决定 3（追认 ADR-0038 决定 9 为全体实体动作的通则）：实体落点
+  // 行的 detail 是将落地的 text——批准者必须看见要写进流水/状态的字，
+  // reason 收进次级；带溯源时行尾附来源（可点开的并排对照随 P2 的 diff 视图）。
+  if (action.kind === 'append-log' || action.kind === 'write-state') {
+    const source = action.sourcePath !== undefined && action.sourcePath !== '' ? `（来源：${action.sourcePath}）` : ''
+    const why = action.reason !== '' ? `；理由：${action.reason}` : ''
+    return `${action.text}${source}${why}`
+  }
   if (action.kind === 'create-project') {
     if (hasAreasControl) return action.reason
     const areas = action.areas !== undefined && action.areas.length > 0 ? `关联领域：${action.areas.join('、')}。` : ''
@@ -620,7 +628,11 @@ export function ProposalCard(props: {
         rows.push({
           indices: [index],
           label: `${group.title} 页 追加流水：${action.text}`,
-          detail: action.reason,
+          // ADR-0059 决定 3：校验布局的标签已带落地 text，detail 保持
+          // reason 次级；溯源照样行尾附——两个布局看到同样的出处。
+          detail: action.sourcePath !== undefined && action.sourcePath !== ''
+            ? `${action.reason}（来源：${action.sourcePath}）`
+            : action.reason,
           groupKey: group.key,
           groupTitle: group.title,
         })

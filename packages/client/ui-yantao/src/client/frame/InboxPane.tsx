@@ -117,6 +117,29 @@ const chipDiscardedStyle = {
   color: 'var(--yt-text-muted)',
 } as const
 
+// ADR-0059 决定 5: the approve verdict splits by outcome — partial lands get
+// the warning amber, zero writes the error red, so a settled row never
+// reads as clean when it was not.
+const chipPartialStyle = {
+  ...chipApprovedStyle,
+  background: 'var(--yt-warning-bg)',
+  color: 'var(--yt-warning-text)',
+} as const
+
+const chipFailedStyle = {
+  ...chipApprovedStyle,
+  background: 'var(--yt-error-bg)',
+  color: 'var(--yt-error)',
+} as const
+
+const errorListStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--yt-space-1)',
+  color: 'var(--yt-error)',
+  fontSize: 'var(--yt-type-label)',
+} as const
+
 // 行内丢弃/关闭钮收敛到 ./buttons.ts 的 tool 面（P1-2 收敛，2026-10-12）——
 // 私养的迷你幽灵退役；武装态走共享 toolButtonArmedStyle（P1-1）。
 
@@ -197,10 +220,27 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, capabilitySco
                     {entry.status === 'approved' && entry.decidedAt !== undefined && (
                       <span style={chipApprovedStyle}>已批准 {formatStamp(entry.decidedAt)}</span>
                     )}
+                    {entry.status === 'approved-with-errors' && entry.decidedAt !== undefined && (
+                      <span style={chipPartialStyle}>部分失败 {formatStamp(entry.decidedAt)}</span>
+                    )}
+                    {entry.status === 'failed' && entry.decidedAt !== undefined && (
+                      <span style={chipFailedStyle}>写入失败 {formatStamp(entry.decidedAt)}</span>
+                    )}
                     {entry.status === 'discarded' && entry.decidedAt !== undefined && (
                       <span style={chipDiscardedStyle}>已丢弃 {formatStamp(entry.decidedAt)}</span>
                     )}
                   </span>
+                  {/* ADR-0059 决定 5: the per-action trail is the settled
+                      card's authoritative display data — the failed subset
+                      stays on the row, folded display and retry come with P2. */}
+                  {(entry.status === 'approved-with-errors' || entry.status === 'failed')
+                    && entry.applyResults !== undefined && (
+                    <span style={errorListStyle}>
+                      {entry.applyResults.filter(row => !row.ok).map(row => (
+                        <span key={row.index}>· {row.error}</span>
+                      ))}
+                    </span>
+                  )}
                 </div>
                 {pending && (
                   <button
