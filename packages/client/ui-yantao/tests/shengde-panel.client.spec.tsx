@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { KbMemoryListResult } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { ShengDePanel, type ShengDePanelProps } from '../src/client/ShengDePanel.tsx'
@@ -43,13 +43,6 @@ function props(overrides: Partial<ShengDePanelProps> = {}): ShengDePanelProps {
     list: () => Promise.resolve(LISTED),
     add: () => Promise.resolve({ path: '.dsh/yantao/memory/global.md', entry: { id: 'm9', text: 'x' } }),
     remove: () => Promise.resolve(),
-    listProposals: () => Promise.resolve({ groups: [] }),
-    approveProposal: () => Promise.resolve({
-      path: '.dsh/yantao/memory/proposals/global.md',
-      targetPath: '.dsh/yantao/memory/global.md',
-      entry: { id: 'm9', text: 'x' },
-    }),
-    discardProposal: () => Promise.resolve(),
     ...overrides,
   }
 }
@@ -81,22 +74,5 @@ describe('ShengDePanel', () => {
     await waitFor(() => {
       expect(again.container.querySelector('[data-memory-group="global"]')).not.toBeNull()
     })
-  })
-
-  it('counts the pending proposals it renders, so the tab badge can match', async () => {
-    // The queue lives in MemoryPanel; the merged panel merely hosts it — the
-    // proposal zone stays visible whatever the sediment does.
-    const listProposals = vi.fn(async () => ({
-      groups: [{
-        scope: 'mail', path: '.dsh/yantao/memory/proposals/mail.md',
-        text: '- p1 2026-10-01 [邮件] 周报周五下班前发\n',
-        entries: [{ id: 'p1', date: '2026-10-01', text: '周报周五下班前发', source: '邮件' }],
-      }],
-    }))
-    const { container } = render(<ShengDePanel {...props({ listProposals })} />)
-    await waitFor(() => {
-      expect(container.querySelector('[data-memory-proposals]')).not.toBeNull()
-    })
-    expect(await screen.findByText('周报周五下班前发')).toBeTruthy()
   })
 })

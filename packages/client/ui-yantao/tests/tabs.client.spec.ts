@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  CONVERSATION_TAB, TAB_STORAGE_KEY, TASKS_TAB,
-  activateTab, activeFile, closeTab, emptyTabs, isRunLogPath, openTab, persistTabs, readOnlyPath, restoreTabs, tabFor, tabTitle,
+  CONVERSATION_TAB, FIXED_TABS_STORAGE_KEY, INBOX_TAB, SCHEDULE_TAB, TAB_STORAGE_KEY, TASKS_TAB,
+  activateTab, activeFile, closeTab, defaultFixedTabs, emptyTabs, isRunLogPath, openTab, persistFixedTabs, persistTabs, readOnlyPath,
+  restoreFixedTabs, restoreTabs, tabFor, tabTitle,
   type TabMode, type TabState, type TabStorage,
 } from '../src/client/tabs.ts'
 
@@ -132,6 +133,42 @@ describe('persistence', () => {
     persistTabs(state)
     expect(localStorage.getItem(TAB_STORAGE_KEY)).toBe('["entities/todos.md"]')
     expect(restoreTabs()).toEqual(['entities/todos.md'])
+  })
+})
+
+describe('fixed tabs (2026-10-15 平铺化)', () => {
+  it('exposes the four flat keys, 提议 pinned open among them', () => {
+    expect(new Set([TASKS_TAB, INBOX_TAB, SCHEDULE_TAB]).size).toBe(3)
+    expect(INBOX_TAB).not.toBe(CONVERSATION_TAB)
+    expect(activateTab(emptyTabs(), INBOX_TAB).active).toBe(INBOX_TAB)
+    expect(activateTab(emptyTabs(), SCHEDULE_TAB).active).toBe(SCHEDULE_TAB)
+    expect(activeFile(activateTab(emptyTabs(), SCHEDULE_TAB))).toBeUndefined()
+  })
+
+  it('defaults to all closeable tabs shut, and round-trips an opened one', () => {
+    expect(defaultFixedTabs()).toEqual({ tasks: false, schedule: false, insights: false })
+    const store = memory()
+    persistFixedTabs({ tasks: true, schedule: false, insights: true }, store)
+    expect(restoreFixedTabs(store)).toEqual({ tasks: true, schedule: false, insights: true })
+  })
+
+  it('answers the default for a missing, hand-broken, or wrongly-typed entry', () => {
+    expect(restoreFixedTabs(memory())).toEqual({ tasks: false, schedule: false, insights: false })
+    localStorage.setItem(FIXED_TABS_STORAGE_KEY, 'not json')
+    expect(restoreFixedTabs()).toEqual({ tasks: false, schedule: false, insights: false })
+    localStorage.setItem(FIXED_TABS_STORAGE_KEY, '{"tasks":"yes"}')
+    expect(restoreFixedTabs()).toEqual({ tasks: false, schedule: false, insights: false })
+    localStorage.setItem(FIXED_TABS_STORAGE_KEY, '[true]')
+    expect(restoreFixedTabs()).toEqual({ tasks: false, schedule: false, insights: false })
+  })
+
+  it('defaults to window.localStorage and swallows write failures', () => {
+    persistFixedTabs({ tasks: true, schedule: false, insights: false })
+    expect(JSON.parse(localStorage.getItem(FIXED_TABS_STORAGE_KEY) ?? '')).toEqual({ tasks: true, schedule: false, insights: false })
+    expect(restoreFixedTabs()).toEqual({ tasks: true, schedule: false, insights: false })
+    // A throwing storage only loses the preference, never breaks the caller.
+    const hostile: TabStorage = { getItem: () => null, setItem: () => { throw new Error('quota') } }
+    expect(() => persistFixedTabs({ tasks: false, schedule: false, insights: false }, hostile)).not.toThrow()
   })
 })
 

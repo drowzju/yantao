@@ -53,16 +53,19 @@ import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
 import { Onboarding } from '../Onboarding.tsx'
 import {
-  CONVERSATION_TAB, INSIGHTS_TAB, activateTab, activeFile, closeTab, emptyTabs, openTab, persistTabs,
+  CONVERSATION_TAB, INBOX_TAB, INSIGHTS_TAB, SCHEDULE_TAB, TASKS_TAB,
+  activateTab, activeFile, closeTab, emptyTabs, openTab,
+  persistFixedTabs, persistTabs,
   readOnlyPath,
+  restoreFixedTabs,
   restoreTabs,
-  type TabMode, type TabState,
+  type ClosableFixedTab, type FixedTabsOpen, type TabMode, type TabState,
 } from '../tabs.ts'
 import { CenterPane, type ViewMode } from './CenterPane.tsx'
 import { GraphPane } from './GraphPane.tsx'
 import { InboxPane } from './InboxPane.tsx'
+import { MemoryProposalZone } from '../MemoryProposalZone.tsx'
 import { TasksPane } from './TasksPane.tsx'
-import { TasksHubPane } from './TasksHubPane.tsx'
 import './frame.module.css'
 import type { PanelToggles } from './layout.ts'
 import type { SidebarRightFileSeat } from '../sidebar-right.ts'
@@ -278,6 +281,19 @@ const footerStripStyle = {
     字号、弱墨），只保留比行内工具宽一档的内边距（2026-10-14 复评 B：
     此前是裸 UA 按钮，页脚与暖纸界面像两个软件）。 */
 const footerButtonStyle = { ...toolButtonStyle, padding: 'var(--yt-space-1) var(--yt-space-3)' } as const
+
+/** The footer switches' counter pill (2026-10-15): same cut as the 任务 hub's
+    sub-tab badges — accent ground, on-accent ink — so one number reads the
+    same everywhere. */
+const footerBadgeStyle = {
+  borderRadius: 8,
+  background: 'var(--yt-accent)',
+  color: 'var(--yt-on-accent)',
+  fontSize: 'var(--yt-type-label)',
+  lineHeight: '16px',
+  padding: '0 var(--yt-space-2)',
+  marginLeft: 'var(--yt-space-1)',
+} as const
 
 /** The stack holding one file's two views; both stay mounted, one is shown. */
 const bothPanesStyle = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } as const
@@ -564,11 +580,42 @@ export function Frame({
     setWorkspaceOpen(!narrow)
   }, [narrow])
 
+  // The fixed centre tabs (任务/调度/洞察) are closeable since 2026-10-15;
+  // the footer's four switches (任务/提议/调度/洞察) reopen them. 提议 is
+  // pinned open (2026-10-15 平铺化用户裁决：提议默认打开在中部，不可关闭) —
+  // it joins no persistence and offers no close button. The open flags
+  // persist to localStorage; a closed tab's pane stays mounted
+  // (display:none), so a reopen costs nothing and the schedule draft /
+  // open card survive.
+  const [fixedOpen, setFixedOpen] = useState<FixedTabsOpen>(restoreFixedTabs)
+  const fixedOpenRef = useRef(fixedOpen)
+  fixedOpenRef.current = fixedOpen
+  const setFixedTabsOpen = useCallback((next: FixedTabsOpen): void => {
+    fixedOpenRef.current = next
+    setFixedOpen(next)
+    persistFixedTabs(next)
+  }, [])
+  const openFixedTab = useCallback((tab: ClosableFixedTab): void => {
+    setFixedTabsOpen({ ...fixedOpenRef.current, [tab]: true })
+  }, [setFixedTabsOpen])
+  const closeFixedTab = useCallback((tab: ClosableFixedTab): void => {
+    setFixedTabsOpen({ ...fixedOpenRef.current, [tab]: false })
+    // Closing the active tab falls back to the conversation — the one
+    // tab that can never close.
+    const closed = tab === 'tasks' ? TASKS_TAB : tab === 'schedule' ? SCHEDULE_TAB : INSIGHTS_TAB
+    setTabs(state => state.active === closed ? activateTab(state, CONVERSATION_TAB) : state)
+  }, [setFixedTabsOpen])
+
   // One activation for every caller (2026-10-10 ocr 评审：八处闭包逐字重复，
   // 提成单一稳定回调)——seat 发布、pane 跳转、tab 条点击共用。
   const activate = useCallback((key: string): void => {
+    // A closed fixed tab reopens on demand: the g+2/g+3 shortcuts, the layout
+    // command and any stray jump all land on a visible page.
+    if (key === TASKS_TAB && !fixedOpenRef.current.tasks) openFixedTab('tasks')
+    if (key === SCHEDULE_TAB && !fixedOpenRef.current.schedule) openFixedTab('schedule')
+    if (key === INSIGHTS_TAB && !fixedOpenRef.current.insights) openFixedTab('insights')
     setTabs(state => activateTab(state, key))
-  }, [])
+  }, [openFixedTab])
 
   // Publish this frame's toggle into the seat `ctx.layout` reads, and the
   // file opener into the seat `ctx.sidebarRight` (the 0.2.1 stand-in) reads.
@@ -1894,11 +1941,16 @@ export function Frame({
     onKbRootChanged()
   }, [onKbRootChanged])
 
-  // The 任务 hub's per-sub-tab counters (2026-10-12): the 任务 sub-tab wears
-  // the running-task count, the 提议 sub-tab the pending-proposal backlog.
-  // The parent tab itself shows only a presence dot (CenterPane).
+  // The footer switches' counter pills (2026-10-12; 2026-10-15 平铺化后这些
+  // 计数同时喂中栏页签的信号点): 任务=running tasks, 提议=待批提议 +
+  // pendingMemories（kb_propose_memory 的在途队列）。
   const runningTasks = runningCount(taskRows)
   const pendingProposals = inboxEntries.filter(entry => entry.status === 'pending').length
+  const [pendingMemories, setPendingMemories] = useState(0)
+  // The insights pressure slot renders once and feeds two mouths: CenterPane's
+  // tab strip (while the tab is open) and the footer 洞察 switch (once it is
+  // closed — ADR-0057).
+  const insightsPressure = renderSlot('center.insights.pressure', {})
 
   return (
     <div
@@ -1946,9 +1998,6 @@ export function Frame({
           memoryList={memoryList}
           memoryAdd={memoryAdd}
           memoryDelete={memoryDelete}
-          memoryProposalList={memoryProposalList}
-          memoryProposalApprove={memoryProposalApprove}
-          memoryProposalDiscard={memoryProposalDiscard}
           promptShortcutList={promptShortcutList}
           promptShortcutSave={promptShortcutSave}
           fillShortcut={fillShortcut}
@@ -1969,32 +2018,43 @@ export function Frame({
       <CenterPane
         tabs={tabs}
         statuses={statuses}
+        fixedOpen={fixedOpen}
+        onCloseFixed={closeFixedTab}
         taskRows={taskRows}
-        // ADR-0057: the 任务 tab's assembled body — 任务｜提议 above, 调度
-        // below. The 详情 drawer overlays the 任务 region (its hub wrapper is
-        // position:relative). The schedule gate keeps the pane read-only
-        // until the initial read lands (OCR 2026-10-03): before the store's
-        // rows arrive — or forever after a failed read — the pane must offer
-        // no mutating affordance, or an early full-list save would wipe
-        // every definition it never fetched.
-        tasksHub={(
-          <TasksHubPane
-            badges={{ tasks: runningTasks, inbox: pendingProposals }}
-            tasks={(
-              <>
-                <TasksPane rows={taskRows} onCancel={cancelTask} onJump={jumpTask} onDetail={onTaskDetail} />
-                {detailRow === null ? null : (
-                  <SessionDetailDrawer
-                    key={detailRow.id}
-                    row={detailRow}
-                    load={sessionDetail}
-                    onClose={closeTaskDetail}
-                    t={t}
-                  />
-                )}
-              </>
+        // 2026-10-15 平铺化：任务/提议/调度各自成为独立 tab，三个 pane 的
+        // 装配从 TasksHubPane 的 props 挪到这里。The 详情 drawer overlays
+        // the 任务 pane (position:relative wrapper, ADR-0033). The schedule
+        // gate keeps the pane read-only until the initial read lands
+        // (OCR 2026-10-03): before the store's rows arrive — or forever after
+        // a failed read — the pane must offer no mutating affordance, or an
+        // early full-list save would wipe every definition it never fetched.
+        tasksPane={(
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, position: 'relative' }}>
+            <TasksPane rows={taskRows} onCancel={cancelTask} onJump={jumpTask} onDetail={onTaskDetail} />
+            {detailRow === null ? null : (
+              <SessionDetailDrawer
+                key={detailRow.id}
+                row={detailRow}
+                load={sessionDetail}
+                onClose={closeTaskDetail}
+                t={t}
+              />
             )}
-            inbox={!inboxLoaded ? (
+          </div>
+        )}
+        inboxPane={(
+          <>
+            {/* 2026-10-15 迁入：kb_propose_memory 的在途队列从省得搬进
+                提议 tab——所有待裁决的事住同一个 tab。空队列时整块隐形；
+                读取独立于 inbox 的加载门，两边互不遮蔽。 */}
+            <MemoryProposalZone
+              t={t}
+              list={memoryProposalList}
+              approve={memoryProposalApprove}
+              discard={memoryProposalDiscard}
+              onPendingChange={setPendingMemories}
+            />
+            {!inboxLoaded ? (
               <div style={{ padding: 'var(--yt-space-4)', color: 'var(--yt-text-muted)' }}>提议加载中…</div>
             ) : (
               <InboxPane
@@ -2007,16 +2067,16 @@ export function Frame({
                 t={t}
               />
             )}
-            schedule={!schedulesLoaded ? (
-              <div style={{ padding: 'var(--yt-space-4)', color: 'var(--yt-text-muted)' }}>调度加载中…</div>
-            ) : (
-              <SchedulePane
-                schedules={schedules}
-                onSave={commitSchedules}
-                promptShortcutList={promptShortcutList}
-                capabilityNames={capabilityScopes}
-              />
-            )}
+          </>
+        )}
+        schedulePane={!schedulesLoaded ? (
+          <div style={{ padding: 'var(--yt-space-4)', color: 'var(--yt-text-muted)' }}>调度加载中…</div>
+        ) : (
+          <SchedulePane
+            schedules={schedules}
+            onSave={commitSchedules}
+            promptShortcutList={promptShortcutList}
+            capabilityNames={capabilityScopes}
           />
         )}
         insightsPane={renderSlot('center.insights', {
@@ -2034,8 +2094,8 @@ export function Frame({
             <GraphPane data={graphData} onOpen={(path) => { openFile(path, 'edit') }} onReload={reloadGraph} t={t} />
           ),
         })}
-        insightsPressure={renderSlot('center.insights.pressure', {})}
-        inboxPending={pendingProposals}
+        insightsPressure={insightsPressure}
+        inboxPending={pendingProposals + pendingMemories}
         onActivate={(key) => { activate(key) }}
         onClose={closeFileTab}
         renderConversation={() => renderSlot('main', {}, { entryKey: 'conversation' })}
@@ -2160,13 +2220,32 @@ export function Frame({
           t={t}
         />
       </div>
-      {/* The reserved grid row: 配置 lives at the window's bottom-left, a
-          flow child so it survives intake collapse. ADR-0057 retired the
-          调度/洞察 shortcuts beside it — the former moved into the 任务
-          tab's lower half, the latter's pressure alarm now rides the 洞察
-          tab label itself. */}
+      {/* The reserved grid row: the four fixed-tab switches (任务/提议/调度/
+          洞察) live at the window's bottom-left (2026-10-15 截图评审)；配置
+          与快捷键是低频入口，沉到右下角（同日用户裁决，配置改名模型配置）。
+          点击开关直达各自的平铺 tab（任务 hub 的子页壳同日拆除）；有信号的
+          开关戴计数胶囊（任务=运行中，提议=待批提议+待批记忆），洞察关闭时
+          压力点随钮走，警报不失明。 */}
       <div style={footerStripStyle}>
-        <button style={footerButtonStyle} data-config-button="true" data-hover="true" onClick={() => { setConfigOpen(true) }}>
+        <button style={footerButtonStyle} data-footer-tasks="true" data-hover="true" onClick={() => { activate(TASKS_TAB) }}>
+          {t('footer.tasks')}
+          {runningTasks > 0 && <span data-footer-badge="tasks" style={footerBadgeStyle}>{runningTasks}</span>}
+        </button>
+        <button style={footerButtonStyle} data-footer-inbox="true" data-hover="true" onClick={() => { activate(INBOX_TAB) }}>
+          {t('footer.inbox')}
+          {pendingProposals + pendingMemories > 0 && <span data-footer-badge="inbox" style={footerBadgeStyle}>{pendingProposals + pendingMemories}</span>}
+        </button>
+        <button style={footerButtonStyle} data-footer-schedule="true" data-hover="true" onClick={() => { activate(SCHEDULE_TAB) }}>
+          {t('footer.schedule')}
+        </button>
+        <button style={footerButtonStyle} data-footer-insights="true" data-hover="true" onClick={() => { activate(INSIGHTS_TAB) }}>
+          {t('footer.insights')}
+          {/* The pressure alarm rides the tab label while the tab is open;
+              once it closes, the footer switch is its only home — the alarm
+              must stay globally visible (ADR-0057). */}
+          {!fixedOpen.insights && insightsPressure}
+        </button>
+        <button style={{ ...footerButtonStyle, marginLeft: 'auto' }} data-config-button="true" data-hover="true" onClick={() => { setConfigOpen(true) }}>
           {t('config.open')}
         </button>
         {/* 2026-10-09 第四轮评审 P1：8 条热键注册后无处可见——这个只读目录

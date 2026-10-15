@@ -2,11 +2,14 @@
  * The 省得 tab (2026-10-11 整合裁决): the 待办 board above, the 记忆 view
  * below — one tab, two untouched data planes. The merge is presentation
  * only: todos.md keeps its singleton board (ADR-0018), memory keeps its
- * proposal lifecycle (ADR-0032/0044), and neither learns about the other.
+ * management view (ADR-0032), and neither learns about the other. The
+ * agent's pending proposals (ADR-0044) verdict here no longer — they moved
+ * to the 提议 sub-page (2026-10-15), so this panel is the human-author
+ * management view alone.
  *
  * The two sediment layers — the DONE pane and the approved rules — start
  * collapsed so the first screen holds only what is alive: open todos and
- * pending proposals. The human's expansions persist in localStorage;
+ * the approved rules. The human's expansions persist in localStorage;
  * presentation state, never a data-plane fact.
  * @module @deepseek-ai/dsh-client-ui-yantao/ShengDePanel
  */
@@ -78,9 +81,6 @@ export function ShengDePanel({ t, ...rest }: ShengDePanelProps): ReactElement {
         list={rest.list}
         add={rest.add}
         remove={rest.remove}
-        listProposals={rest.listProposals}
-        approveProposal={rest.approveProposal}
-        discardProposal={rest.discardProposal}
         approvedOpen={expansion.approved === true}
         onApprovedOpenChange={(open) => { write({ approved: open }) }}
       />

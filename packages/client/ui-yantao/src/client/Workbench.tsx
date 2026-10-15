@@ -15,7 +15,7 @@ import type {
   EntityArchiver, EntityCreator, EntityResolver, FileReader,
   FileWriter,
   MailDeleter, MailFetcher, MailMarker, MemoryAdder, MemoryDeleter, MemoryLister,
-  MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
+  PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceDeleter, ResourceRegistrar, ShortcutFiller,
   TodoLoader, TodoWriter, Archiver,
   WorkspaceLister, WorkspaceRunner, WorkspaceRunDeleter, WorkspaceRunsClearer, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
@@ -1118,12 +1118,6 @@ export interface IntakeRailProps extends RailProps {
   readonly memoryAdd: MemoryAdder
   /** Forget one behavior rule by id (ADR-0032) — the 记忆 tab's delete. */
   readonly memoryDelete: MemoryDeleter
-  /** List the in-flight proposals (ADR-0044 决定 7) — the 记忆 tab's 待批准 zone. */
-  readonly memoryProposalList: MemoryProposalLister
-  /** Promote one pending proposal, optionally to a re-judged scope. */
-  readonly memoryProposalApprove: MemoryProposalApprover
-  /** Drop one pending proposal without promoting it. */
-  readonly memoryProposalDiscard: MemoryProposalDiscarder
   /** List the prompt shortcuts (ADR-0040) — the 能力 tab's 惯用提示词 first screen. */
   readonly promptShortcutList: PromptShortcutLister
   /** Replace the whole prompt-shortcut list (ADR-0040). */
@@ -1218,8 +1212,8 @@ async function dropOnEntity(args: {
 /**
  * The intake rail: 资源 / 省得 / 工作空间 / 能力 as tabs. 省得 is the merged
  * 待办+记忆 tab (2026-10-11 整合): the singleton as a TODO / DONE board above
- * (ADR-0018), the memory management view below (ADR-0032), its pending
- * proposals counted on the tab itself; 资源 rows open read-only; 能力 lists
+ * (ADR-0018), the memory management view below (ADR-0032); 资源 rows open
+ * read-only; 能力 lists
  * the registered capabilities (ADR-0021), the mail one embedding the
  * connector panel.
  * @param props - see {@link RailProps}.
@@ -1232,7 +1226,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     registerResource, deleteResource, onRefine,
     capabilityList, capabilityCreate, capabilityAdopt, capabilityRegister, capabilityRouteUpdate, capabilityUnregister,
     onRunCapability, kbRoot = '',
-    memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
+    memoryList, memoryAdd, memoryDelete,
     promptShortcutList, promptShortcutSave, fillShortcut,
     workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList, workspaceRunsClear, workspaceRunDelete,
     onActiveTabChange,
@@ -1252,27 +1246,6 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   const ownMailRun = useMemo(() => createMailRun(), [])
   const mailRun = props.mailRun ?? ownMailRun
   const mailState = useMailRun(mailRun)
-  // The 省得 tab's badge: a light poll of the pending memory-proposal count,
-  // so an agent's nomination is visible without entering the tab. Silent on
-  // failure — the panel itself carries the full error channels; a missed
-  // count only means a missing badge.
-  const latestProposals = useRef(memoryProposalList)
-  latestProposals.current = memoryProposalList
-  const [pendingMemories, setPendingMemories] = useState(0)
-  useEffect(() => {
-    let alive = true
-    const tick = (): void => {
-      void latestProposals.current().then((result) => {
-        if (alive) setPendingMemories((result.groups ?? []).reduce((sum, group) => sum + group.entries.length, 0))
-      }).catch(() => { /* 徽标沉默：面板内有完整的错误呈现 */ })
-    }
-    tick()
-    const timer = setInterval(tick, 30_000)
-    return () => {
-      alive = false
-      clearInterval(timer)
-    }
-  }, [])
   const [actionError, setActionError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [dropping, setDropping] = useState(false)
@@ -1408,11 +1381,6 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
                 ●
               </span>
             )}
-            {id === 'shengde' && pendingMemories > 0 && (
-              <span style={{ marginLeft: 'var(--yt-space-1)', color: 'var(--yt-error)' }} title={t('memory.proposalZone.title')}>
-                {pendingMemories}
-              </span>
-            )}
           </button>
         ))}
       </div>
@@ -1428,9 +1396,6 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
             list={memoryList}
             add={memoryAdd}
             remove={memoryDelete}
-            listProposals={memoryProposalList}
-            approveProposal={memoryProposalApprove}
-            discardProposal={memoryProposalDiscard}
           />
         )}
         {tab === 'connector' && (

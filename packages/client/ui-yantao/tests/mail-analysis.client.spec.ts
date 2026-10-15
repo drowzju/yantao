@@ -134,6 +134,9 @@ describe('mailPrompt', () => {
     expect(text).toContain('"deletions"')
     expect(text).toContain('不得与已有项目重名')
     expect(text).toContain('删除提名')
+    // 2026-10-15 立项实质化：brief 进 schema，空壳禁令进规则。
+    expect(text).toContain('"brief"')
+    expect(text).toContain('空壳项目')
   })
 
   it('asks each proposal row to cite its source mail, and keeps digest whys short (ADR-0038)', () => {
@@ -275,7 +278,7 @@ describe('parseAnalysis', () => {
   it('reads the three proposal slots, dropping junk rows (ADR-0034)', () => {
     const analysis = parseAnalysis(JSON.stringify({
       newProjects: [
-        { name: '机房迁移', why: '三次事故同源', areas: ['基础设施', '编造的领域'] },
+        { name: '机房迁移', why: '三次事故同源', brief: '机房老旧，三次事故同源；先把迁移方案立起来，下周勘察。', areas: ['基础设施', '编造的领域'] },
         { name: '', why: '没有名字' },
       ],
       meetings: [
@@ -286,7 +289,7 @@ describe('parseAnalysis', () => {
       deletions: [{ mail: 2, reason: '广告' }, { mail: 'x', reason: '没有编号' }],
     }))
     expect(analysis.newProjects).toEqual([
-      { name: '机房迁移', why: '三次事故同源', areas: ['基础设施', '编造的领域'] },
+      { name: '机房迁移', why: '三次事故同源', brief: '机房老旧，三次事故同源；先把迁移方案立起来，下周勘察。', areas: ['基础设施', '编造的领域'] },
     ])
     expect(analysis.meetings).toEqual([
       { name: '周会', isNew: false, why: '有结论', decision: '改用方案 B', todo: '张三出方案' },
@@ -309,7 +312,8 @@ describe('parseAnalysis', () => {
     ])
     expect(analysis.todos).toEqual([{ title: '发汇报', body: '', mail: 1 }])
     expect(analysis.projects).toEqual([{ name: '飞书迁移', note: '对方确认了时间', mail: 3 }])
-    expect(analysis.newProjects).toEqual([{ name: '机房迁移', why: '三次事故同源', mail: 4 }])
+    // 缺 brief 的旧行为也容忍：读成空串，由映射层的兜底归档接住。
+    expect(analysis.newProjects).toEqual([{ name: '机房迁移', why: '三次事故同源', brief: '', mail: 4 }])
     expect(analysis.meetings).toEqual([{ name: '周会', isNew: false, why: '有结论', mail: 5 }])
   })
 
@@ -494,20 +498,37 @@ describe('analysisToProposal', () => {
       .toEqual(['create-entity', 'add-todo', 'append-log', 'append-log'])
   })
 
-  it('maps newProjects into create-project, keeping only areas the KB holds (ADR-0034)', () => {
+  it('maps newProjects into create-project + 目标 follower + archive, keeping only areas the KB holds (ADR-0034; 2026-10-15 立项实质化)', () => {
     const proposal = analysisToProposal(
       {
         ...ANALYSIS,
         newProjects: [
-          { name: '机房迁移', why: '三次事故同源', areas: ['协作平台', '编造的领域'] },
-          { name: '无领域的', why: '先立起来' },
+          { name: '机房迁移', why: '三次事故同源', brief: '机房老化，三次事故同源；先立方案，下周勘察。', areas: ['协作平台', '编造的领域'], mail: 2 },
+          { name: '无领域的', why: '先立起来', brief: '' },
         ],
       },
       ENTITIES, 't', MAILS,
     )
     expect(proposal.actions.filter(action => action.kind === 'create-project')).toEqual([
-      { kind: 'create-project', name: '机房迁移', reason: '三次事故同源', areas: ['协作平台'] },
+      { kind: 'create-project', name: '机房迁移', reason: '三次事故同源', areas: ['协作平台'], mail: 2, mailSubject: '邮催：请处理工单' },
       { kind: 'create-project', name: '无领域的', reason: '先立起来' },
+    ])
+    // 立项实质化：brief 以 edit-section 跟随 create 落进「目标」段——
+    // create 不再是空壳的唯一产物。
+    expect(proposal.actions.filter(action => action.kind === 'edit-section')).toEqual([
+      {
+        kind: 'edit-section', path: '', section: '目标', before: '',
+        after: '机房老化，三次事故同源；先立方案，下周勘察。', why: '三次事故同源', afterCreate: '机房迁移',
+        mail: 2, mailSubject: '邮催：请处理工单',
+      },
+    ])
+    // 立项必留痕：源邮件没被 saves 提名时自动补一条归档提名（摘要用
+    // brief，退化用 why）；同一邮件不去重出第二条。
+    expect(proposal.actions.filter(action => action.kind === 'archive-mails')).toEqual([
+      {
+        kind: 'archive-mails', entryId: 'entry', sender: '系统', subject: '邮催：请处理工单',
+        summary: '机房老化，三次事故同源；先立方案，下周勘察。', reason: '机房老化，三次事故同源；先立方案，下周勘察。',
+      },
     ])
     // The card's 领域勾选 universe is the KB's own areas.
     expect(proposal.areas).toEqual(['协作平台'])
@@ -559,6 +580,21 @@ describe('analysisToProposal', () => {
     )
     expect(proposal.actions.filter(action => action.kind === 'archive-mails')).toEqual([
       { kind: 'archive-mails', entryId: 'entry', sender: '老板', subject: '周报截止', summary: '有价值', reason: '有价值' },
+    ])
+  })
+
+  it('does not double-archive a mail that both saves and newProjects cite (2026-10-15 立项实质化)', () => {
+    const proposal = analysisToProposal(
+      {
+        ...ANALYSIS,
+        saves: [{ mail: 2, summary: '模型的索引摘要' }],
+        newProjects: [{ name: '机房迁移', why: '三次事故同源', brief: '先立方案', mail: 2 }],
+      },
+      ENTITIES, 't', MAILS,
+    )
+    expect(proposal.actions.filter(action => action.kind === 'archive-mails')).toEqual([
+      // saves 的提名先行，摘要保持模型原话；newProjects 不再补第二条。
+      { kind: 'archive-mails', entryId: 'entry', sender: '系统', subject: '邮催：请处理工单', summary: '模型的索引摘要', reason: '模型的索引摘要' },
     ])
   })
 
@@ -648,7 +684,7 @@ describe('analysisToProposal', () => {
         people: [{ name: '张三', relation: 'peer', reason: '一起做汇报', email: 'zhangsan@example.com', mail: 1 }],
         todos: [{ title: '发汇报', due: '2026-09-12', body: '给张三', mail: 2 }],
         projects: [{ name: '飞书迁移', note: '对方确认了时间', mail: 1 }],
-        newProjects: [{ name: '机房迁移', why: '三次事故同源', mail: 2 }],
+        newProjects: [{ name: '机房迁移', why: '三次事故同源', brief: '', mail: 2 }],
         meetings: [{ name: '周会', isNew: false, decision: '改用方案 B', why: '有结论', mail: 1 }],
       },
       ENTITIES, 't', MAILS,

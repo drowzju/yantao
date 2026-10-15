@@ -118,13 +118,6 @@ function railProps(overrides: Partial<IntakeRailProps> = {}): IntakeRailProps {
     memoryList: () => Promise.resolve({ groups: [] }),
     memoryAdd: () => Promise.resolve({ path: '.dsh/yantao/memory/global.md', entry: { id: 'm1', text: 'x' } }),
     memoryDelete: () => Promise.resolve(),
-    memoryProposalList: () => Promise.resolve({ groups: [] }),
-    memoryProposalApprove: () => Promise.resolve({
-      path: '.dsh/yantao/memory/proposals/global.md',
-      targetPath: '.dsh/yantao/memory/global.md',
-      entry: { id: 'm1', text: 'x' },
-    }),
-    memoryProposalDiscard: () => Promise.resolve(),
     capabilityRuns: [],
     onDistillCapability: () => {},
     distillingRunId: null,
@@ -1557,7 +1550,9 @@ describe('Frame', () => {
     fireEvent.click(firstOf(await screen.findAllByText('健康')))
     expect(container.querySelectorAll('[data-tab="entities/areas/健康.md"]')).toHaveLength(1)
 
-    fireEvent.click(screen.getByTitle('关闭'))
+    // 关闭 有多处同名 title（文件页签 + 任务/调度/洞察页签的收起钮）——用
+    // aria-label 圈定文件页签自己的那颗（2026-10-15 页签可关闭后）。
+    fireEvent.click(container.querySelector('[aria-label="关闭 健康"]') as HTMLElement)
     // 关闭现在等编辑器 flushNow 的 'saved' 才拆 tab（2026-10-10 ocr 评审），异步生效。
     await waitFor(() => {
       expect(container.querySelector('[data-tab="entities/areas/健康.md"]')).toBeNull()
@@ -1778,7 +1773,8 @@ describe('Frame', () => {
     fireEvent.click(await screen.findByText('人物'))
     fireEvent.click(await screen.findByText('校验'))
 
-    fireEvent.click(document.querySelector('[data-center-tab="tasks"]') as HTMLElement)
+    // 2026-10-15 平铺化：任务页签默认关闭，先点 footer 的任务开关（打开并激活）。
+    fireEvent.click(document.querySelector('[data-footer-tasks="true"]') as HTMLElement)
     const pane = await waitFor(() => {
       const found = document.querySelector('[data-tasks-pane="true"]')
       expect(found).not.toBeNull()
@@ -1821,7 +1817,8 @@ describe('Frame', () => {
 
     // The fetch is an execution the workbench started, so it is a row of its
     // own — 「读取邮件」 — visible while the reader subprocess works.
-    fireEvent.click(document.querySelector('[data-center-tab="tasks"]') as HTMLElement)
+    // 2026-10-15 平铺化：任务页签默认关闭，先点 footer 的任务开关（打开并激活）。
+    fireEvent.click(document.querySelector('[data-footer-tasks="true"]') as HTMLElement)
     const pane = await waitFor(() => {
       const found = document.querySelector('[data-tasks-pane="true"]')
       expect(found).not.toBeNull()
@@ -1853,7 +1850,8 @@ describe('Frame', () => {
     fireEvent.click(await screen.findByText('mail'))
     fireEvent.click(await screen.findByText('往后 →'))
     // The read answered 0 封 — a no-op. The 任务 tab keeps no row for it.
-    fireEvent.click(document.querySelector('[data-center-tab="tasks"]') as HTMLElement)
+    // 2026-10-15 平铺化：任务页签默认关闭，先点 footer 的任务开关（打开并激活）。
+    fireEvent.click(document.querySelector('[data-footer-tasks="true"]') as HTMLElement)
     await waitFor(() => {
       const rows = Array.from(document.querySelectorAll('[data-task-row]'))
         .filter(row => row.textContent?.includes('读取邮件'))
@@ -1903,7 +1901,8 @@ describe('Frame', () => {
     await screen.findByText('邮件分析 2026-09-21')
 
     // The review card parks the row at 待确认…
-    fireEvent.click(document.querySelector('[data-center-tab="tasks"]') as HTMLElement)
+    // 2026-10-15 平铺化：任务页签默认关闭，先点 footer 的任务开关（打开并激活）。
+    fireEvent.click(document.querySelector('[data-footer-tasks="true"]') as HTMLElement)
     const pane = await waitFor(() => {
       const found = document.querySelector('[data-tasks-pane="true"]')
       expect(found).not.toBeNull()

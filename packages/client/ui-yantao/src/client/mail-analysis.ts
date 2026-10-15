@@ -95,6 +95,14 @@ export interface MailNewProject {
   readonly name: string
   /** Why the mails justify opening this project. */
   readonly why: string
+  /**
+   * The substance the project opens with (2026-10-15 立项实质化): 2-4
+   * sentences written into the fresh entity's 目标 section — what the
+   * project is, what is known so far, what happens next. A nomination
+   * without one is an empty shell and the prompt forbids it; the applier
+   * writes it as an edit-section follower of the create.
+   */
+  readonly brief: string
   /** Suggested area names; the KB only holds some of these, the card filters. */
   readonly areas?: readonly string[]
   /** The mail this came from, as the 1-based batch number the prompt gave (ADR-0038). */
@@ -349,7 +357,7 @@ export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities
     '  "people": [{ "name": "张三", "relation": "superior | peer | subordinate | external 或 null", "reason": "为什么值得记住", "email": "发件人邮箱或 null", "mail": 来自哪封邮件的编号或 null }],',
     '  "todos": [{ "title": "要做的事", "due": "YYYY-MM-DD 或 null", "body": "可选的补充正文", "mail": 来自哪封邮件的编号或 null }],',
     '  "projects": [{ "name": "已存在的项目名", "note": "这封邮件对它意味着什么（一句话）", "mail": 来自哪封邮件的编号或 null }],',
-    '  "newProjects": [{ "name": "建议新建的项目名", "why": "为什么值得立项（一句话）", "areas": ["建议关联的领域名"] 或 null, "mail": 来自哪封邮件的编号或 null }],',
+    '  "newProjects": [{ "name": "建议新建的项目名", "why": "为什么值得立项（一句话）", "brief": "立项后写进项目「目标」段的实质内容：这个项目是什么、已知什么、下一步是什么（2-4 句）", "areas": ["建议关联的领域名"] 或 null, "mail": 来自哪封邮件的编号或 null }],',
     '  "meetings": [{ "name": "会议名（已有的用列表里的名字）", "new": false, "decision": "邮件里记录的会议决议（一句话）或 null", "todo": "邮件里布置的一件事（一句话）或 null", "why": "为什么值得记录", "mail": 来自哪封邮件的编号或 null }],',
     '  "deletions": [{ "mail": 1, "reason": "为什么建议删除（一句话）" }],',
     '  "saves": [{ "mail": 1, "summary": "给邮件索引的一句话摘要" }],',
@@ -368,6 +376,7 @@ export function mailPrompt(mails: readonly KbMailMessage[], known: KnownEntities
     '- `verdicts[].mail` 用邮件方括号里的编号；每封邮件恰好一条。',
     '- `projects[].name` 必须来自上面给出的项目列表（领域不算项目）；对不上就留空数组，不要新建项目。「想新建项目」的意图放进 `newProjects`，不放 `projects`。',
     '- `newProjects[].name` 不得与已有项目重名；`areas` 只能从上面给出的领域列表里选，拿不准就填 null。',
+    '- 重要邮件只有两种落法（2026-10-15）：值得留痕但不值得立项的，只进 `saves`；值得留痕且值得立项的，`saves` 与 `newProjects` 同时提名，且 `newProjects[].brief` 必写——写清这个项目是什么、邮件里给出了哪些事实、下一步是什么。只要 `brief` 没有可写的实质内容就不要立项；立了项却不写 brief 的空壳项目是被禁止的产物。既有项目的进展一律进 `projects` 记流水，不要为它另立新项目。',
     '- `meetings[].name` 已存在的必须来自上面给出的会议列表（此时 new=false）；确实是新会议才 new=true。`decision`/`todo` 只在邮件里确凿看到时填，否则填 null。',
     '- `deletions` 只是删除提名：只提名确定没有留存价值的邮件（广告、与知识库主人无关的群发），删除与否由人决定。',
     '- `todos[].due` 只在邮件里明确写了时间才填，否则填 null。',
@@ -502,6 +511,7 @@ export function parseAnalysis(text: string): MailAnalysis {
     return {
       name,
       why: field(row, 'why'),
+      brief: field(row, 'brief'),
       ...(areas.length > 0 ? { areas } : {}),
       ...mail !== undefined ? { mail } : {},
     }

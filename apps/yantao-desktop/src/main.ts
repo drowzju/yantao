@@ -299,6 +299,9 @@ function ensureWindow(): BrowserWindow {
   window.on('closed', () => {
     window = undefined
   })
+  // 启动即最大化（2026-10-15 用户指示）：1440×900 只是 maximizable 之前的
+  // 兜底尺寸。托盘「打开」只 show 不 maximize——还原窗口不该强行放大。
+  window.maximize()
   // Closing the window minimises to the tray; 退出 in the tray menu is the way
   // out. A workbench that quits when you close its window loses your tabs.
   // A genuine quit (tray 退出, boot failure) passes through: see `quitting`.

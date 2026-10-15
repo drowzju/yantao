@@ -31,13 +31,83 @@ export interface FileTab {
 /** Tab key of the permanent conversation tab — never closeable, never unmounted. */
 export const CONVERSATION_TAB = 'conversation'
 
-/** Tab key of the permanent 任务 tab (ADR-0031; ADR-0057 merged 提议 and 调度 into it)
-    — never closeable, never persisted. */
+/** Tab key of the 任务 tab (ADR-0031). Flat since 2026-10-15: no more 任务
+    hub with 提议/调度 sub-pages — each is its own centre tab. Closeable; the
+    footer's 任务 switch reopens it. */
 export const TASKS_TAB = 'tasks'
 
-/** Tab key of the permanent 洞察 tab (ADR-0050; ADR-0057 merged 图谱 into it)
-    — never closeable, never persisted. */
+/** Tab key of the 提议 tab (ADR-0057's inbox; flat since 2026-10-15). Open by
+    default and never closeable — the one fixed landing page beside 对话. */
+export const INBOX_TAB = 'inbox'
+
+/** Tab key of the 调度 tab (flat since 2026-10-15). Closeable; the footer's
+    调度 switch reopens it. */
+export const SCHEDULE_TAB = 'schedule'
+
+/** Tab key of the 洞察 tab (ADR-0050; ADR-0057 merged 图谱 into it).
+    Closeable since 2026-10-15: the footer's 洞察 switch reopens it. */
 export const INSIGHTS_TAB = 'insights'
+
+/** Which of the closeable fixed tabs (任务/调度/洞察) are open. 提议 is pinned
+    open — it joins no persistence and offers no close button. */
+export interface FixedTabsOpen {
+  readonly tasks: boolean
+  readonly schedule: boolean
+  readonly insights: boolean
+}
+
+/** The fixed tabs a human may close — every fixed tab but the pinned 提议. */
+export type ClosableFixedTab = Exclude<keyof FixedTabsOpen, never>
+
+/** 任务/调度/洞察 all closed — the 2026-10-15 default: the boot lands on
+    对话/提议 only; everything else opens from the footer on demand. */
+export function defaultFixedTabs(): FixedTabsOpen {
+  return { tasks: false, schedule: false, insights: false }
+}
+
+/** localStorage key for the fixed tabs' open state. New key on purpose: the
+    old hubTabs preference recorded the opposite default (both open), so
+    honouring it would fight this one. */
+export const FIXED_TABS_STORAGE_KEY = 'yantao.center.fixedTabs'
+
+/**
+ * Read the persisted fixed-tab openness back. Persisted state is outside the
+ * program: a hand-edited or older entry falls back to the all-closed default,
+ * never fatal.
+ * @param storage - the storage to read (defaults to `window.localStorage`).
+ * @returns the open flags.
+ */
+export function restoreFixedTabs(storage: TabStorage = localStorage): FixedTabsOpen {
+  const raw = storage.getItem(FIXED_TABS_STORAGE_KEY)
+  if (raw === null) return defaultFixedTabs()
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return defaultFixedTabs()
+  }
+  if (typeof parsed !== 'object' || parsed === null) return defaultFixedTabs()
+  const record = parsed as Record<string, unknown>
+  return {
+    tasks: typeof record.tasks === 'boolean' ? record.tasks : false,
+    schedule: typeof record.schedule === 'boolean' ? record.schedule : false,
+    insights: typeof record.insights === 'boolean' ? record.insights : false,
+  }
+}
+
+/**
+ * Persist the fixed tabs' open flags.
+ * @param open - the flags to write.
+ * @param storage - the storage to write (defaults to `window.localStorage`).
+ */
+export function persistFixedTabs(open: FixedTabsOpen, storage: TabStorage = localStorage): void {
+  try {
+    storage.setItem(FIXED_TABS_STORAGE_KEY, JSON.stringify(open))
+  } catch {
+    // Quota/private-mode failures swallow: a lost preference only costs the
+    // default layout on the next boot.
+  }
+}
 
 /**
  * KB-relative path of one run's distilled log — the mirror of the backend's

@@ -257,7 +257,11 @@ function rowLabelOf(action: ProposalAction): string {
  * so the detail text must not repeat the association (the two would contradict
  * each other the moment the human reticks a box). */
 function detailOf(action: ProposalAction, t: WorkbenchT, hasAreasControl = false): string {
-  if (action.kind === 'edit-section') return `${action.path}：${action.why}`
+  // 2026-10-15 立项实质化：跟随新建实体的段替换（afterCreate）path 还没
+  // 有着落，detail 改讲段名，免得落成「：xxx」的秃头冒号。
+  if (action.kind === 'edit-section') {
+    return action.afterCreate !== undefined ? `${action.section}：${action.why}` : `${action.path}：${action.why}`
+  }
   // ADR-0038 决定 9: the supplement's detail is the text that would land, not
   // the why (which repeats the creation's reason); the source mail rides ahead.
   if (action.kind === 'append-section') {

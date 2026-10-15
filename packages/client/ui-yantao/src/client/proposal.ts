@@ -156,6 +156,10 @@ export type ProposalAction =
      * skipped.
      */
     readonly afterCreate?: string
+    /** Which analysed mail this came from — 1-based batch number (ADR-0038). */
+    readonly mail?: number
+    /** That mail's subject line, shown on the row's detail (ADR-0038). */
+    readonly mailSubject?: string
   }
   | {
     /**
@@ -461,10 +465,40 @@ export function analysisToProposal(
       ...provenanceOf(note.mail),
     })
   }
+  // 2026-10-09 三提名合一: save nominees become tickable archive-mails
+  // actions — the model picks the mail and writes the index summary; the
+  // human's tick arms the save (原件＋附件＋一行索引) through the
+  // human-channel-only archive verb. A nominee whose mail is not in the batch
+  // is unattributable (no entryId) and dropped; the model may nominate the
+  // same mail twice — keep the first, drop the rest. The ledger is seeded
+  // here, ahead of the newProjects loop, so a project-creating mail that the
+  // model forgot to nominate still gets its archive row (2026-10-15 立项
+  // 实质化: 立项必留痕) and the loop below cannot double-nominate.
+  const savedIds = new Set<string>()
+  for (const save of analysis.saves) {
+    const source = mails[save.mail - 1]
+    if (source === undefined || savedIds.has(source.entryId)) continue
+    savedIds.add(source.entryId)
+    actions.push({
+      kind: 'archive-mails',
+      entryId: source.entryId,
+      sender: source.senderName,
+      subject: source.subject || '（无主题）',
+      summary: save.summary,
+      reason: save.summary,
+    })
+  }
   // ADR-0034 决定 3: the 「建立项目」 intent lands here, apart from the
   // must-already-exist `projects`. A suggested area that the KB does not
   // actually hold is dropped, not written — the same anti-hallucination rule
   // the projects slot obeys, applied to associations.
+  //
+  // 2026-10-15 立项实质化: a create is no longer allowed to be the whole
+  // story. The nomination's brief rides as an edit-section follower
+  // (afterCreate, ADR-0030) that fills the fresh entity's 目标 section —
+  // the same proven pattern the meeting material follows. And the source
+  // mail is archived alongside unless the model already nominated it in
+  // `saves`: a project born from a mail keeps the mail.
   for (const project of analysis.newProjects) {
     const areas = (project.areas ?? []).filter(area => entities.areas.includes(area))
     actions.push({
@@ -474,6 +508,31 @@ export function analysisToProposal(
       ...(areas.length > 0 ? { areas } : {}),
       ...provenanceOf(project.mail),
     })
+    if (project.brief !== '') {
+      actions.push({
+        kind: 'edit-section',
+        path: '',
+        section: '目标',
+        before: '',
+        after: project.brief,
+        why: project.why,
+        afterCreate: project.name,
+        ...provenanceOf(project.mail),
+      })
+    }
+    const source = project.mail !== undefined ? mails[project.mail - 1] : undefined
+    if (source !== undefined && !savedIds.has(source.entryId)) {
+      savedIds.add(source.entryId)
+      const summary = project.brief !== '' ? project.brief : project.why
+      actions.push({
+        kind: 'archive-mails',
+        entryId: source.entryId,
+        sender: source.senderName,
+        subject: source.subject || '（无主题）',
+        summary,
+        reason: summary,
+      })
+    }
   }
   // ADR-0034 决定 3/4: a meeting the KB holds gains 决议/待办 material in
   // place; a new one is created first and the material follows it through
@@ -525,26 +584,6 @@ export function analysisToProposal(
       scope: 'mail',
       text: memory.text,
       reason: memory.why,
-    })
-  }
-  // 2026-10-09 三提名合一: save nominees become tickable archive-mails
-  // actions — the model picks the mail and writes the index summary; the
-  // human's tick arms the save (原件＋附件＋一行索引) through the
-  // human-channel-only archive verb. A nominee whose mail is not in the batch
-  // is unattributable (no entryId) and dropped; the model may nominate the
-  // same mail twice — keep the first, drop the rest.
-  const savedIds = new Set<string>()
-  for (const save of analysis.saves) {
-    const source = mails[save.mail - 1]
-    if (source === undefined || savedIds.has(source.entryId)) continue
-    savedIds.add(source.entryId)
-    actions.push({
-      kind: 'archive-mails',
-      entryId: source.entryId,
-      sender: source.senderName,
-      subject: source.subject || '（无主题）',
-      summary: save.summary,
-      reason: save.summary,
     })
   }
   const highlightOf = (mail: number): ProposalHighlight | undefined => {

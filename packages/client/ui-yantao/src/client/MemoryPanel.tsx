@@ -11,25 +11,19 @@
  * not an error; a failed delete (a stale id — the file was edited by hand
  * meanwhile) refreshes the list rather than guessing.
  *
- * Above the management view sits the 待批准 zone (ADR-0044 决定 7): every
- * in-flight proposal the agent's `kb_propose_memory` queued, with its source
- * annotation for the human's judgement. A proposal arrives already scoped by
- * the capability whose run produced it, so the card offers no scope picker —
- * approving promotes the bare text to the proposal's own scope, discarding
- * drops the line; both drain the queue through the human channel's RPCs, the
- * same seam the conversation card uses. Scope picking belongs to the add row
- * below, where the human is the author.
+ * The agent's pending proposals (ADR-0044 决定 7) no longer verdict here —
+ * they moved to the 提议 sub-page's MemoryProposalZone (2026-10-15), so this
+ * panel is the human-author management view alone.
  * @module @deepseek-ai/dsh-client-ui-yantao/MemoryPanel
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import type { KbMemoryGroup, KbMemoryProposal, KbMemoryProposalGroup } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbMemoryGroup } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import {
   isDuplicateMemory, remoteMessage,
   type MemoryAdder, type MemoryDeleter, type MemoryLister,
-  type MemoryProposalApprover, type MemoryProposalDiscarder, type MemoryProposalLister,
 } from './remote.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
-import { ghostButtonStyle, primaryButtonStyle, raisedButtonStyle, toolButtonStyle } from './buttons.ts'
+import { ghostButtonStyle, primaryButtonStyle, raisedButtonStyle } from './buttons.ts'
 import { useArmedAction } from './use-armed-action.ts'
 
 /** What the panel needs: the three memory RPCs, already bound to the context. */
@@ -42,12 +36,6 @@ export interface MemoryPanelProps {
   readonly add: MemoryAdder
   /** Forget one rule by id. */
   readonly remove: MemoryDeleter
-  /** List the in-flight proposals (ADR-0044 决定 7) — the 待批准 zone's read. */
-  readonly listProposals: MemoryProposalLister
-  /** Promote one pending proposal, optionally to a re-judged scope. */
-  readonly approveProposal: MemoryProposalApprover
-  /** Drop one pending proposal without promoting it. */
-  readonly discardProposal: MemoryProposalDiscarder
   /** Controlled collapse of the approved-rules region; absent keeps it always open. */
   readonly approvedOpen?: boolean
   /** Report the human's toggle; supplied together with `approvedOpen` by the 省得 merge. */
@@ -128,22 +116,6 @@ const inputStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', width: '100
     ./buttons.ts (the shared cuts, 2026-10-05). */
 const addActionsStyle = { display: 'flex', gap: 'var(--yt-space-2)' } as const
 
-/** The 待批准 zone's heading, one step above the scope titles. */
-const zoneTitleStyle = {
-  margin: 'var(--yt-space-2) 0 var(--yt-space-1)', fontSize: 'var(--yt-type-section)', fontWeight: 600, color: 'var(--yt-text-primary)',
-} as const
-
-/** Raised cards: the queue is the one zone that asks for a verdict. */
-const proposalRowStyle = {
-  display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)', minWidth: 0, padding: 'var(--yt-space-1) var(--yt-space-2)', marginTop: 'var(--yt-space-1)',
-  background: 'var(--yt-surface-raised)', border: '1px solid var(--yt-border-subtle)', borderRadius: 8,
-} as const
-
-const proposalMetaStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)', marginTop: 'var(--yt-space-1)' } as const
-
-/** The two verdicts side by side at the card's foot. */
-const proposalActionsStyle = { display: 'flex', gap: 'var(--yt-space-2)', marginTop: 'var(--yt-space-1)' } as const
-
 /** A collapsible region title (2026-10-11 省得整合): same typography as the
     scope titles, but a button — the approved sediment folds away. */
 const regionToggleStyle = {
@@ -152,84 +124,22 @@ const regionToggleStyle = {
   fontFamily: 'inherit', width: '100%',
 } as const
 
-/** The proposal card's two verdicts wear the shared tool face (P1-2 收敛) —
-    same cut as the inbox discard, no private miniature. */
-
-/**
- * One pending proposal card (ADR-0044 决定 7): the distilled text with its
- * source annotation, and the two verdicts side by side at the card's foot.
- * The proposal's scope is the capability whose run produced it, so approving
- * promotes to that scope directly — no per-card re-judging.
- */
-function ProposalRow(props: {
-  readonly t: WorkbenchT
-  readonly group: KbMemoryProposalGroup
-  readonly entry: KbMemoryProposal
-  readonly busy: boolean
-  readonly onApprove: (scope: string, text: string) => void
-  readonly onDiscard: (scope: string, text: string) => void
-}): ReactElement {
-  const { t, group, entry, busy } = props
-  // 元数据各自成段（2026-10-12 评审 P2-2）：DESIGN.md §7 禁止 ` · ` 尾巴——
-  // 来源与日期是证据，不是一句话里的连接词，拆成可换行的独立小段。
-  const metaSegments = [
-    `${t('memory.proposal.scopeLabel')}：${scopeLabel(t, group.scope)}`,
-    ...(entry.source !== '' ? [`${t('memory.proposal.sourceLabel')}：${entry.source}`] : []),
-    ...(entry.date !== undefined ? [entry.date] : []),
-  ]
-  return (
-    <div style={proposalRowStyle} data-memory-proposal={entry.id} data-memory-proposal-scope={group.scope}>
-      <div style={textStyle}>
-        {entry.text}
-        <div style={{ ...proposalMetaStyle, display: 'flex', flexWrap: 'wrap', columnGap: 'var(--yt-space-2)' }}>
-          {metaSegments.map((segment, at) => <span key={`${at}-${segment}`}>{segment}</span>)}
-        </div>
-      </div>
-      <div style={proposalActionsStyle}>
-        <button data-hover="true"
-          type="button"
-          style={toolButtonStyle}
-          disabled={busy}
-          data-memory-proposal-approve={entry.id}
-          onClick={() => { props.onApprove(group.scope, entry.text) }}
-        >
-          {t('memory.proposal.approve')}
-        </button>
-        <button data-hover="true"
-          type="button"
-          style={toolButtonStyle}
-          disabled={busy}
-          data-memory-proposal-discard={entry.id}
-          onClick={() => { props.onDiscard(group.scope, entry.text) }}
-        >
-          {t('memory.proposal.discard')}
-        </button>
-      </div>
-    </div>
-  )
-}
-
 /**
  * Render the 记忆 tab (ADR-0032 批次③): the memory management view.
  * @param props - see {@link MemoryPanelProps}.
  * @returns the panel element.
  */
 export function MemoryPanel({
-  t, list, add, remove, listProposals, approveProposal, discardProposal, approvedOpen, onApprovedOpenChange,
+  t, list, add, remove, approvedOpen, onApprovedOpenChange,
 }: MemoryPanelProps): ReactElement {
   // Every seam is a fresh closure on each render (inject face), so the load
   // and the writes read them through a ref — the same discipline useRail uses.
-  const latest = useRef({ list, add, remove, listProposals, approveProposal, discardProposal })
-  latest.current = { list, add, remove, listProposals, approveProposal, discardProposal }
+  const latest = useRef({ list, add, remove })
+  latest.current = { list, add, remove }
 
   const [groups, setGroups] = useState<readonly KbMemoryGroup[] | null>(null)
-  const [proposals, setProposals] = useState<readonly KbMemoryProposalGroup[] | null>(null)
-  // Two error channels, not one: the two loaders race, and a shared state
-  // would let the healthy read's success erase the failed read's message
-  // (last-writer-wins) — the panel would then sit loading forever with the
-  // failure nowhere in sight.
+  // One error channel suffices now: the single loader owns it outright.
   const [error, setError] = useState<string | null>(null)
-  const [proposalError, setProposalError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -251,65 +161,9 @@ export function MemoryPanel({
     }
   }, [])
 
-  /** Re-read the proposal queues (ADR-0044 决定 7); the queue's own error channel. */
-  const reloadProposals = useCallback(async (): Promise<void> => {
-    try {
-      const result = await latest.current.listProposals()
-      setProposals(result.groups)
-      setProposalError(null)
-    } catch (failure: unknown) {
-      setProposalError(remoteMessage(failure))
-    }
-  }, [])
-
   useEffect(() => {
-    void (async () => {
-      await Promise.all([reload(), reloadProposals()])
-    })()
-  }, [reload, reloadProposals])
-
-  /** Promote one proposal to its own scope; the queue's duplicate refusal reads as 已记得. */
-  const promote = async (scope: string, text: string): Promise<void> => {
-    if (busy) return
-    setBusy(true)
-    let failureMessage: string | null = null
-    try {
-      await latest.current.approveProposal(scope, text)
-      setNotice(t('memory.proposal.approved'))
-    } catch (failure: unknown) {
-      // The queue's duplicate refusal means the memory already holds the
-      // rule — the proposal itself is now redundant, and the reload makes
-      // that visible; the human discards what remains.
-      if (isDuplicateMemory(failure)) {
-        setNotice(t('memory.known'))
-      } else {
-        setNotice(null)
-        failureMessage = remoteMessage(failure)
-      }
-    } finally {
-      setBusy(false)
-      await Promise.all([reload(), reloadProposals()])
-      if (failureMessage !== null) setProposalError(failureMessage)
-    }
-  }
-
-  /** Drop one proposal; the queue shrinks and nothing is remembered. */
-  const drop = async (scope: string, text: string): Promise<void> => {
-    if (busy) return
-    setBusy(true)
-    let failureMessage: string | null = null
-    try {
-      await latest.current.discardProposal(scope, text)
-      setNotice(t('memory.proposal.discarded'))
-    } catch (failure: unknown) {
-      setNotice(null)
-      failureMessage = remoteMessage(failure)
-    } finally {
-      setBusy(false)
-      await Promise.all([reload(), reloadProposals()])
-      if (failureMessage !== null) setProposalError(failureMessage)
-    }
-  }
+    void reload()
+  }, [reload])
 
   /** Add one rule; the duplicate refusal is the 已记得 notice, not an error.
    *  A successful save collapses the form; a refusal keeps it open for revision. */
@@ -359,9 +213,6 @@ export function MemoryPanel({
   const scopeOptions = [...ADD_SCOPES, ...(groups ?? []).map(group => group.scope)]
   const seen = new Set<string>()
 
-  // The 待批准 zone flattens the queue groups to cards.
-  const pending = (proposals ?? []).flatMap(group => group.entries.map(entry => ({ group, entry })))
-
   // The approved-rules region's controlled collapse; uncontrolled = always open.
   const approvedVisible = approvedOpen ?? true
   const approvedCount = (groups ?? []).reduce((sum, group) => sum + group.entries.length, 0)
@@ -369,23 +220,6 @@ export function MemoryPanel({
   return (
     <div style={wrapStyle} data-memory-panel="true">
       <div style={mutedStyle}>{t('memory.description')}</div>
-      {pending.length > 0 && (
-        <div data-memory-proposals="true">
-          <div style={zoneTitleStyle}>{t('memory.proposalZone.title')}</div>
-          <div style={mutedStyle}>{t('memory.proposal.pending')}</div>
-          {pending.map(({ group, entry }) => (
-            <ProposalRow
-              key={`${group.scope}|${entry.id}`}
-              t={t}
-              group={group}
-              entry={entry}
-              busy={busy}
-              onApprove={(rowScope, rowText) => { void promote(rowScope, rowText) }}
-              onDiscard={(rowScope, rowText) => { void drop(rowScope, rowText) }}
-            />
-          ))}
-        </div>
-      )}
       {adding ? (
         <div style={addFormStyle} data-memory-add="true">
           <select
@@ -449,7 +283,6 @@ export function MemoryPanel({
       )}
       {notice !== null && <div style={hintStyle} data-memory-notice="true">{notice}</div>}
       {error !== null && <div style={errorStyle} data-memory-error="true">{error}</div>}
-      {proposalError !== null && <div style={errorStyle} data-memory-proposal-error="true">{proposalError}</div>}
       {onApprovedOpenChange !== undefined && (
         <button
           type="button"

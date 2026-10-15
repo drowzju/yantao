@@ -9,7 +9,7 @@
  * 本字典——它们是单人中文工作台的自留地，文案与领域词汇深度耦合（调度
  * 规则选项、提议状态语），抽 key 只会制造一层无消费者的间接：
  *   - SchedulePane.tsx（调度：触发规则选项、证据行措辞）
- *   - TasksHubPane.tsx（任务壳：三个子页签名）
+ *   - TasksPane.tsx（任务：行内状态与动作措辞）
  *   - InboxPane.tsx（提议：空态与状态芯片）
  * 若未来要出英文版，从这里开始补登记，而不是先抽 key。
  */
@@ -86,8 +86,9 @@ export const zh = {
   'workbench.capabilityLoadFailed': '能力清单加载失败',
   'frame.closeNotice': '点击关闭',
 
-  // 配置对话框（左下角「配置」按钮；v1 仅模型一节）
-  'config.open': '配置',
+  // 配置对话框（右下角「模型配置」按钮，2026-10-15 从左下角迁来并改名；
+  // v1 仅模型一节）
+  'config.open': '模型配置',
   'config.title': '配置',
   'config.close': '关闭',
   'config.loading': '读取配置中…',
@@ -330,13 +331,23 @@ export const zh = {
   // Center pane
   'center.conversation': '对话',
   'center.tasks': '任务',
-  // 任务页签蓝点的读屏文案（2026-10-14 impeccable P2 修复）：点本身仍
-  // aria-hidden，信号由页签按钮的 aria-label 报出。
-  'center.tasks.signal': '有任务进行中或提议待决策',
+  // 固定页签蓝点的读屏文案（2026-10-14 impeccable P2 修复）：点本身仍
+  // aria-hidden，信号由页签按钮的 aria-label 报出。2026-10-15 平铺化后
+  // 任务/提议各自持点，文案随之拆开。
+  'center.tasks.signal': '有任务进行中',
+  'center.inbox': '提议',
+  'center.inbox.signal': '有提议待决策',
+  'center.schedule': '调度',
   'center.insights': '洞察',
   'center.close': '关闭',
   'center.read': '阅读',
   'center.source': '源码',
+
+  // 左下角四开关（2026-10-15）：平铺 tab 的常驻开合点（提议默认开、不可关）
+  'footer.tasks': '任务',
+  'footer.inbox': '提议',
+  'footer.schedule': '调度',
+  'footer.insights': '洞察',
 
   // 洞察 tab（ADR-0050）— 当前会话仪表盘四卡
   'insights.noSession': '暂无会话',
@@ -555,8 +566,9 @@ export const en = {
   'workbench.capabilityLoadFailed': 'Failed to load capabilities',
   'frame.closeNotice': 'Click to close',
 
-  // 配置对话框 (bottom-left 配置 button; v1 ships the models section only)
-  'config.open': 'Settings',
+  // 配置对话框 (bottom-right 模型配置 button since 2026-10-15, renamed from
+  // 配置; v1 ships the models section only)
+  'config.open': 'Model Config',
   'config.title': 'Settings',
   'config.close': 'Close',
   'config.loading': 'Loading configuration…',
@@ -801,13 +813,25 @@ export const en = {
   // Center pane
   'center.conversation': 'Conversation',
   'center.tasks': 'Tasks',
-  // The 任务 tab dot's screen-reader wording (2026-10-14 impeccable P2 fix):
-  // the dot stays aria-hidden; the tab button's aria-label carries the signal.
-  'center.tasks.signal': 'tasks running or proposals awaiting decision',
+  // The fixed tabs' dots' screen-reader wording (2026-10-14 impeccable P2
+  // fix): the dot stays aria-hidden; the tab button's aria-label carries the
+  // signal. Flattened 2026-10-15 — 任务 and 提议 each wear their own dot, so
+  // the wording split.
+  'center.tasks.signal': 'tasks running',
+  'center.inbox': 'Proposals',
+  'center.inbox.signal': 'proposals awaiting decision',
+  'center.schedule': 'Schedule',
   'center.insights': 'Insights',
   'center.close': 'Close',
   'center.read': 'Read',
   'center.source': 'Source',
+
+  // The footer's four switches (2026-10-15): standing open/close points for
+  // the flat tabs (提议 opens by default and never closes).
+  'footer.tasks': 'Tasks',
+  'footer.inbox': 'Proposals',
+  'footer.schedule': 'Schedule',
+  'footer.insights': 'Insights',
 
   // Insights tab (ADR-0050) — the current-session dashboard's four cards
   'insights.noSession': 'No session',
