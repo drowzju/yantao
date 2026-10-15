@@ -1213,6 +1213,9 @@ export function Frame({
         // ADR-0047: a run that filed a proposal points at the decision
         // surface instead of paraphrasing itself — the card is the answer.
         const statsSuffix = statsLine !== undefined ? `（${statsLine}）` : ''
+        // 2026-10-15 评审：直答分支同样用括号后缀挂统计行（§7 禁 ` · ` 缀尾，
+        // 此前这里是同函数里唯一残留的 join(' · ') 姿势）。
+        const answerExcerpt = result.answer.replace(/\s+/g, ' ').trim().slice(0, 80)
         // ADR-0059 决定 2：读取闭合的违例已附到卡上，通知里点名数量——
         // 无人值守场景下这是「先去看警告再批准」的第一声铃。
         const warningSuffix = result.warnings !== undefined && result.warnings.length > 0
@@ -1222,7 +1225,9 @@ export function Frame({
           title: `调度「${schedule.name}」完成`,
           body: result.proposalId !== undefined
             ? `产生了待决策的提议，去「提议」页处理${warningSuffix}${statsSuffix}`
-            : [result.answer.replace(/\s+/g, ' ').trim().slice(0, 80), statsLine].filter(Boolean).join(' · ') || '已完成',
+            : (answerExcerpt !== ''
+              ? `${answerExcerpt}${statsSuffix}`
+              : statsLine ?? '已完成'),
         })
         // The proposal is on the disk store the moment the run ends: pull it
         // into the pane now rather than waiting for the next scan.

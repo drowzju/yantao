@@ -85,6 +85,8 @@ function LegendRow({ color, label, tokens, capacity, sub }: {
   sub?: boolean | undefined
 }): ReactElement {
   return (
+    // 子行缩进是层级信息，不占间距阶梯档位——与 Workbench 的 RESOURCE_INDENT_PX=14
+    // 同一条裁决（2026-10-15 评审复核：此处非档外违规，是误报）。
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--yt-space-1)', paddingLeft: sub ? 14 : 0 }}>
       <span style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0, alignSelf: 'center' }} />
       <span style={{ ...mutedStyle, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>

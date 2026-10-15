@@ -26,6 +26,7 @@ import { remoteMessage, type WorkspaceLister, type WorkspaceRunner, type Workspa
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 import { ghostButtonStyle, primaryButtonStyle, toolButtonArmedStyle, toolButtonStyle } from './buttons.ts'
 import { formatStamp } from './stamp.ts'
+import { cronNextFire, parseCron } from './cron.ts'
 
 /** What the panel needs: the five workspace RPCs, already bound to the context. */
 export interface WorkspacePanelProps {
@@ -136,7 +137,7 @@ const tdNameStyle = { ...tdStyle, display: 'flex', alignItems: 'baseline', minWi
 
 const nameTextStyle = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 } as const
 
-const disabledTagStyle = { ...mutedStyle, flexShrink: 0 } as const
+const disabledTagStyle = { ...mutedStyle, flexShrink: 0, marginLeft: 'var(--yt-space-2)', fontSize: 'var(--yt-type-label)' } as const
 
 const tdActionsStyle = { ...tdStyle, whiteSpace: 'nowrap', textAlign: 'right', width: 1 } as const
 
@@ -262,6 +263,13 @@ function InstructionForm(props: {
   readonly onCancel: () => void
 }): ReactElement {
   const { t, draft, busy, onChange, onSubmit, onCancel } = props
+  // cron 即时反馈（2026-10-15 impeccable P1 修复）：此前敲错一个字段的表现
+  // 是「安静地永远不跑」——解析与下次触发预览复用 ./cron.ts，与 SchedulePane
+  // 同一口径；留空仍是合法的手动触发。
+  const cronTrimmed = draft.cron.trim()
+  const cronParsed = cronTrimmed === '' ? null : parseCron(cronTrimmed)
+  const cronInvalid = cronTrimmed !== '' && cronParsed === null
+  const cronNext = cronParsed === null ? null : cronNextFire(cronTrimmed, new Date())
   return (
     <div style={formStyle} data-workspace-instruction-form={draft.id ?? 'new'}>
       <input
@@ -276,8 +284,17 @@ function InstructionForm(props: {
         value={draft.cron}
         placeholder={t('workspace.cronPlaceholder')}
         disabled={busy}
+        aria-invalid={cronInvalid || undefined}
         onChange={(event) => { onChange({ cron: event.target.value }) }}
       />
+      {cronInvalid && <div style={errorStyle} role="alert" data-workspace-cron-error="true">{t('workspace.cronInvalid')}</div>}
+      {cronParsed !== null && (
+        <div style={metaStyle} data-workspace-cron-next="true">
+          {cronNext !== null
+            ? t('workspace.nextFire', { time: formatStamp(cronNext.toISOString()) })
+            : t('workspace.neverFires')}
+        </div>
+      )}
       <label style={{ display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center', fontSize: 'var(--yt-type-label)' }}>
         <input type="checkbox" checked={draft.enabled} disabled={busy} onChange={(event) => { onChange({ enabled: event.target.checked }) }} />
         {t('workspace.enabled')}
@@ -313,7 +330,7 @@ function InstructionForm(props: {
       )}
       <div style={formActionsStyle}>
         <button type="button" style={primaryButtonStyle} data-hover="primary"
-          disabled={busy || draft.name.trim() === '' || draft.steps.some(step => step.trim() === '')}
+          disabled={busy || draft.name.trim() === '' || draft.steps.some(step => step.trim() === '') || cronInvalid}
           onClick={onSubmit}>
           {t('workspace.save')}
         </button>
@@ -592,6 +609,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
             <div style={actionsStyle}>
               <button data-hover="true" type="button" style={iconButtonStyle} disabled={busy}
                 title={t('workspace.edit')}
+                aria-label={t('workspace.edit')}
                 data-workspace-space-edit={space.id}
                 onClick={() => { setSpaceDraft({ id: space.id, name: space.name, directory: space.directory, model: space.model ?? '' }) }}>
                 ✎
@@ -600,6 +618,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
                 style={armedDelete === `w:${space.id}` ? armedDeleteStyle : deleteStyle}
                 disabled={busy}
                 title={armedDelete === `w:${space.id}` ? undefined : t('workspace.delete')}
+                aria-label={t('workspace.delete')}
                 data-armed={armedDelete === `w:${space.id}` || undefined}
                 data-workspace-space-delete={space.id}
                 onClick={() => {
@@ -631,7 +650,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
                   <tr key={instruction.id} data-workspace-instruction={instruction.id}>
                     <td style={tdNameStyle} title={instruction.name}>
                       <span style={nameTextStyle}>{instruction.name}</span>
-                      {!instruction.enabled && <span style={disabledTagStyle}> · {t('workspace.disabledTag')}</span>}
+                      {!instruction.enabled && <span style={disabledTagStyle}>{t('workspace.disabledTag')}</span>}
                     </td>
                     <td style={tdMetaStyle} title={instruction.cron}>
                       {/* cron 表达式收进 tooltip（2026-10-12 截图评审）：原始
@@ -655,12 +674,14 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
                       <div style={actionsStyle}>
                         <button data-hover="true" type="button" style={iconButtonStyle} disabled={busy}
                           title={t('workspace.run')}
+                          aria-label={t('workspace.run')}
                           data-workspace-run={instruction.id}
                           onClick={() => { void trigger(space, instruction) }}>
                           ▶
                         </button>
                         <button data-hover="true" type="button" style={iconButtonStyle} disabled={busy}
                           title={t('workspace.edit')}
+                          aria-label={t('workspace.edit')}
                           data-workspace-instruction-edit={instruction.id}
                           onClick={() => {
                             setInstructionDraft({
@@ -675,6 +696,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
                           style={armedDelete === `i:${instruction.id}` ? armedDeleteStyle : deleteStyle}
                           disabled={busy}
                           title={armedDelete === `i:${instruction.id}` ? undefined : t('workspace.delete')}
+                          aria-label={t('workspace.delete')}
                           data-armed={armedDelete === `i:${instruction.id}` || undefined}
                           data-workspace-instruction-delete={instruction.id}
                           onClick={() => {

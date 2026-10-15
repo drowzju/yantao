@@ -1354,11 +1354,16 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
       onDrop={(event) => { void onDrop(event) }}
     >
       <RailHeader error={error} onRetry={() => { void refresh() }} t={t} />
-      <div style={railTabStripStyle}>
+      {/* 页签语义三件套（2026-10-15 impeccable P1 修复）：采集栏此前只有
+          data-selected 的裸按钮，读屏不知道这是一组页签、哪个是当前页——
+          中栏 CenterPane 自 2026-10-14 起已带完整 tablist 语义，此处对齐。 */}
+      <div style={railTabStripStyle} role="tablist">
         {INTAKE_PANEL_IDS.map(id => (
           <button
             key={id}
             type="button"
+            role="tab"
+            aria-selected={tab === id}
             data-hover="true"
             /* 空串值：CSS 豁免只看属性存在性；data-selected="true" 保留给
                文件行（测试契约 workbench.client.spec.tsx:708,1491）。 */
@@ -1559,11 +1564,13 @@ export function WorkspaceRail(props: RailProps): ReactElement {
       onDragLeave={(event) => { event.stopPropagation() }}
     >
       <RailHeader error={error} onRetry={() => { void refresh() }} t={t} />
-      <div style={railTabStripStyle}>
+      <div style={railTabStripStyle} role="tablist">
         {WORKSPACE_TAB_IDS.map(id => (
           <button
             key={id}
             type="button"
+            role="tab"
+            aria-selected={tab === id}
             data-hover="true"
             data-selected={tab === id ? '' : undefined}
             style={tab === id ? { ...tabItemActiveStyle, flex: 1 } : { ...tabItemStyle, flex: 1 }}

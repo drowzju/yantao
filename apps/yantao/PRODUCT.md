@@ -33,7 +33,7 @@ yantao 是**个人认知工作台（Personal Cognitive Workbench）**：实现�
 - 硬约束：KB 是纯 Markdown 存储，任何功能不得引入私有格式；与 Obsidian 尽量互通（ADR-0048 四期承诺，二至四期待做）。
 - 信任模型：重限制方案不进默认推荐；信任锚放在人类一次性动作上（安装能力、批准提案、批准记忆），运行时不加重限制。
 - UI 语言中文优先：zh 字典是 source of truth，en 是编译期对齐的镜像。
-- 明确未决：kbd 快捷键提示展示面（批次一已注册 8 条热键但无处可见）。
+- kbd 快捷键展示面已落地（2026-10-09 第四轮评审）：右下角「快捷键」按钮打开只读目录（ShortcutsDialog），键帽实时读注册表 catalog，改键与平台差异自动跟随。
 
 ## Brand Commitments
 

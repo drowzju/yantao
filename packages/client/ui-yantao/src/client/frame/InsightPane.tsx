@@ -68,11 +68,15 @@ export function InsightPane({ renderSlot, onSwitchToConversation, active = true,
       style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
       data-insights-pane={sub}
     >
-      <div style={{ display: 'flex', gap: 'var(--yt-space-1)', padding: 'var(--yt-space-1) var(--yt-space-2) 0', flexShrink: 0 }}>
+      {/* 子页签语义（2026-10-15 impeccable P1 修复）：与中栏/两栏对齐的
+          tablist 三件套——裸按钮读屏听不出页签组与当前页。 */}
+      <div style={{ display: 'flex', gap: 'var(--yt-space-1)', padding: 'var(--yt-space-1) var(--yt-space-2) 0', flexShrink: 0 }} role="tablist">
         {(Object.keys(SUB_LABELS) as InsightSub[]).map(key => (
           <button
             key={key}
             type="button"
+            role="tab"
+            aria-selected={sub === key}
             data-hover="tab"
             data-selected={sub === key ? '' : undefined}
             data-insights-sub={key}
