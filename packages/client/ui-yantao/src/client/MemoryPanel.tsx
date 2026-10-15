@@ -29,7 +29,7 @@ import {
   type MemoryProposalApprover, type MemoryProposalDiscarder, type MemoryProposalLister,
 } from './remote.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
-import { ghostButtonStyle, primaryButtonStyle, toolButtonStyle } from './buttons.ts'
+import { ghostButtonStyle, primaryButtonStyle, raisedButtonStyle, toolButtonStyle } from './buttons.ts'
 import { useArmedAction } from './use-armed-action.ts'
 
 /** What the panel needs: the three memory RPCs, already bound to the context. */
@@ -107,11 +107,10 @@ const armedDeleteStyle = {
   whiteSpace: 'nowrap',
 } as const
 
-const buttonStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', flexShrink: 0 } as const
-
 /** The collapsed creation affordance: one quiet button (DESIGN.md §7 —
- *  a low-frequency creation entry does not earn a resident form row). */
-const addOpenStyle = { ...buttonStyle, alignSelf: 'flex-start' } as const
+ *  a low-frequency creation entry does not earn a resident form row).
+ *  2026-10-14 复评 B：表单行的次级钮语义，穿共享 raised 面，不再裸奔。 */
+const addOpenStyle = { ...raisedButtonStyle, alignSelf: 'flex-start' } as const
 
 /** The expanded editing form: a raised card, its controls stacked so the
  *  input spans the rail's full width. */

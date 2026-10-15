@@ -132,8 +132,6 @@ const tdActionsStyle = { ...tdStyle, whiteSpace: 'nowrap', textAlign: 'right', w
 
 const actionsStyle = { display: 'flex', gap: 'var(--yt-space-1)', flexShrink: 0, justifyContent: 'flex-end' } as const
 
-const buttonStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', fontSize: 'var(--yt-type-label)' } as const
-
 /** Row-action icons wear the ghost cut (DESIGN: 低频破坏性动作穿 ghost 装); the label lives in the tooltip. */
 const iconButtonStyle = {
   flexShrink: 0, padding: '0 var(--yt-space-1)', border: 'none', background: 'transparent',
@@ -285,6 +283,8 @@ function InstructionForm(props: {
           />
           {draft.steps.length > 1 && (
             <button data-hover="true" type="button" style={deleteStyle} disabled={busy}
+              aria-label={`${t('workspace.deleteStep')} #${index + 1}`}
+              title={`${t('workspace.deleteStep')} #${index + 1}`}
               onClick={() => { onChange({ steps: draft.steps.filter((_, at) => at !== index) }) }}>
               ✕
             </button>
@@ -725,7 +725,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
                 {entry.finishedAt !== undefined && ` → ${rangeEndStamp(entry.startedAt, entry.finishedAt)}`}
               </span>
               {live && (
-                <button data-hover="true" type="button" style={buttonStyle} disabled={busy}
+                <button data-hover="true" type="button" style={ghostButtonStyle} disabled={busy}
                   data-workspace-run-stop={entry.id}
                   onClick={() => { void stopRun(entry.id) }}>
                   {t('workspace.stop')}

@@ -115,8 +115,12 @@ const chipApprovedStyle = {
   color: 'var(--yt-text-secondary)',
 } as const
 
+// 丢弃不穿绿底（2026-10-14 复评 P3 修复）：此前继承 chipApprovedStyle 的
+// success 绿底只换字色——绿是「成了」的颜色，丢弃是「没成」，底色不能替
+// 文字撒谎；改穿浮起面，喜事白事一眼分清。
 const chipDiscardedStyle = {
   ...chipApprovedStyle,
+  background: 'var(--yt-surface-raised)',
   color: 'var(--yt-text-muted)',
 } as const
 

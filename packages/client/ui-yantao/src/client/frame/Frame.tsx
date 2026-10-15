@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
+import { tabItemActiveStyle, tabItemStyle, toolButtonStyle } from '../buttons.ts'
 import type {
   CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, CapabilityRouteUpdater,
   CapabilityUnregisterer,
@@ -270,7 +271,10 @@ const footerStripStyle = {
   background: 'var(--yt-surface-primary)',
 } as const
 
-const footerButtonStyle = { padding: 'var(--yt-space-1) var(--yt-space-3)', minHeight: 'var(--yt-control-min-h)', boxSizing: 'border-box', fontSize: 'var(--yt-type-label)' } as const
+/** 页脚「配置」「快捷键」是常驻低频入口：穿共享 tool 面（无边框、label
+    字号、弱墨），只保留比行内工具宽一档的内边距（2026-10-14 复评 B：
+    此前是裸 UA 按钮，页脚与暖纸界面像两个软件）。 */
+const footerButtonStyle = { ...toolButtonStyle, padding: 'var(--yt-space-1) var(--yt-space-3)' } as const
 
 /** The stack holding one file's two views; both stay mounted, one is shown. */
 const bothPanesStyle = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } as const
@@ -287,22 +291,6 @@ const fileModeBarStyle = {
   borderBottom: '1px solid var(--yt-border-subtle)',
   background: 'var(--yt-surface-primary)',
 } as const
-
-const modeButtonStyle = {
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: 'transparent',
-  borderRadius: 4,
-  background: 'transparent',
-  cursor: 'pointer',
-  fontFamily: 'var(--yt-font-ui)',
-  fontSize: 'var(--yt-type-label)',
-  padding: '0 var(--yt-space-2)',
-  minHeight: 'var(--yt-control-min-h)',
-  boxSizing: 'border-box',
-} as const
-
-const activeModeStyle = { ...modeButtonStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } as const
 
 /**
  * Visibility of one of a file's two views — hidden, never unmounted, so its
@@ -2036,7 +2024,7 @@ export function Frame({
                   type="button"
                   data-hover="tab"
                   data-selected={viewMode === 'read' ? '' : undefined}
-                  style={viewMode === 'read' ? activeModeStyle : modeButtonStyle}
+                  style={viewMode === 'read' ? tabItemActiveStyle : tabItemStyle}
                   onClick={() => { setViewMode('read') }}
                 >
                   {t('center.read')}
@@ -2045,7 +2033,7 @@ export function Frame({
                   type="button"
                   data-hover="tab"
                   data-selected={viewMode === 'source' ? '' : undefined}
-                  style={viewMode === 'source' ? activeModeStyle : modeButtonStyle}
+                  style={viewMode === 'source' ? tabItemActiveStyle : tabItemStyle}
                   onClick={() => { setViewMode('source') }}
                 >
                   {t('center.source')}
@@ -2055,7 +2043,7 @@ export function Frame({
                 <button
                   type="button"
                   data-hover="tab"
-                  style={{ ...modeButtonStyle, marginLeft: 'auto' }}
+                  style={{ ...tabItemStyle, marginLeft: 'auto' }}
                   title={t('md.openExternallyTitle')}
                   onClick={() => { openInObsidian(tab.path) }}
                 >

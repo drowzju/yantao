@@ -80,6 +80,16 @@ export const primaryButtonDisabledStyle = {
   cursor: 'default',
 } as const
 
+/** raised 面的禁用变体（2026-10-14 复评 P3 修复）：与 primary 禁用同一个
+    道理——弱表面 + muted 字，禁用件要有禁用的脸，别亮着像能点（MailPanel
+    导航/记住此前 disabled 只改行为不改脸）。 */
+export const raisedButtonDisabledStyle = {
+  ...raisedButtonStyle,
+  background: 'var(--yt-surface-secondary)',
+  color: 'var(--yt-text-muted)',
+  cursor: 'default',
+} as const
+
 /** 栏头页签的唯一构造（2026-10-12 评审 P1-2 + 用户实证的高度不一）：
     左采集栏、中栏、右工作区栏的 tab 头共用这两面——border-box 28px
     命中高、同一字阶同一内边距；激活态一律 accent 洗染。此前中栏自养

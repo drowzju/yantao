@@ -23,7 +23,7 @@ import { groupThreads, rollupImportance, THREAD_COLLAPSE_MIN } from './mail-thre
 import type { MailEntities } from './mail-apply.ts'
 import type { ProposalTarget } from './proposal-apply.ts'
 import { ProposalCard } from './ProposalCard.tsx'
-import { ghostButtonStyle, primaryButtonStyle, raisedButtonStyle } from './buttons.ts'
+import { ghostButtonStyle, primaryButtonDisabledStyle, primaryButtonStyle, raisedButtonDisabledStyle, raisedButtonStyle } from './buttons.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 
 export type { MailProcessedRange } from './mail-run.ts'
@@ -233,7 +233,7 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
       <div style={{ display: 'flex', gap: 'var(--yt-space-1)' }}>
         <button data-hover="true"
           type="button"
-          style={raisedButtonStyle}
+          style={busy ? raisedButtonDisabledStyle : raisedButtonStyle}
           disabled={busy}
           onClick={() => { void run.read('older') }}
         >
@@ -241,7 +241,7 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
         </button>
         <button data-hover="true"
           type="button"
-          style={raisedButtonStyle}
+          style={busy ? raisedButtonDisabledStyle : raisedButtonStyle}
           disabled={busy}
           onClick={() => { void run.read('newer') }}
         >
@@ -303,7 +303,13 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
       )}
       {stale && <div style={hintStyle}>{t('mail.longGap')}</div>}
       {mails.length > 0 && (
-        <button data-hover="primary" type="button" style={{ ...primaryButtonStyle, alignSelf: 'flex-start' }} disabled={busy} onClick={() => { void run.run() }}>
+        <button
+          data-hover="primary"
+          type="button"
+          style={{ ...(busy ? primaryButtonDisabledStyle : primaryButtonStyle), alignSelf: 'flex-start' }}
+          disabled={busy}
+          onClick={() => { void run.run() }}
+        >
           {phase === 'analysing' ? t('mail.analysing') : t('mail.analyseBatch', { count: mails.length })}
         </button>
       )}
@@ -349,7 +355,13 @@ export function MailPanel({ t, fetch, mark, analyse, target, entities, processed
               if (event.key === 'Enter') { void remember() }
             }}
           />
-          <button data-hover="true" type="button" style={raisedButtonStyle} disabled={memory.trim() === ''} onClick={() => { void remember() }}>
+          <button
+            data-hover="true"
+            type="button"
+            style={memory.trim() === '' ? raisedButtonDisabledStyle : raisedButtonStyle}
+            disabled={memory.trim() === ''}
+            onClick={() => { void remember() }}
+          >
             {t('memory.addButton')}
           </button>
         </div>

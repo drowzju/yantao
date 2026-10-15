@@ -249,12 +249,15 @@ export function GraphPane({ data, onOpen, onReload, t }: GraphPaneProps): ReactE
   const filtered = useMemo(() => visibleSubgraph(data, enabled), [data, enabled])
 
   // A new payload or view combination rebuilds the layout and reheats.
+  // 列表视图不养模拟（2026-10-14 复评 P3 修复）：看不见的力导每帧白转还
+  // 带着 bump 重渲染；切回图谱时本 effect 重跑并 reheat。
   useEffect(() => {
+    if (mode === 'list') return
     layoutRef.current = createLayout(filtered.nodes, filtered.edges, VIEW_W, VIEW_H)
     alphaRef.current = INITIAL_ALPHA
     startLoop()
     return () => { cancelAnimationFrame(rafRef.current) }
-  }, [filtered, startLoop])
+  }, [filtered, startLoop, mode])
 
   // Wheel zoom, cursor-anchored. A native non-passive listener, because the
   // synthetic onWheel cannot preventDefault reliably.
@@ -411,15 +414,19 @@ export function GraphPane({ data, onOpen, onReload, t }: GraphPaneProps): ReactE
     return (
       <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--yt-text-muted)' }}>
         {t('graph.empty')}
-        {onReload !== undefined && <ReloadButton onReload={onReload} t={t} />}
+        {onReload !== undefined && (
+          <div style={{ position: 'absolute', top: 8, left: 12 }}>
+            <ReloadButton onReload={onReload} t={t} />
+          </div>
+        )}
       </div>
     )
   }
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
-      {onReload !== undefined && <ReloadButton onReload={onReload} t={t} />}
-      {/* 视图切换：与页签同构（tabItem 面 + data-selected 豁免）。 */}
-      <div style={{ position: 'absolute', top: 8, left: 12, zIndex: 1, display: 'flex', gap: 'var(--yt-space-1)' }}>
+      {/* 视图切换与刷新同一条工具带：与页签同构（tabItem 面 + data-selected
+          豁免），刷新钉在切换钮右侧，互不压盖（2026-10-14 复评 P2-1 修复）。 */}
+      <div style={{ position: 'absolute', top: 8, left: 12, zIndex: 1, display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center' }}>
         {(['graph', 'list'] as const).map(option => (
           <button
             key={option}
@@ -433,6 +440,7 @@ export function GraphPane({ data, onOpen, onReload, t }: GraphPaneProps): ReactE
             {t(option === 'graph' ? 'graph.viewGraph' : 'graph.viewList')}
           </button>
         ))}
+        {onReload !== undefined && <ReloadButton onReload={onReload} t={t} />}
       </div>
       {mode === 'list' ? (
         <div
@@ -652,11 +660,11 @@ const edgeRowStyle = {
   color: 'var(--yt-text-secondary)',
 } as const
 
-/** The 刷新 button's ghost face — top-left, mirroring the legend card (top-right). */
+/** The 刷新 button's ghost face — placement belongs to the parent (the empty
+    state docks it top-left; the graph view docks it beside the view toggle).
+    2026-10-14 复评 P2-1：此前它自己绝对定位在 top:8/left:12，与后加的
+    图谱/列表切换钮同坐标，被整个压死——图谱页唯一的手动恢复通道静默消失。 */
 const reloadButtonStyle = {
-  position: 'absolute',
-  top: 8,
-  left: 12,
   padding: 'var(--yt-space-1) var(--yt-space-2)',
   background: 'var(--yt-surface-raised)',
   border: '1px solid var(--yt-border-subtle)',

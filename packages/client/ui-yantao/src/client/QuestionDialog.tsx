@@ -9,7 +9,7 @@
 import { useState, type ReactElement } from 'react'
 import type { RefineQuestion } from './refine.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
-import { primaryButtonStyle } from './buttons.ts'
+import { ghostButtonStyle, primaryButtonStyle } from './buttons.ts'
 import type { WorkbenchT } from './locales.ts'
 
 /**
@@ -73,8 +73,6 @@ const footerStyle = {
   borderTop: '1px solid var(--yt-border-subtle)',
 } as const
 
-const buttonStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', minHeight: 'var(--yt-control-min-h)' } as const
-
 /**
  * Render the question dialog.
  * @param props - the paused run (its `questions` drive the form), the two
@@ -118,7 +116,7 @@ export function QuestionDialog(props: {
           </div>
         ))}
         <div style={footerStyle}>
-          <button data-hover="true" type="button" style={buttonStyle} disabled={settled} onClick={onAbort}>
+          <button data-hover="true" type="button" style={ghostButtonStyle} disabled={settled} onClick={onAbort}>
             {t('workbench.questionAbort')}
           </button>
           <span style={{ flex: 1 }} />

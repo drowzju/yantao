@@ -7,6 +7,7 @@
 import { useState, type ReactElement } from 'react'
 import type { DirectoryPicker, RootSetter } from './remote.ts'
 import { remoteMessage } from './remote.ts'
+import { primaryButtonStyle } from './buttons.ts'
 import type { WorkbenchT } from './locales.ts'
 
 /** Onboarding props. */
@@ -87,7 +88,9 @@ export function Onboarding({ setRoot, pickDirectory, onConfigured, t }: Onboardi
           {t('onboarding.description')}
         </div>
         {error !== null && <div style={errorStyle}>{error}</div>}
-        <button data-hover="true" type="button" style={{ padding: 'var(--yt-space-1) var(--yt-space-3)' }} disabled={busy} onClick={choose}>
+        {/* 首启唯一主行动（2026-10-14 复评 B）：整个卡里只有这一个动作、
+            且是必经之路——穿实心 accent 主面，别再裸奔。 */}
+        <button data-hover="primary" type="button" style={primaryButtonStyle} disabled={busy} onClick={choose}>
           {busy ? t('onboarding.busy') : t('onboarding.choose')}
         </button>
       </div>
