@@ -5,7 +5,8 @@
  * the client's unified proposal module (ADR-0021 决定 4, ADR-0047 决定 3) —
  * this file is a deliberate copy of the client's `capability-match.ts`
  * tables (KINDS / REQUIRED_FIELDS / EMPTY_OK_FIELDS, plus the `mails` range
- * normalization), pinned to it by a parity spec: the tool must refuse
+ * normalization and the `entityName` derivation of the 2026-10-15 松绑),
+ * pinned to it by a parity spec: the tool must refuse
  * exactly what the card would refuse, or a nomination enqueued here would
  * die on the card later.
  * @module @deepseek-ai/dsh-api-yantao-kb-controller/capability/proposal-actions
@@ -22,14 +23,20 @@ export const KINDS = [
 type ActionKind = typeof KINDS[number]
 
 /** The payload fields each kind needs as non-empty strings — mirror of the client's REQUIRED_FIELDS.
+ * The entity-landing kinds dropped `entityName` from this table (2026-10-15 松绑裁决，本晨
+ * 邮件调度两卡事故的治本): the name is display-only — the applier resolves through
+ * `entityPath` alone — so a row may omit it and the tool derives the display value from
+ * the path's tail ({@link deriveEntityName}) before storing. It stays mandatory when
+ * `entityPath` arrives as '' (the EMPTY_OK face): with no path tail to derive from, the
+ * name is all the card has.
  * Exported for the parity spec (ADR-0055). */
 export const REQUIRED_FIELDS: Partial<Record<ActionKind, readonly string[]>> = {
   'create-entity': ['entityType', 'name'],
   'create-project': ['name'],
-  'append-log': ['entityPath', 'entityName', 'text'],
-  'write-state': ['entityPath', 'entityName', 'text'],
+  'append-log': ['entityPath', 'text'],
+  'write-state': ['entityPath', 'text'],
   'save-resource': ['path', 'content'],
-  'create-link': ['entityPath', 'entityName', 'link'],
+  'create-link': ['entityPath', 'link'],
   'add-todo': ['title', 'body'],
   'edit-section': ['path', 'section', 'after', 'why'],
   'append-section': ['path', 'section', 'text'],
@@ -79,6 +86,47 @@ const ENTITY_PATH_KINDS: ReadonlySet<string> = new Set(['append-log', 'write-sta
 function isLocatorShaped(value: string): boolean {
   const match = /^([A-Za-z]+)[:：].+$/.exec(value)
   return match !== null && isEntityLocatorPrefix(match[1] as string)
+}
+
+/**
+ * Derive an entity-landing action's display name from its `entityPath` — the
+ * engine of the 2026-10-15 松绑: `entityName` is display-only (the applier
+ * resolves through the path alone), so when the model omits it the card still
+ * gets a human-readable label instead of interpolating nothing. A `type:name`
+ * locator yields the name after the first separator (`project:某项目` →
+ * `某项目`, full-width colon included); an entity file path yields its
+ * basename sans `.md` (`entities/projects/飞书迁移.md` → `飞书迁移`);
+ * anything else echoes the path as-is. Mirrored by the client twin; the
+ * parity spec pins the two together.
+ */
+export function deriveEntityName(entityPath: string): string {
+  const trimmed = entityPath.trim()
+  const locator = /^[A-Za-z]+[:：](.+)$/.exec(trimmed)
+  if (locator !== null) return locator[1] as string
+  const base = trimmed.split(/[\\/]/).at(-1) ?? trimmed
+  return base.endsWith('.md') ? base.slice(0, -'.md'.length) : base
+}
+
+/**
+ * Fill derivable `entityName`s into rows that already passed the kind tables
+ * (2026-10-15 松绑): the tool stores the model's rows with the display name
+ * injected, so every enqueued card carries the field the card and the applier
+ * interpolate. Rows already carrying a non-empty string name pass through
+ * untouched; rows whose `entityPath` is empty keep whatever name they have —
+ * the validator already demanded one there.
+ * @param valid - the rows {@link partitionProposedActions} passed.
+ * @returns the rows to store, `entityName` guaranteed a non-empty string on
+ *   every entity-landing row that has a resolvable path.
+ */
+export function withDerivedEntityNames(valid: readonly unknown[]): readonly unknown[] {
+  return valid.map((entry) => {
+    if (typeof entry !== 'object' || entry === null) return entry
+    const bag = entry as Record<string, unknown>
+    if (typeof bag.kind !== 'string' || !ENTITY_PATH_KINDS.has(bag.kind)) return entry
+    if (typeof bag.entityName === 'string' && bag.entityName.trim() !== '') return entry
+    if (typeof bag.entityPath !== 'string' || bag.entityPath.trim() === '') return entry
+    return { ...bag, entityName: deriveEntityName(bag.entityPath) }
+  })
 }
 
 /**
@@ -196,6 +244,12 @@ function diagnoseAction(entry: unknown, at: number, readSource?: (path: string) 
     const entityPath = (bag.entityPath as string).trim()
     if (entityPath !== '' && !isLocatorShaped(entityPath) && !entityPath.endsWith('.md')) {
       return `第 ${at + 1} 项「${kind}」的 entityPath 不是可解析的实体定位（应为 type:name 或实体文件路径，形如 ${KIND_EXAMPLES[kind as ActionKind]}）`
+    }
+    // 2026-10-15 松绑的另一面：entityName 降为可选的前提是有路可推——
+    // entityPath 空串（EMPTY_OK 的待后补形态）时没有尾段可取，entityName
+    // 就是卡片仅有的人类可读线索，此时仍是必填。
+    if (entityPath === '' && (typeof bag.entityName !== 'string' || (bag.entityName as string).trim() === '')) {
+      return `第 ${at + 1} 项「${kind}」的 entityPath 为空串时必须给 entityName（卡片靠它显示；形如 {"kind":"write-state","entityPath":"","entityName":"某项目","text":"当前状态一行"}）`
     }
     // ADR-0059 决定 1: provenance fields are optional but honest — present
     // yet malformed is named back, and only these entity-landing kinds may

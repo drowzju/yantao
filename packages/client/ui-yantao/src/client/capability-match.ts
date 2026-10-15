@@ -66,15 +66,19 @@ export const KINDS: readonly ProposalAction['kind'][] = [
 /** The payload fields each kind needs as non-empty strings; an action missing any is not one —
  * a near-miss envelope must not reach the card as a writable row (an `append-log` without
  * `text` would interpolate the literal "undefined" into the entity's 流水 as a success).
- * The list covers every field the card and the applier dereference as strings — labels,
- * details, and written lines interpolate them verbatim. Exported for the parity spec (ADR-0055). */
+ * The entity-landing kinds dropped `entityName` from this list (2026-10-15 松绑，与控制器
+ * 孪生同改): it is display-only — the applier resolves through `entityPath` — so a row may
+ * omit it and {@link deriveEntityName} fills the card's display value from the path's tail;
+ * it stays required when `entityPath` is '' (nothing to derive from). The list still covers
+ * every field the card and the applier dereference as strings — labels, details, and written
+ * lines interpolate them verbatim. Exported for the parity spec (ADR-0055). */
 export const REQUIRED_FIELDS: Partial<Record<ProposalAction['kind'], readonly string[]>> = {
   'create-entity': ['entityType', 'name'],
   'create-project': ['name'],
-  'append-log': ['entityPath', 'entityName', 'text'],
-  'write-state': ['entityPath', 'entityName', 'text'],
+  'append-log': ['entityPath', 'text'],
+  'write-state': ['entityPath', 'text'],
   'save-resource': ['path', 'content'],
-  'create-link': ['entityPath', 'entityName', 'link'],
+  'create-link': ['entityPath', 'link'],
   'add-todo': ['title', 'body'],
   'edit-section': ['path', 'section', 'after', 'why'],
   'append-section': ['path', 'section', 'text'],
@@ -94,13 +98,52 @@ export const EMPTY_OK_FIELDS: ReadonlySet<string> = new Set([
   'edit-section:path', 'append-section:path', 'add-todo:body',
 ])
 
+/** The entity-bodied kinds whose display name may be derived from `entityPath`
+ * (2026-10-15 松绑) — mirror of the controller twin's ENTITY_PATH_KINDS. */
+const ENTITY_LANDING_KINDS: ReadonlySet<string> = new Set(['append-log', 'write-state', 'create-link'])
+
+/**
+ * Derive an entity-landing action's display name from its `entityPath` — the
+ * client twin of the controller's `deriveEntityName` (2026-10-15 松绑, pinned
+ * by the parity spec): a `type:name` locator yields the name after the first
+ * separator (full-width colon included); an entity file path yields its
+ * basename sans `.md`; anything else echoes the path as-is. Exported for the
+ * parity spec.
+ */
+export function deriveEntityName(entityPath: string): string {
+  const trimmed = entityPath.trim()
+  const locator = /^[A-Za-z]+[:：](.+)$/.exec(trimmed)
+  if (locator !== null) return locator[1] as string
+  const base = trimmed.split(/[\\/]/).at(-1) ?? trimmed
+  return base.endsWith('.md') ? base.slice(0, -'.md'.length) : base
+}
+
+/** Fill the derivable display name into one accepted entity-landing row whose
+ * `entityName` is unusable (absent, non-string, or '') — the normalization
+ * that keeps the `ProposalAction` cast honest now that the field is optional
+ * (2026-10-15 松绑). Rows of other kinds, rows already carrying a non-empty
+ * name, and rows with an empty path (the validator demanded a name there)
+ * pass through untouched. */
+function withDerivedEntityName(entry: unknown): ProposalAction {
+  const bag = entry as Record<string, unknown>
+  if (typeof bag.kind === 'string' && ENTITY_LANDING_KINDS.has(bag.kind)
+    && !(typeof bag.entityName === 'string' && bag.entityName.trim() !== '')
+    && typeof bag.entityPath === 'string' && bag.entityPath.trim() !== '') {
+    return { ...bag, entityName: deriveEntityName(bag.entityPath) } as ProposalAction
+  }
+  return entry as ProposalAction
+}
+
 /**
  * One action entry's acceptance verdict — the SINGLE truth table (ocr 评审
  * #7, formerly duplicated between {@link actionsOf} and the rejection
  * diagnostic): null when the applier accepts the row, otherwise the human-
  * readable reason it rejected it. Both consumers walk the same
  * KINDS/REQUIRED_FIELDS/EMPTY_OK_FIELDS tables, so a diagnostic can never
- * disagree with the accept decision.
+ * disagree with the accept decision; the one bespoke clause beyond the
+ * tables (an entity-landing row with an empty `entityPath` must still name
+ * itself, 2026-10-15 松绑's other face) mirrors the controller twin's
+ * diagnoseAction byte for byte.
  * @param entry - one envelope action, wire-shaped.
  * @returns the rejection reason, or null when accepted.
  */
@@ -113,12 +156,24 @@ function actionVerdict(entry: unknown): string | null {
   const missing = required.filter(field =>
     typeof bag[field] !== 'string'
     || (bag[field] === '' && !EMPTY_OK_FIELDS.has(`${kind}:${field}`)))
-  return missing.length > 0 ? `「${kind}」缺必填字段 ${missing.join('、')}` : null
+  if (missing.length > 0) return `「${kind}」缺必填字段 ${missing.join('、')}`
+  // 2026-10-15 松绑的另一面：entityName 降为可选的前提是有路可推——
+  // entityPath 空串（EMPTY_OK 的待后补形态）时没有尾段可取，entityName
+  // 就是卡片仅有的人类可读线索，此时仍是必填。（此处 entityPath 已过
+  // 必填表，必为字符串。）与控制器的 diagnoseAction 同款守卫。
+  if (ENTITY_LANDING_KINDS.has(kind)
+    && (bag.entityPath as string).trim() === ''
+    && !(typeof bag.entityName === 'string' && (bag.entityName as string).trim() !== '')) {
+    return `「${kind}」的 entityPath 为空串时必须给 entityName`
+  }
+  return null
 }
 
-/** Keep the entries whose `kind` the applier knows and whose required fields are strings; drop the rest silently. */
+/** Keep the entries whose `kind` the applier knows and whose required fields are strings; drop the rest
+ * silently. Accepted entity-landing rows get their display name filled from the path when the model
+ * omitted it (2026-10-15 松绑), so downstream interpolation never meets a missing `entityName`. */
 function actionsOf(raw: readonly unknown[]): readonly ProposalAction[] {
-  return raw.filter((entry): entry is ProposalAction => actionVerdict(entry) === null)
+  return raw.filter(entry => actionVerdict(entry) === null).map(withDerivedEntityName)
 }
 
 /**

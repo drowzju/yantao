@@ -6,9 +6,9 @@ import { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { YantaoKbService } from '@deepseek-ai/dsh-yantao-kb'
 import YantaoKbController from '../src/index.ts'
-import { EMPTY_OK_FIELDS as CLIENT_EMPTY_OK, KINDS as CLIENT_KINDS, REQUIRED_FIELDS as CLIENT_REQUIRED_FIELDS } from '../../../client/ui-yantao/src/client/capability-match.ts'
+import { EMPTY_OK_FIELDS as CLIENT_EMPTY_OK, KINDS as CLIENT_KINDS, REQUIRED_FIELDS as CLIENT_REQUIRED_FIELDS, deriveEntityName as CLIENT_DERIVE_ENTITY_NAME } from '../../../client/ui-yantao/src/client/capability-match.ts'
 import { TRUNCATION_MARKER as CLIENT_TRUNCATION_MARKER } from '../../../client/ui-yantao/src/client/scheduler.ts'
-import { EMPTY_OK_FIELDS, KINDS, mailSpanNote, normalizeMailRange, partitionProposedActions, REQUIRED_FIELDS, validateProposedActions } from '../src/capability/proposal-actions.ts'
+import { deriveEntityName, EMPTY_OK_FIELDS, KINDS, mailSpanNote, normalizeMailRange, partitionProposedActions, REQUIRED_FIELDS, validateProposedActions, withDerivedEntityNames } from '../src/capability/proposal-actions.ts'
 import { TRUNCATION_MARKER as EXEC_TRUNCATION_MARKER } from '../src/capability/exec.ts'
 
 describe('validateProposedActions（ADR-0055 提名工具的服务端校验）', () => {
@@ -45,6 +45,22 @@ describe('validateProposedActions（ADR-0055 提名工具的服务端校验）',
     // 只点名不给形状，压缩后凭记忆重建漏了 entityPath，多赔了一张卡）
     expect(validateProposedActions([{ kind: 'append-log', entityName: 'x', text: 'y' }]))
       .toEqual(['第 1 项「append-log」缺必填字段 entityPath（该项形如 {"kind":"append-log","entityPath":"project:某项目","entityName":"某项目","text":"一条动态"}）'])
+  })
+
+  it('entityName 松绑（2026-10-15，本晨邮件调度两卡事故的治本）：带路径可不带名，双缺才点名', () => {
+    // 三类实体落地动作：有路径无名——放行，展示名入库前由工具推导
+    expect(validateProposedActions([{ kind: 'append-log', entityPath: 'project:某项目', text: '一条动态' }])).toEqual([])
+    expect(validateProposedActions([{ kind: 'write-state', entityPath: '项目/x.md', text: '进行中' }])).toEqual([])
+    expect(validateProposedActions([{ kind: 'create-link', entityPath: 'project:某项目', link: '[[x]]' }])).toEqual([])
+    // entityName 在但不是非空字符串：同样放行（入库前推导覆盖，展示名不值得拦船）
+    expect(validateProposedActions([{ kind: 'append-log', entityPath: 'project:某项目', entityName: '', text: 'x' }])).toEqual([])
+    expect(validateProposedActions([{ kind: 'append-log', entityPath: 'project:某项目', entityName: 42, text: 'x' }])).toEqual([])
+    // entityPath 空串且无名：没有尾段可推，entityName 回归必填（教学形状，防镜像补提）
+    expect(validateProposedActions([{ kind: 'append-log', entityPath: '', text: 'x' }]))
+      .toEqual(['第 1 项「append-log」的 entityPath 为空串时必须给 entityName（卡片靠它显示；形如 {"kind":"write-state","entityPath":"","entityName":"某项目","text":"当前状态一行"}）'])
+    // entityPath 整个缺席：原有缺字段诊断照旧（EMPTY_OK 只赦免空串值，不赦免缺席）
+    expect(validateProposedActions([{ kind: 'append-log', text: 'y' }])[0])
+      .toContain('缺必填字段 entityPath')
   })
 
   it('entityPath 必须是可解析的实体定位：type:name 或实体路径（2026-10-13 周报流水事故）', () => {
@@ -153,6 +169,40 @@ describe('partitionProposedActions（2026-10-10 裁决：逐项容错，一跑�
     expect(diagnostics).toHaveLength(1)
     expect(diagnostics[0]).toContain('不是已知的动作类别')
   })
+
+  it('无名的实体行原样通过分区（注名发生在工具入库前，不在分区里改写）', () => {
+    const nameless = { kind: 'append-log', entityPath: 'project:x', text: '进展' }
+    const { valid, diagnostics } = partitionProposedActions([
+      nameless,
+      { kind: 'append-log', entityPath: '', text: 'x' },
+    ])
+    expect(valid).toEqual([nameless])
+    expect(diagnostics).toHaveLength(1)
+  })
+})
+
+describe('withDerivedEntityNames / deriveEntityName（2026-10-15 松绑：展示名推导）', () => {
+  it('deriveEntityName：locator 取首个分隔符后的尾段，.md 取基名去后缀', () => {
+    expect(deriveEntityName('project:某项目')).toBe('某项目')
+    expect(deriveEntityName(' project：某项目 ')).toBe('某项目')
+    expect(deriveEntityName('entities/projects/飞书迁移.md')).toBe('飞书迁移')
+    expect(deriveEntityName('entities\\people\\张三.md')).toBe('张三')
+  })
+
+  it('withDerivedEntityNames：无名的实体行注入推导名，有名行/空路径行/非实体行原样', () => {
+    const named = { kind: 'append-log', entityPath: 'project:x', entityName: '自定义名', text: 't' }
+    const nameless = { kind: 'append-log', entityPath: 'entities/projects/x.md', text: '进展' }
+    const emptyNamed = { kind: 'write-state', entityPath: 'person:袁文茂', entityName: '', text: 's' }
+    const todo = { kind: 'add-todo', title: 't', body: 'b' }
+    const emptyPath = { kind: 'append-log', entityPath: '', entityName: '手填名', text: 'x' }
+    expect(withDerivedEntityNames([named, nameless, emptyNamed, todo, emptyPath])).toEqual([
+      named,
+      { kind: 'append-log', entityPath: 'entities/projects/x.md', entityName: 'x', text: '进展' },
+      { kind: 'write-state', entityPath: 'person:袁文茂', entityName: '袁文茂', text: 's' },
+      todo,
+      emptyPath,
+    ])
+  })
 })
 
 describe('normalizeMailRange / mailSpanNote（水位范围的规范化与展示）', () => {
@@ -183,6 +233,12 @@ describe('与客户端词汇表的 parity（ADR-0055：孪生表不许漂移）'
     expect([...KINDS]).toEqual([...CLIENT_KINDS])
     expect(REQUIRED_FIELDS).toEqual(CLIENT_REQUIRED_FIELDS)
     expect([...EMPTY_OK_FIELDS]).toEqual([...CLIENT_EMPTY_OK])
+  })
+
+  it('deriveEntityName 与客户端实现一致（2026-10-15 松绑的共用引擎）', () => {
+    for (const path of ['project:某项目', ' project：某项目 ', 'entities/projects/飞书迁移.md', 'entities\\people\\张三.md', '某项目']) {
+      expect(deriveEntityName(path)).toBe(CLIENT_DERIVE_ENTITY_NAME(path))
+    }
   })
 
   it('TRUNCATION_MARKER 覆盖客户端的截断探测子串（ocr 评审 #8）', () => {
@@ -273,6 +329,16 @@ describe('kb_propose_actions 工具（注册面 + 入队）', () => {
       sourceName: '会话提议',
       title: '晨检发现',
     })
+  })
+
+  it('无 entityName 的实体行照常入队，展示名从 entityPath 推导注入（2026-10-15 松绑）', async () => {
+    await tool().execute({
+      title: '无名提名',
+      actions: [{ kind: 'append-log', entityPath: 'entities/projects/x.md', text: '有进展' }],
+    }, {} as never) as { id: string }
+    const listed = await ctx.yantaoKbController.proposalInboxList()
+    const proposal = listed.proposals[0]?.proposal as { actions: Array<{ entityName?: string }> }
+    expect(proposal.actions[0]?.entityName).toBe('x')
   })
 
   it('source/sourceName/note/mails 透传入队，水位规范化并写进 note', async () => {

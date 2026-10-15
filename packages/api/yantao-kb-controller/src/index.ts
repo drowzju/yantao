@@ -67,7 +67,7 @@ import { applySkillRewrite } from './capability/rewrite.ts'
 import { CAPABILITY_HINTS, CapabilityError, runCapability } from './capability/run.ts'
 import type { CapabilityInvoker } from './capability/run.ts'
 import { CAPABILITY_ENVIRONMENT_NOTE, execCapabilityScript, instructionTextOf } from './capability/exec.ts'
-import { mailSpanNote, normalizeMailRange, partitionProposedActions } from './capability/proposal-actions.ts'
+import { mailSpanNote, normalizeMailRange, partitionProposedActions, withDerivedEntityNames } from './capability/proposal-actions.ts'
 import { addRoutes, readRoutes, removeRoute, routedSkill, updateRoute, ROUTES_PATH } from './capability/routing.ts'
 import type { CapabilityRoute } from './capability/routing.ts'
 import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
@@ -576,6 +576,7 @@ export class YantaoKbController extends TypertRemoteService {
         + '本工具只入队不执行——动作由人批准后才落库，不要为了让动作生效而调用本工具。'
         + 'actions 每项形如 {"kind":"append-log","entityPath":…,…}，kind 与必填字段在服务端校验：'
         + '不合格的项会被点名剔除（诊断随结果返回，修正后可再次调用补提），合格的项照常入队；'
+        + 'append-log/write-state/create-link 的 entityName 是展示名，可省略——缺省从 entityPath 推导（entityPath 为空串时必填）。'
         + '全部项都不合格才整单拒绝。'
         + '没有值得提议的动作就不要调用本工具（纯文字汇报即可）；入队成功后不要再在回答里重复输出信封 JSON。',
       parameters: {
@@ -656,7 +657,9 @@ export class YantaoKbController extends TypertRemoteService {
           ...(noteParts.length > 0 ? { note: noteParts.join(' · ') } : {}),
           proposal: {
             title,
-            actions: valid,
+            // 2026-10-15 松绑：entityName 降为展示名，缺省时从 entityPath 推导
+            // 后注入再入库——卡上永远有可读的名字，模型也少一个被点名补提的理由。
+            actions: withDerivedEntityNames(valid),
             ...(range !== undefined ? { mails: range } : {}),
           },
         })

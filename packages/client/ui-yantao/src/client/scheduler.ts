@@ -373,12 +373,12 @@ export function withProposalConvention(
 【调度约定（ADR-0047/0055）】任务完成后，若有值得人拍板的写入动作，请调用 kb_propose_actions 工具提交提议（本工具只入队，不执行任何动作）：
 - title：一句话概括这批动作。
 - actions：每项一个待人工批准的写入动作，常用类别与字段：
-- {"kind":"append-log","entityPath":"<实体文件路径>","entityName":"<实体名>","text":"<流水一行>","reason":"<缘由>"}
+- {"kind":"append-log","entityPath":"<实体文件路径>","entityName":"<实体名，可省略>","text":"<流水一行>","reason":"<缘由>"}
 - {"kind":"append-section","path":"<实体文件路径>","section":"决议|待办|…","text":"<内容>","why":"<缘由>"}
 - {"kind":"edit-section","path":"<路径>","section":"<节名>","before":"<现状>","after":"<改为>","why":"<缘由>"}
 - {"kind":"create-entity","entityType":"person|meeting|area|project","name":"<名>","reason":"<缘由>"}
 - {"kind":"create-project","name":"<名>","reason":"<缘由>","areas":["<库中已有领域>"]}
-- {"kind":"write-state","entityPath":"<路径>","entityName":"<名>","text":"<状态一行>","reason":"<缘由>"}
+- {"kind":"write-state","entityPath":"<路径>","entityName":"<名，可省略>","text":"<状态一行>","reason":"<缘由>"}
 - {"kind":"save-resource","path":"resources/<名>.md","content":"<全文>","reason":"<缘由>"}
 - {"kind":"add-todo","title":"<题目>","due":"YYYY-MM-DD 或省略","body":"<详情>","reason":"<缘由>"}
 - {"kind":"add-memory","scope":"<能力名>","text":"<规则一句话>","reason":"<缘由>"}

@@ -160,6 +160,19 @@ describe('proposalOfAnswer（ADR-0047 调度答案解析）', () => {
     expect(proposalOfAnswer(mixed, 't')?.actions).toEqual([ACTION])
   })
 
+  it('entityName 松绑（2026-10-15）：无名实体行放行，展示名从 entityPath 推导', () => {
+    const envelope = JSON.stringify({
+      title: 't',
+      actions: [{ kind: 'append-log', entityPath: 'entities/projects/飞书迁移.md', text: '确认了时间', reason: '晨检' }],
+    })
+    expect(proposalOfAnswer(envelope, 't')?.actions).toEqual([
+      { kind: 'append-log', entityPath: 'entities/projects/飞书迁移.md', entityName: '飞书迁移', text: '确认了时间', reason: '晨检' },
+    ])
+    // entityPath 空串且无名：没有尾段可推，照旧剔除
+    const hollow = JSON.stringify({ title: 't', actions: [{ kind: 'write-state', entityPath: '', text: 'x' }] })
+    expect(proposalOfAnswer(hollow, 't')).toBeNull()
+  })
+
   it('空 actions、非对象、纯散文都返回 null', () => {
     expect(proposalOfAnswer(JSON.stringify({ actions: [] }), 't')).toBeNull()
     expect(proposalOfAnswer('[1,2,3]', 't')).toBeNull()
@@ -205,6 +218,13 @@ describe('proposalOfPayload（ADR-0047 收件箱载荷回读）', () => {
   it('混合已知与未知 kind 时保留已知行', () => {
     const proposal = proposalOfPayload({ title: 'x', actions: [{ kind: 'format-disk' }, ACTION] })
     expect(proposal?.actions).toEqual([ACTION])
+  })
+
+  it('entityName 松绑（2026-10-15）：存量无名行回读时推导展示名，不再哑掉', () => {
+    const proposal = proposalOfPayload({ title: 'x', actions: [{ kind: 'write-state', entityPath: 'project:某项目', text: '进行中' }] })
+    expect(proposal?.actions).toEqual([
+      { kind: 'write-state', entityPath: 'project:某项目', entityName: '某项目', text: '进行中' },
+    ])
   })
 
   it('回读透传 mails 范围，畸形范围剔除（验收修正 2）', () => {
