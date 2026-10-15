@@ -22,9 +22,9 @@ import { MarkdownText, type MarkdownLabels } from '@deepseek-ai/dsh-client-ui-pr
 import type {
   KbWorkspace, KbWorkspaceInstruction, KbWorkspaceRun,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
-import { remoteMessage, type WorkspaceLister, type WorkspaceRunner, type WorkspaceRunsClearer, type WorkspaceRunsLister, type WorkspaceRunStopper, type WorkspaceSaver } from './remote.ts'
+import { remoteMessage, type WorkspaceLister, type WorkspaceRunner, type WorkspaceRunDeleter, type WorkspaceRunsClearer, type WorkspaceRunsLister, type WorkspaceRunStopper, type WorkspaceSaver } from './remote.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
-import { ghostButtonStyle, primaryButtonStyle, toolButtonStyle } from './buttons.ts'
+import { ghostButtonStyle, primaryButtonStyle, toolButtonArmedStyle, toolButtonStyle } from './buttons.ts'
 import { formatStamp } from './stamp.ts'
 
 /** What the panel needs: the five workspace RPCs, already bound to the context. */
@@ -43,6 +43,8 @@ export interface WorkspacePanelProps {
   readonly listRuns: WorkspaceRunsLister
   /** Clear the run history's finalized rows. */
   readonly clearRuns: WorkspaceRunsClearer
+  /** Delete one history row (2026-10-15 截图评审); a still-running row refuses. */
+  readonly deleteRun: WorkspaceRunDeleter
   /** Open one run's distilled process log as a read-only centre tab. */
   readonly onOpenLog: (runId: string) => void
 }
@@ -111,8 +113,10 @@ const spaceTitleStyle = { margin: 0, fontSize: 'var(--yt-type-label)', fontWeigh
 
 const metaStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
 
-/** The instruction table: one row per instruction, compact meta type. */
-const tableStyle = { width: '100%', borderCollapse: 'collapse', fontSize: 'var(--yt-type-label)' } as const
+/** The instruction table: one row per instruction, compact meta type.
+    Fixed layout (2026-10-15 截图评审)：auto 布局让不折行的元数据列把名称列
+    挤到三四个字符宽，词中间硬断（"ocr revi ew"）；定死后名称列独占余量。 */
+const tableStyle = { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', fontSize: 'var(--yt-type-label)' } as const
 
 const thStyle = {
   textAlign: 'left', padding: 'var(--yt-space-1) var(--yt-space-2) var(--yt-space-1) 0', borderBottom: '1px solid var(--yt-border-subtle)',
@@ -126,7 +130,13 @@ const tdStyle = {
 
 const tdMetaStyle = { ...tdStyle, color: 'var(--yt-text-secondary)', whiteSpace: 'nowrap' } as const
 
-const tdNameStyle = { ...tdStyle, minWidth: 0, wordBreak: 'break-word' } as const
+/** The name cell: single-line ellipsis per the DESIGN canon (列表行一律
+    单行省略，全名由 title 兜底)，停用标签钉在行尾不参与挤压。 */
+const tdNameStyle = { ...tdStyle, display: 'flex', alignItems: 'baseline', minWidth: 0, overflow: 'hidden' } as const
+
+const nameTextStyle = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 } as const
+
+const disabledTagStyle = { ...mutedStyle, flexShrink: 0 } as const
 
 const tdActionsStyle = { ...tdStyle, whiteSpace: 'nowrap', textAlign: 'right', width: 1 } as const
 
@@ -139,8 +149,10 @@ const iconButtonStyle = {
 } as const
 
 /**
- * The ＋/− gestures wear an ink ring: bare glyphs read as stray punctuation
+ * The − gestures wear an ink ring: bare glyphs read as stray punctuation
  * next to the table's hairlines, the circle makes them obviously clickable.
+ * The ＋ gestures grew text labels instead (2026-10-15 截图评审：两个裸 ＋
+ * 只能靠 tooltip 区分加的是什么) — a labelled button needs no ring.
  */
 const circledIconStyle = {
   ...iconButtonStyle,
@@ -176,7 +188,9 @@ const inputStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', width: '100
 
 const formActionsStyle = { display: 'flex', gap: 'var(--yt-space-2)' } as const
 
-const addOpenStyle = { ...circledIconStyle, alignSelf: 'flex-start' } as const
+/** The add-openers wear text labels now (2026-10-15 截图评审：裸 ＋ 分不清
+    加的是空间还是指令)；quiet tool face, pinned to the card's left edge. */
+const addOpenStyle = { ...toolButtonStyle, alignSelf: 'flex-start' } as const
 
 const stepRowStyle = { display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'flex-start' } as const
 
@@ -312,15 +326,15 @@ function InstructionForm(props: {
 }
 
 /**
- * Render the 工作区 tab (ADR-0056): the workspace management view.
+ * Render the 工作空间 tab (ADR-0056): the workspace management view.
  * @param props - see {@link WorkspacePanelProps}.
  * @returns the panel element.
  */
-export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, onOpenLog }: WorkspacePanelProps): ReactElement {
+export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, deleteRun, onOpenLog }: WorkspacePanelProps): ReactElement {
   // Every seam is a fresh closure on each render (inject face), so the loads
   // and writes read them through a ref — the same discipline MemoryPanel uses.
-  const latest = useRef({ list, save, run, stop, listRuns, clearRuns })
-  latest.current = { list, save, run, stop, listRuns, clearRuns }
+  const latest = useRef({ list, save, run, stop, listRuns, clearRuns, deleteRun })
+  latest.current = { list, save, run, stop, listRuns, clearRuns, deleteRun }
 
   const [spaces, setSpaces] = useState<readonly KbWorkspace[] | null>(null)
   const [runs, setRuns] = useState<readonly KbWorkspaceRun[] | null>(null)
@@ -508,6 +522,22 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
     }
   }
 
+  /** Delete one finalized history row (2026-10-15 截图评审); the store refuses a live row. */
+  const deleteOneRun = async (runId: string): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const result = await latest.current.deleteRun(runId)
+      setRuns(result.runs)
+      setHistoryError(null)
+    } catch (failure: unknown) {
+      setHistoryError(remoteMessage(failure))
+      await reloadRuns()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const history = (runs ?? []).slice(0, HISTORY_SHOWN)
 
   return (
@@ -526,7 +556,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
           title={t('workspace.addSpace')}
           data-workspace-add-space="true"
           onClick={() => { setSpaceDraft({ id: null, name: '', directory: '', model: '' }) }}>
-          ＋
+          {t('workspace.addSpaceLabel')}
         </button>
       )}
       {spaceDraft !== null && (
@@ -590,18 +620,18 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
               <thead>
                 <tr>
                   <th style={thStyle}>{t('common.name')}</th>
-                  <th style={thStyle}>{t('workspace.colTrigger')}</th>
-                  <th style={thStyle}>{t('workspace.colSteps')}</th>
-                  <th style={thStyle}>{t('workspace.colLast')}</th>
-                  <th style={thStyle}>{t('workspace.colActions')}</th>
+                  <th style={{ ...thStyle, width: 40 }}>{t('workspace.colTrigger')}</th>
+                  <th style={{ ...thStyle, width: 40 }}>{t('workspace.colSteps')}</th>
+                  <th style={{ ...thStyle, width: 88 }}>{t('workspace.colLast')}</th>
+                  <th style={{ ...thStyle, width: 72 }}>{t('workspace.colActions')}</th>
                 </tr>
               </thead>
               <tbody>
                 {space.instructions.map(instruction => (
                   <tr key={instruction.id} data-workspace-instruction={instruction.id}>
-                    <td style={tdNameStyle}>
-                      {instruction.name}
-                      {!instruction.enabled && <span style={mutedStyle}> · {t('workspace.disabledTag')}</span>}
+                    <td style={tdNameStyle} title={instruction.name}>
+                      <span style={nameTextStyle}>{instruction.name}</span>
+                      {!instruction.enabled && <span style={disabledTagStyle}> · {t('workspace.disabledTag')}</span>}
                     </td>
                     <td style={tdMetaStyle} title={instruction.cron}>
                       {/* cron 表达式收进 tooltip（2026-10-12 截图评审）：原始
@@ -683,7 +713,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
                   spaceId: space.id, id: null, name: '', cron: '', enabled: true, steps: [''],
                 })
               }}>
-              ＋
+              {t('workspace.addInstructionLabel')}
             </button>
           )}
         </div>
@@ -692,7 +722,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
         <div style={{ ...zoneTitleStyle, flex: 1 }}>{t('workspace.history')}</div>
         {runs !== null && runs.length > 0 && (
           <button data-hover="true" type="button"
-            style={armedClear ? armedDeleteStyle : deleteStyle}
+            style={armedClear ? toolButtonArmedStyle : toolButtonStyle}
             disabled={busy}
             title={armedClear ? undefined : t('workspace.clearHistory')}
             data-armed={armedClear || undefined}
@@ -705,7 +735,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
               setArmedClear(false)
               void clearHistory()
             }}>
-            {armedClear ? t('workspace.clearArm') : '−'}
+            {armedClear ? t('workspace.clearArm') : t('workspace.clearLabel')}
           </button>
         )}
       </div>
@@ -739,6 +769,26 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
                   data-workspace-run-view={entry.id}
                   onClick={() => { onOpenLog(entry.id) }}>
                   {t('workspace.viewLog')}
+                </button>
+              )}
+              {/* One row's own delete (2026-10-15 截图评审)：两击武装，与
+                  指令行同一套 − 语法。运行中的行不给——先停止，删除才有意义。 */}
+              {!live && (
+                <button data-hover="true" type="button"
+                  style={armedDelete === `r:${entry.id}` ? armedDeleteStyle : deleteStyle}
+                  disabled={busy}
+                  title={armedDelete === `r:${entry.id}` ? undefined : t('workspace.deleteRun')}
+                  data-armed={armedDelete === `r:${entry.id}` || undefined}
+                  data-workspace-run-delete={entry.id}
+                  onClick={() => {
+                    if (armedDelete !== `r:${entry.id}`) {
+                      setArmedDelete(`r:${entry.id}`)
+                      return
+                    }
+                    setArmedDelete(null)
+                    void deleteOneRun(entry.id)
+                  }}>
+                  {armedDelete === `r:${entry.id}` ? t('workbench.deleteArm') : '−'}
                 </button>
               )}
             </div>

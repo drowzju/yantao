@@ -663,7 +663,7 @@ export {
 } from './workspaces.ts'
 export type { InstructionStampsPatch, WorkspaceDef, WorkspaceFile, WorkspaceInstruction } from './workspaces.ts'
 export {
-  appendWorkspaceRun, clearWorkspaceRuns, finalizeInterruptedRuns, newRunId, normalizeWorkspaceRuns,
+  appendWorkspaceRun, clearWorkspaceRuns, deleteWorkspaceRun, finalizeInterruptedRuns, newRunId, normalizeWorkspaceRuns,
   patchWorkspaceRun, readWorkspaceRuns, RUN_HISTORY_CAP, runLogPath, WORKSPACE_RUN_LOG_DIR,
   WORKSPACE_RUNS_DISPLAY_PATH,
 } from './workspace-runs.ts'

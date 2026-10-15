@@ -1196,6 +1196,18 @@ export interface KbWorkspaceRunsClearResult {
   readonly runs: readonly KbWorkspaceRun[]
 }
 
+/** Parameters of `yantaoKb.workspaceRunDelete`: drop one history row. */
+export interface KbWorkspaceRunDeleteArgs {
+  /** The run row to delete. */
+  readonly runId: string
+}
+
+/** Result of `yantaoKb.workspaceRunDelete`: the history after the deletion. */
+export interface KbWorkspaceRunDeleteResult {
+  /** The runs that remain, newest first. */
+  readonly runs: readonly KbWorkspaceRun[]
+}
+
 /**
  * One action's settlement record (ADR-0059 决定 5): `index` positions the
  * action in the unified proposal's canonical action order, `ok` says whether

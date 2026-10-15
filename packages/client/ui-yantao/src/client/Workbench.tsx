@@ -18,7 +18,7 @@ import type {
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
   PromptShortcutSaver, RelationSetter, ResourceDeleter, ResourceRegistrar, ShortcutFiller,
   TodoLoader, TodoWriter, Archiver,
-  WorkspaceLister, WorkspaceRunner, WorkspaceRunsClearer, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
+  WorkspaceLister, WorkspaceRunner, WorkspaceRunDeleter, WorkspaceRunsClearer, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
 } from './remote.ts'
 import { matchCapabilities } from './capability-match.ts'
 import { useFloatingMenu } from './menu-behavior.ts'
@@ -44,7 +44,7 @@ export type TreeLoader = () => Promise<readonly KbTreeSection[]>
 
 /** Left-rail tabs in display order; `shengde` is the merged 待办+记忆 tab
     (2026-10-11 整合), `connector` is the 能力 tab (ADR-0021), `workspace` the
-    工作区 one (ADR-0056) — beside the 能力 tab, per the ADR's rail placement. */
+    工作空间 one (ADR-0056) — beside the 能力 tab, per the ADR's rail placement. */
 type IntakeTabId = KbTreeSectionId | 'connector' | 'memory' | 'workspace' | 'shengde'
 const INTAKE_PANEL_IDS: readonly IntakeTabId[] = [
   'resources', 'shengde', 'workspace', 'connector',
@@ -1080,6 +1080,12 @@ export interface RailProps {
    * the root is not (yet) known — the menu then copies the KB-relative path.
    */
   readonly kbRoot?: string
+  /**
+   * Report the rail's active tab to the frame (2026-10-15 截图评审，B 方案):
+   * the frame retunes the rail's width from the tab's per-tab preference.
+   * Optional — embedders without the face (tests) simply never report.
+   */
+  readonly onActiveTabChange?: (tabId: string) => void
 }
 
 /** Intake-side additions: the intake rail owns the 能力 tab (ADR-0021). */
@@ -1124,7 +1130,7 @@ export interface IntakeRailProps extends RailProps {
   readonly promptShortcutSave: PromptShortcutSaver
   /** Fill the conversation's composer with `/alias ` without sending (ADR-0040 决定 5). */
   readonly fillShortcut: ShortcutFiller
-  /** List the workspaces (ADR-0056) — the 工作区 tab's read. */
+  /** List the workspaces (ADR-0056) — the 工作空间 tab's read. */
   readonly workspaceList: WorkspaceLister
   /** Replace the whole workspace list (ADR-0056). */
   readonly workspaceSave: WorkspaceSaver
@@ -1136,6 +1142,8 @@ export interface IntakeRailProps extends RailProps {
   readonly workspaceRunsList: WorkspaceRunsLister
   /** Clear the run history's finalized rows. */
   readonly workspaceRunsClear: WorkspaceRunsClearer
+  /** Delete one history row (2026-10-15 截图评审); a still-running row refuses. */
+  readonly workspaceRunDelete: WorkspaceRunDeleter
 }
 
 // 错误行的重试钮收敛到 ./buttons.ts 的幽灵面（P1-2 收敛，2026-10-12）——
@@ -1208,7 +1216,7 @@ async function dropOnEntity(args: {
 }
 
 /**
- * The intake rail: 资源 / 省得 / 工作区 / 能力 as tabs. 省得 is the merged
+ * The intake rail: 资源 / 省得 / 工作空间 / 能力 as tabs. 省得 is the merged
  * 待办+记忆 tab (2026-10-11 整合): the singleton as a TODO / DONE board above
  * (ADR-0018), the memory management view below (ADR-0032), its pending
  * proposals counted on the tab itself; 资源 rows open read-only; 能力 lists
@@ -1226,13 +1234,16 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     onRunCapability, kbRoot = '',
     memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
     promptShortcutList, promptShortcutSave, fillShortcut,
-    workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList, workspaceRunsClear,
+    workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList, workspaceRunsClear, workspaceRunDelete,
+    onActiveTabChange,
   } = props
   const mailDelete = props.mailDelete
   const mailArchive = props.mailArchive
   const { sections, error, refresh } = useRail(load, refreshKey)
   const { capabilities, error: capabilityError } = useCapabilities(capabilityList, refreshKey)
   const [tab, setTab] = useState<IntakeTabId>('resources')
+  // Report the active tab so the frame retunes the rail's width (B 方案).
+  useEffect(() => { onActiveTabChange?.(tab) }, [onActiveTabChange, tab])
   // The mail run outlives the panel: tab switches, capability switches and a
   // collapsed rail all unmount MailPanel, and an analysis (or the proposal
   // card waiting on the human) must still be there when they come back.
@@ -1464,6 +1475,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
             stop={workspaceRunStop}
             listRuns={workspaceRunsList}
             clearRuns={workspaceRunsClear}
+            deleteRun={workspaceRunDelete}
             onOpenLog={(runId) => { onOpenFile(WORKSPACE_RUN_LOG_PATH(runId), 'read') }}
           />
         )}
@@ -1530,12 +1542,15 @@ export function WorkspaceRail(props: RailProps): ReactElement {
   const {
     t, collapsed, load, refreshKey, selection, onExpand, onOpenFile, createEntity, archiveEntity, restoreEntity,
     setRelation: writeRelation, registerResource, onRefine, onValidate, capabilityList, onRunCapability, kbRoot = '',
+    onActiveTabChange,
   } = props
   const { sections, error, refresh } = useRail(load, refreshKey)
   // The workspace rail's menus only consume the list; a load failure surfaces
   // in the intake rail's 能力 tab, the one place a capability failure shows.
   const { capabilities } = useCapabilities(capabilityList, refreshKey)
   const [tab, setTab] = useState<KbTreeSectionId>('areas')
+  // Report the active tab so the frame retunes the rail's width (B 方案).
+  useEffect(() => { onActiveTabChange?.(tab) }, [onActiveTabChange, tab])
   const [actionError, setActionError] = useState<string | null>(null)
   /** The relation a new person gets; 同事 unless the human picks another. */
   const [relation, setRelation] = useState<KbPersonRelation>(DEFAULT_RELATION)

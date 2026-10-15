@@ -338,6 +338,32 @@ export async function clearWorkspaceRuns(kbRoot: string): Promise<number> {
 }
 
 /**
+ * Delete one history row on the human's gesture (2026-10-15 截图评审：每条
+ * 历史记录一个独立的删除动作). A row still `running` refuses — a live
+ * chain's runtime will patch its row as steps settle, and erasing it would
+ * make that patch fail with `workspace-run-not-found` while the chain itself
+ * keeps running; stop the run first. Unknown ids refuse loudly, same as the
+ * patch path.
+ * @param kbRoot - the live KB root.
+ * @param runId - the row to delete.
+ * @returns the full list as stored after the deletion.
+ */
+export function deleteWorkspaceRun(kbRoot: string, runId: string): Promise<WorkspaceRun[]> {
+  return withRunsLock(async () => {
+    const runs = await readWorkspaceRuns(kbRoot)
+    const run = runs.find(candidate => candidate.id === runId)
+    if (run === undefined) {
+      throw new KbError('workspace-run-not-found', `运行记录 ${runId} 不存在`)
+    }
+    if (run.status === 'running') {
+      throw new KbError('workspace-run-live', `运行记录 ${runId} 还在运行，先停止再删除`)
+    }
+    await writeWorkspaceRuns(kbRoot, runs.filter(candidate => candidate.id !== runId))
+    return runs.filter(candidate => candidate.id !== runId)
+  })
+}
+
+/**
  * Boot-time healing (ADR-0056 决定 4): every row still marked `running` is a
  * run whose process died with the last controller — mark it `interrupted`
  * with the boot moment as its end. Never catches up, never re-runs.

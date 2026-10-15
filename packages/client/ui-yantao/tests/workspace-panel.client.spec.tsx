@@ -63,6 +63,7 @@ function props(overrides: Partial<WorkspacePanelProps> = {}): WorkspacePanelProp
     stop: vi.fn(async () => ({ runs: RUNS.runs })),
     listRuns: vi.fn(async () => RUNS),
     clearRuns: vi.fn(async (): Promise<KbWorkspaceRunsClearResult> => ({ cleared: 2, runs: [RUNS.runs[0]] })),
+    deleteRun: vi.fn(async () => ({ runs: RUNS.runs.filter(run => run.id !== 'run_old') })),
     onOpenLog: vi.fn(),
     ...overrides,
   }
@@ -74,8 +75,9 @@ describe('WorkspacePanel', () => {
     await screen.findByText('报告目录')
     expect(container.querySelector('[data-workspace-space="wsp_a_1"]')).not.toBeNull()
     // 触发列只答「怎么触发」；cron 表达式收在单元格的 title 里
-    // （2026-10-12 截图评审：裸 cron 把名称列挤到硬折行）。
-    const triggerCell = container.querySelector('[data-workspace-instruction="ins_a_1"] td[title]')
+    // （2026-10-12 截图评审：裸 cron 把名称列挤到硬折行；
+    //   2026-10-15 名称列也带 title 兜底省略，故按下标取第二列）。
+    const triggerCell = container.querySelector('[data-workspace-instruction="ins_a_1"] td:nth-of-type(2)')
     expect(triggerCell?.textContent).toBe('定时')
     expect(triggerCell?.getAttribute('title')).toBe('0 9 * * 1-5')
     expect(container.querySelector('[data-workspace-instruction="ins_a_1"]')?.textContent).toContain('2 步')
@@ -205,6 +207,31 @@ describe('WorkspacePanel', () => {
     expect(container.querySelector('[data-workspace-run="run_live"]')).not.toBeNull()
     expect(container.querySelector('[data-workspace-run="run_old"]')).toBeNull()
     expect(container.querySelector('[data-workspace-run="run_ok"]')).toBeNull()
+  })
+
+  it('offers − on settled history rows only, arming before deleting one', async () => {
+    const panel = props()
+    const { container } = render(<WorkspacePanel {...panel} />)
+    await screen.findByText('报告目录')
+    // 运行中的那条没有 −（存储层也会拒绝，但界面先不给入口）
+    expect(container.querySelector('[data-workspace-run-delete="run_live"]')).toBeNull()
+    expect(container.querySelectorAll('[data-workspace-run-delete]')).toHaveLength(2)
+    const del = () => container.querySelector('[data-workspace-run-delete="run_old"]') as Element
+    await act(async () => {
+      fireEvent.click(del())
+    })
+    expect(panel.deleteRun).not.toHaveBeenCalled()
+    expect(del().getAttribute('data-armed')).toBe('true')
+    expect(del().textContent).toContain('确认删除？')
+    await act(async () => {
+      fireEvent.click(del())
+    })
+    expect(panel.deleteRun).toHaveBeenCalledTimes(1)
+    expect(panel.deleteRun).toHaveBeenCalledWith('run_old')
+    // 删除后该行消失，其余两行保持原位
+    expect(container.querySelector('[data-workspace-run="run_old"]')).toBeNull()
+    expect(container.querySelector('[data-workspace-run="run_live"]')).not.toBeNull()
+    expect(container.querySelector('[data-workspace-run="run_ok"]')).not.toBeNull()
   })
 
   it('hides the clear gesture when the history is empty', async () => {

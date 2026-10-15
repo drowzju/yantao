@@ -85,7 +85,7 @@ import {
   loadSchedules, markSchedule, savePromptShortcuts, saveSchedules, setKbRoot,
   enqueueInboxProposal, loadProposalInbox, loadRelationGraph, resolveInboxProposal,
   loadWorkspaces, saveWorkspaces, runWorkspaceInstruction, stopWorkspaceRun, loadWorkspaceRuns,
-  clearWorkspaceRunHistory,
+  clearWorkspaceRunHistory, deleteWorkspaceRunRow,
   setRelation, unregisterCapability, updateCapabilityRoute, writeFile, writeTodos,
 } from './remote.ts'
 import type { CapabilityRegisterReach } from './remote.ts'
@@ -392,7 +392,7 @@ export function apply(ctx: Context): void {
       scheduleList: () => loadSchedules(ctx),
       scheduleSave: (args: KbScheduleSaveArgs) => saveSchedules(ctx, args),
       scheduleMark: (args: KbScheduleMarkArgs) => markSchedule(ctx, args),
-      // ADR-0056: the 工作区 surface — the tab's definition read/full-list
+      // ADR-0056: the 工作空间 surface — the tab's definition read/full-list
       // save, the manual trigger, the stop and the run-history ring the
       // panel polls while a chain is live.
       workspaceList: () => loadWorkspaces(ctx),
@@ -401,6 +401,7 @@ export function apply(ctx: Context): void {
       workspaceRunStop: (runId: string) => stopWorkspaceRun(ctx, runId),
       workspaceRunsList: () => loadWorkspaceRuns(ctx),
       workspaceRunsClear: () => clearWorkspaceRunHistory(ctx),
+      workspaceRunDelete: (runId: string) => deleteWorkspaceRunRow(ctx, runId),
       // ADR-0047: the 提议 surface — the scheduler's enqueue after a fired
       // session's answer parsed into a proposal, the inbox tab's read and
       // the two verdicts.

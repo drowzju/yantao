@@ -458,3 +458,36 @@ describe('yantaoKb.workspaceRunsClear', () => {
     await expect(ctx.yantaoKbController.workspaceRunsClear()).resolves.toMatchObject({ cleared: 0 })
   })
 })
+
+describe('yantaoKb.workspaceRunDelete', () => {
+  it('deletes one settled row and sweeps its log', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const fake = fakeSpawn(({ child }) => { succeedWith(child, '好') })
+    ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+    await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+    await until('run settles', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
+    const [run] = await readWorkspaceRuns(kbRoot)
+    const logPath = join(kbRoot, 'sessions', 'workspace', `${run?.id}.log`)
+    await until('log exists', async () => {
+      await readFile(logPath, 'utf8')
+      return true
+    })
+
+    const result = await ctx.yantaoKbController.workspaceRunDelete({ runId: run?.id ?? '' })
+    expect(result.runs).toEqual([])
+    await expect(readWorkspaceRuns(kbRoot)).resolves.toEqual([])
+    await until('log swept', async () => {
+      try {
+        await readFile(logPath, 'utf8')
+        return false
+      } catch {
+        return true
+      }
+    })
+  })
+
+  it('refuses an unknown run', async () => {
+    const failure = await ctx.yantaoKbController.workspaceRunDelete({ runId: 'run_ghost' }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+  })
+})

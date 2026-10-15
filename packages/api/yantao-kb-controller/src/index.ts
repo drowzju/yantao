@@ -58,7 +58,7 @@ import {
   readSchedules, writeSchedules, markSchedule, SCHEDULES_DISPLAY_PATH,
   enqueueProposal, readProposalInbox, resolveProposalInboxEntry, annotateProposalInboxEntry, PROPOSAL_INBOX_DISPLAY_PATH,
   readWorkspaces, writeWorkspaces, markInstruction, WORKSPACES_DISPLAY_PATH,
-  readWorkspaceRuns, appendWorkspaceRun, clearWorkspaceRuns, WORKSPACE_RUNS_DISPLAY_PATH,
+  readWorkspaceRuns, appendWorkspaceRun, clearWorkspaceRuns, deleteWorkspaceRun, WORKSPACE_RUNS_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
 import { pruneOrphanRunLogs } from './workspace/run-log.ts'
 import type { EntityType, WorkspaceDef } from '@deepseek-ai/dsh-yantao-kb'
@@ -126,6 +126,8 @@ import type {
   KbWorkspaceRunResult,
   KbWorkspaceRunsClearResult,
   KbWorkspaceRunsListResult,
+  KbWorkspaceRunDeleteArgs,
+  KbWorkspaceRunDeleteResult,
   KbWorkspaceRunStopArgs,
   KbWorkspaceRunStopResult,
   KbWorkspaceSaveArgs,
@@ -1959,6 +1961,26 @@ export class YantaoKbController extends TypertRemoteService {
       // Cleared rows leave orphaned logs in sessions/workspace/ — sweep them.
       void pruneOrphanRunLogs(this.kbRoot).catch(() => undefined)
       return { cleared, runs: (await readWorkspaceRuns(this.kbRoot)).slice().reverse() }
+    } catch (error: unknown) {
+      throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)
+    }
+  }
+
+  /**
+   * Delete one history row (2026-10-15 截图评审：每条记录自己的删除动作).
+   * A row still `running` refuses — stop the run first; the store enforces
+   * both rules. The row's distilled process log goes with it.
+   * @param args - the run row to delete.
+   * @returns the runs that remain, newest first.
+   */
+  @Remote('workspaceRunDelete')
+  async workspaceRunDelete(args: KbWorkspaceRunDeleteArgs): Promise<KbWorkspaceRunDeleteResult> {
+    this.requireKbRootForWorkspaces(WORKSPACE_RUNS_DISPLAY_PATH)
+    try {
+      const runs = await deleteWorkspaceRun(this.kbRoot, args.runId)
+      // The deleted row's log is now orphaned in sessions/workspace/ — sweep it.
+      void pruneOrphanRunLogs(this.kbRoot).catch(() => undefined)
+      return { runs: runs.slice().reverse() }
     } catch (error: unknown) {
       throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)
     }

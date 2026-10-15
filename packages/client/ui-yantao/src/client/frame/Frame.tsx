@@ -23,7 +23,7 @@ import type {
   PromptShortcutSaver, RelationGraphLoader, RelationSetter, ResourceDeleter, ResourceRegistrar, RevisionLoader,
   ScheduleLister, ScheduleMarker,
   ScheduleSaver, ProposalInboxEnqueuer, ProposalInboxLister, ProposalInboxResolver, ShortcutFiller,
-  WorkspaceLister, WorkspaceRunner, WorkspaceRunsClearer, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
+  WorkspaceLister, WorkspaceRunner, WorkspaceRunDeleter, WorkspaceRunsClearer, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
   RootLoader, RootSetter,
   Archiver, SkillRewriteApplier,
   SessionPrompter, TodoLoader, TodoWriter,
@@ -67,6 +67,7 @@ import './frame.module.css'
 import type { PanelToggles } from './layout.ts'
 import type { SidebarRightFileSeat } from '../sidebar-right.ts'
 import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
+import { comfortWidth, persistRailWidths, readRailWidths, type RailWidthPrefs } from './rail-widths.ts'
 import type { WorkbenchT } from '../locales.ts'
 import { ShortcutsDialog, type ShortcutCatalogFace, type ShortcutFixedCatalogFace } from '../ShortcutsDialog.tsx'
 
@@ -193,7 +194,7 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly scheduleMark: ScheduleMarker
   /** Fire one schedule's prompt as a background session (ADR-0045 决定 2). */
   readonly runSchedule: ScheduleRunner
-  /** List the workspaces (ADR-0056) — the 工作区 tab's read. */
+  /** List the workspaces (ADR-0056) — the 工作空间 tab's read. */
   readonly workspaceList: WorkspaceLister
   /** Replace the whole workspace list (ADR-0056). */
   readonly workspaceSave: WorkspaceSaver
@@ -205,6 +206,8 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly workspaceRunsList: WorkspaceRunsLister
   /** Clear the run history's finalized rows. */
   readonly workspaceRunsClear: WorkspaceRunsClearer
+  /** Delete one history row (2026-10-15 截图评审); a still-running row refuses. */
+  readonly workspaceRunDelete: WorkspaceRunDeleter
   /** Read the proposal inbox (ADR-0047) — the 提议 tab's read. */
   readonly proposalInboxList: ProposalInboxLister
   /** Record the human's decision on one pending inbox entry (ADR-0047). */
@@ -514,7 +517,7 @@ export function Frame({
   sessionDetail, onKbRootChanged, mailDelete, mailArchive, skillRewriteApply,
   promptShortcutList, promptShortcutSave, fillShortcut,
   scheduleList, scheduleSave, scheduleMark, runSchedule,
-  workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList, workspaceRunsClear,
+  workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList, workspaceRunsClear, workspaceRunDelete,
   proposalInboxList, proposalInboxResolve, proposalInboxEnqueue, relationGraph,
   loadModelsConfig, saveModelsConfig, shortcutCatalog, shortcutFixedCatalog,
 }: FrameProps): ReactElement {
@@ -522,6 +525,12 @@ export function Frame({
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
+  // Per-tab rail widths (2026-10-15 截图评审，B 方案): each tab declares a
+  // comfort width, a switch applies it, a drag rewrites the active tab's
+  // entry (persisted, so a hand-tuned width survives restarts).
+  const [widthPrefs] = useState<RailWidthPrefs>(readRailWidths)
+  const activeIntakeTab = useRef<string | null>(null)
+  const activeEntitiesTab = useRef<string | null>(null)
   const [intakeOpen, setIntakeOpen] = useState(true)
   const [workspaceOpen, setWorkspaceOpen] = useState(true)
   const [viewport, setViewport] = useState(() => window.innerWidth)
@@ -587,11 +596,36 @@ export function Frame({
   colsRef.current = cols
 
   const onIntakeDrag = useCallback((dx: number) => {
-    setIntakeWidth(clampRail(colsRef.current.intake + dx))
-  }, [])
+    const next = clampRail(colsRef.current.intake + dx)
+    setIntakeWidth(next)
+    // The drag retunes the active tab's comfort width and remembers it.
+    const tab = activeIntakeTab.current
+    if (tab !== null) {
+      widthPrefs.intake[tab] = next
+      persistRailWidths(widthPrefs)
+    }
+  }, [widthPrefs])
+
   const onWorkspaceDrag = useCallback((dx: number) => {
-    setWorkspaceWidth(clampRail(colsRef.current.workspace - dx))
-  }, [])
+    const next = clampRail(colsRef.current.workspace - dx)
+    setWorkspaceWidth(next)
+    const tab = activeEntitiesTab.current
+    if (tab !== null) {
+      widthPrefs.entities[tab] = next
+      persistRailWidths(widthPrefs)
+    }
+  }, [widthPrefs])
+
+  /** A rail reports its active tab; the width follows the tab's preference. */
+  const onIntakeTabChange = useCallback((tabId: string) => {
+    activeIntakeTab.current = tabId
+    setIntakeWidth(widthPrefs.intake[tabId] ?? comfortWidth('intake', tabId))
+  }, [widthPrefs])
+
+  const onEntitiesTabChange = useCallback((tabId: string) => {
+    activeEntitiesTab.current = tabId
+    setWorkspaceWidth(widthPrefs.entities[tabId] ?? comfortWidth('entities', tabId))
+  }, [widthPrefs])
 
   // ── the centre pane's tabs ────────────────────────────────────────────────
   // Session switching never touches this state: the frame is root-scoped, so
@@ -1924,9 +1958,11 @@ export function Frame({
           workspaceRunStop={workspaceRunStop}
           workspaceRunsList={workspaceRunsList}
           workspaceRunsClear={workspaceRunsClear}
+          workspaceRunDelete={workspaceRunDelete}
           onRunCapability={runRowCapability}
           onRefine={runRefineGesture}
           kbRoot={kbRoot}
+          onActiveTabChange={onIntakeTabChange}
           t={t}
         />
       </div>
@@ -2120,6 +2156,7 @@ export function Frame({
           onRefine={runRefineGesture}
           onValidate={runValidateGesture}
           kbRoot={kbRoot}
+          onActiveTabChange={onEntitiesTabChange}
           t={t}
         />
       </div>

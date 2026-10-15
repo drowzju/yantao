@@ -57,7 +57,8 @@ import type {
   KbSetRootResult, KbSkillRewriteApplyArgs, KbSkillRewriteApplyResult, KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
   KbWorkspaceListResult, KbWorkspaceRunArgs,
-  KbWorkspaceRunResult, KbWorkspaceRunsClearResult, KbWorkspaceRunsListResult, KbWorkspaceRunStopArgs,
+  KbWorkspaceRunResult, KbWorkspaceRunsClearResult, KbWorkspaceRunsListResult, KbWorkspaceRunDeleteArgs,
+  KbWorkspaceRunDeleteResult, KbWorkspaceRunStopArgs,
   KbWorkspaceRunStopResult, KbWorkspaceSaveArgs, KbWorkspaceSaveResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 
@@ -157,6 +158,8 @@ export interface KbRemote {
   workspaceRunsList(): Promise<RemoteResult<KbWorkspaceRunsListResult>>
   /** Clear the run history's finalized rows; running rows stay. */
   workspaceRunsClear(): Promise<RemoteResult<KbWorkspaceRunsClearResult>>
+  /** Delete one history row (2026-10-15 截图评审); a still-running row refuses. */
+  workspaceRunDelete(args: KbWorkspaceRunDeleteArgs): Promise<RemoteResult<KbWorkspaceRunDeleteResult>>
   /** The proposal inbox's listing (ADR-0047), in enqueue order — pending and decided alike. */
   proposalInboxList(): Promise<RemoteResult<KbProposalInboxListResult>>
   /** Append one proposal to the inbox (ADR-0047); the store assigns id, stamp and pending status. */
@@ -356,6 +359,9 @@ export type WorkspaceRunsLister = () => Promise<KbWorkspaceRunsListResult>
 
 /** Clear the run history's finalized rows; resolves what was dropped and what remains. */
 export type WorkspaceRunsClearer = () => Promise<KbWorkspaceRunsClearResult>
+
+/** Delete one history row (2026-10-15 截图评审); resolves what remains. */
+export type WorkspaceRunDeleter = (runId: string) => Promise<KbWorkspaceRunDeleteResult>
 
 /** Read the proposal inbox (ADR-0047) — the 提议 tab's read. */
 export type ProposalInboxLister = () => Promise<KbProposalInboxListResult>
@@ -1130,7 +1136,7 @@ export async function markSchedule(ctx: Context, args: KbScheduleMarkArgs): Prom
 }
 
 /**
- * List the workspaces (ADR-0056) — the 工作区 tab's definition list.
+ * List the workspaces (ADR-0056) — the 工作空间 tab's definition list.
  * @param ctx - client root context.
  * @returns the workspaces in stored order, or a rejected promise carrying
  *   the reason.
@@ -1185,7 +1191,7 @@ export async function stopWorkspaceRun(ctx: Context, runId: string): Promise<KbW
 }
 
 /**
- * Read the run-history ring (ADR-0056 决定 6) — the 工作区 tab's 历史 zone,
+ * Read the run-history ring (ADR-0056 决定 6) — the 工作空间 tab's 历史 zone,
  * polled while any run is live.
  * @param ctx - client root context.
  * @returns the runs, newest first, or a rejected promise carrying the reason.
@@ -1197,7 +1203,7 @@ export async function loadWorkspaceRuns(ctx: Context): Promise<KbWorkspaceRunsLi
 }
 
 /**
- * Clear the run history (工作区 tab 的一键清空): the store drops every
+ * Clear the run history (工作空间 tab 的一键清空): the store drops every
  * finalized row and keeps the still-running ones — their chains are live.
  * @param ctx - client root context.
  * @returns how many rows were dropped and what remains, newest first.
@@ -1206,6 +1212,19 @@ export async function clearWorkspaceRunHistory(ctx: Context): Promise<KbWorkspac
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.workspaceRunsClear())
+}
+
+/**
+ * Delete one run-history row (2026-10-15 截图评审：每条记录自己的删除动作)
+ * — the store refuses a still-running row; stop it first.
+ * @param ctx - client root context.
+ * @param runId - the row to delete.
+ * @returns what remains, newest first.
+ */
+export async function deleteWorkspaceRunRow(ctx: Context, runId: string): Promise<KbWorkspaceRunDeleteResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.workspaceRunDelete({ runId }))
 }
 
 /**

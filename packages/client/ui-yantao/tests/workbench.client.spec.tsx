@@ -199,7 +199,7 @@ describe('WorkbenchLayout', () => {
 describe('IntakeRail', () => {
   it('shows the four intake tabs and the 资源 tab first', async () => {
     render(<IntakeRail {...railProps()} />)
-    for (const label of ['资源', '省得', '工作区', '能力']) {
+    for (const label of ['资源', '省得', '工作空间', '能力']) {
       expect(screen.getByText(label)).toBeTruthy()
     }
     expect(await screen.findByText('周报.eml')).toBeTruthy()

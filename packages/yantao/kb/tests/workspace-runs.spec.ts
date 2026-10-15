@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  appendWorkspaceRun, clearWorkspaceRuns, finalizeInterruptedRuns, newRunId, normalizeWorkspaceRuns,
+  appendWorkspaceRun, clearWorkspaceRuns, deleteWorkspaceRun, finalizeInterruptedRuns, newRunId, normalizeWorkspaceRuns,
   patchWorkspaceRun, readWorkspaceRuns, RUN_HISTORY_CAP,
   type WorkspaceRun,
 } from '../src/workspace-runs.ts'
@@ -254,6 +254,45 @@ describe('clearWorkspaceRuns', () => {
   it('空历史是空操作', async () => {
     await expect(clearWorkspaceRuns(kbRoot)).resolves.toBe(0)
     await expect(readWorkspaceRuns(kbRoot)).resolves.toEqual([])
+  })
+})
+
+describe('deleteWorkspaceRun', () => {
+  it('删掉指定的一条，其余不动', async () => {
+    await appendWorkspaceRun(kbRoot, {
+      workspaceId: 'wsp_abc123def',
+      instructionId: 'ins_abc123def',
+      instructionName: '日报',
+      trigger: 'manual',
+      steps: ['x'],
+    })
+    await appendWorkspaceRun(kbRoot, {
+      workspaceId: 'wsp_abc123def',
+      instructionId: 'ins_abc123def',
+      instructionName: '日报',
+      trigger: 'cron',
+      steps: ['y'],
+    })
+    const [first] = await readWorkspaceRuns(kbRoot)
+    // 先落终态：running 行拒绝删除（下一测覆盖）
+    await patchWorkspaceRun(kbRoot, first?.id ?? '', { status: 'success', finishedAt: '2026-10-10T09:05:00.000Z' })
+    const remaining = await deleteWorkspaceRun(kbRoot, first?.id ?? '')
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0]?.id).not.toBe(first?.id)
+    await expect(readWorkspaceRuns(kbRoot)).resolves.toEqual(remaining)
+  })
+
+  it('running 行拒绝；未知 id 拒绝', async () => {
+    await appendWorkspaceRun(kbRoot, {
+      workspaceId: 'wsp_abc123def',
+      instructionId: 'ins_abc123def',
+      instructionName: '日报',
+      trigger: 'manual',
+      steps: ['x'],
+    })
+    const [record] = await readWorkspaceRuns(kbRoot)
+    await expect(deleteWorkspaceRun(kbRoot, record?.id ?? '')).rejects.toThrow(/还在运行/)
+    await expect(deleteWorkspaceRun(kbRoot, 'run_ghost')).rejects.toThrow(/不存在/)
   })
 })
 
