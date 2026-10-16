@@ -4,8 +4,12 @@
  * 调 disarm() 解除。此前 MemoryPanel / SchedulePane / Workbench 行菜单各养
  * 一份状态机（一个 id 键、一个布尔键、一个布尔键），TodoBoard 的 × 与
  * 快捷方式的删除则干脆即时执行——四面归一到这一个 hook。
+ *
+ * Escape 也解除（2026-10-16：工作空间 tab 的武装态曾只能靠再击执行或
+ * 武装他钮才能脱身，与菜单/对话框的 Escape 消散惯例相悖）。只在有武装行
+ * 时挂 window 监听，解除即摘。
  */
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 export interface ArmedAction {
   /** 当前被武装的行动 id；null 表示没有武装中的行。 */
@@ -35,5 +39,13 @@ export function useArmedAction(): ArmedAction {
     armedRef.current = null
     setArmedId(null)
   }, [])
+  useEffect(() => {
+    if (armedId === null) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') disarm()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('keydown', onKey) }
+  }, [armedId, disarm])
   return { armedId, attempt, disarm }
 }

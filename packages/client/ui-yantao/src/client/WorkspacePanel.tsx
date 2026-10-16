@@ -25,6 +25,7 @@ import type {
 import { remoteMessage, type WorkspaceLister, type WorkspaceRunner, type WorkspaceRunDeleter, type WorkspaceRunsClearer, type WorkspaceRunsLister, type WorkspaceRunStopper, type WorkspaceSaver } from './remote.ts'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 import { ghostButtonStyle, primaryButtonStyle, toolButtonArmedStyle, toolButtonStyle } from './buttons.ts'
+import { useArmedAction } from './use-armed-action.ts'
 import { formatStamp } from './stamp.ts'
 import { cronNextFire, parseCron } from './cron.ts'
 
@@ -368,8 +369,12 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
     enabled: boolean
     steps: string[]
   } | null>(null)
-  const [armedDelete, setArmedDelete] = useState<string | null>(null)
-  const [armedClear, setArmedClear] = useState(false)
+  // 删除/清史的两击武装走共享 hook（2026-10-16 迁移：此前自养 state 没有
+  // Esc 退路，武装后只能再击执行或转而武装他钮）；清史是单钮布尔，借
+  // id 'clear' 入同一个模型，Esc 由 hook 统一解除。
+  const { armedId: armedDelete, attempt: attemptDelete } = useArmedAction()
+  const { armedId: armedClearId, attempt: attemptClear } = useArmedAction()
+  const armedClear = armedClearId === 'clear'
   // 顶部说明默认收起（2026-10-12 截图评审：四行说明每个会话都占着首屏，
   // 老用户早已读过）；展开态会话内保持，与资源树/归档组的折叠惯例一致。
   const [aboutOpen, setAboutOpen] = useState(false)
@@ -621,14 +626,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
                 aria-label={t('workspace.delete')}
                 data-armed={armedDelete === `w:${space.id}` || undefined}
                 data-workspace-space-delete={space.id}
-                onClick={() => {
-                  if (armedDelete !== `w:${space.id}`) {
-                    setArmedDelete(`w:${space.id}`)
-                    return
-                  }
-                  setArmedDelete(null)
-                  void deleteSpace(space)
-                }}>
+                onClick={() => { attemptDelete(`w:${space.id}`, () => { void deleteSpace(space) }) }}>
                 {armedDelete === `w:${space.id}` ? t('workbench.deleteArm') : '−'}
               </button>
             </div>
@@ -699,14 +697,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
                           aria-label={t('workspace.delete')}
                           data-armed={armedDelete === `i:${instruction.id}` || undefined}
                           data-workspace-instruction-delete={instruction.id}
-                          onClick={() => {
-                            if (armedDelete !== `i:${instruction.id}`) {
-                              setArmedDelete(`i:${instruction.id}`)
-                              return
-                            }
-                            setArmedDelete(null)
-                            void deleteInstruction(space, instruction)
-                          }}>
+                          onClick={() => { attemptDelete(`i:${instruction.id}`, () => { void deleteInstruction(space, instruction) }) }}>
                           {armedDelete === `i:${instruction.id}` ? t('workbench.deleteArm') : '−'}
                         </button>
                       </div>
@@ -749,14 +740,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
             title={armedClear ? undefined : t('workspace.clearHistory')}
             data-armed={armedClear || undefined}
             data-workspace-clear-history="true"
-            onClick={() => {
-              if (!armedClear) {
-                setArmedClear(true)
-                return
-              }
-              setArmedClear(false)
-              void clearHistory()
-            }}>
+            onClick={() => { attemptClear('clear', () => { void clearHistory() }) }}>
             {armedClear ? t('workspace.clearArm') : t('workspace.clearLabel')}
           </button>
         )}
@@ -802,14 +786,7 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
                   title={armedDelete === `r:${entry.id}` ? undefined : t('workspace.deleteRun')}
                   data-armed={armedDelete === `r:${entry.id}` || undefined}
                   data-workspace-run-delete={entry.id}
-                  onClick={() => {
-                    if (armedDelete !== `r:${entry.id}`) {
-                      setArmedDelete(`r:${entry.id}`)
-                      return
-                    }
-                    setArmedDelete(null)
-                    void deleteOneRun(entry.id)
-                  }}>
+                  onClick={() => { attemptDelete(`r:${entry.id}`, () => { void deleteOneRun(entry.id) }) }}>
                   {armedDelete === `r:${entry.id}` ? t('workbench.deleteArm') : '−'}
                 </button>
               )}

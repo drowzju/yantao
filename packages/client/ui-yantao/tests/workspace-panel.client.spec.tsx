@@ -187,6 +187,29 @@ describe('WorkspacePanel', () => {
     expect(args.workspaces[0].instructions).toEqual([])
   })
 
+  it('Escape disarms the delete without executing it', async () => {
+    const panel = props()
+    const { container } = render(<WorkspacePanel {...panel} />)
+    await screen.findByText('报告目录')
+    const del = () => container.querySelector('[data-workspace-instruction-delete="ins_a_1"]') as Element
+    await act(async () => {
+      fireEvent.click(del())
+    })
+    expect(del().textContent).toContain('确认删除？')
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Escape' })
+    })
+    expect(panel.save).not.toHaveBeenCalled()
+    expect(del().getAttribute('data-armed')).toBeNull()
+    expect(del().textContent).not.toContain('确认删除？')
+    // 解除后再击仍是首击：先武装而非直接删
+    await act(async () => {
+      fireEvent.click(del())
+    })
+    expect(panel.save).not.toHaveBeenCalled()
+    expect(del().textContent).toContain('确认删除？')
+  })
+
   it('arms the history clear: the first click arms, the second clears the finalized rows', async () => {
     const panel = props()
     const { container } = render(<WorkspacePanel {...panel} />)
