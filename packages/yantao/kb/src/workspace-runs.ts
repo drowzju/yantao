@@ -140,7 +140,7 @@ export function normalizeWorkspaceRuns(runs: readonly unknown[]): WorkspaceRun[]
     }
     seen.add(id)
     for (const key of ['workspaceId', 'instructionId', 'instructionName'] as const) {
-      if (typeof raw[key] !== 'string' || (raw[key] as string).trim() === '') {
+      if (typeof raw[key] !== 'string' || raw[key].trim() === '') {
         throw new KbError('bad-workspace-run', `运行记录「${id}」缺少 ${key}`)
       }
     }
@@ -358,8 +358,9 @@ export function deleteWorkspaceRun(kbRoot: string, runId: string): Promise<Works
     if (run.status === 'running') {
       throw new KbError('workspace-run-live', `运行记录 ${runId} 还在运行，先停止再删除`)
     }
-    await writeWorkspaceRuns(kbRoot, runs.filter(candidate => candidate.id !== runId))
-    return runs.filter(candidate => candidate.id !== runId)
+    const remaining = runs.filter(candidate => candidate.id !== runId)
+    await writeWorkspaceRuns(kbRoot, remaining)
+    return remaining
   })
 }
 

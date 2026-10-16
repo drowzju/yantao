@@ -18,19 +18,17 @@ import type { ShortcutCatalogEntry, ShortcutFixedCatalogEntry } from '@deepseek-
 import { useDialogModal } from './use-dialog-modal.ts'
 import type { WorkbenchT } from './locales.ts'
 
-/** The catalog slice of the shortcuts service, typed structurally (no store dep). */
-export interface ShortcutCatalogFace {
-  readonly getSnapshot: () => readonly ShortcutCatalogEntry[]
+/** The catalog slice of a shortcuts service, typed structurally (no store dep).
+    Generic over the entry type so catalog variants don't spawn copied faces. */
+export interface ShortcutCatalogFace<E = ShortcutCatalogEntry> {
+  readonly getSnapshot: () => readonly E[]
   readonly subscribe: (listener: () => void) => () => void
 }
 
 /** The fixed-command slice: read-only reserved keys (裁决键 J/K/空格/回车等)
     live here, NOT in `catalog` — 2026-10-14 之前本对话框只订 catalog，
     四条裁决键从未露出（shortcuts.ts 的 registerFixed 进的是 fixedCatalog）。 */
-export interface ShortcutFixedCatalogFace {
-  readonly getSnapshot: () => readonly ShortcutFixedCatalogEntry[]
-  readonly subscribe: (listener: () => void) => () => void
-}
+export type ShortcutFixedCatalogFace = ShortcutCatalogFace<ShortcutFixedCatalogEntry>
 
 const backdropStyle = {
   position: 'absolute',
@@ -113,9 +111,12 @@ export interface ShortcutsDialogProps {
 export function ShortcutsDialog({ t, catalog, fixedCatalog, onClose }: ShortcutsDialogProps): ReactElement {
   const rows = useSyncExternalStore(catalog.subscribe, catalog.getSnapshot)
     .filter(row => row.id.startsWith('yantao.'))
+    .map(row => ({ id: row.id, label: row.label, keys: row.keys, fixed: false }))
   const fixedRows = useSyncExternalStore(fixedCatalog.subscribe, fixedCatalog.getSnapshot)
     .filter(row => row.id.startsWith('yantao.'))
-  const total = rows.length + fixedRows.length
+    .map(row => ({ id: row.id, label: row.label, keys: row.keys, fixed: true }))
+  // 固定键不可改绑且必带至少一枚键帽，永远不会落到 unbound 标签。
+  const entries = [...rows, ...fixedRows]
   const { cardRef, onPanelKeyDown } = useDialogModal({ onClose })
   return (
     <div style={backdropStyle} onClick={onClose} data-shortcuts-backdrop="true" onKeyDown={onPanelKeyDown}>
@@ -124,22 +125,15 @@ export function ShortcutsDialog({ t, catalog, fixedCatalog, onClose }: Shortcuts
           <h2 style={titleStyle}>{t('shortcuts.title')}</h2>
           <button data-hover="true" style={closeButtonStyle} onClick={onClose}>{t('shortcuts.close')}</button>
         </header>
-        {total === 0
+        {entries.length === 0
           ? <p style={emptyStyle}>{t('shortcuts.empty')}</p>
           : <ul style={listStyle}>
-            {rows.map((row, index) => (
-              <li key={row.id} style={index === total - 1 ? rowStyle : { ...rowStyle, ...rowBorderStyle }}>
-                <span style={labelStyle}>{row.label}</span>
-                {row.keys.length === 0
-                  ? <span style={unboundStyle}>{t('shortcuts.unbound')}</span>
-                  : <ShortcutKeys keys={row.keys} />}
-              </li>
-            ))}
-            {/* 固定键不可改绑，键帽直接读注册的 keys——没有 unbound 态。 */}
-            {fixedRows.map((row, index) => (
-              <li key={row.id} style={rows.length + index === total - 1 ? rowStyle : { ...rowStyle, ...rowBorderStyle }}>
-                <span style={labelStyle}>{row.label}</span>
-                <ShortcutKeys keys={row.keys} />
+            {entries.map((entry, index) => (
+              <li key={entry.id} style={index === entries.length - 1 ? rowStyle : { ...rowStyle, ...rowBorderStyle }}>
+                <span style={labelStyle}>{entry.label}</span>
+                {entry.fixed || entry.keys.length > 0
+                  ? <ShortcutKeys keys={entry.keys} />
+                  : <span style={unboundStyle}>{t('shortcuts.unbound')}</span>}
               </li>
             ))}
           </ul>}

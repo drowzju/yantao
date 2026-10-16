@@ -415,7 +415,7 @@ export function GraphPane({ data, onOpen, onReload, t }: GraphPaneProps): ReactE
       <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--yt-text-muted)' }}>
         {t('graph.empty')}
         {onReload !== undefined && (
-          <div style={{ position: 'absolute', top: 8, left: 12 }}>
+          <div style={topLeftDockStyle}>
             <ReloadButton onReload={onReload} t={t} />
           </div>
         )}
@@ -426,7 +426,7 @@ export function GraphPane({ data, onOpen, onReload, t }: GraphPaneProps): ReactE
     <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
       {/* 视图切换与刷新同一条工具带：与页签同构（tabItem 面 + data-selected
           豁免），刷新钉在切换钮右侧，互不压盖（2026-10-14 复评 P2-1 修复）。 */}
-      <div style={{ position: 'absolute', top: 8, left: 12, zIndex: 1, display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center' }}>
+      <div style={{ ...topLeftDockStyle, zIndex: 1, display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center' }}>
         {(['graph', 'list'] as const).map(option => (
           <button
             key={option}
@@ -674,6 +674,10 @@ const reloadButtonStyle = {
   fontFamily: 'var(--yt-font-ui)',
   fontSize: 'var(--yt-type-label)',
 } as const
+
+/** 左上角停靠契约：空态刷新容器与视图工具带共用同一偏移；图例卡在右上
+    镜像（top: 8 / right: 12）。chrome 偏移若变，只改这一处。 */
+const topLeftDockStyle = { position: 'absolute', top: 8, left: 12 } as const
 
 /** The pane's 刷新 button; rendered in the graph view and the empty state alike. */
 function ReloadButton({ onReload, t }: { onReload: () => void; t: WorkbenchT }): ReactElement {
