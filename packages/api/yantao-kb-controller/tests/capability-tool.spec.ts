@@ -459,7 +459,7 @@ describe('the tool surface declarations (ADR-0043)', () => {
 
   it('registers the execution bridge and the nomination tool alongside kb_run_capability', () => {
     const names = state.registerTool.mock.calls.map(call => (call[0] as { name: string }).name)
-    expect(names).toEqual(['kb_run_capability', 'kb_exec_capability_script', 'kb_propose_actions'])
+    expect(names).toEqual(['kb_run_capability', 'kb_exec_capability_script', 'kb_propose_actions', 'kb_add_todo'])
   })
 
   it('prefixes the environment note onto an instruction capability\'s rendered answer (决定 3)', () => {

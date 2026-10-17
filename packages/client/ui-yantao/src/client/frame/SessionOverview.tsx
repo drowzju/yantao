@@ -54,6 +54,12 @@ export interface SessionOverviewProps {
   readonly onSwitchToConversation?: (() => void) | undefined
   /** The workbench dictionary's bound translator (slot locale seat). */
   readonly t: WorkbenchT
+  /**
+   * Read every DingTalk conversation→session binding (ADR-0061 决定 2) —
+   * cards whose session id appears here wear the 「钉钉」 badge. Absent or
+   * failing reads simply mean no badges.
+   */
+  readonly dingtalkBindings?: (() => Promise<readonly { sessionId: string }[]>) | undefined
 }
 
 const FONT = 'var(--yt-font-ui)'
@@ -268,11 +274,13 @@ function HeatmapCard({ cells, activeDay, onPick, t }: {
 }
 
 /** One session card: title, stamp, tokens, and the two open paths. */
-function SessionCard({ row, fetchTotals, onOpen, onInsights, t }: {
+function SessionCard({ row, fetchTotals, onOpen, onInsights, dingtalk, t }: {
   row: { id: string; title: string; cwd: string | undefined; updatedAt: number; running: boolean; totals: UsageBuckets | undefined }
   fetchTotals: (sessionId: string) => Promise<UsageBuckets>
   onOpen: (sessionId: string) => void
   onInsights: (sessionId: string) => void
+  /** Whether this session is a DingTalk conversation's home (ADR-0061 决定 2). */
+  dingtalk: boolean
   t: WorkbenchT
 }): ReactElement {
   // Cold rows carry no projection values (ticket 01): one fallback read per
@@ -315,6 +323,11 @@ function SessionCard({ row, fetchTotals, onOpen, onInsights, t }: {
         {row.running && (
           <span style={{ flexShrink: 0, fontSize: 'var(--yt-type-label)', color: 'var(--yt-success)' }}>{t('insights.overview.card.running')}</span>
         )}
+        {dingtalk && (
+          <span data-dingtalk-badge="true" style={{ flexShrink: 0, fontSize: 'var(--yt-type-label)', color: 'var(--yt-accent, var(--yt-text-secondary))', border: '1px solid var(--yt-border-subtle)', borderRadius: 4, padding: '0 var(--yt-space-1)' }}>
+            {t('insights.overview.card.dingtalk')}
+          </span>
+        )}
         <span style={{ marginLeft: 'auto', flexShrink: 0, ...mutedStyle, fontSize: 'var(--yt-type-label)', fontVariantNumeric: 'tabular-nums' }}>
           {stampOf(row.updatedAt)}
         </span>
@@ -346,7 +359,7 @@ function SessionCard({ row, fetchTotals, onOpen, onInsights, t }: {
 const RANGE_OPTIONS = ['7d', '30d', 'all'] as const
 
 export function SessionOverview({
-  useSessions, dailyUsage, fetchTotals, openSession, onSwitchToConversation, t,
+  useSessions, dailyUsage, fetchTotals, openSession, onSwitchToConversation, t, dingtalkBindings,
 }: SessionOverviewProps): ReactElement {
   const list = useSessions(state => state)
   const [result, setResult] = useState<UsageWireDailyResult | null>(null)
@@ -384,6 +397,9 @@ export function SessionOverview({
   // queueing dozens of RPCs behind the host's single flight.
   const loadTicket = useRef(0)
   const loadInFlight = useRef(false)
+  // 钉钉徽标（ADR-0061 决定 2）：与账本同批懒读一次；读不到就没有徽标，
+  // 从不为此报错——徽标是锦上添花，不是总览的职责。
+  const [dingtalkSessions, setDingtalkSessions] = useState<ReadonlySet<string>>(new Set())
   const load = useCallback(() => {
     if (loadInFlight.current) return
     loadInFlight.current = true
@@ -406,7 +422,13 @@ export function SessionOverview({
         setPhase('failed')
       },
     )
-  }, [dailyUsage])
+    if (dingtalkBindings !== undefined) {
+      void dingtalkBindings().then(
+        (rows) => { if (ticket === loadTicket.current) setDingtalkSessions(new Set(rows.map(row => row.sessionId))) },
+        () => { /* no badges rather than a failed overview */ },
+      )
+    }
+  }, [dailyUsage, dingtalkBindings])
   const cancel = useCallback(() => {
     loadTicket.current += 1
     loadInFlight.current = false
@@ -692,6 +714,7 @@ export function SessionOverview({
                       fetchTotals={fetchTotals}
                       onOpen={openEverywhere}
                       onInsights={openSession}
+                      dingtalk={dingtalkSessions.has(row.id)}
                       t={t}
                     />
                   ))}

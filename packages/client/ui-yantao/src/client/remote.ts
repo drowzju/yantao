@@ -57,7 +57,9 @@ import type {
   KbScheduleListResult, KbScheduleMarkArgs, KbScheduleMarkResult, KbScheduleSaveArgs, KbScheduleSaveResult,
   KbRegisterResourceArgs, KbRegisterResourceResult, KbResourceBinary, KbRevisionResult,
   KbRootResult, KbSetEntityArchivedResult, KbSetRelationArgs, KbSetRelationResult,
-  KbSetRootResult, KbSkillRewriteApplyArgs, KbSkillRewriteApplyResult, KbTodosResult, KbTree,
+  KbSetRootResult, KbSkillRewriteApplyArgs, KbSkillRewriteApplyResult, KbScheduledRunForgetArgs,
+  KbScheduledRunForgetResult, KbScheduledRunMarkArgs, KbScheduledRunMarkResult, KbDingtalkBindingsResult,
+  KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
   KbWorkspaceListResult, KbWorkspaceRunArgs,
   KbWorkspaceRunResult, KbWorkspaceRunsClearResult, KbWorkspaceRunsListResult, KbWorkspaceRunDeleteArgs,
@@ -100,6 +102,12 @@ export interface KbRemote {
   openExternal(target: string): Promise<RemoteResult<KbOpenExternalResult>>
   todos(): Promise<RemoteResult<KbTodosResult>>
   writeTodos(args: KbWriteTodosArgs): Promise<RemoteResult<KbWriteTodosResult>>
+  /** Book one fired schedule's session as a scheduled run (ADR-0061 决定 1). */
+  scheduledRunMark(args: KbScheduledRunMarkArgs): Promise<RemoteResult<KbScheduledRunMarkResult>>
+  /** Release that booking once the turn settles (ADR-0061 决定 1). */
+  scheduledRunForget(args: KbScheduledRunForgetArgs): Promise<RemoteResult<KbScheduledRunForgetResult>>
+  /** Every DingTalk conversation→session binding (ADR-0061 决定 2). */
+  dingtalkBindings(): Promise<RemoteResult<KbDingtalkBindingsResult>>
   mailFetch(args: KbMailFetchArgs): Promise<RemoteResult<KbMailFetchResult>>
   mailMarkRead(args: KbMailMarkReadArgs): Promise<RemoteResult<KbMailMarkReadResult>>
   /** List the registered capabilities (ADR-0021). */
@@ -769,6 +777,44 @@ export async function writeTodos(ctx: Context, args: KbWriteTodosArgs): Promise<
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.writeTodos(args))
+}
+
+/**
+ * Book a fired schedule's session as a scheduled run (ADR-0061 决定 1) — the
+ * frontend scheduler calls this before the prompt goes out, so `kb_add_todo`
+ * refuses direct writes for the turn and steers the automated run back to the
+ * proposal queue.
+ * @param ctx - client root context.
+ * @param args - the freshly created session id.
+ */
+export async function scheduledRunMark(ctx: Context, args: KbScheduledRunMarkArgs): Promise<void> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  unwrapRemote(await kb.scheduledRunMark(args))
+}
+
+/**
+ * Release a scheduled-run booking (ADR-0061 决定 1) — the scheduler's `finally`
+ * hygiene. A missed call is harmless: the booking expires with its TTL.
+ * @param ctx - client root context.
+ * @param args - the session whose booking to drop.
+ */
+export async function scheduledRunForget(ctx: Context, args: KbScheduledRunForgetArgs): Promise<void> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  unwrapRemote(await kb.scheduledRunForget(args))
+}
+
+/**
+ * Read every DingTalk conversation→session binding (ADR-0061 决定 2) — the
+ * 钉钉 dialog's 绑定会话 list and the 会话总览's DingTalk badge map.
+ * @param ctx - client root context.
+ * @returns the deduplicated binding rows.
+ */
+export async function loadDingtalkBindings(ctx: Context): Promise<KbDingtalkBindingsResult['rows']> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.dingtalkBindings()).rows
 }
 
 /**

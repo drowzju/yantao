@@ -4,7 +4,7 @@
 
 - `resources/` — Resource：原始输入材料与能力产出的共同家。**用户说「资源」「资料」「放到资源目录」，默认指这里。** 读用 `kb_read_resource`，新建用 `kb_write_resource`（只新建、不覆盖）；能力的文件产出缺省也落在这里（真实位置以运行结果的 [落盘] 行或返回说明为准）。原件进入后永不改写。
 - `entities/projects|areas|people|meetings/` — Entity：PARA+P 四类实体，一个实体一个 Markdown 文件。
-- `entities/todos.md` — 待办单例：整个知识库只有这一个待办文件，checkbox 列表，没有区段结构。
+- `entities/todos.md` — 待办单例：整个知识库只有这一个待办文件，checkbox 列表，没有区段结构。用户在对话里让你记待办时用 `kb_add_todo` 直接写入（ADR-0061），不要走提议；其余待办改动（勾掉、改期、删项）仍走 `kb_propose_actions` 提议。
 - `.dsh/` — 机制内部（`skills/` 能力目录、`yantao/` 机器簿记）。**不是知识**：不要读它当上下文，不要把它的路径当成果落库；你对它没有任何写权限。
 
 每个实体文件的同构区段：

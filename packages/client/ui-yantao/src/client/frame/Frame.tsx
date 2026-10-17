@@ -46,6 +46,7 @@ import { ConfigDialog } from '../ConfigDialog.tsx'
 import type { ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from '../model-config.ts'
 import { DingTalkDialog } from '../DingTalkDialog.tsx'
 import type { DingTalkConfigDraft, DingTalkConfigView, DingTalkSaveResult } from '../dingtalk-config.ts'
+import type { KbDingtalkBindingRow } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage, type ResourceViewReader } from '../remote.ts'
 import { notifySchedule, scheduleScan, formatRunStats, type ScheduleRunner } from '../scheduler.ts'
@@ -238,6 +239,10 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly loadDingTalkConfig: () => Promise<DingTalkConfigView>
   /** Commit a 钉钉 dialog draft; the result separates conflict from refusal. */
   readonly saveDingTalkConfig: (draft: DingTalkConfigDraft) => Promise<DingTalkSaveResult>
+  /** Read every conversation→session binding — the 钉钉 dialog's 绑定会话 list (ADR-0061 决定 2). */
+  readonly loadDingTalkBindings: () => Promise<readonly KbDingtalkBindingRow[]>
+  /** Jump to one bound session — the 绑定会话 row's 打开 (swings to the conversation tab). */
+  readonly openDingtalkSession: (sessionId: string) => void
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
   readonly onKbRootChanged: () => void
 }
@@ -546,7 +551,8 @@ export function Frame({
   scheduleList, scheduleSave, scheduleMark, runSchedule,
   workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList, workspaceRunsClear, workspaceRunDelete,
   proposalInboxList, proposalInboxResolve, proposalInboxEnqueue, proposalInboxApply, proposalInboxUndo, relationGraph,
-  loadModelsConfig, saveModelsConfig, loadDingTalkConfig, saveDingTalkConfig, shortcutCatalog, shortcutFixedCatalog,
+  loadModelsConfig, saveModelsConfig, loadDingTalkConfig, saveDingTalkConfig, loadDingTalkBindings, openDingtalkSession,
+  shortcutCatalog, shortcutFixedCatalog,
 }: FrameProps): ReactElement {
   const [configOpen, setConfigOpen] = useState(false)
   const [dingtalkOpen, setDingtalkOpen] = useState(false)
@@ -2273,6 +2279,9 @@ export function Frame({
           t={t}
           load={loadDingTalkConfig}
           save={saveDingTalkConfig}
+          loadBindings={loadDingTalkBindings}
+          openSession={openDingtalkSession}
+          loadTranscript={sessionDetail}
           onClose={() => { setDingtalkOpen(false) }}
         />
       )}

@@ -336,6 +336,48 @@ export interface KbWriteTodosResult {
   readonly text: string
 }
 
+/** Parameters of `yantaoKb.scheduledRunMark` (ADR-0061 决定 1). */
+export interface KbScheduledRunMarkArgs {
+  /** The fired run's session, booked before the prompt goes out. */
+  readonly sessionId: string
+}
+
+/** Result of `yantaoKb.scheduledRunMark` (ADR-0061 决定 1). */
+export interface KbScheduledRunMarkResult {
+  /** Whether the run is now booked as scheduled. */
+  readonly marked: boolean
+}
+
+/** Parameters of `yantaoKb.scheduledRunForget` (ADR-0061 决定 1). */
+export interface KbScheduledRunForgetArgs {
+  /** The fired run's session, released after the turn settles. */
+  readonly sessionId: string
+}
+
+/** Result of `yantaoKb.scheduledRunForget` (ADR-0061 决定 1). */
+export interface KbScheduledRunForgetResult {
+  /** Whether a booking existed and was removed. */
+  readonly forgotten: boolean
+}
+
+/** One DingTalk conversation's session binding (ADR-0061 决定 2). */
+export interface KbDingtalkBindingRow {
+  /** The DingTalk conversation the session is bound to. */
+  readonly conversationId: string
+  /** The host session id the conversation resumes. */
+  readonly sessionId: string
+  /** Which connector runtime family owns the binding. */
+  readonly kind: 'robot' | 'digital-employee'
+  /** The owning account id (robots) or agent uuid (digital employees). */
+  readonly owner: string
+}
+
+/** Result of `yantaoKb.dingtalkBindings` (ADR-0061 决定 2). */
+export interface KbDingtalkBindingsResult {
+  /** The deduplicated binding rows; empty when the connector has none. */
+  readonly rows: readonly KbDingtalkBindingRow[]
+}
+
 /**
  * One mail as the mail capability reports it (ADR-0019; since ADR-0021 the
  * `result` of `capabilityRun('mail', …)`). Mirrors the capability's entry

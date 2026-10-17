@@ -10,7 +10,9 @@
  * of the frame root, not a `shell.overlay` entry.
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import type { KbDingtalkBindingRow } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { DingTalkConfigDraft, DingTalkConfigView, DingTalkSaveResult } from './dingtalk-config.ts'
+import type { DetailItem, SessionDetailLoader } from './session-detail.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
 import { primaryButtonStyle } from './buttons.ts'
 import type { WorkbenchT } from './locales.ts'
@@ -94,6 +96,58 @@ const buttonStyle = { padding: 'var(--yt-space-1) var(--yt-space-3)', minHeight:
 
 const ghostStyle = { ...buttonStyle, background: 'transparent', border: '1px solid var(--yt-border-subtle)' } as const
 
+// 只读镜像（ADR-0061 决定 3）：气泡样式沿用「详情」抽屉（SessionDetailDrawer）
+// 的同一套——说话人身份靠底色差与侧边描边，工具调用一行摘要，不展开。
+const mirrorBoxStyle = {
+  border: '1px solid var(--yt-border-subtle)',
+  borderRadius: 6,
+  background: 'var(--yt-surface-primary)',
+  maxHeight: 320,
+  overflowY: 'auto',
+  padding: 'var(--yt-space-2)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--yt-space-1)',
+} as const
+
+const mirrorNoteStyle = {
+  color: 'var(--yt-text-secondary)',
+  fontSize: 'var(--yt-type-label)',
+} as const
+
+const mirrorBubbleStyle = {
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
+  borderRadius: 6,
+  fontSize: 'var(--yt-type-label)',
+  lineHeight: 1.6,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+} as const
+
+const mirrorUserStyle = {
+  ...mirrorBubbleStyle,
+  background: 'var(--yt-surface-raised)',
+  border: '1px solid var(--yt-accent-border)',
+} as const
+
+const mirrorInjectedStyle = {
+  ...mirrorBubbleStyle,
+  background: 'transparent',
+  border: '1px dashed var(--yt-border-subtle)',
+  color: 'var(--yt-text-secondary)',
+} as const
+
+const mirrorAssistantStyle = { ...mirrorBubbleStyle, background: 'transparent' } as const
+
+const mirrorToolStyle = {
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
+  fontSize: 'var(--yt-type-label)',
+  color: 'var(--yt-text-secondary)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+} as const
+
 export interface DingTalkDialogProps {
   /** The bound dictionary, threaded from the frame. */
   readonly t: WorkbenchT
@@ -101,6 +155,15 @@ export interface DingTalkDialogProps {
   readonly load: () => Promise<DingTalkConfigView>
   /** Commit a draft (the plugin body's seam). */
   readonly save: (draft: DingTalkConfigDraft) => Promise<DingTalkSaveResult>
+  /** Read every conversation→session binding (ADR-0061 决定 2); fetched lazily on expand. */
+  readonly loadBindings: () => Promise<readonly KbDingtalkBindingRow[]>
+  /** Jump to one bound session in the workspace (opens it and swings the tab). */
+  readonly openSession: (sessionId: string) => void
+  /**
+   * Read one session's transcript back (ADR-0061 决定 3) — the 任务 drawer's
+   * same `sessionDetail` loader, reused verbatim for the read-only mirror.
+   */
+  readonly loadTranscript: SessionDetailLoader
   readonly onClose: () => void
 }
 
@@ -110,7 +173,7 @@ export interface DingTalkDialogProps {
  * remount — no restart either way (ADR-0060 决定 3).
  */
 export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
-  const { t, load, save, onClose } = props
+  const { t, load, save, loadBindings, openSession, loadTranscript, onClose } = props
   const [view, setView] = useState<DingTalkConfigView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -121,6 +184,14 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
   const [robotName, setRobotName] = useState('')
   const [proxy, setProxy] = useState('')
   const [debug, setDebug] = useState(false)
+  // 绑定会话（ADR-0061 决定 2）：展开时懒读一次，之后留在内存里。
+  const [bindings, setBindings] = useState<readonly KbDingtalkBindingRow[] | null>(null)
+  const [bindingsError, setBindingsError] = useState(false)
+  // 只读镜像（ADR-0061 决定 3）：点某行的「对话」展开该会话的实录；
+  // 再点一次收起，点另一行换目标。切换/关闭都走 effect 清理里的 abort。
+  const [mirrorSession, setMirrorSession] = useState<string | null>(null)
+  const [mirrorItems, setMirrorItems] = useState<readonly DetailItem[] | null>(null)
+  const [mirrorError, setMirrorError] = useState(false)
   // The load generation guards against a stale read racing a close: only the
   // latest mount's read may paint the form.
   const generation = useRef(0)
@@ -152,6 +223,39 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
   }, [load, applyView, t])
 
   useEffect(() => { void reload() }, [reload])
+
+  const loadBindingsOnce = useCallback(async (): Promise<void> => {
+    if (bindings !== null) return
+    try {
+      setBindings(await loadBindings())
+      setBindingsError(false)
+    } catch {
+      setBindingsError(true)
+    }
+  }, [bindings, loadBindings])
+
+  // 镜像装载（ADR-0061 决定 3）：目标一变就重读；换行/关闭时上一个读取
+  // 被 abort——与「详情」抽屉同一套取消纪律。失败只标记，不打断对话框。
+  useEffect(() => {
+    if (mirrorSession === null) return
+    const controller = new AbortController()
+    setMirrorItems(null)
+    setMirrorError(false)
+    loadTranscript(mirrorSession, controller.signal)
+      .then((loaded) => {
+        if (controller.signal.aborted) return
+        setMirrorItems(loaded.items)
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return
+        setMirrorError(true)
+      })
+    return () => { controller.abort() }
+  }, [mirrorSession, loadTranscript])
+
+  const toggleMirror = useCallback((sessionId: string): void => {
+    setMirrorSession(current => (current === sessionId ? null : sessionId))
+  }, [])
 
   const saveDraft = async (): Promise<void> => {
     if (view === null || busy) return
@@ -229,6 +333,70 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
                     onChange={(event) => { setDebug(event.target.checked); setSaved(false) }} />
                   {t('dingtalk.debug')}
                 </label>
+              </div>
+            </details>
+            {/* 绑定会话（ADR-0061 决定 2）：钉钉群聊落在哪些会话里，从这里一眼看清、一键跳过去。 */}
+            <details onToggle={(event) => { if ((event.target as HTMLDetailsElement).open) void loadBindingsOnce() }}>
+              <summary style={{ ...sectionStyle, cursor: 'pointer' }}>{t('dingtalk.bindings')}</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)', paddingTop: 'var(--yt-space-2)' }}>
+                <span style={hintStyle}>{t('dingtalk.bindings.hint')}</span>
+                {bindingsError ? <span style={hintStyle}>{t('dingtalk.bindings.loadFailed')}</span>
+                  : bindings !== null && bindings.length === 0 ? <span style={hintStyle}>{t('dingtalk.bindings.empty')}</span>
+                    : bindings !== null && bindings.map(row => (
+                      <div key={`${row.kind}:${row.owner}:${row.conversationId}`}
+                        style={{ display: 'flex', alignItems: 'center', gap: 'var(--yt-space-2)', fontSize: 'var(--yt-type-label)' }}>
+                        <span style={{ flexShrink: 0, color: 'var(--yt-text-secondary)' }}>
+                          {row.kind === 'robot' ? t('dingtalk.bindings.robot') : t('dingtalk.bindings.employee')}
+                          {' · '}
+                          {row.owner}
+                        </span>
+                        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--yt-text-secondary)' }}>
+                          {row.conversationId}
+                        </span>
+                        <span style={{ marginLeft: 'auto', flexShrink: 0, display: 'flex', gap: 'var(--yt-space-1)' }}>
+                          <button data-hover="true" type="button"
+                            style={{ ...ghostStyle, minHeight: 24, padding: '0 var(--yt-space-2)', ...(mirrorSession === row.sessionId ? { borderColor: 'var(--yt-accent-border)', color: 'var(--yt-accent, inherit)' } : {}) }}
+                            aria-expanded={mirrorSession === row.sessionId}
+                            onClick={() => { toggleMirror(row.sessionId) }}>
+                            {t('dingtalk.bindings.read')}
+                          </button>
+                          <button data-hover="true" type="button" style={{ ...ghostStyle, flexShrink: 0, minHeight: 24, padding: '0 var(--yt-space-2)' }}
+                            onClick={() => { onClose(); openSession(row.sessionId) }}>
+                            {t('dingtalk.bindings.open')}
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                {/* 只读镜像（ADR-0061 决定 3）：选中行的会话实录就地展开——
+                    工作台看得见钉钉那边聊了什么，但回复永远回钉钉去发。 */}
+                {mirrorSession !== null && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)' }} data-dingtalk-mirror="true">
+                    <span style={mirrorNoteStyle}>{t('dingtalk.mirror.note')}</span>
+                    {mirrorError ? <span style={mirrorNoteStyle}>{t('dingtalk.mirror.loadFailed')}</span>
+                      : mirrorItems === null ? <span style={mirrorNoteStyle}>{t('dingtalk.mirror.loading')}</span>
+                        : mirrorItems.length === 0 ? <span style={mirrorNoteStyle}>{t('dingtalk.mirror.empty')}</span>
+                          : (
+                            <div style={mirrorBoxStyle}>
+                              {mirrorItems.map((item) => {
+                                if (item.kind === 'user') {
+                                  return item.injected
+                                    ? <div key={item.seq} style={mirrorInjectedStyle}>{item.text}</div>
+                                    : <div key={item.seq} style={mirrorUserStyle}>{item.text}</div>
+                                }
+                                if (item.kind === 'assistant') {
+                                  return <div key={item.seq} style={mirrorAssistantStyle}>{item.text}</div>
+                                }
+                                const digest = item.args.length > 60 ? `${item.args.slice(0, 60)}…` : item.args
+                                return (
+                                  <div key={item.seq} style={mirrorToolStyle}>
+                                    {`▸ ${item.name} ${digest}${item.error !== null ? ` — ${item.error}` : ''}`}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                  </div>
+                )}
               </div>
             </details>
             <footer style={footerStyle}>

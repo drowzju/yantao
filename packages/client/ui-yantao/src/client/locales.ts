@@ -138,6 +138,20 @@ export const zh = {
   'dingtalk.saved': '已保存，配置即时生效',
   'dingtalk.conflict': '配置已被其他地方修改，已重新加载，请重试',
 
+  // 绑定会话区（ADR-0061 决定 2）：钉钉群聊 ↔ 工作台会话的对应表
+  'dingtalk.bindings': '绑定会话',
+  'dingtalk.bindings.hint': '钉钉里 @机器人 的对话落在这些会话中；打开可回看全程，回复请在钉钉进行。',
+  'dingtalk.bindings.empty': '暂无绑定——在钉钉里 @机器人 说句话后，这里就会出现对应会话。',
+  'dingtalk.bindings.loadFailed': '绑定读取失败',
+  'dingtalk.bindings.open': '打开',
+  'dingtalk.bindings.read': '对话',
+  'dingtalk.bindings.robot': '机器人',
+  'dingtalk.bindings.employee': '数字员工',
+  'dingtalk.mirror.note': '只读镜像——回复请在钉钉进行。',
+  'dingtalk.mirror.loading': '读取中…',
+  'dingtalk.mirror.loadFailed': '对话读取失败',
+  'dingtalk.mirror.empty': '这个会话还没有对话记录。',
+
   // 快捷键目录（左下角「快捷键」按钮；只读，键帽实时读 shortcuts 注册表的 catalog）
   'shortcuts.open': '快捷键',
   'shortcuts.title': '快捷键',
@@ -429,6 +443,7 @@ export const zh = {
   'insights.overview.cards.title': '会话',
   'insights.overview.search.placeholder': '按标题或目录过滤…',
   'insights.overview.card.running': '运行中',
+  'insights.overview.card.dingtalk': '钉钉',
   'insights.overview.card.noUsage': '无用量记录',
   'insights.overview.card.insights': '查看洞察',
   'insights.overview.empty': '暂无数据',
@@ -645,6 +660,20 @@ export const en = {
   'dingtalk.saving': 'Saving…',
   'dingtalk.saved': 'Saved — the configuration applies immediately',
   'dingtalk.conflict': 'The configuration changed elsewhere; reloaded — please retry',
+
+  // 绑定会话区 (the conversation↔session correspondence table, ADR-0061 决定 2)
+  'dingtalk.bindings': 'Bound sessions',
+  'dingtalk.bindings.hint': 'Conversations that @-mention the robot live in these sessions; open one to read along — replies belong in DingTalk.',
+  'dingtalk.bindings.empty': 'No bindings yet — @-mention the robot in DingTalk and the session shows up here.',
+  'dingtalk.bindings.loadFailed': 'Failed to load the bindings',
+  'dingtalk.bindings.open': 'Open',
+  'dingtalk.bindings.read': 'Transcript',
+  'dingtalk.bindings.robot': 'Robot',
+  'dingtalk.bindings.employee': 'Digital employee',
+  'dingtalk.mirror.note': 'Read-only mirror — reply in DingTalk.',
+  'dingtalk.mirror.loading': 'Loading…',
+  'dingtalk.mirror.loadFailed': 'Failed to load the transcript',
+  'dingtalk.mirror.empty': 'This session has no transcript yet.',
 
   // 快捷键目录 (the bottom-left 快捷键 button; read-only, keycaps stream from
   // the shortcuts registry's catalog)
@@ -941,6 +970,7 @@ export const en = {
   'insights.overview.cards.title': 'Sessions',
   'insights.overview.search.placeholder': 'Filter by title or directory…',
   'insights.overview.card.running': 'running',
+  'insights.overview.card.dingtalk': 'DingTalk',
   'insights.overview.card.noUsage': 'No usage recorded',
   'insights.overview.card.insights': 'View insights',
   'insights.overview.empty': 'No data yet',

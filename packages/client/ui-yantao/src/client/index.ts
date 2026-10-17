@@ -64,7 +64,7 @@ import { loadModelsConfig, saveModelsConfig, type ModelsConfigDraft } from './mo
 import { loadDingTalkConfig, saveDingTalkConfig, type DingTalkConfigDraft } from './dingtalk-config.ts'
 import { promptCurrentSession } from './session-prompt.ts'
 import { loadSessionDetail } from './session-detail.ts'
-import { sessionRemoteOf, usageRemoteOf, unwrapRemote } from './remote.ts'
+import { loadDingtalkBindings, sessionRemoteOf, usageRemoteOf, unwrapRemote } from './remote.ts'
 import { Frame } from './frame/Frame.tsx'
 import { ThemePresenter } from './frame/theme-presenter.ts'
 import { WorkbenchLayout, createPanelSeat } from './frame/layout.ts'
@@ -460,6 +460,12 @@ export function apply(ctx: Context): void {
       // 见 ./dingtalk-config.ts。
       loadDingTalkConfig: () => loadDingTalkConfig(ctx),
       saveDingTalkConfig: (draft: DingTalkConfigDraft) => saveDingTalkConfig(ctx, draft),
+      // 绑定会话（ADR-0061 决定 2）：钉钉群聊 ↔ 会话的对应表读面，以及
+      // 从对话框一键跳进某个会话的手势（与总览卡片同一 uiWorkspace 通路）。
+      loadDingTalkBindings: () => loadDingtalkBindings(ctx),
+      openDingtalkSession: (sessionId: string) => {
+        whenUiWorkspace((svc) => { svc.openSession(sessionId as SessionTarget) })
+      },
       // 快捷键目录的读面：注册表的 live catalog（键帽已按平台呈现，
       // 用户改键自动跟随），Frame 只过滤 yantao.* 展示。
       shortcutCatalog: ctx.shortcuts.catalog,
@@ -516,6 +522,10 @@ export function apply(ctx: Context): void {
           // plain string everywhere (same cast as cancelSessionTurn).
           whenUiWorkspace((svc) => { svc.openSession(sessionId as SessionTarget) })
         },
+        // ADR-0061 决定 2: the DingTalk badge map — cards whose session hosts
+        // a DingTalk conversation wear the 「钉钉」 badge. A failure means no
+        // badges, never a failed overview.
+        dingtalkBindings: () => loadDingtalkBindings(ctx),
       }),
     }, SessionOverview)), 'ui-yantao: insights cross-session overview')
 

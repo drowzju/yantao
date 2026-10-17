@@ -19,7 +19,7 @@ import type { KbSchedule } from '@deepseek-ai/dsh-api-yantao-kb-controller/types
 import type { SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
 import { cronNextAfter, parseCron } from './cron.ts'
 import { envelopeRejectionOf, proposalOfAnswer } from './capability-match.ts'
-import { annotateInboxProposal, cancelSessionTurnOnAbort, enqueueInboxProposal, capabilityInstructions, loadProposalInbox, sessionRemoteOf } from './remote.ts'
+import { annotateInboxProposal, cancelSessionTurnOnAbort, enqueueInboxProposal, capabilityInstructions, loadProposalInbox, scheduledRunForget, scheduledRunMark, sessionRemoteOf } from './remote.ts'
 import type { Proposal, ProposalAction, ProposalHighlight } from './proposal.ts'
 import { askTurn } from './turn-answer.ts'
 import { collectEvents, textOfContent } from './session-detail.ts'
@@ -500,16 +500,29 @@ export async function runScheduledTask(options: {
   // `session/cancel` ends the turn itself.
   if (signal !== undefined) cancelSessionTurnOnAbort(signal, session, sessionId)
 
-  const answer = await askTurn({
-    session,
-    sessionId,
-    // ADR-0047 决定 7 / ADR-0055: the proposal convention rides every fire
-    // (see withProposalConvention) — the schedule author never hand-writes
-    // it, and since ADR-0055 it teaches the kb_propose_actions tool.
-    // 首跳直通 composes inside it: instructions lead, the convention wraps all.
-    prompt: withProposalConvention(effectivePrompt, { source: `schedule:${id}`, sourceName: name }),
-    ...(signal !== undefined ? { signal } : {}),
-  })
+  // ADR-0061 决定 1：开火前把会话登记进调度登记簿——此后直到回合落定，
+  // kb_add_todo 拒绝直写，把无人监督的自动运行逼回提议队列。登记失败只警告
+  // 降级（提示词约定仍在教提议路径），回合结束即注销；漏注销由 TTL 兜底。
+  try {
+    await scheduledRunMark(ctx, { sessionId })
+  } catch (reason: unknown) {
+    console.warn(`scheduled-run mark for schedule ${id} failed; the run proceeds ungated:`, reason)
+  }
+  let answer: string
+  try {
+    answer = await askTurn({
+      session,
+      sessionId,
+      // ADR-0047 决定 7 / ADR-0055: the proposal convention rides every fire
+      // (see withProposalConvention) — the schedule author never hand-writes
+      // it, and since ADR-0055 it teaches the kb_propose_actions tool.
+      // 首跳直通 composes inside it: instructions lead, the convention wraps all.
+      prompt: withProposalConvention(effectivePrompt, { source: `schedule:${id}`, sourceName: name }),
+      ...(signal !== undefined ? { signal } : {}),
+    })
+  } finally {
+    void scheduledRunForget(ctx, { sessionId }).catch(() => {})
+  }
 
   // The durable log is read once here and reused: the tool-nomination probe
   // needs it before deciding the parse path, and the stats fold reuses the
@@ -554,12 +567,23 @@ export async function runScheduledTask(options: {
       const rejection = envelopeRejectionOf(finalAnswer)
       if (rejection !== undefined) {
         console.warn(`proposal envelope for schedule ${id} rejected; asking for one repair turn: ${rejection}`)
-        finalAnswer = await askTurn({
-          session,
-          sessionId,
-          prompt: `你上一条回答末尾的提议信封未通过校验：${rejection}。请按报错修正动作的字段形态（保持原有的动作类别与意图，逐封展开所需字段，不要合并成批量数组），在回答最末尾重新输出完整的提议信封 JSON；若确实没有值得提议的动作，直接回复「无提议」即可。`,
-          ...(signal !== undefined ? { signal } : {}),
-        })
+        // 修复轮也是一轮带工具的回合（ADR-0061 决定 1）：重新登记再开口，
+        // 结束即注销，与主回合同一纪律。
+        try {
+          await scheduledRunMark(ctx, { sessionId })
+        } catch (reason: unknown) {
+          console.warn(`scheduled-run re-mark for schedule ${id} failed; the repair turn proceeds ungated:`, reason)
+        }
+        try {
+          finalAnswer = await askTurn({
+            session,
+            sessionId,
+            prompt: `你上一条回答末尾的提议信封未通过校验：${rejection}。请按报错修正动作的字段形态（保持原有的动作类别与意图，逐封展开所需字段，不要合并成批量数组），在回答最末尾重新输出完整的提议信封 JSON；若确实没有值得提议的动作，直接回复「无提议」即可。`,
+            ...(signal !== undefined ? { signal } : {}),
+          })
+        } finally {
+          void scheduledRunForget(ctx, { sessionId }).catch(() => {})
+        }
         // The repair turn added events; refetch so the stats cover the
         // whole run, repair included.
         try {

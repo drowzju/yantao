@@ -47,7 +47,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
-  createEntity, entityDisplayPath, initKb, KbError, linkGraphOf, linksOf, listEntities, parseEml, parseFrontmatter,
+  addTodo, createEntity, entityDisplayPath, initKb, KbError, linkGraphOf, linksOf, listEntities, parseEml, parseFrontmatter,
   parseTodoFile, PERSON_RELATIONS, readCapabilityRecord, readCapabilityState, recordCapabilityRun,
   registerResourceContent, relationGraphOf, resolveEntityPath, resolveWithinKb, serializeTodoFile, setEntityArchived, todayStamp,
   writeCapabilityState, writeMailWatermark,
@@ -79,6 +79,8 @@ import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
 import { WorkspaceRuntime } from './workspace/runtime.ts'
 import { workspaceTickScan } from './workspace/tick.ts'
 import { KbRevision } from './watch.ts'
+import { ScheduledRunRegistry } from './scheduled-runs.ts'
+import { collectDingtalkBindings } from './dingtalk-bindings.ts'
 import type {
   KbCapabilityAdoptArgs,
   KbCapabilityAdoptResult,
@@ -168,6 +170,8 @@ import type {
   KbWriteResult,
   KbWriteTodosArgs,
   KbWriteTodosResult,
+  KbDingtalkBindingsResult,
+  KbScheduledRunMarkArgs, KbScheduledRunMarkResult, KbScheduledRunForgetArgs, KbScheduledRunForgetResult,
 } from './types.ts'
 
 export type * from './types.ts'
@@ -403,6 +407,13 @@ export class YantaoKbController extends TypertRemoteService {
 
   /** Guards against overlapping ticks piling duplicate scans. */
   private workspaceTicking = false
+
+  /**
+   * Which live sessions are scheduled runs (ADR-0061 决定 1)：前端调度器开火前
+   * 经 `scheduledRunMark` 登记，回合落定后 `scheduledRunForget` 注销。`kb_add_todo`
+   * 据此区分「人对着对话说」与「定时任务自动跑」，前者直写、后者仍走提议队列。
+   */
+  private readonly scheduledRuns = new ScheduledRunRegistry()
 
   constructor(ctx: Context) {
     super(ctx, 'yantaoKbController', { namespace: 'yantaoKb' })
@@ -688,6 +699,82 @@ export class YantaoKbController extends TypertRemoteService {
           id: fresh?.id ?? '',
           ...(diagnostics.length > 0 ? { dropped: [...diagnostics] } : {}),
         }
+      },
+    }))
+
+    // The conversational direct-write todo tool (ADR-0061 决定 1): when a human
+    // asks, in dialogue, to record a todo, the request itself is the
+    // authorization — routing it through the proposal queue would demand the
+    // same decisive act twice. The scheduled-run registry arbitrates: an
+    // interactive session writes straight into entities/todos.md; a scheduled
+    // run (booked by the frontend scheduler before its prompt went out) is
+    // refused with guidance toward kb_propose_actions, because an unsupervised
+    // automated write keeps its human checkpoint. No optimistic-concurrency
+    // echo: unlike the UI's writeTodos the agent never holds a stale copy —
+    // we read-latest-then-append, so there is nothing to conflict against.
+    this.ctx.tools.register(defineTool({
+      name: 'kb_add_todo',
+      description:
+        '把一条待办直接写进待办清单（entities/todos.md），立即生效，不经提议卡、不需要人再批准（ADR-0061）。'
+        + '仅限用户在对话里亲口让你记录待办时使用；定时任务运行的会话里本工具会被拒绝——'
+        + '那种无人监督的写入仍须走 kb_propose_actions 提议入队。',
+      parameters: {
+        title: { type: 'string', required: true, description: '待办标题，一句话，不带日期修饰' },
+        due: { type: 'string', description: '截止日期 YYYY-MM-DD，可省略；「今晚」「明天」等相对说法先按今天的日期换算成绝对日期' },
+        body: { type: 'string', description: '补充说明，可省略' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            title: { type: 'string', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `已直接写入待办清单：「${value.title}」（${value.path}；对话直写，未产生提议卡）。`,
+        }],
+      },
+      execute: async ({ title, due, body }, exec) => {
+        if (!this.ctx.yantaoKb.configured) {
+          throw new Error('还没有选择知识库目录，待办清单无处存放。')
+        }
+        const sessionId = exec.agent?.id
+        if (sessionId !== undefined && this.scheduledRuns.isScheduled(sessionId)) {
+          throw new Error(
+            '本会话是定时任务运行，待办不能对话直写（无人监督时的写入仍要等人批准）。'
+            + '请改用 kb_propose_actions 把这条待办作为提议入队，等人在提议页批准。',
+          )
+        }
+        const path = TODOS_PATH
+        const target = this.confine(path, path)
+        const current = await this.readTodosText(path, target)
+        // 缺文件播种最小序言：不复用 todoFileContent——那里面带着不想要的示例项。
+        const file = current === ''
+          ? { preamble: `---\ntype: todo\ncreated: ${todayStamp()}\n---`, items: [] }
+          : parseTodoFile(current)
+        const draft = {
+          title,
+          ...(due !== undefined && due.trim() !== '' ? { due: due.trim() } : {}),
+          ...(body !== undefined && body.trim() !== '' ? { body: body.trim() } : {}),
+        }
+        let text: string
+        try {
+          text = serializeTodoFile(addTodo(file, draft))
+        } catch (error) {
+          throw new Error(error instanceof KbError
+            ? error.message
+            : `无法写入待办清单：${(error as Error).message}`)
+        }
+        try {
+          await mkdir(dirname(target), { recursive: true })
+          await writeFile(target, text, 'utf8')
+        } catch (error) {
+          throw new Error(`无法写入知识库文件 ${path}：${(error as Error).message}`)
+        }
+        return { path, title }
       },
     }))
   }
@@ -1408,6 +1495,39 @@ export class YantaoKbController extends TypertRemoteService {
       )
     }
     return { path, text }
+  }
+
+  /**
+   * Book a session as a scheduled run (ADR-0061 决定 1)。前端调度器开火前、
+   * 提示词发出之前调用：此后该会话里 `kb_add_todo` 一律拒绝直写，逼自动运行
+   * 的写入回到提议队列。登记带 TTL（30 分钟），调度器忘了注销也会自然过期。
+   * @param args - 刚创建的调度会话 id。
+   */
+  @Remote('scheduledRunMark')
+  scheduledRunMark(args: KbScheduledRunMarkArgs): Promise<KbScheduledRunMarkResult> {
+    this.scheduledRuns.mark(args.sessionId)
+    return Promise.resolve({ marked: true })
+  }
+
+  /**
+   * Release a scheduled-run booking (ADR-0061 决定 1)。回合落定后由调度器的
+   * `finally` 调用；忘调也只是让登记活到 TTL 为止，无害。
+   * @param args - 本轮调度会话 id。
+   */
+  @Remote('scheduledRunForget')
+  scheduledRunForget(args: KbScheduledRunForgetArgs): Promise<KbScheduledRunForgetResult> {
+    return Promise.resolve({ forgotten: this.scheduledRuns.forget(args.sessionId) })
+  }
+
+  /**
+   * Every DingTalk conversation→session binding the connector persists
+   * (ADR-0061 决定 2) — the 钉钉 dialog's 绑定会话 list and the 会话总览's
+   * DingTalk badge map share this one read. Tolerant: a missing or corrupt
+   * store shrinks the answer, never fails it.
+   */
+  @Remote('dingtalkBindings')
+  dingtalkBindings(): Promise<KbDingtalkBindingsResult> {
+    return collectDingtalkBindings().then(rows => ({ rows }))
   }
 
   /**
