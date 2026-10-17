@@ -12,6 +12,8 @@
  * @module @deepseek-ai/dsh-api-yantao-kb-controller/capability/proposal-actions
  */
 
+import type { Proposal, ProposalAction, ProposalHighlight } from '../proposal-apply.ts'
+
 /** The action kinds the applier knows — mirror of the client's KINDS.
  * Exported for the parity spec that pins this twin to the client's table. */
 export const KINDS = [
@@ -371,4 +373,87 @@ export function mailSpanNote(range: { lastReadAt: string; firstReadAt?: string }
   }
   const span = range.firstReadAt !== undefined ? `${day(range.firstReadAt)} → ${day(range.lastReadAt)}` : day(range.lastReadAt)
   return `覆盖邮件 ${span}`
+}
+
+/* ── the stored payload's server-side parse (ADR-0060 决定 7) ─────────────
+ * The store keeps a proposal's payload opaquely (ADR-0047); the server-side
+ * applier must read it back before it can write. The parse clones the
+ * CLIENT's `proposalOfPayload` semantics — the same tolerant tables, the
+ * same degrade-quietly rules — and deliberately NOT
+ * {@link diagnoseAction}'s full gate: the front door's locator-shape and
+ * provenance checks run at nomination time, but payloads enqueued by the
+ * frontend scheduler only ever passed the client's parse, so re-judging
+ * them here by stricter rules would drop rows the card itself displays as
+ * valid. Parity with the client's parse is the contract. */
+
+/**
+ * One STORED action's acceptance verdict — the client's `actionVerdict`
+ * cloned table for table (KINDS / REQUIRED_FIELDS / EMPTY_OK_FIELDS, plus
+ * the 2026-10-15 松绑's entityName guard): null when the applier accepts the
+ * row, otherwise the human-readable reason. Deliberately NOT the tool's
+ * {@link diagnoseAction} — see the section note above.
+ * @param entry - one stored action, wire-shaped.
+ * @returns the rejection reason, or null when accepted.
+ */
+function storedActionVerdict(entry: unknown): string | null {
+  if (typeof entry !== 'object' || entry === null) return '（非对象的动作项）'
+  const bag = entry as Record<string, unknown>
+  const kind = typeof bag.kind === 'string' ? bag.kind : '（缺 kind）'
+  const required = REQUIRED_FIELDS[kind as ActionKind]
+  if (required === undefined) return `「${kind}」不是已知的动作类别`
+  const missing = required.filter(field =>
+    typeof bag[field] !== 'string'
+    || (bag[field] === '' && !EMPTY_OK_FIELDS.has(`${kind}:${field}`)))
+  if (missing.length > 0) return `「${kind}」缺必填字段 ${missing.join('、')}`
+  if (ENTITY_PATH_KINDS.has(kind)
+    && (bag.entityPath as string).trim() === ''
+    && !(typeof bag.entityName === 'string' && (bag.entityName as string).trim() !== '')) {
+    return `「${kind}」的 entityPath 为空串时必须给 entityName`
+  }
+  return null
+}
+
+/**
+ * The payload's optional `highlights` — the client's `highlightsOf` replica:
+ * kept only when every entry is a `{sender, subject, why}` triple of strings,
+ * anything else is no highlights (the same degrade-quietly rule).
+ */
+function storedHighlightsOf(raw: unknown): ProposalHighlight[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined
+  const highlights: ProposalHighlight[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) return undefined
+    const candidate = entry as Record<string, unknown>
+    if (typeof candidate.sender !== 'string' || typeof candidate.subject !== 'string'
+      || typeof candidate.why !== 'string') return undefined
+    highlights.push({ sender: candidate.sender, subject: candidate.subject, why: candidate.why })
+  }
+  return highlights
+}
+
+/**
+ * Read one inbox entry's stored payload back as a proposal — the
+ * server-side twin of the client's `proposalOfPayload` (ADR-0047): the store
+ * kept it opaquely, so the applier re-validates here with the client's exact
+ * semantics. A payload that fails (a hand-edited store, an older vocabulary)
+ * yields null and the RPC refuses the apply with named prose.
+ * @param raw - the opaque payload as the store returned it.
+ * @returns the proposal, or null when the payload is not one.
+ */
+export function parseStoredProposal(raw: unknown): Proposal | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const candidate = raw as Record<string, unknown>
+  if (typeof candidate.title !== 'string' || candidate.title.trim() === '') return null
+  if (!Array.isArray(candidate.actions) || candidate.actions.length === 0) return null
+  const accepted = candidate.actions.filter(entry => storedActionVerdict(entry) === null)
+  if (accepted.length === 0) return null
+  const actions = withDerivedEntityNames(accepted) as readonly ProposalAction[]
+  const mails = normalizeMailRange(candidate.mails)
+  const highlights = storedHighlightsOf(candidate.highlights)
+  return {
+    title: candidate.title.trim(),
+    actions,
+    ...(mails !== undefined ? { mails } : {}),
+    ...(highlights !== undefined ? { highlights } : {}),
+  }
 }

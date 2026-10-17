@@ -1,0 +1,25 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    // 收编自上游 dsh-dingtalk（ADR-0060 决定 1）：上游按 NodeNext/ES2022 编写，未在
+    // noUncheckedIndexedAccess / exactOptionalPropertyTypes / noUnused* 下校验过。
+    // 收编批次不改行为，先放宽这四项；逐条收紧是后续债务，不在本批次夹带。
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    }
+  ]
+}

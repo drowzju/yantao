@@ -30,6 +30,9 @@ import type {
   UsageWireDailyArgs, UsageWireDailyResult, UsageSessionArgs, UsageSessionResult,
 } from '@deepseek-ai/dsh-api-yantao-usage-controller/types'
 import type {
+  KbProposalInboxApplyArgs, KbProposalInboxApplyResult, KbProposalInboxUndoArgs, KbProposalInboxUndoResult,
+} from '@deepseek-ai/dsh-api-yantao-kb-controller/proposal-apply'
+import type {
   KbMailArchiveArgs, KbMailArchiveResult, KbCapabilityAdoptArgs, KbCapabilityAdoptResult, KbCapabilityCreateArgs, KbCapabilityCreateResult,
   KbCapabilityListResult,
   KbCapabilityInstructionsArgs, KbCapabilityInstructionsResult,
@@ -168,6 +171,10 @@ export interface KbRemote {
   proposalInboxResolve(args: KbProposalInboxResolveArgs): Promise<RemoteResult<KbProposalInboxResolveResult>>
   /** Append machine verification's warnings to one pending entry's card (ADR-0059 决定 2). */
   proposalInboxAnnotate(args: KbProposalInboxAnnotateArgs): Promise<RemoteResult<KbProposalInboxAnnotateResult>>
+  /** Execute one pending inbox entry server-side (ADR-0060 决定 7); apply+settle in one call, idempotent on repeats. */
+  proposalInboxApply(args: KbProposalInboxApplyArgs): Promise<RemoteResult<KbProposalInboxApplyResult>>
+  /** Retract one inbox apply's reversible writes (ADR-0060 决定 7); one shot per entry. */
+  proposalInboxUndo(args: KbProposalInboxUndoArgs): Promise<RemoteResult<KbProposalInboxUndoResult>>
   /** Write one approved skill rewrite back (ADR-0054): backup, version clamp, atomic write. */
   skillRewriteApply(args: KbSkillRewriteApplyArgs): Promise<RemoteResult<KbSkillRewriteApplyResult>>
 }
@@ -375,6 +382,12 @@ export type ProposalInboxResolver = (args: KbProposalInboxResolveArgs) => Promis
 /** Re-queue one decided entry's content as a fresh pending proposal
     (2026-10-14 丢弃后悔药：误丢弃的恢复不是撤销决策，而是内容原样重新入队). */
 export type ProposalInboxEnqueuer = (args: KbProposalInboxEnqueueArgs) => Promise<KbProposalInboxEnqueueResult>
+
+/** Execute one pending inbox entry server-side (ADR-0060 决定 7). */
+export type ProposalInboxApplier = (args: KbProposalInboxApplyArgs) => Promise<KbProposalInboxApplyResult>
+
+/** Retract one inbox apply's reversible writes (ADR-0060 决定 7). */
+export type ProposalInboxUndoer = (args: KbProposalInboxUndoArgs) => Promise<KbProposalInboxUndoResult>
 
 /**
  * Fill the current conversation's composer with `/alias ` without sending
@@ -1277,6 +1290,35 @@ export async function resolveInboxProposal(ctx: Context, args: KbProposalInboxRe
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.proposalInboxResolve(args))
+}
+
+/**
+ * Execute one pending inbox entry server-side (ADR-0060 决定 7): the same
+ * shared applier the card flow runs, bound to the controller's own methods,
+ * with the three-way settle in the same call. Idempotent — an already-decided
+ * entry comes back as the `already-decided` variant, not an error.
+ * @param ctx - client root context.
+ * @param args - the entry id, the ticked indices (absent: all), the create-project rows' area re-picks.
+ * @returns the discriminated outcome (applied / preflight-blocked / already-decided).
+ */
+export async function applyInboxProposal(ctx: Context, args: KbProposalInboxApplyArgs): Promise<KbProposalInboxApplyResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.proposalInboxApply(args))
+}
+
+/**
+ * Retract one inbox apply's reversible writes (ADR-0060 决定 7): the
+ * server-side twin of the written report's 撤销 chip. One shot per entry —
+ * the steps pop on use, and a restarted host closes the window.
+ * @param ctx - client root context.
+ * @param args - the entry id whose apply is being taken back.
+ * @returns the failed steps and the never-retractable writes.
+ */
+export async function undoInboxProposal(ctx: Context, args: KbProposalInboxUndoArgs): Promise<KbProposalInboxUndoResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.proposalInboxUndo(args))
 }
 
 /**

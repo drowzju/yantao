@@ -1253,6 +1253,32 @@ export interface KbQueuedProposal {
   readonly applyResults?: readonly KbProposalApplyRecord[]
 }
 
+/**
+ * One proposal-inbox mutation, broadcast for in-host consumers (ADR-0060
+ * 决定 5): the DingTalk connector is the first subscriber (pushes the card),
+ * the UI keeps its revision polling. One event name, the action discriminates
+ * the two emit points; the entry always rides in its post-write state.
+ */
+export interface KbProposalInboxEvent {
+  /** Which emit point fired: an append or a human's settlement. */
+  readonly action: 'enqueue' | 'resolve'
+  /** The affected entry as stored after the write. */
+  readonly entry: KbQueuedProposal
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * The proposal inbox mutated (ADR-0060 决定 5): an entry was appended
+     * (`enqueue`) or a human settled it (`resolve`). Emitted after the store
+     * write succeeds; listeners must not throw the RPC.
+     * @mode emit
+     * @param update - the action and the affected entry's post-write state.
+     */
+    'yantao-kb/proposal-inbox'(update: KbProposalInboxEvent): void
+  }
+}
+
 /** Result of `yantaoKb.proposalInboxList` (ADR-0047). */
 export interface KbProposalInboxListResult {
   /** The entries in enqueue order — pending and decided alike. */

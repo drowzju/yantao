@@ -83,6 +83,14 @@
     - id: yantao-usage
       name: '@deepseek-ai/dsh-yantao-usage'
 
+# 钉钉 IM 通道（ADR-0060）：Stream 长连接入站 + 卡片出站，随工作台捆绑的
+# 内置插件。启用与否是配置问题（settings 启用开关，P0-T3），不再走安装流程；
+# 部署实例配置（workspace、ownerStaffId 等）放用户层 profile patch 的
+# id 定向覆盖行，本层不落任何环境 specifics 或秘密。
+- insert:
+    - id: dingtalk-channel
+      name: '@deepseek-ai/dsh-yantao-dingtalk'
+
 # Trust boundary (ADR-0004): no generic write capability. The shell tools and
 # the string-replace editor give the model arbitrary write paths (shell
 # commands, direct file edits), so all three are disabled on every platform —

@@ -52,12 +52,16 @@ import type {
   KbWorkspaceRunArgs, KbWorkspaceSaveArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { UsageWireDailyArgs } from '@deepseek-ai/dsh-api-yantao-usage-controller/types'
+import type {
+  KbProposalInboxApplyArgs, KbProposalInboxUndoArgs,
+} from '@deepseek-ai/dsh-api-yantao-kb-controller/proposal-apply'
 import type { AnalysisProgress, KnownEntities } from './mail-analysis.ts'
 import { runMailAnalysis } from './mail-analysis.ts'
 import { runRefine, type RefineRunnerArgs } from './refine.ts'
 import { runScheduledTask } from './scheduler.ts'
 import { runValidate, type ValidateScope } from './validate.ts'
 import { loadModelsConfig, saveModelsConfig, type ModelsConfigDraft } from './model-config.ts'
+import { loadDingTalkConfig, saveDingTalkConfig, type DingTalkConfigDraft } from './dingtalk-config.ts'
 import { promptCurrentSession } from './session-prompt.ts'
 import { loadSessionDetail } from './session-detail.ts'
 import { sessionRemoteOf, usageRemoteOf, unwrapRemote } from './remote.ts'
@@ -84,6 +88,7 @@ import {
   loadImageBinary,
   loadSchedules, markSchedule, savePromptShortcuts, saveSchedules, setKbRoot,
   enqueueInboxProposal, loadProposalInbox, loadRelationGraph, resolveInboxProposal,
+  applyInboxProposal, undoInboxProposal,
   loadWorkspaces, saveWorkspaces, runWorkspaceInstruction, stopWorkspaceRun, loadWorkspaceRuns,
   clearWorkspaceRunHistory, deleteWorkspaceRunRow,
   setRelation, unregisterCapability, updateCapabilityRoute, writeFile, writeTodos,
@@ -408,6 +413,11 @@ export function apply(ctx: Context): void {
       proposalInboxList: () => loadProposalInbox(ctx),
       proposalInboxEnqueue: (args: KbProposalInboxEnqueueArgs) => enqueueInboxProposal(ctx, args),
       proposalInboxResolve: (args: KbProposalInboxResolveArgs) => resolveInboxProposal(ctx, args),
+      // ADR-0060 决定 7: the inbox apply runs server-side now — the same
+      // shared applier the DingTalk approval card reaches, apply+settle in
+      // one call, with the undo window living on the controller.
+      proposalInboxApply: (args: KbProposalInboxApplyArgs) => applyInboxProposal(ctx, args),
+      proposalInboxUndo: (args: KbProposalInboxUndoArgs) => undoInboxProposal(ctx, args),
       // ADR-0049: the 图谱 tab's relation graph — wiki edges plus project
       // frontmatter areas, typed and deduplicated.
       relationGraph: () => loadRelationGraph(ctx),
@@ -445,6 +455,11 @@ export function apply(ctx: Context): void {
       // document (hard rule 5) — see ./model-config.ts.
       loadModelsConfig: () => loadModelsConfig(ctx),
       saveModelsConfig: (draft: ModelsConfigDraft) => saveModelsConfig(ctx, draft),
+      // 钉钉对话框（ADR-0060 决定 2）：settings + credentials 读写的接缝。
+      // Secret 只进凭据存储（硬规则 5），配置命名空间只存非敏感字段——
+      // 见 ./dingtalk-config.ts。
+      loadDingTalkConfig: () => loadDingTalkConfig(ctx),
+      saveDingTalkConfig: (draft: DingTalkConfigDraft) => saveDingTalkConfig(ctx, draft),
       // 快捷键目录的读面：注册表的 live catalog（键帽已按平台呈现，
       // 用户改键自动跟随），Frame 只过滤 yantao.* 展示。
       shortcutCatalog: ctx.shortcuts.catalog,

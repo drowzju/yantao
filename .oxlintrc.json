@@ -353,6 +353,21 @@
       "plugins": [
         "typescript"
       ]
+    },
+    {
+      // ADR-0060 收编的外部钉钉连接器：收编保持源码原貌，不在整编时大规模改写，
+      // 故对收编代码普遍存在的四类结构性写法整体豁免（`(ctx as any)` 访问宿主服务、
+      // 非空断言、动态 delete 脱敏、Node 环境下的 crypto.randomUUID）。
+      // 本包内新增代码（proposal-push 等）应自觉避免这些写法。
+      "files": [
+        "packages/yantao/dingtalk-connector/**"
+      ],
+      "rules": {
+        "typescript/no-explicit-any": "off",
+        "typescript/no-non-null-assertion": "off",
+        "typescript/no-dynamic-delete": "off",
+        "eslint/no-restricted-properties": "off"
+      }
     }
   ]
 }

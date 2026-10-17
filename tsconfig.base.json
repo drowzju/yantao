@@ -114,6 +114,7 @@
       "@deepseek-ai/dsh-api-workspace-controller/types": ["./packages/api/workspace-controller/src/types.ts"],
       "@deepseek-ai/dsh-api-yantao-kb-controller": ["./packages/api/yantao-kb-controller/src/index.ts"],
       "@deepseek-ai/dsh-api-yantao-kb-controller/types": ["./packages/api/yantao-kb-controller/src/types.ts"],
+      "@deepseek-ai/dsh-api-yantao-kb-controller/proposal-apply": ["./packages/api/yantao-kb-controller/src/proposal-apply.ts"],
       "@deepseek-ai/dsh-api-yantao-usage-controller": ["./packages/api/yantao-usage-controller/src/index.ts"],
       "@deepseek-ai/dsh-api-yantao-usage-controller/types": ["./packages/api/yantao-usage-controller/src/types.ts"],
       "@deepseek-ai/dsh-typert-protocol": ["./packages/typert/protocol/src/index.ts"],
@@ -344,6 +345,8 @@
       "@deepseek-ai/dsh-yantao-kb": ["./packages/yantao/kb/src"],
       // Same for packages/yantao/usage (ADR-0050).
       "@deepseek-ai/dsh-yantao-usage": ["./packages/yantao/usage/src"],
+      // Same for packages/yantao/dingtalk-connector (ADR-0060).
+      "@deepseek-ai/dsh-yantao-dingtalk": ["./packages/yantao/dingtalk-connector/src"],
       // BEGIN generated package aliases — pnpm run gen-tsconfig-paths
       "@deepseek-ai/dsh-acp": ["./packages/acp/acp/src"],
       "@deepseek-ai/dsh-acp-app": ["./packages/bundle/acp-app/src"],

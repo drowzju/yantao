@@ -22,7 +22,8 @@ import type {
   MemoryProposalApprover, MemoryProposalDiscarder, MemoryProposalLister, PromptShortcutLister,
   PromptShortcutSaver, RelationGraphLoader, RelationSetter, ResourceDeleter, ResourceRegistrar, RevisionLoader,
   ScheduleLister, ScheduleMarker,
-  ScheduleSaver, ProposalInboxEnqueuer, ProposalInboxLister, ProposalInboxResolver, ShortcutFiller,
+  ScheduleSaver, ProposalInboxEnqueuer, ProposalInboxLister, ProposalInboxResolver,
+  ProposalInboxApplier, ProposalInboxUndoer, ShortcutFiller,
   WorkspaceLister, WorkspaceRunner, WorkspaceRunDeleter, WorkspaceRunsClearer, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
   RootLoader, RootSetter,
   Archiver, SkillRewriteApplier,
@@ -36,13 +37,15 @@ import { formatElapsed, runningCount, type TaskKind, type TaskRow, type TaskStat
 import type { SessionDetailLoader } from '../session-detail.ts'
 import { SessionDetailDrawer } from '../SessionDetailDrawer.tsx'
 import type { Proposal, ProposalMailRange } from '../proposal.ts'
-import { applyProposal, ProposalPreflightError, runUndo, type ProposalApplyResult } from '../proposal-apply.ts'
+import { applyProposal, runUndo, type ProposalApplyResult, type ProposalUndo } from '../proposal-apply.ts'
 import { proposalOfPayload } from '../capability-match.ts'
 import { capabilityGestureMessage } from '../capability-gesture.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
 import { QuestionDialog } from '../QuestionDialog.tsx'
 import { ConfigDialog } from '../ConfigDialog.tsx'
 import type { ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from '../model-config.ts'
+import { DingTalkDialog } from '../DingTalkDialog.tsx'
+import type { DingTalkConfigDraft, DingTalkConfigView, DingTalkSaveResult } from '../dingtalk-config.ts'
 import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage, type ResourceViewReader } from '../remote.ts'
 import { notifySchedule, scheduleScan, formatRunStats, type ScheduleRunner } from '../scheduler.ts'
@@ -215,6 +218,10 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly proposalInboxList: ProposalInboxLister
   /** Record the human's decision on one pending inbox entry (ADR-0047). */
   readonly proposalInboxResolve: ProposalInboxResolver
+  /** Execute one pending inbox entry server-side (ADR-0060 决定 7) — the approve gesture's write path. */
+  readonly proposalInboxApply: ProposalInboxApplier
+  /** Retract one inbox apply's reversible writes (ADR-0060 决定 7) — the written report's 撤销 chip. */
+  readonly proposalInboxUndo: ProposalInboxUndoer
   /** Re-queue one decided entry's content as a fresh pending proposal — the 提议 tab's discard recovery (2026-10-14). */
   readonly proposalInboxEnqueue: ProposalInboxEnqueuer
   /** Read the whole KB's typed relation graph (ADR-0049) — the 图谱 tab's read. */
@@ -227,6 +234,10 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly shortcutFixedCatalog: ShortcutFixedCatalogFace
   /** Commit a 配置 dialog draft; the result separates conflict from refusal. */
   readonly saveModelsConfig: (draft: ModelsConfigDraft) => Promise<ModelsConfigSaveResult>
+  /** Read the DingTalk connector's config view — the 钉钉 dialog's open read (ADR-0060 决定 2). */
+  readonly loadDingTalkConfig: () => Promise<DingTalkConfigView>
+  /** Commit a 钉钉 dialog draft; the result separates conflict from refusal. */
+  readonly saveDingTalkConfig: (draft: DingTalkConfigDraft) => Promise<DingTalkSaveResult>
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
   readonly onKbRootChanged: () => void
 }
@@ -534,10 +545,11 @@ export function Frame({
   promptShortcutList, promptShortcutSave, fillShortcut,
   scheduleList, scheduleSave, scheduleMark, runSchedule,
   workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList, workspaceRunsClear, workspaceRunDelete,
-  proposalInboxList, proposalInboxResolve, proposalInboxEnqueue, relationGraph,
-  loadModelsConfig, saveModelsConfig, shortcutCatalog, shortcutFixedCatalog,
+  proposalInboxList, proposalInboxResolve, proposalInboxEnqueue, proposalInboxApply, proposalInboxUndo, relationGraph,
+  loadModelsConfig, saveModelsConfig, loadDingTalkConfig, saveDingTalkConfig, shortcutCatalog, shortcutFixedCatalog,
 }: FrameProps): ReactElement {
   const [configOpen, setConfigOpen] = useState(false)
+  const [dingtalkOpen, setDingtalkOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
   const [workspaceWidth, setWorkspaceWidth] = useState(RAIL_DEFAULT)
@@ -890,7 +902,13 @@ export function Frame({
   // anything reversible. The undo severity owns its 90-second window — no
   // longer shackled to info's 8-second fade; irreversible writes (the mail
   // knives, the append-only 流水) are named in the line, never promised back.
-  const confirmWritten = (result: ProposalApplyResult): void => {
+  // An inbox-approved row passes its entry id (ADR-0060 决定 7): the undo
+  // stash lives server-side now, so the chip replays through the RPC — the
+  // card callback's undo rides the same stash. The report accepts either
+  // the card flow's full result or the inbox RPC's wire-safe trail (its
+  // undo carries the irreversible names only — the steps never left home).
+  type ConfirmWrittenResult = Omit<ProposalApplyResult, 'undo'> & { undo?: Pick<ProposalUndo, 'irreversible'> }
+  const confirmWritten = (result: ConfirmWrittenResult, entryId?: string): void => {
     const text = [...result.written, ...result.skipped].join('；') || '没有写入任何内容。'
     const undo = result.undo
     if (undo === undefined) {
@@ -904,7 +922,19 @@ export function Frame({
         label: '撤销',
         run: () => {
           setCapabilityNotice(null)
-          void runUndo(undo).then(({ failed }) => {
+          if (entryId !== undefined) {
+            void proposalInboxUndo({ id: entryId }).then(({ failed }) => {
+              setTreeKey(key => key + 1)
+              setCapabilityNotice(failed.length === 0 ? '已撤销刚才的写入。' : `撤销失败：${failed.join('；')}`,
+                { severity: failed.length === 0 ? 'info' : 'error' })
+            }, (failure: unknown) => {
+              setCapabilityNotice(`撤销失败：${remoteMessage(failure)}`, { severity: 'error' })
+            })
+            return
+          }
+          // Card flow only: this branch never runs for an inbox row, whose
+          // trail carries no steps — the cast restores the full undo shape.
+          void runUndo(undo as ProposalUndo).then(({ failed }) => {
             setTreeKey(key => key + 1)
             setCapabilityNotice(failed.length === 0 ? '已撤销刚才的写入。' : `撤销失败：${failed.join('；')}`,
               { severity: failed.length === 0 ? 'info' : 'error' })
@@ -1070,84 +1100,47 @@ export function Frame({
     )
   }, [proposalInboxEnqueue])
 
-  // 批准: the writes land first — the same applyConfirmed every card shares —
-  // and then the row settles by outcome (ADR-0059 决定 5): every ticked
-  // action landed → approved; some did → approved-with-errors, the per-action
-  // trail riding on the row; nothing did → failed, loudly. A preflight block
-  // (决定 6: every locator unreachable) rejects the apply before the first
-  // write and keeps the row pending — the remedy is a restart, not a re-ask.
-  // A failed settle after landed writes patches the row out locally and
-  // re-pushes the discard in the background (the writes landed — a second
-  // apply would replay them verbatim), so the 30s scan never reads the row
-  // back as pending; a failed settle after a zero-write apply just leaves
-  // the row pending — nothing is on disk, there is nothing to double-apply.
+  // 批准: the whole thing is one server RPC now (ADR-0060 决定 7) — the
+  // controller binds the KB seams itself, applies, and settles the row in
+  // the SAME call, so the client no longer choreographs apply → settle or
+  // compensates a failed settle (the server's discard re-push covers that).
+  // The result is a three-way verdict: applied (with the settlement status),
+  // preflight-blocked (nothing written, the row stays pending — the remedy
+  // is a restart, not a re-ask), already-decided (a repeated card callback
+  // or double-click — idempotent no-op, the list refreshes to what's stored).
+  // Something landed → the covered mails count as processed (ADR-0047
+  // 验收修正 2); a zero-write apply leaves the mails unprocessed so the
+  // nomination can come again.
   const confirmInboxEntry = useCallback((entry: KbQueuedProposal, ticked: readonly number[]): void => {
-    const proposal = proposalOfPayload(entry.proposal)
-    if (proposal === null) return
     setInboxBusyId(entry.id)
-    void applyConfirmed({ proposal, ticked }).then((result) => {
-      // Something landed — the covered mails count as processed now (ADR-0047
-      // 验收修正 2); a zero-write apply leaves the mails unprocessed so the
-      // nomination can come again.
-      if (result.perAction.some(row => row.ok)) moveMailCursor(proposal.mails)
-      const okCount = result.perAction.filter(row => row.ok).length
-      const status = okCount === 0 && result.perAction.length > 0 ? 'failed'
-        : okCount === result.perAction.length ? 'approved' : 'approved-with-errors'
-      void proposalInboxResolve({
-        id: entry.id,
-        status,
-        ...(status !== 'approved' ? { applyResults: result.perAction } : {}),
-      }).then(
-        (resolved) => {
-          setInboxBusyId(null)
-          setInboxEntries(resolved.proposals)
-          if (status === 'failed') {
-            const detail = result.perAction.filter(row => !row.ok).map(row => row.error).join('；')
-            setCapabilityNotice(`提议「${entry.title}」零写入，已记为失败：${detail}`, { severity: 'error' })
-            return
-          }
-          setTreeKey(key => key + 1)
-          confirmWritten(result)
-        },
-        (failure: unknown) => {
-          setInboxBusyId(null)
-          if (status === 'failed') {
-            // Nothing landed and the settle failed: the row stays pending on
-            // disk — honest, and a second apply cannot replay anything.
-            setCapabilityNotice(`提议写入失败，且失败标记未能落账（行保持待决）：${remoteMessage(failure)}`, { severity: 'error' })
-            return
-          }
-          // The writes landed; only the settle failed, so the disk still
-          // holds the row as pending — the optimistic patch below buys the
-          // next seconds, but the 30s scan's loadInbox replaces the list
-          // wholesale from disk and would resurrect the row as re-approvable
-          // (a second apply replays the writes verbatim). Push the discard
-          // to the store in the background: the row is still pending there,
-          // so the settle succeeds and the retirement becomes durable.
-          setInboxEntries(prev => prev.map(e => e.id === entry.id
-            ? { ...e, status: 'discarded', decidedAt: new Date().toISOString() }
-            : e))
-          void proposalInboxResolve({ id: entry.id, status: 'discarded' }).then(
-            (settled) => {
-              setInboxEntries(settled.proposals)
-              setCapabilityNotice(`提议已写入，但批准标记失败；已补记为丢弃，不会再次询问：${remoteMessage(failure)}`, { severity: 'error' })
-            },
-            (markFailure: unknown) => {
-              setCapabilityNotice(`提议已写入，但状态标记失败（下次扫描可能再次询问，请勿重复批准）：${remoteMessage(markFailure)}`, { severity: 'error' })
-            },
-          )
-        },
-      )
+    void proposalInboxApply({ id: entry.id, ticked }).then((outcome) => {
+      setInboxBusyId(null)
+      if (outcome.kind === 'already-decided') {
+        void proposalInboxList().then(list => setInboxEntries(list.proposals))
+        setCapabilityNotice(`提议「${entry.title}」已被处理过（${outcome.status}），无需重复操作。`, { severity: 'info' })
+        return
+      }
+      if (outcome.kind === 'preflight-blocked') {
+        setCapabilityNotice(outcome.message, { severity: 'error' })
+        return
+      }
+      const result = outcome.apply
+      const proposal = proposalOfPayload(entry.proposal)
+      if (proposal !== null && result.perAction.some(row => row.ok)) moveMailCursor(proposal.mails)
+      setInboxEntries(outcome.proposals)
+      if (outcome.status === 'failed') {
+        const detail = result.perAction.filter(row => !row.ok).map(row => row.error).join('；')
+        setCapabilityNotice(`提议「${entry.title}」零写入，已记为失败：${detail}`, { severity: 'error' })
+        return
+      }
+      setTreeKey(key => key + 1)
+      confirmWritten(result, entry.id)
     }, (failure: unknown) => {
       setInboxBusyId(null)
-      // A preflight block names its own remedy (restart); anything else is
-      // an apply-level surprise — the row stays pending either way.
-      setCapabilityNotice(
-        failure instanceof ProposalPreflightError ? failure.message : `写入失败：${remoteMessage(failure)}`,
-        { severity: 'error' },
-      )
+      // An apply-level surprise — the row stays pending on disk either way.
+      setCapabilityNotice(`写入失败：${remoteMessage(failure)}`, { severity: 'error' })
     })
-  }, [applyConfirmed, proposalInboxResolve, moveMailCursor])
+  }, [proposalInboxApply, proposalInboxList, confirmWritten, moveMailCursor])
 
   // One serialized write channel for every schedule write (OCR 2026-10-03):
   // the pane's full-list saves and the scheduler's stamp patches tail-chain
@@ -2253,6 +2246,10 @@ export function Frame({
         <button style={{ ...footerButtonStyle, marginLeft: 'auto' }} data-config-button="true" data-hover="true" onClick={() => { setConfigOpen(true) }}>
           {t('config.open')}
         </button>
+        {/* ADR-0060 决定 2：底部状态条的钉钉入口，配置对话框沿模型配置范式。 */}
+        <button style={footerButtonStyle} data-dingtalk-button="true" data-hover="true" onClick={() => { setDingtalkOpen(true) }}>
+          {t('dingtalk.open')}
+        </button>
         {/* 2026-10-09 第四轮评审 P1：8 条热键注册后无处可见——这个只读目录
             是它们的展示面，键帽实时读注册表 catalog（改键/平台差异自动跟随）。 */}
         <button style={footerButtonStyle} data-shortcuts-button="true" data-hover="true" onClick={() => { setShortcutsOpen(true) }}>
@@ -2269,6 +2266,14 @@ export function Frame({
           load={loadModelsConfig}
           save={saveModelsConfig}
           onClose={() => { setConfigOpen(false) }}
+        />
+      )}
+      {dingtalkOpen && (
+        <DingTalkDialog
+          t={t}
+          load={loadDingTalkConfig}
+          save={saveDingTalkConfig}
+          onClose={() => { setDingtalkOpen(false) }}
         />
       )}
       {shortcutsOpen && (

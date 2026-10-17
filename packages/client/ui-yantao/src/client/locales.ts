@@ -114,6 +114,30 @@ export const zh = {
   'config.modelIdRequired': '模型 ID 不能为空',
   'config.defaultMissing': '默认模型必须是模型列表中的一行',
 
+  // 钉钉配置对话框（右下角「钉钉」按钮，ADR-0060 决定 2；基础区四项 +
+  // 高级折叠区；扫码经核实不可行，凭据下发即引导式手填——决定 4 兜底路径）
+  'dingtalk.open': '钉钉',
+  'dingtalk.title': '钉钉通道',
+  'dingtalk.close': '关闭',
+  'dingtalk.loading': '读取配置中…',
+  'dingtalk.loadFailed': '配置读取失败',
+  'dingtalk.enabled': '启用钉钉通道',
+  'dingtalk.enabledHint': '关闭即断开连接，重新打开后自动重连，无需重启工作台',
+  'dingtalk.clientId': 'Client ID（AppKey）',
+  'dingtalk.clientIdHint': '钉钉开放平台 → 应用开发 → 应用凭证 页面可查',
+  'dingtalk.clientSecret': 'Client Secret（AppSecret）',
+  'dingtalk.secretStored': '已配置（留空保持不变）',
+  'dingtalk.secretPlaceholder': '输入 AppSecret',
+  'dingtalk.robotName': '机器人名称',
+  'dingtalk.advanced': '高级',
+  'dingtalk.proxy': '出站代理',
+  'dingtalk.proxyHint': 'http://host:port；留空读 DINGTALK_STREAM_PROXY / HTTPS_PROXY 环境变量',
+  'dingtalk.debug': '输出 Stream 调试日志',
+  'dingtalk.save': '保存',
+  'dingtalk.saving': '保存中…',
+  'dingtalk.saved': '已保存，配置即时生效',
+  'dingtalk.conflict': '配置已被其他地方修改，已重新加载，请重试',
+
   // 快捷键目录（左下角「快捷键」按钮；只读，键帽实时读 shortcuts 注册表的 catalog）
   'shortcuts.open': '快捷键',
   'shortcuts.title': '快捷键',
@@ -596,6 +620,31 @@ export const en = {
   'config.conflict': 'The configuration changed elsewhere; reloaded — please retry',
   'config.modelIdRequired': 'A model ID cannot be empty',
   'config.defaultMissing': 'The default model must be one of the listed rows',
+
+  // 钉钉配置对话框 (the bottom-right 钉钉 button, ADR-0060 决定 2; four basic
+  // fields plus an advanced fold; QR-scan proved infeasible so credential
+  // delivery is guided manual entry — 决定 4's guaranteed fallback)
+  'dingtalk.open': 'DingTalk',
+  'dingtalk.title': 'DingTalk channel',
+  'dingtalk.close': 'Close',
+  'dingtalk.loading': 'Loading configuration…',
+  'dingtalk.loadFailed': 'Failed to load the configuration',
+  'dingtalk.enabled': 'Enable the DingTalk channel',
+  'dingtalk.enabledHint': 'Turning it off disconnects immediately; turning it on reconnects — no restart needed',
+  'dingtalk.clientId': 'Client ID (AppKey)',
+  'dingtalk.clientIdHint': 'See DingTalk open platform → app development → app credentials',
+  'dingtalk.clientSecret': 'Client Secret (AppSecret)',
+  'dingtalk.secretStored': 'Configured (leave blank to keep)',
+  'dingtalk.secretPlaceholder': 'Enter the AppSecret',
+  'dingtalk.robotName': 'Robot name',
+  'dingtalk.advanced': 'Advanced',
+  'dingtalk.proxy': 'Outbound proxy',
+  'dingtalk.proxyHint': 'http://host:port; leave blank to read DINGTALK_STREAM_PROXY / HTTPS_PROXY',
+  'dingtalk.debug': 'Log Stream SDK debug output',
+  'dingtalk.save': 'Save',
+  'dingtalk.saving': 'Saving…',
+  'dingtalk.saved': 'Saved — the configuration applies immediately',
+  'dingtalk.conflict': 'The configuration changed elsewhere; reloaded — please retry',
 
   // 快捷键目录 (the bottom-left 快捷键 button; read-only, keycaps stream from
   // the shortcuts registry's catalog)

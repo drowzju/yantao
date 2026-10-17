@@ -67,7 +67,12 @@ import { applySkillRewrite } from './capability/rewrite.ts'
 import { CAPABILITY_HINTS, CapabilityError, runCapability } from './capability/run.ts'
 import type { CapabilityInvoker } from './capability/run.ts'
 import { CAPABILITY_ENVIRONMENT_NOTE, execCapabilityScript, instructionTextOf } from './capability/exec.ts'
-import { mailSpanNote, normalizeMailRange, partitionProposedActions, withDerivedEntityNames } from './capability/proposal-actions.ts'
+import { mailSpanNote, normalizeMailRange, parseStoredProposal, partitionProposedActions, withDerivedEntityNames } from './capability/proposal-actions.ts'
+import { allProposalActions, applyProposal, ProposalPreflightError } from './proposal-apply.ts'
+import type {
+  KbProposalInboxApplyArgs, KbProposalInboxApplyResult, KbProposalInboxUndoArgs,
+  KbProposalInboxUndoResult, ProposalApplyResult, ProposalTarget, ProposalUndo, ProposalUndoStep,
+} from './proposal-apply.ts'
 import { addRoutes, readRoutes, removeRoute, routedSkill, updateRoute, ROUTES_PATH } from './capability/routing.ts'
 import type { CapabilityRoute } from './capability/routing.ts'
 import { hasScheme, isOpenable, openWithDesktop } from './open.ts'
@@ -99,6 +104,8 @@ import type {
   KbLinksResult,
   KbMailMarkReadArgs,
   KbMailMarkReadResult,
+  KbMailDeleteResult,
+  KbMailArchiveResult,
   KbMemoryAddArgs,
   KbMemoryAddResult,
   KbMemoryDeleteArgs,
@@ -140,6 +147,7 @@ import type {
   KbMemoryProposalListResult,
   KbOpenExternalResult,
   KbPromptInjectionResult,
+  KbProposalInboxEvent,
   KbRegisterResourceArgs,
   KbResourceBinary,
   KbResourceView,
@@ -163,6 +171,10 @@ import type {
 } from './types.ts'
 
 export type * from './types.ts'
+export type * from './proposal-apply.ts'
+
+/** 服务端撤销暂存的容量上限（ADR-0060 决定 7）：超出逐出最旧的一笔。 */
+const PROPOSAL_UNDO_STASH_LIMIT = 50
 
 /**
  * Durable sources for the controller's pre-step injections: the capability
@@ -664,6 +676,14 @@ export class YantaoKbController extends TypertRemoteService {
           },
         })
         const fresh = stored.at(-1)
+        // ADR-0060 决定 5：工具入队点与 RPC 入口同权广播。调度任务/交互会话
+        // 的提名走本工具（kb_propose_actions）直接 enqueueProposal，此前只有
+        // RPC 入口 proposalInboxEnqueue 会 emit——调度提议于是从不广播，钉钉
+        // 推送对它们全体沉默（2026-10-17 三轮排障的最终根因）。
+        if (fresh !== undefined) {
+          const update: KbProposalInboxEvent = { action: 'enqueue', entry: fresh as KbQueuedProposal }
+          this.ctx.emit('yantao-kb/proposal-inbox', update)
+        }
         return {
           id: fresh?.id ?? '',
           ...(diagnostics.length > 0 ? { dropped: [...diagnostics] } : {}),
@@ -2067,6 +2087,13 @@ export class YantaoKbController extends TypertRemoteService {
       const stored = await enqueueProposal(this.kbRoot, args)
       const proposals = stored as readonly KbQueuedProposal[]
       const fresh = proposals.at(-1)
+      // ADR-0060 决定 5: broadcast the mutation for in-host consumers (the
+      // DingTalk connector pushes the card); the UI keeps its revision
+      // polling. After the write, so a listener reading the store sees it.
+      if (fresh !== undefined) {
+        const update: KbProposalInboxEvent = { action: 'enqueue', entry: fresh }
+        this.ctx.emit('yantao-kb/proposal-inbox', update)
+      }
       return {
         proposals,
         id: fresh === undefined ? '' : fresh.id,
@@ -2092,6 +2119,14 @@ export class YantaoKbController extends TypertRemoteService {
     this.requireKbRootForInbox()
     try {
       const stored = await resolveProposalInboxEntry(this.kbRoot, args.id, args.status, new Date(), args.applyResults)
+      const resolved = (stored as readonly KbQueuedProposal[]).find(entry => entry.id === args.id)
+      // ADR-0060 决定 5: the resolve point broadcasts too — the entry rides
+      // in its settled state, so consumers (card callbacks, future UI) see
+      // the verdict without re-reading the store.
+      if (resolved !== undefined) {
+        const update: KbProposalInboxEvent = { action: 'resolve', entry: resolved }
+        this.ctx.emit('yantao-kb/proposal-inbox', update)
+      }
       return { proposals: stored as readonly KbQueuedProposal[], path: PROPOSAL_INBOX_DISPLAY_PATH }
     } catch (error: unknown) {
       throw this.inboxError(error)
@@ -2117,6 +2152,184 @@ export class YantaoKbController extends TypertRemoteService {
     } catch (error: unknown) {
       throw this.inboxError(error)
     }
+  }
+
+  /** 服务端撤销暂存（ADR-0060 决定 7）：entry id → 反向步骤。步骤闭包绑定
+   * 在本控制器的自有方法上，过不了 RPC 序列化，只能活在宿主进程里——这是
+   * 它住在这里而非跟着结果走的原因。 */
+  private readonly proposalUndos = new Map<string, ProposalUndo>()
+
+  /**
+   * 执行一条待决提议（ADR-0060 决定 7）：服务端的落库链。与工作台卡片共用
+   * 同一份 `applyProposal` 引擎——经注入的 {@link ProposalTarget} 缝隙绑定
+   * 到本控制器的自有方法（邮件刀具走 `mailRun` 的人类通道信封）——并在同
+   * 一次调用里完成落账：apply+settle 一个 RPC，客户端旧的「写入已落、结算
+   * 失败」补偿分支就此收编到这里。重复回调幂等（决定 7）：已决的行不再执
+   * 行，原样回报既有决策——钉钉卡片的重复点击是安全的。
+   *
+   * 这是人类通道（UI 与未来的钉钉卡片回调共用的服务端入口）；agent 没有
+   * 指向这里的工具——批准永远是人的一次性动作。
+   * @param args - 条目 id、勾选的动作下标（缺省=全选，卡片按钮的形态）、
+   *   create-project 行的领域改选（ADR-0034 决定 4）。
+   * @returns 结果判别：`applied`（含三方结算与刷新后的完整列表）/
+   *   `preflight-blocked`（全部实体定位不可达，一字未落，行保持待决，ADR-0059
+   *   决定 6）/ `already-decided`（幂等回报既有决策）。判别是返回值而非抛错：
+   *   `instanceof` 过不了 RPC 序列化。
+   */
+  @Remote('proposalInboxApply')
+  async proposalInboxApply(args: KbProposalInboxApplyArgs): Promise<KbProposalInboxApplyResult> {
+    this.requireKbRootForInbox()
+    let entry: KbQueuedProposal | undefined
+    try {
+      const proposals = await readProposalInbox(this.kbRoot) as readonly KbQueuedProposal[]
+      entry = proposals.find(candidate => candidate.id === args.id)
+    } catch (error: unknown) {
+      throw this.inboxError(error)
+    }
+    if (entry === undefined) {
+      throw new RemoteError('yantao-kb/not-found', `提议 ${args.id} 不存在（可能已被清理）。`, { path: PROPOSAL_INBOX_DISPLAY_PATH })
+    }
+    if (entry.status !== 'pending') {
+      return { kind: 'already-decided', status: entry.status, path: PROPOSAL_INBOX_DISPLAY_PATH }
+    }
+    const proposal = parseStoredProposal(entry.proposal)
+    if (proposal === null) {
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        '提议载荷无法解析为可执行的提议（可能出自旧版本或被手工改动），拒绝执行。',
+        { path: PROPOSAL_INBOX_DISPLAY_PATH },
+      )
+    }
+    const ticked = args.ticked ?? allProposalActions(proposal).map((_, index) => index)
+    // The seams, bound to this controller's own methods — the same semantics
+    // the frame binds to its remote proxies, one engine behind both.
+    const target: ProposalTarget = {
+      createEntity: (type, name, relation, email) => this.createEntity({
+        type,
+        name,
+        ...(relation !== undefined ? { relation } : {}),
+        ...(email !== undefined ? { email } : {}),
+      }).then(created => created.path),
+      read: async path => (await this.read(path)).content,
+      write: async (path, content) => { await this.write(path, content) },
+      todos: () => this.todos(),
+      writeTodos: writeArgs => this.writeTodos(writeArgs),
+      memoryAdd: (scope, text) => this.memoryAdd({ scope, text }),
+      memoryDelete: async (scope, id) => { await this.memoryDelete({ scope, id }) },
+      archiveEntity: locator => this.archiveEntity(locator),
+      deleteResource: path => this.deleteResource(path),
+      resolveEntity: async locator => (await this.resolveEntity(locator)).path,
+      skillRewrite: rewriteArgs => this.skillRewriteApply(rewriteArgs),
+      deleteMails: async (ids) => {
+        const run = await this.mailRun({ input: { verb: 'delete', ids } as unknown as JsonValue })
+        return run.result as unknown as KbMailDeleteResult
+      },
+      archiveMails: async (mails) => {
+        const run = await this.mailRun({ input: { verb: 'archive', mails } as unknown as JsonValue })
+        return run.result as unknown as KbMailArchiveResult
+      },
+    }
+    let result: ProposalApplyResult
+    try {
+      result = await applyProposal({
+        proposal,
+        ticked,
+        ...(args.areaPicks !== undefined ? { areaPicks: args.areaPicks } : {}),
+        target,
+      })
+    } catch (error: unknown) {
+      if (error instanceof ProposalPreflightError) {
+        return {
+          kind: 'preflight-blocked',
+          message: error.message,
+          unreachable: error.unreachable,
+          path: PROPOSAL_INBOX_DISPLAY_PATH,
+        }
+      }
+      throw new RemoteError(
+        'yantao-kb/rejected',
+        `写入失败：${error instanceof Error ? error.message : String(error)}`,
+        { path: PROPOSAL_INBOX_DISPLAY_PATH },
+      )
+    }
+    // 三方结算（ADR-0059 决定 5）在同一调用里落账——写入与记账之间不再隔
+    // 着一次客户端往返，「写入已落、结算失败」从常态分支降为罕见故障。
+    const okCount = result.perAction.filter(row => row.ok).length
+    const status = okCount === 0 && result.perAction.length > 0 ? 'failed'
+      : okCount === result.perAction.length ? 'approved' : 'approved-with-errors'
+    let proposals: readonly KbQueuedProposal[]
+    try {
+      proposals = (await this.proposalInboxResolve({
+        id: args.id,
+        status,
+        ...(status !== 'approved' ? { applyResults: result.perAction } : {}),
+      })).proposals
+    } catch {
+      // 写入已落地而行仍待决——沿用客户端旧补偿（升到服务端）：补记为丢弃，
+      // 行绝不以待决姿态留在盘上，否则下次扫描会再次询问，二次批准会重放写入。
+      try {
+        proposals = (await this.proposalInboxResolve({ id: args.id, status: 'discarded' })).proposals
+      } catch (markFailure: unknown) {
+        throw new RemoteError(
+          'yantao-kb/rejected',
+          `提议已写入 ${result.written.length} 项，但决策标记失败（行仍待决，请勿重复批准）：`
+          + `${markFailure instanceof Error ? markFailure.message : String(markFailure)}`,
+          { path: PROPOSAL_INBOX_DISPLAY_PATH },
+        )
+      }
+    }
+    if (result.undo !== undefined) {
+      this.proposalUndos.set(args.id, result.undo)
+      if (this.proposalUndos.size > PROPOSAL_UNDO_STASH_LIMIT) {
+        const oldest = this.proposalUndos.keys().next().value
+        if (oldest !== undefined) this.proposalUndos.delete(oldest)
+      }
+    }
+    // 上线的痕迹是脱壳版（KbProposalApplyTrail）：反向步骤是绑在本控制器
+    // 缝隙上的闭包，过不了 RPC 序列化——它们住进上面的暂存，线上只带
+    // 「有可撤写入」的存在性与不可撤销名单，撤销芯片据此渲染。
+    return {
+      kind: 'applied',
+      status,
+      apply: {
+        written: result.written,
+        skipped: result.skipped,
+        perAction: result.perAction,
+        ...(result.undo !== undefined ? { undo: { irreversible: result.undo.irreversible } } : {}),
+      },
+      proposals,
+      path: PROPOSAL_INBOX_DISPLAY_PATH,
+    }
+  }
+
+  /**
+   * 撤销一笔刚落库的提议写入（ADR-0060 决定 7）：逆序执行 apply 时记下的
+   * 反向步骤（与工作台的撤销芯片同一语义）。一次性：步骤弹出即焚，重复
+   * 撤销与服务重启 alike 得到明确的「窗口已关」，而不是假装还能撤。
+   * @param args - 要撤销的条目 id。
+   * @returns 失败的步骤（`标签：原因`）与本来就不可撤销的写入名单。
+   */
+  @Remote('proposalInboxUndo')
+  async proposalInboxUndo(args: KbProposalInboxUndoArgs): Promise<KbProposalInboxUndoResult> {
+    const undo = this.proposalUndos.get(args.id)
+    if (undo === undefined) {
+      throw new RemoteError(
+        'yantao-kb/not-found',
+        '撤销窗口已关闭（服务重启过，或这笔提议已撤销过一次）。',
+        { path: PROPOSAL_INBOX_DISPLAY_PATH },
+      )
+    }
+    this.proposalUndos.delete(args.id)
+    const failed: string[] = []
+    for (let index = undo.steps.length - 1; index >= 0; index -= 1) {
+      const step = undo.steps[index] as ProposalUndoStep
+      try {
+        await step.run()
+      } catch (error: unknown) {
+        failed.push(`${step.label}：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    return { failed, irreversible: undo.irreversible, path: PROPOSAL_INBOX_DISPLAY_PATH }
   }
 
   /**
