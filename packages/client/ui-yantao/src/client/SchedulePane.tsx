@@ -135,6 +135,10 @@ const rowStyle = {
   padding: 'var(--yt-space-2)',
   fontFamily: FONT,
   fontSize: 'var(--yt-type-body)',
+  // 整行可点（2026-10-17 用户反馈）：10-14 的无障碍修复把选中入口收缩成
+  // 名称文字一小块，行高的其余部分（cron/meta 行）点了没反应——鼠标用户
+  // 几乎点不中。行恢复整行命中，键盘/读屏仍走名称钮。
+  cursor: 'pointer',
 } as const
 
 const activeRowStyle = { ...rowStyle, background: 'var(--yt-accent-bg)', borderColor: 'var(--yt-accent-border)' } as const
@@ -386,6 +390,7 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
                 key={schedule.id}
                 style={selectedId === schedule.id ? activeRowStyle : rowStyle}
                 data-schedule-row={schedule.id}
+                onClick={() => { openEditor(schedule) }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--yt-space-2)' }}>
                   <input
@@ -393,6 +398,8 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
                     checked={schedule.enabled}
                     title={schedule.enabled ? '停用' : '启用'}
                     aria-label={schedule.enabled ? `停用 ${schedule.name}` : `启用 ${schedule.name}`}
+                    // 勾选框只管启停：点击不冒泡到行（否则切换启用会顺带打开编辑器）。
+                    onClick={(event) => { event.stopPropagation() }}
                     onChange={() => { void toggleEnabled(schedule) }}
                   />
                   {/* 选中行里的名称钮带 data-selected：悬停豁免通用涂灰规则，
@@ -402,7 +409,7 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
                     data-hover="true"
                     data-selected={selectedId === schedule.id || undefined}
                     style={nameButtonStyle}
-                    onClick={() => { openEditor(schedule) }}
+                    onClick={(event) => { event.stopPropagation(); openEditor(schedule) }}
                   >
                     {schedule.name}
                   </button>
