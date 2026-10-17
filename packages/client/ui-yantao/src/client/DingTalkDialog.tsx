@@ -157,6 +157,13 @@ export interface DingTalkDialogProps {
   readonly save: (draft: DingTalkConfigDraft) => Promise<DingTalkSaveResult>
   /** Read every conversation→session binding (ADR-0061 决定 2); fetched lazily on expand. */
   readonly loadBindings: () => Promise<readonly KbDingtalkBindingRow[]>
+  /**
+   * Rewire one conversation's binding (ADR-0062 决定 3)：`sessionId` 指向
+   * 工作台会话即并入，`null` 还原独立会话。连接器下一条消息即生效。
+   */
+  readonly mergeBinding: (conversationId: string, sessionId: string | null) => Promise<void>
+  /** The session the main column is showing — the merge gesture's target (ADR-0062 决定 4). */
+  readonly mergeTarget: () => string | undefined
   /** Jump to one bound session in the workspace (opens it and swings the tab). */
   readonly openSession: (sessionId: string) => void
   /**
@@ -173,7 +180,7 @@ export interface DingTalkDialogProps {
  * remount — no restart either way (ADR-0060 决定 3).
  */
 export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
-  const { t, load, save, loadBindings, openSession, loadTranscript, onClose } = props
+  const { t, load, save, loadBindings, mergeBinding, mergeTarget, openSession, loadTranscript, onClose } = props
   const [view, setView] = useState<DingTalkConfigView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -256,6 +263,32 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
   const toggleMirror = useCallback((sessionId: string): void => {
     setMirrorSession(current => (current === sessionId ? null : sessionId))
   }, [])
+
+  // 并入手势（ADR-0062 决定 4）：把这条钉钉会话接进当前打开的工作台会话，
+  // 或还原独立。成功后刷新绑定列表（sessionId 变了，行内显示跟着换）。
+  const [mergeNote, setMergeNote] = useState<string | null>(null)
+  const [mergeBusy, setMergeBusy] = useState<string | null>(null)
+
+  const mergeOrRestore = useCallback(async (row: KbDingtalkBindingRow): Promise<void> => {
+    if (mergeBusy !== null) return
+    const target = mergeTarget()
+    const next = target === row.sessionId ? null : target
+    if (next === undefined) {
+      setMergeNote(t('dingtalk.bindings.noTarget'))
+      return
+    }
+    setMergeBusy(row.conversationId)
+    setMergeNote(null)
+    try {
+      await mergeBinding(row.conversationId, next)
+      setMergeNote(next === null ? t('dingtalk.bindings.restored') : t('dingtalk.bindings.merged'))
+      setBindings(await loadBindings())
+    } catch {
+      setMergeNote(`${t('dingtalk.bindings.mergeFailed')}：${row.conversationId}`)
+    } finally {
+      setMergeBusy(null)
+    }
+  }, [mergeBinding, mergeTarget, mergeBusy, loadBindings, t])
 
   const saveDraft = async (): Promise<void> => {
     if (view === null || busy) return
@@ -340,6 +373,7 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
               <summary style={{ ...sectionStyle, cursor: 'pointer' }}>{t('dingtalk.bindings')}</summary>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)', paddingTop: 'var(--yt-space-2)' }}>
                 <span style={hintStyle}>{t('dingtalk.bindings.hint')}</span>
+                {mergeNote !== null && <span style={hintStyle}>{mergeNote}</span>}
                 {bindingsError ? <span style={hintStyle}>{t('dingtalk.bindings.loadFailed')}</span>
                   : bindings !== null && bindings.length === 0 ? <span style={hintStyle}>{t('dingtalk.bindings.empty')}</span>
                     : bindings !== null && bindings.map(row => (
@@ -354,6 +388,15 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
                           {row.conversationId}
                         </span>
                         <span style={{ marginLeft: 'auto', flexShrink: 0, display: 'flex', gap: 'var(--yt-space-1)' }}>
+                          {/* 并入手势（ADR-0062 决定 4）：把这条钉钉会话接进当前
+                              打开的会话流；已在当前会话里则提供还原。 */}
+                          <button data-hover="true" type="button"
+                            disabled={mergeBusy !== null}
+                            style={{ ...ghostStyle, minHeight: 24, padding: '0 var(--yt-space-2)' }}
+                            onClick={() => { void mergeOrRestore(row) }}>
+                            {mergeBusy === row.conversationId ? '…'
+                              : mergeTarget() === row.sessionId ? t('dingtalk.bindings.restore') : t('dingtalk.bindings.merge')}
+                          </button>
                           <button data-hover="true" type="button"
                             style={{ ...ghostStyle, minHeight: 24, padding: '0 var(--yt-space-2)', ...(mirrorSession === row.sessionId ? { borderColor: 'var(--yt-accent-border)', color: 'var(--yt-accent, inherit)' } : {}) }}
                             aria-expanded={mirrorSession === row.sessionId}

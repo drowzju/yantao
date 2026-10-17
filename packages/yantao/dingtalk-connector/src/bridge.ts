@@ -16,6 +16,14 @@ export type Bindings = JsonStore<string>
 
 export interface TurnRenderer {
   onInbound(sessionId: string, msg: InboundMessage): Promise<void>
+  /**
+   * Declare whether the events about to arrive belong to this turn. Must be
+   * called synchronously right after `followup` with the pre-followup agent
+   * status: idle means the queued message starts the next turn immediately;
+   * running means a foreign turn (typically the user's own window prompt in a
+   * merged session) is still draining and its tail must not be captured.
+   */
+  arm(sessionId: string, armed: boolean): void
 }
 
 export interface BridgeOptions {
@@ -95,12 +103,18 @@ export class Bridge {
       }
     }
     if (content.length === 0) content.push({ type: 'text', text: '（用户发来一张图片）' })
+    // 来源前缀：并入工作台会话后，气泡必须能看出是谁从钉钉说话；群聊同理。
+    const nickname = msg.senderNick?.trim()
+    if (nickname) content.unshift({ type: 'text', text: `【钉钉 · ${nickname}】` })
+    const armed = agent.status === 'idle'
     agent.followup({
       id: randomUUID(),
       role: 'user',
       content,
       source: { kind: 'user' },
     })
+    // 与 followup 同一同步段：读到的 status 一定对应本次注入前的状态。
+    this.renderer.arm(agent.id, armed)
     await settled
     return agent.id
   }

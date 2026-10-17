@@ -378,6 +378,23 @@ export interface KbDingtalkBindingsResult {
   readonly rows: readonly KbDingtalkBindingRow[]
 }
 
+/** Parameters of `yantaoKb.dingtalkBindingSet` (ADR-0062 决定 3). */
+export interface KbDingtalkBindingSetArgs {
+  /** The DingTalk conversation to rewire. */
+  readonly conversationId: string
+  /**
+   * The workbench session the conversation should drive (`null` severs the
+   * binding — the next inbound message creates a fresh session).
+   */
+  readonly sessionId: string | null
+}
+
+/** Result of `yantaoKb.dingtalkBindingSet` (ADR-0062 决定 3). */
+export interface KbDingtalkBindingSetResult {
+  /** The bindings.json that was rewritten (diagnostics only). */
+  readonly file: string
+}
+
 /**
  * One mail as the mail capability reports it (ADR-0019; since ADR-0021 the
  * `result` of `capabilityRun('mail', …)`). Mirrors the capability's entry

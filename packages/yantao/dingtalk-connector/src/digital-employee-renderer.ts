@@ -21,6 +21,8 @@ interface TurnState {
   event: DigitalEmployeeEvent
   finalParts: string[]
   chunks: string[]
+  /** 见 renderer.ts 同名机制：未见本回合开始前忽略一切会话事件。 */
+  armed: boolean
   settle(): void
   fail(error: unknown): void
 }
@@ -61,13 +63,23 @@ export class DigitalEmployeeTextRenderer {
       settle = resolve
       fail = reject
     })
-    this.states.set(sessionId, { event, finalParts: [], chunks: [], settle, fail })
+    this.states.set(sessionId, { event, finalParts: [], chunks: [], armed: false, settle, fail })
     return settled
+  }
+
+  /** 见 bridge.ts TurnRenderer.arm：注入 followup 后立刻声明事件归属。 */
+  arm(sessionId: string, armed: boolean): void {
+    const state = this.states.get(sessionId)
+    if (state) state.armed = armed
   }
 
   onSessionEvent(session: HostSession, event: HostSessionEvent): void {
     const state = this.states.get(session.id)
     if (!state) return
+    if (!state.armed) {
+      if (event.type === 'turn/end') state.armed = true
+      return
+    }
     if (event.type === 'assistant/chunk') {
       const chunk = event.data?.chunk
       if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') state.chunks.push(chunk.text)

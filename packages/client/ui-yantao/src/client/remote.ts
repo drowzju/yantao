@@ -59,6 +59,7 @@ import type {
   KbRootResult, KbSetEntityArchivedResult, KbSetRelationArgs, KbSetRelationResult,
   KbSetRootResult, KbSkillRewriteApplyArgs, KbSkillRewriteApplyResult, KbScheduledRunForgetArgs,
   KbScheduledRunForgetResult, KbScheduledRunMarkArgs, KbScheduledRunMarkResult, KbDingtalkBindingsResult,
+  KbDingtalkBindingSetArgs, KbDingtalkBindingSetResult,
   KbTodosResult, KbTree,
   KbTreeSection, KbWriteResult, KbWriteTodosArgs, KbWriteTodosResult,
   KbWorkspaceListResult, KbWorkspaceRunArgs,
@@ -108,6 +109,8 @@ export interface KbRemote {
   scheduledRunForget(args: KbScheduledRunForgetArgs): Promise<RemoteResult<KbScheduledRunForgetResult>>
   /** Every DingTalk conversation→session binding (ADR-0061 决定 2). */
   dingtalkBindings(): Promise<RemoteResult<KbDingtalkBindingsResult>>
+  /** Rewire one conversation's binding — merge into / sever from a session (ADR-0062 决定 3). */
+  dingtalkBindingSet(args: KbDingtalkBindingSetArgs): Promise<RemoteResult<KbDingtalkBindingSetResult>>
   mailFetch(args: KbMailFetchArgs): Promise<RemoteResult<KbMailFetchResult>>
   mailMarkRead(args: KbMailMarkReadArgs): Promise<RemoteResult<KbMailMarkReadResult>>
   /** List the registered capabilities (ADR-0021). */
@@ -815,6 +818,23 @@ export async function loadDingtalkBindings(ctx: Context): Promise<KbDingtalkBind
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.dingtalkBindings()).rows
+}
+
+/**
+ * Rewire one DingTalk conversation's session binding (ADR-0062 决定 3) —
+ * point it at a workbench session (merge) or sever it (`null`). The
+ * connector picks the change up on its next inbound message.
+ * @param ctx - client root context.
+ * @returns the store file that was rewritten (diagnostics only).
+ */
+export async function setDingtalkBinding(
+  ctx: Context,
+  conversationId: string,
+  sessionId: string | null,
+): Promise<KbDingtalkBindingSetResult['file']> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.dingtalkBindingSet({ conversationId, sessionId })).file
 }
 
 /**

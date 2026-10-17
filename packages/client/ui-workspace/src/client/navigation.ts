@@ -38,6 +38,11 @@ export interface UiWorkspace {
    */
   openSession(target: SessionTarget): void
   /**
+   * The Session the main column is currently showing (ADR-0062: the target
+   * of the DingTalk merge gesture), or `undefined` before any selection.
+   */
+  readonly currentSessionId: SessionId | undefined
+  /**
    * Connect a Workspace and open its Session unless a later navigation supersedes it.
    * @param workspaceId - target Workspace.
    * @param beforeOpen - optional synchronous preparation for the selected Session,
@@ -205,6 +210,11 @@ class UiWorkspaceService extends Service implements UiWorkspace {
 
   openSession(target: SessionTarget): void {
     this.replaceMain(target, this.lifetime.signal, 'reveal')
+  }
+
+  /** The session the main column is currently showing, if any (ADR-0062 并入手势的目标). */
+  get currentSessionId(): SessionId | undefined {
+    return this.mainReference?.sessionId
   }
 
   async openWorkspace(workspaceId: WorkspaceId, beforeOpen?: (sessionId: SessionId) => void): Promise<void> {

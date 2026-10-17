@@ -80,7 +80,7 @@ import { WorkspaceRuntime } from './workspace/runtime.ts'
 import { workspaceTickScan } from './workspace/tick.ts'
 import { KbRevision } from './watch.ts'
 import { ScheduledRunRegistry } from './scheduled-runs.ts'
-import { collectDingtalkBindings } from './dingtalk-bindings.ts'
+import { collectDingtalkBindings, setDingtalkBinding } from './dingtalk-bindings.ts'
 import type {
   KbCapabilityAdoptArgs,
   KbCapabilityAdoptResult,
@@ -171,6 +171,7 @@ import type {
   KbWriteTodosArgs,
   KbWriteTodosResult,
   KbDingtalkBindingsResult,
+  KbDingtalkBindingSetArgs, KbDingtalkBindingSetResult,
   KbScheduledRunMarkArgs, KbScheduledRunMarkResult, KbScheduledRunForgetArgs, KbScheduledRunForgetResult,
 } from './types.ts'
 
@@ -1528,6 +1529,20 @@ export class YantaoKbController extends TypertRemoteService {
   @Remote('dingtalkBindings')
   dingtalkBindings(): Promise<KbDingtalkBindingsResult> {
     return collectDingtalkBindings().then(rows => ({ rows }))
+  }
+
+  /**
+   * Rewire one DingTalk conversation's session binding (ADR-0062 决定 3).
+   * Pointing it at a workbench session merges the DingTalk thread into that
+   * session — the connector injects inbound messages there and mirrors the
+   * agent's replies back to DingTalk. `sessionId: null` severs the binding;
+   * the next inbound message creates a fresh session as before. The
+   * connector's store self-refreshes on mtime, so this takes effect on the
+   * next message with no restart.
+   */
+  @Remote('dingtalkBindingSet')
+  dingtalkBindingSet(args: KbDingtalkBindingSetArgs): Promise<KbDingtalkBindingSetResult> {
+    return setDingtalkBinding(args.conversationId, args.sessionId).then(({ file }) => ({ file }))
   }
 
   /**

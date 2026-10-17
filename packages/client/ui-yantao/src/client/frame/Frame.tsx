@@ -241,6 +241,10 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly saveDingTalkConfig: (draft: DingTalkConfigDraft) => Promise<DingTalkSaveResult>
   /** Read every conversation→session binding — the 钉钉 dialog's 绑定会话 list (ADR-0061 决定 2). */
   readonly loadDingTalkBindings: () => Promise<readonly KbDingtalkBindingRow[]>
+  /** Rewire one conversation's binding — merge into / sever from a session (ADR-0062 决定 3). */
+  readonly setDingTalkBinding: (conversationId: string, sessionId: string | null) => Promise<void>
+  /** The session the main column is showing — the merge gesture's target (ADR-0062 决定 4). */
+  readonly currentDingtalkMergeTarget: () => string | undefined
   /** Jump to one bound session — the 绑定会话 row's 打开 (swings to the conversation tab). */
   readonly openDingtalkSession: (sessionId: string) => void
   /** The KB root changed: re-point dsh's workspace at it (ADR-0013). */
@@ -551,7 +555,8 @@ export function Frame({
   scheduleList, scheduleSave, scheduleMark, runSchedule,
   workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList, workspaceRunsClear, workspaceRunDelete,
   proposalInboxList, proposalInboxResolve, proposalInboxEnqueue, proposalInboxApply, proposalInboxUndo, relationGraph,
-  loadModelsConfig, saveModelsConfig, loadDingTalkConfig, saveDingTalkConfig, loadDingTalkBindings, openDingtalkSession,
+  loadModelsConfig, saveModelsConfig, loadDingTalkConfig, saveDingTalkConfig, loadDingTalkBindings, setDingTalkBinding,
+  currentDingtalkMergeTarget, openDingtalkSession,
   shortcutCatalog, shortcutFixedCatalog,
 }: FrameProps): ReactElement {
   const [configOpen, setConfigOpen] = useState(false)
@@ -2280,6 +2285,8 @@ export function Frame({
           load={loadDingTalkConfig}
           save={saveDingTalkConfig}
           loadBindings={loadDingTalkBindings}
+          mergeBinding={setDingTalkBinding}
+          mergeTarget={currentDingtalkMergeTarget}
           openSession={openDingtalkSession}
           loadTranscript={sessionDetail}
           onClose={() => { setDingtalkOpen(false) }}

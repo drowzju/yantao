@@ -64,7 +64,7 @@ import { loadModelsConfig, saveModelsConfig, type ModelsConfigDraft } from './mo
 import { loadDingTalkConfig, saveDingTalkConfig, type DingTalkConfigDraft } from './dingtalk-config.ts'
 import { promptCurrentSession } from './session-prompt.ts'
 import { loadSessionDetail } from './session-detail.ts'
-import { loadDingtalkBindings, sessionRemoteOf, usageRemoteOf, unwrapRemote } from './remote.ts'
+import { loadDingtalkBindings, sessionRemoteOf, setDingtalkBinding, usageRemoteOf, unwrapRemote } from './remote.ts'
 import { Frame } from './frame/Frame.tsx'
 import { ThemePresenter } from './frame/theme-presenter.ts'
 import { WorkbenchLayout, createPanelSeat } from './frame/layout.ts'
@@ -463,6 +463,11 @@ export function apply(ctx: Context): void {
       // 绑定会话（ADR-0061 决定 2）：钉钉群聊 ↔ 会话的对应表读面，以及
       // 从对话框一键跳进某个会话的手势（与总览卡片同一 uiWorkspace 通路）。
       loadDingTalkBindings: () => loadDingtalkBindings(ctx),
+      // 并入手势（ADR-0062 决定 4）：绑定行把钉钉会话接进当前打开的工作台
+      // 会话（null 还原独立会话）。当前会话经 uiWorkspace 的选择读取。
+      setDingTalkBinding: (conversationId: string, sessionId: string | null) =>
+        setDingtalkBinding(ctx, conversationId, sessionId).then(() => undefined),
+      currentDingtalkMergeTarget: () => uiWorkspaceRef.current?.currentSessionId,
       openDingtalkSession: (sessionId: string) => {
         whenUiWorkspace((svc) => { svc.openSession(sessionId as SessionTarget) })
       },

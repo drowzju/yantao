@@ -45,6 +45,15 @@ interface TurnState {
   cardUnavailable: boolean
   /** Chars already settled onto earlier cards; the live card shows the remainder. */
   carryOffset: number
+  /**
+   * Whether the event stream currently being observed belongs to THIS turn.
+   * Starts false; the bridge arms it right after injecting the followup (true
+   * when the agent was idle). While unarmed — e.g. the turn queued behind the
+   * user's own running prompt in a merged session — every event is ignored,
+   * and the first turn/end (that foreign turn's) flips armed on instead of
+   * finalizing, so the user's tail output is never mis-sent to DingTalk.
+   */
+  armed: boolean
   /** Resolves when the turn settles; the queue serializes on this. */
   settle: () => void
 }
@@ -113,6 +122,7 @@ export class Renderer {
       needsRollover: false,
       cardUnavailable: false,
       carryOffset: 0,
+      armed: false,
       settle,
     }
 
@@ -125,6 +135,12 @@ export class Renderer {
 
     this.states.set(sessionId, state)
     return settled
+  }
+
+  /** See {@link TurnRenderer.arm} in bridge.ts. */
+  arm(sessionId: string, armed: boolean): void {
+    const st = this.states.get(sessionId)
+    if (st) st.armed = armed
   }
 
   /**
@@ -156,6 +172,12 @@ export class Renderer {
   onSessionEvent(session: HostSession, event: HostSessionEvent): void {
     const st = this.states.get(session.id)
     if (!st) return
+    if (!st.armed) {
+      // 尚未轮到本回合：忽略外来输出；看到的第一个 turn/end 是前一回合
+      // （通常是用户自己在窗口里跑的那轮）的收尾——用它完成武装而不是结算。
+      if (event.type === 'turn/end') st.armed = true
+      return
+    }
     switch (event.type) {
       case 'assistant/chunk': {
         const chunk = event.data?.chunk
