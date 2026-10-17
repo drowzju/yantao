@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { appendMemoryEntry } from '../src/memory.ts'
-import { BEHAVIOR_MEMORY_SECTION, FILESYSTEM_SECTION, loadSectionText, registerBehaviorMemorySection, registerFilesystemSection, registerPromptSections, YANTAO_SECTIONS } from '../src/sections.ts'
+import { BEHAVIOR_MEMORY_SECTION, CLOCK_SECTION, FILESYSTEM_SECTION, loadSectionText, registerBehaviorMemorySection, registerClockSection, registerFilesystemSection, registerPromptSections, renderClockLine, YANTAO_SECTIONS } from '../src/sections.ts'
 
 /** The prompt/sections directory, resolved from this test file's location. */
 const sectionsDir = fileURLToPath(new URL('../prompt/sections', import.meta.url))
@@ -143,5 +143,34 @@ describe('the dynamic behavior-memory section (ADR-0032 批次②)', () => {
     } finally {
       await rm(nextRoot, { recursive: true, force: true })
     }
+  })
+})
+
+describe('the clock section', () => {
+  it('sits between philosophy and the filesystem discipline, distinct from every other section', () => {
+    expect(CLOCK_SECTION).toEqual({ name: 'yantao:clock', order: 110 })
+    expect(YANTAO_SECTIONS.every(section => section.order !== CLOCK_SECTION.order)).toBe(true)
+  })
+
+  it('renders the date line with a zh-CN weekday', () => {
+    // 2026-10-17 is a Saturday.
+    expect(renderClockLine(new Date(2026, 9, 17))).toBe('今天是 2026年10月17日 星期六。')
+    // Year boundary and single-digit month/day formatting.
+    expect(renderClockLine(new Date(2027, 0, 1))).toBe('今天是 2027年1月1日 星期五。')
+  })
+
+  it('registers a per-assembly provider that stamps the current date', () => {
+    const { sectionSpy, ctx } = recordingCtx()
+    registerClockSection(ctx)
+    expect(sectionSpy).toHaveBeenCalledTimes(1)
+    const registered = sectionSpy.mock.calls[0]?.[0] as {
+      name: string
+      order: number
+      text: () => string
+    }
+    expect(registered.name).toBe('yantao:clock')
+    expect(registered.order).toBe(110)
+    const text = registered.text()
+    expect(text).toMatch(/^今天是 \d{4}年\d{1,2}月\d{1,2}日 星期[一二三四五六日]。$/)
   })
 })

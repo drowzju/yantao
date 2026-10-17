@@ -77,6 +77,30 @@ export const BEHAVIOR_MEMORY_SECTION = { name: 'yantao:behavior-memory', order: 
 export const PROMPT_SHORTCUTS_SECTION = { name: 'yantao:prompt-shortcuts', order: 155 } as const
 
 /**
+ * The clock section: the agent has no clock of its own — without this line it
+ * cannot resolve relative dates («今晚», «明天») into calendar days, and every
+ * dated artifact it drafts is a guess. Evaluated at every assembly, so a
+ * midnight rollover is honored on the next step with zero rebuild. Placement
+ * precedes the filesystem discipline (120): the date is ground truth the
+ * disciplines build on.
+ */
+export const CLOCK_SECTION = { name: 'yantao:clock', order: 110 } as const
+
+const WEEKDAY_ZH = ['日', '一', '二', '三', '四', '五', '六'] as const
+
+/**
+ * Render the clock line for a given instant — a pure function so tests pin
+ * the format. Output is a single line, e.g. 「今天是 2026年10月17日 星期六。」
+ */
+export function renderClockLine(now: Date): string {
+  const y = now.getFullYear()
+  const m = now.getMonth() + 1
+  const d = now.getDate()
+  const weekday = WEEKDAY_ZH[now.getDay()]
+  return `今天是 ${y}年${m}月${d}日 星期${weekday}。`
+}
+
+/**
  * Register the filesystem section (ADR-0042): the static disciplines'
  * `filesystem.md` with `{{kbRoot}}` resolved against the live root on every
  * assembly, so a `setRoot` retarget is honored without re-registering.
@@ -136,6 +160,29 @@ export function registerPromptShortcutsSection(ctx: Context, root: () => string)
       },
     }),
     `yantao-kb: register dynamic prompt section ${PROMPT_SHORTCUTS_SECTION.name}`,
+  )
+}
+
+/**
+ * Register the clock section: a one-line date stamp re-evaluated at every
+ * assembly. The provider cannot realistically throw, but the guard keeps a
+ * hostile `Date` override from killing prompt assembly outright.
+ * @param ctx - the mounting plugin context (needs `effect` and `systemPrompt`).
+ */
+export function registerClockSection(ctx: Context): void {
+  ctx.effect(
+    () => ctx.systemPrompt.section({
+      name: CLOCK_SECTION.name,
+      order: CLOCK_SECTION.order,
+      text: () => {
+        try {
+          return renderClockLine(new Date())
+        } catch {
+          return ''
+        }
+      },
+    }),
+    `yantao-kb: register dynamic prompt section ${CLOCK_SECTION.name}`,
   )
 }
 

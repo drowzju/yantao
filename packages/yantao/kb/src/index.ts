@@ -29,7 +29,7 @@ import { appendMemoryProposal, PROPOSAL_PENDING_SOFT_CAP } from './proposals.ts'
 import { INBOX_PENDING_SOFT_CAP } from './proposal-inbox.ts'
 import { importLegacyRootState } from './root-store.ts'
 import { proposeSkillRewrite } from './skill-rewrite.ts'
-import { registerBehaviorMemorySection, registerFilesystemSection, registerPromptSections, registerPromptShortcutsSection } from './sections.ts'
+import { registerBehaviorMemorySection, registerClockSection, registerFilesystemSection, registerPromptSections, registerPromptShortcutsSection } from './sections.ts'
 import { ENTITY_TYPES, PERSON_RELATIONS } from './types.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -194,6 +194,10 @@ export function apply(ctx: Context, config: Config): void {
   // against the live root on every assembly.
   registerPromptSections(ctx)
   registerFilesystemSection(ctx, () => liveRoot.root)
+
+  // The clock section: one date line re-evaluated per assembly, so the agent
+  // can resolve relative dates («今晚») into calendar days.
+  registerClockSection(ctx)
 
   // The dynamic section (ADR-0032 批次②): the global behavior memory rides
   // the system prompt, re-read from the KB on every assembly.
@@ -682,7 +686,7 @@ export type { EmlAttachment, EmlParsed } from './resource-content.ts'
 // The prompt-section layer's vocabulary, for host-side consumers that price
 // the yantao injection (the controller's context meter): the section roster
 // and its text loader are the exact source the plugin registers from.
-export { BEHAVIOR_MEMORY_SECTION, FILESYSTEM_SECTION, PROMPT_SHORTCUTS_SECTION, loadSectionText, YANTAO_SECTIONS } from './sections.ts'
+export { BEHAVIOR_MEMORY_SECTION, CLOCK_SECTION, FILESYSTEM_SECTION, PROMPT_SHORTCUTS_SECTION, loadSectionText, renderClockLine, YANTAO_SECTIONS } from './sections.ts'
 export type { YantaoSection } from './sections.ts'
 export { parseFrontmatter } from './frontmatter.ts'
 export type { Frontmatter } from './frontmatter.ts'
