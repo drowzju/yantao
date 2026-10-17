@@ -622,6 +622,33 @@ async function startAccount(
   })
   void workspace.start()
 
+  // 决定 4 补强（ADR-0061）：钉钉会话在侧栏必须一眼可辨。会话标题默认由
+  // 首条消息自动生成——问候语开场就得到「你好」，完全认不出是钉钉会话。
+  // 这里在标题不是用户手动所起时落一次「钉钉对话」（rename 会钉住标题并
+  // 压制后续自动起名，所以既不与起名器打架，也不会覆写用户自己的改名）。
+  const titledSessions = new Set<string>()
+  const ensureDingtalkTitle = (agent: HostAgent): void => {
+    if (titledSessions.has(agent.id)) return
+    const titles = (ctx as any).get?.('sessionTitle') as
+      | {
+        get(session: unknown): { readonly title: string; readonly source?: { readonly kind?: string } } | undefined
+        rename(session: unknown, title: string): unknown
+      }
+      | undefined
+    const session = (agent as unknown as { session?: unknown }).session
+    // 服务未就绪时不记账，下一条消息再试。
+    if (titles === undefined || session === undefined) return
+    titledSessions.add(agent.id)
+    try {
+      const current = titles.get(session)
+      if (current !== undefined && current.source?.kind === 'user') return
+      titles.rename(session, '钉钉对话')
+      log(`session ${agent.id} titled 钉钉对话`)
+    } catch (err) {
+      log(`session title failed (${err instanceof Error ? err.message : err})`)
+    }
+  }
+
   // Host services are typed structurally (see host.ts); inject guarantees presence.
   const agents = (ctx as any).agents as HostAgentRegistry
   const defaultModel = (ctx as any).agentDefaultModel as HostDefaultModel
@@ -751,6 +778,7 @@ async function startAccount(
       questions.bindSession(agent.id, msg)
       files.bindSession(agent, msg, sessionCwd)
       void workspace.attach(agent.id, sessionCwd)
+      ensureDingtalkTitle(agent)
     },
     compose: async () => {
       // Optional service: a deployment without a roster runs preset-less
