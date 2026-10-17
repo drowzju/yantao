@@ -49,8 +49,8 @@ export interface WorkspaceRun {
   readonly instructionId: string
   /** The instruction's name at trigger time (snapshots survive renames). */
   readonly instructionName: string
-  /** What pulled the trigger. */
-  readonly trigger: 'manual' | 'cron'
+  /** What pulled the trigger (`agent` = an agent session's kb_run_workspace_instruction, ADR-0063). */
+  readonly trigger: 'manual' | 'cron' | 'agent'
   /** Lifecycle: `running` until a terminal status replaces it. */
   readonly status: 'running' | 'success' | 'failed' | 'stopped' | 'missed' | 'interrupted'
   /** ISO timestamp the run was created. */
@@ -144,7 +144,7 @@ export function normalizeWorkspaceRuns(runs: readonly unknown[]): WorkspaceRun[]
         throw new KbError('bad-workspace-run', `运行记录「${id}」缺少 ${key}`)
       }
     }
-    if (raw.trigger !== 'manual' && raw.trigger !== 'cron') {
+    if (raw.trigger !== 'manual' && raw.trigger !== 'cron' && raw.trigger !== 'agent') {
       throw new KbError('bad-workspace-run', `运行记录「${id}」的触发方式不合法`)
     }
     const status = raw.status
@@ -227,7 +227,7 @@ export interface WorkspaceRunSeed {
   readonly workspaceId: string
   readonly instructionId: string
   readonly instructionName: string
-  readonly trigger: 'manual' | 'cron'
+  readonly trigger: 'manual' | 'cron' | 'agent'
   readonly steps: readonly string[]
   /**
    * Born-terminal variant: a missed cron window is recorded as one `missed`

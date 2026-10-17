@@ -1175,8 +1175,8 @@ export interface KbWorkspaceRun {
   readonly instructionId: string
   /** The instruction's name at trigger time (snapshots survive renames). */
   readonly instructionName: string
-  /** What pulled the trigger. */
-  readonly trigger: 'manual' | 'cron'
+  /** What pulled the trigger (`agent` = kb_run_workspace_instruction, ADR-0063). */
+  readonly trigger: 'manual' | 'cron' | 'agent'
   /** Lifecycle: `running` until a terminal status replaces it. */
   readonly status: 'running' | 'success' | 'failed' | 'stopped' | 'missed' | 'interrupted'
   /** ISO timestamp the run was created. */

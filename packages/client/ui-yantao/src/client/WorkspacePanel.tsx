@@ -755,7 +755,9 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
             <div style={runHeadStyle}>
               <strong style={{ fontSize: 'var(--yt-type-label)' }}>{entry.instructionName}</strong>
               <span style={mutedStyle}>
-                {entry.trigger === 'cron' ? t('workspace.triggerCron') : t('workspace.triggerManual')}
+                {entry.trigger === 'cron' ? t('workspace.triggerCron')
+                  : entry.trigger === 'agent' ? t('workspace.triggerAgent')
+                    : t('workspace.triggerManual')}
                 {' · '}{t(STATUS_KEYS[entry.status])}
                 {' · '}{stamp(entry.startedAt)}
                 {entry.finishedAt !== undefined && ` → ${rangeEndStamp(entry.startedAt, entry.finishedAt)}`}

@@ -49,8 +49,8 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
   addTodo, createEntity, entityDisplayPath, initKb, KbError, linkGraphOf, linksOf, listEntities, parseEml, parseFrontmatter,
   parseTodoFile, PERSON_RELATIONS, readCapabilityRecord, readCapabilityState, recordCapabilityRun,
-  registerResourceContent, relationGraphOf, resolveEntityPath, resolveWithinKb, serializeTodoFile, setEntityArchived, todayStamp,
-  writeCapabilityState, writeMailWatermark,
+  registerResourceContent, relationGraphOf, removeTodo, resolveEntityPath, resolveWithinKb, serializeTodoFile,
+  setEntityArchived, todayStamp, toggleTodo, updateTodo, writeCapabilityState, writeMailWatermark,
   appendMemoryEntry, listMemoryScopes, readMemoryScope, removeMemoryEntry, renderCapabilityMemoryBlock,
   listProposalScopes, proposalDisplayPath, removeMemoryProposalByText,
   loadSectionText, renderGlobalMemorySection, readGlobalMemoryEntries, YANTAO_SECTIONS,
@@ -61,7 +61,7 @@ import {
   readWorkspaceRuns, appendWorkspaceRun, clearWorkspaceRuns, deleteWorkspaceRun, WORKSPACE_RUNS_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
 import { pruneOrphanRunLogs } from './workspace/run-log.ts'
-import type { EntityType, WorkspaceDef } from '@deepseek-ai/dsh-yantao-kb'
+import type { EntityType, TodoFile, WorkspaceDef } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities, seedBuiltinRoutes } from './capability/builtin.ts'
 import { applySkillRewrite } from './capability/rewrite.ts'
 import { CAPABILITY_HINTS, CapabilityError, runCapability } from './capability/run.ts'
@@ -778,6 +778,455 @@ export class YantaoKbController extends TypertRemoteService {
         return { path, title }
       },
     }))
+
+    // ── ADR-0063：待办面板的 agent 直写面 ─────────────────────────────────
+    // kb_add_todo 的姊妹工具，ADR-0061 决定 1 的原则推广到整个待办面板：
+    // 人在对话里亲口让改待办，请求本身就是授权；登记在册的调度会话一律
+    // 拒绝（无人监督的写入仍要等人批准）。编辑走 read-latest + writeTodos
+    // 的乐观并发，撞车整体退回并引导重读——绝不盲写覆盖别人的改动。
+    this.ctx.tools.register(defineTool({
+      name: 'kb_read_todos',
+      description:
+        '读取整个待办清单（entities/todos.md），含已完成项。每项带一个 index 序号，'
+        + '是 kb_toggle_todo / kb_update_todo / kb_remove_todo 寻址的唯一依据——先读本工具拿到最新序号，再编辑。',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            items: {
+              type: 'array', required: true,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  index: { type: 'integer', required: true },
+                  done: { type: 'boolean', required: true },
+                  title: { type: 'string', required: true },
+                  due: { type: 'string' },
+                  doneOn: { type: 'string' },
+                  body: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: value.items.length === 0
+            ? '待办清单是空的。'
+            : value.items.map(item => `#${item.index} ${item.done ? '[x]' : '[ ]'} ${item.title}`
+              + (item.due !== undefined ? `（截止 ${item.due}）` : '')
+              + (item.doneOn !== undefined ? `（完成于 ${item.doneOn}）` : '')).join('\n'),
+        }],
+      },
+      execute: async () => {
+        if (!this.ctx.yantaoKb.configured) {
+          throw new Error('还没有选择知识库目录，待办清单无处可读。')
+        }
+        const path = TODOS_PATH
+        const target = this.confine(path, path)
+        const text = await this.readTodosText(path, target)
+        const items = parseTodoFile(text).items.map((item, index) => ({
+          index,
+          done: item.done,
+          title: item.title,
+          ...(item.due !== undefined ? { due: item.due } : {}),
+          ...(item.doneOn !== undefined ? { doneOn: item.doneOn } : {}),
+          body: item.body,
+        }))
+        return { path, items }
+      },
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'kb_toggle_todo',
+      description:
+        '勾选或取消勾选一条待办，立即生效（ADR-0063）。勾选自动盖上今天的 [done::YYYY-MM-DD]，取消勾选自动抹掉。'
+        + 'index 取自 kb_read_todos 的返回。仅限用户在对话里亲口让你改待办时使用；定时任务运行的会话里本工具会被拒绝。',
+      parameters: {
+        index: { type: 'integer', required: true, description: '待办序号，取自 kb_read_todos' },
+        done: { type: 'boolean', required: true, description: 'true 勾选完成，false 取消勾选' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            title: { type: 'string', required: true },
+            done: { type: 'boolean', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `已${value.done ? '勾选完成' : '取消勾选'}：「${value.title}」（对话直改，未产生提议卡）。`,
+        }],
+      },
+      execute: async ({ index, done }, exec) => {
+        if (!this.ctx.yantaoKb.configured) {
+          throw new Error('还没有选择知识库目录，待办清单无处可写。')
+        }
+        this.assertInteractiveSession(exec,
+          '本会话是定时任务运行，待办不能对话直改（无人监督时的写入仍要等人批准）。'
+          + '如需新增待办请走 kb_propose_actions；改待办请在人的对话会话里进行。')
+        let title = ''
+        const outcome = await this.editTodos((file) => {
+          const item = file.items[index]
+          if (item === undefined) {
+            throw new KbError('todo-index-out-of-range', `待办序号越界：${index}（共 ${file.items.length} 条待办；请先 kb_read_todos 重读最新序号）`)
+          }
+          title = item.title
+          return toggleTodo(file, index, done, todayStamp())
+        })
+        return { path: outcome.path, title, done }
+      },
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'kb_update_todo',
+      description:
+        '改一条待办的标题、截止日期或补充说明（整体替换），立即生效（ADR-0063）。'
+        + 'index 取自 kb_read_todos 的返回。仅限用户在对话里亲口让你改待办时使用；定时任务运行的会话里本工具会被拒绝。',
+      parameters: {
+        index: { type: 'integer', required: true, description: '待办序号，取自 kb_read_todos' },
+        title: { type: 'string', description: '新标题；不改就省略' },
+        due: { type: 'string', description: '新截止日期 YYYY-MM-DD；传空串清除截止日期；不改就省略' },
+        body: { type: 'string', description: '新补充说明（整体替换，传空串即清空）；不改就省略' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            title: { type: 'string', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `已改写待办：「${value.title}」（对话直改，未产生提议卡）。`,
+        }],
+      },
+      execute: async ({ index, title, due, body }, exec) => {
+        if (title === undefined && due === undefined && body === undefined) {
+          throw new Error('至少要给 title、due、body 之一，否则没有可改的内容。')
+        }
+        if (!this.ctx.yantaoKb.configured) {
+          throw new Error('还没有选择知识库目录，待办清单无处可写。')
+        }
+        this.assertInteractiveSession(exec,
+          '本会话是定时任务运行，待办不能对话直改（无人监督时的写入仍要等人批准）。'
+          + '如需新增待办请走 kb_propose_actions；改待办请在人的对话会话里进行。')
+        let finalTitle = ''
+        const outcome = await this.editTodos((file) => {
+          const item = file.items[index]
+          if (item === undefined) {
+            throw new KbError('todo-index-out-of-range', `待办序号越界：${index}（共 ${file.items.length} 条待办；请先 kb_read_todos 重读最新序号）`)
+          }
+          const patch: { title?: string; due?: string; body?: string } = {}
+          if (title !== undefined) patch.title = title
+          if (due !== undefined) patch.due = due.trim()
+          if (body !== undefined) patch.body = body
+          const next = updateTodo(file, index, patch)
+          finalTitle = next.items[index]?.title ?? item.title
+          return next
+        })
+        return { path: outcome.path, title: finalTitle }
+      },
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'kb_remove_todo',
+      description:
+        '删除一条待办（连同它的补充说明），立即生效（ADR-0063）。'
+        + 'index 取自 kb_read_todos 的返回。仅限用户在对话里亲口让你删待办时使用；定时任务运行的会话里本工具会被拒绝。',
+      parameters: {
+        index: { type: 'integer', required: true, description: '待办序号，取自 kb_read_todos' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            title: { type: 'string', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `已删除待办：「${value.title}」（对话直删，未产生提议卡）。`,
+        }],
+      },
+      execute: async ({ index }, exec) => {
+        if (!this.ctx.yantaoKb.configured) {
+          throw new Error('还没有选择知识库目录，待办清单无处可写。')
+        }
+        this.assertInteractiveSession(exec,
+          '本会话是定时任务运行，待办不能对话直删（无人监督时的写入仍要等人批准）。'
+          + '删待办请在人的对话会话里进行。')
+        let title = ''
+        const outcome = await this.editTodos((file) => {
+          const item = file.items[index]
+          if (item === undefined) {
+            throw new KbError('todo-index-out-of-range', `待办序号越界：${index}（共 ${file.items.length} 条待办；请先 kb_read_todos 重读最新序号）`)
+          }
+          title = item.title
+          return removeTodo(file, index)
+        })
+        return { path: outcome.path, title }
+      },
+    }))
+
+    // ── ADR-0063：行为记忆的 agent 直写面（查/增/删）──────────────────────
+    // ADR-0044 的提议门禁对「人在场」的对话放开：人亲口让记/让忘，请求本身
+    // 即授权（ADR-0061 决定 1 同款原则）；调度会话仍走 kb_propose_memory。
+    // 「改」一条记忆 = 按 id 删旧条目再用 kb_add_memory 记新（条目就是一行
+    // 文本，没有独立的改写动词）。
+    this.ctx.tools.register(defineTool({
+      name: 'kb_list_memory',
+      description:
+        '列出全部行为记忆：每个作用域（global 或能力名）下的条目全文与 id。'
+        + '要改一条记忆 = 用它的 id 走 kb_delete_memory 删旧，再用 kb_add_memory 记新。',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            scopes: {
+              type: 'array', required: true,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  scope: { type: 'string', required: true },
+                  path: { type: 'string', required: true },
+                  entries: {
+                    type: 'array', required: true,
+                    items: {
+                      type: 'object',
+                      additionalProperties: false,
+                      properties: {
+                        id: { type: 'string', required: true },
+                        text: { type: 'string', required: true },
+                        date: { type: 'string' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: value.scopes.length === 0
+            ? '还没有任何行为记忆。'
+            : value.scopes.map(scope => `【${scope.scope}】（${scope.path}）\n`
+              + (scope.entries.length === 0
+                ? '  （空）'
+                : scope.entries.map(entry => `  - [${entry.id.slice(0, 12)}] ${entry.text}`).join('\n'))).join('\n'),
+        }],
+      },
+      execute: async () => {
+        if (!this.ctx.yantaoKb.configured) {
+          throw new Error('还没有选择知识库目录，记忆无处可读。')
+        }
+        const scopes = await listMemoryScopes(this.kbRoot)
+        return {
+          scopes: scopes.map(scope => ({
+            scope: scope.scope,
+            path: scope.path,
+            entries: scope.entries.map(entry => ({
+              id: entry.id,
+              text: entry.text,
+              ...(entry.date !== undefined ? { date: entry.date } : {}),
+            })),
+          })),
+        }
+      },
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'kb_add_memory',
+      description:
+        '把一条行为规则直接记入指定作用域（global=全局，或能力名），立即生效，下一轮注入（ADR-0063）。'
+        + '仅限用户在对话里亲口让你记住时使用；定时任务运行的会话里本工具会被拒绝——那种无人监督的写入仍须走 kb_propose_memory 提议入队。'
+        + '一模一样的文本重复记会被拒绝（已是记忆）。',
+      parameters: {
+        scope: { type: 'string', required: true, description: '作用域：global，或一个能力名（取自 kb_list_memory 的 scope 列）' },
+        text: { type: 'string', required: true, description: '规则全文，一行；写成可执行的指令式表述' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            scope: { type: 'string', required: true },
+            path: { type: 'string', required: true },
+            id: { type: 'string', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `已记入作用域 ${value.scope}（${value.path}）：对话直记，未产生提议卡。`,
+        }],
+      },
+      execute: async ({ scope, text }, exec) => {
+        if (!this.ctx.yantaoKb.configured) {
+          throw new Error('还没有选择知识库目录，记忆无处可写。')
+        }
+        this.assertInteractiveSession(exec,
+          '本会话是定时任务运行，记忆不能对话直写（无人监督时的写入仍要等人批准）。'
+          + '请改用 kb_propose_memory 把这条记忆作为提议入队，等人在记忆页批准。')
+        const added = await appendMemoryEntry(this.kbRoot, scope, text)
+        return { scope: added.scope, path: added.path, id: added.entries.at(-1)?.id ?? '' }
+      },
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'kb_delete_memory',
+      description:
+        '按 id 删除一条行为记忆，立即生效（ADR-0063）。id 取自 kb_list_memory。'
+        + '仅限用户在对话里亲口让你忘记时使用；定时任务运行的会话里本工具会被拒绝。',
+      parameters: {
+        scope: { type: 'string', required: true, description: '作用域名，取自 kb_list_memory' },
+        id: { type: 'string', required: true, description: '条目 id（完整 40 位），取自 kb_list_memory' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            scope: { type: 'string', required: true },
+            path: { type: 'string', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `已删除作用域 ${value.scope} 里的这条记忆（对话直删，未产生提议卡）。`,
+        }],
+      },
+      execute: async ({ scope, id }, exec) => {
+        if (!this.ctx.yantaoKb.configured) {
+          throw new Error('还没有选择知识库目录，记忆无处可改。')
+        }
+        this.assertInteractiveSession(exec,
+          '本会话是定时任务运行，记忆不能对话直删。请在人的对话会话里提出，或让用户在工作台的省得页删除。')
+        const after = await removeMemoryEntry(this.kbRoot, scope, id)
+        return { scope, path: after.path }
+      },
+    }))
+
+    // ── ADR-0063：工作空间面的 agent 读 + 触发（ADR-0056 决定 1 的定向松绑）──
+    // 读 = 看空间与指令链的定义；执行 = 触发一条已定义的指令（与人类通道的
+    // 立即运行同一条链，运行记录如实标 agent 来源）。写工作空间定义仍然是
+    // 人通道（ADR-0056 决定 2：创建绑定即授权）——agent 自写调度链等于自我
+    // 编程，不开放。调度会话里触发也被拒（防链再触发链的递归）。
+    this.ctx.tools.register(defineTool({
+      name: 'kb_list_workspaces',
+      description:
+        '列出全部工作空间：每个空间的绑定目录与其指令链（每条指令带 id、名称、cron、启用状态与步骤全文）。'
+        + '要用 kb_run_workspace_instruction 触发某条指令时，先从这里拿 id。',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            workspaces: {
+              type: 'array', required: true,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  id: { type: 'string', required: true },
+                  name: { type: 'string', required: true },
+                  directory: { type: 'string', required: true },
+                  instructions: {
+                    type: 'array', required: true,
+                    items: {
+                      type: 'object',
+                      additionalProperties: false,
+                      properties: {
+                        id: { type: 'string', required: true },
+                        name: { type: 'string', required: true },
+                        cron: { type: 'string' },
+                        enabled: { type: 'boolean', required: true },
+                        steps: { type: 'array', items: { type: 'string' }, required: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: value.workspaces.length === 0
+            ? '还没有定义任何工作空间。'
+            : value.workspaces.map(space => `【${space.name}】(${space.id}) → ${space.directory}\n`
+              + space.instructions.map(instruction => `  - (${instruction.id}) ${instruction.name}`
+                + ` [${instruction.enabled ? '启用' : '停用'}${instruction.cron !== undefined ? ` · cron ${instruction.cron}` : ' · 仅手动'}]`
+                + `，${instruction.steps.length} 步`).join('\n')).join('\n'),
+        }],
+      },
+      execute: async () => {
+        this.requireKbRootForWorkspaces(WORKSPACES_DISPLAY_PATH)
+        const spaces = await readWorkspaces(this.kbRoot)
+        return {
+          workspaces: spaces.map(space => ({
+            id: space.id,
+            name: space.name,
+            directory: space.directory,
+            instructions: space.instructions.map(instruction => ({
+              id: instruction.id,
+              name: instruction.name,
+              ...(instruction.cron !== undefined ? { cron: instruction.cron } : {}),
+              enabled: instruction.enabled,
+              steps: [...instruction.steps],
+            })),
+          })),
+        }
+      },
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'kb_run_workspace_instruction',
+      description:
+        '立即执行一个工作空间里定义好的一条指令：其提示词链会在后台逐步跑起来，结果落在工作空间页的运行历史里（ADR-0063）。'
+        + 'workspaceId / instructionId 取自 kb_list_workspaces。仅限用户在对话里亲口让你执行时使用；'
+        + '定时任务运行的会话里本工具会被拒绝（防止链再触发链）。',
+      parameters: {
+        workspaceId: { type: 'string', required: true, description: '工作空间 id，取自 kb_list_workspaces' },
+        instructionId: { type: 'string', required: true, description: '指令 id，取自 kb_list_workspaces' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            runId: { type: 'string', required: true },
+            workspace: { type: 'string', required: true },
+            instruction: { type: 'string', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `已触发工作空间「${value.workspace}」的指令「${value.instruction}」（运行 ${value.runId}），链条在后台执行，结果看工作空间页的运行历史。`,
+        }],
+      },
+      execute: async ({ workspaceId, instructionId }, exec) => {
+        this.assertInteractiveSession(exec,
+          '本会话是定时任务运行，不能再触发工作空间指令（防止链再触发链）。请让用户在工作台的工作空间页手动运行。')
+        this.requireKbRootForWorkspaces(WORKSPACE_RUNS_DISPLAY_PATH)
+        const { space, instruction } = await this.locateInstruction(workspaceId, instructionId)
+        try {
+          const runId = await this.workspaceRuntime.trigger(space, instruction, 'agent')
+          return { runId, workspace: space.name, instruction: instruction.name }
+        } catch (error: unknown) {
+          throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)
+        }
+      },
+    }))
   }
 
   /** The one KB root, read per call so a re-chosen root takes effect at once. */
@@ -809,6 +1258,48 @@ export class YantaoKbController extends TypertRemoteService {
         throw new RemoteError('yantao-kb/rejected', error.message, { path: display }, { cause: error })
       }
       throw error
+    }
+  }
+
+  /**
+   * The conversational-write gate, generalized from `kb_add_todo`'s inline
+   * check (ADR-0061 决定 1 → ADR-0063): a session booked in the scheduled-run
+   * registry is refused everywhere the dialogue-is-the-authorization tools
+   * write directly — an unsupervised automated write keeps its human
+   * checkpoint. `guidance` names the alternative channel for the model.
+   */
+  private assertInteractiveSession(exec: unknown, guidance: string): void {
+    const sessionId = (exec as { agent?: { id?: string } } | undefined)?.agent?.id
+    if (sessionId !== undefined && this.scheduledRuns.isScheduled(sessionId)) {
+      throw new Error(guidance)
+    }
+  }
+
+  /**
+   * The todo-edit tools' common landing (ADR-0063): read latest → mutate →
+   * write through the optimistic-concurrency RPC (`expectedText`), so a
+   * concurrent human edit (Obsidian, another tab, another window) is
+   * reported and rolled back instead of clobbered (ADR-0018). The mutation
+   * throws KbError-shaped verdicts (out-of-range index, bad date) that pass
+   * through verbatim; a lost race surfaces as one error telling the model
+   * to re-read and retry — never a silent overwrite.
+   */
+  private async editTodos(mutate: (file: TodoFile) => TodoFile): Promise<{ path: string; text: string }> {
+    const path = TODOS_PATH
+    const target = this.confine(path, path)
+    const current = await this.readTodosText(path, target)
+    let file: TodoFile
+    try {
+      file = mutate(parseTodoFile(current))
+    } catch (error) {
+      throw new Error(error instanceof KbError ? error.message : `无法编辑待办清单：${(error as Error).message}`)
+    }
+    try {
+      const result = await this.writeTodos({ items: [...file.items], expectedText: current })
+      return { path, text: result.text }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`待办写入未落盘：${message}。若提示已被别处修改，请先用 kb_read_todos 重读最新序号再试。`)
     }
   }
 

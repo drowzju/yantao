@@ -135,7 +135,7 @@ export class WorkspaceRuntime {
    * @param trigger - what pulled the trigger.
    * @returns the new run's id.
    */
-  async trigger(space: WorkspaceDef, instruction: WorkspaceInstruction, trigger: 'manual' | 'cron'): Promise<string> {
+  async trigger(space: WorkspaceDef, instruction: WorkspaceInstruction, trigger: 'manual' | 'cron' | 'agent'): Promise<string> {
     const kbRoot = this.options.kbRoot()
     const run = await appendWorkspaceRun(kbRoot, {
       workspaceId: space.id,
@@ -204,7 +204,7 @@ export class WorkspaceRuntime {
     // The distilled process log (sessions/workspace/<runId>.log) trails the
     // chain fire-and-forget: a log failure never touches the run itself.
     const log = new RunLogWriter(runLogPath(kbRoot, run.id))
-    log.open(`═══ 工作区「${space.name}」· 指令「${run.instructionName}」· ${run.trigger === 'cron' ? '定时' : '手动'} · ${wallClock()} ═══`)
+    log.open(`═══ 工作区「${space.name}」· 指令「${run.instructionName}」· ${run.trigger === 'cron' ? '定时' : run.trigger === 'agent' ? 'agent' : '手动'} · ${wallClock()} ═══`)
     // The working copy of the step list: every patch rebuilds it so the next
     // patch carries the previous ones too (patches replace the whole list).
     let steps = [...run.steps]
