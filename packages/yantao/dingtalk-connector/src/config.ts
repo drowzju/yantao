@@ -33,6 +33,12 @@ export interface Config {
   workspace: string
   /** 机器人名称（ADR-0060 决定 2 基础区）：volatile，展示用；改名不应重启连接。 */
   robotName: Volatile<string>
+  /**
+   * 钉钉消息并入工作台会话（ADR-0062 修订）：volatile，勾选状态下客户端把绑定
+   * 指到当前打开的会话并在换会话时跟随；连接器本体不消费此字段——路由只看
+   * bindings.json 的指针，这里只是让 settings 平台放行这个写入。
+   */
+  mergeIntoOpenSession: Volatile<boolean>
   /** 出站代理（http://host:port）；留空回落 DINGTALK_STREAM_PROXY / HTTPS_PROXY 环境变量。 */
   proxy: Volatile<string>
   markdownTitle: string
@@ -60,12 +66,13 @@ export interface Config {
 }
 
 /** The config with every volatile reference resolved to a plain value — the shape stacks consume. */
-export type ResolvedConfig = Omit<Config, 'enabled' | 'clientId' | 'robotName' | 'proxy' | 'debug'> & {
+export type ResolvedConfig = Omit<Config, 'enabled' | 'clientId' | 'robotName' | 'proxy' | 'debug' | 'mergeIntoOpenSession'> & {
   enabled: boolean
   clientId: string
   robotName: string
   proxy: string
   debug: boolean
+  mergeIntoOpenSession: boolean
 }
 
 const ReplyModeSchema: Schema<ReplyMode> = Schema.union(['aicard', 'markdown', 'text'])
@@ -195,6 +202,10 @@ export const Config = Schema.object({
   }).description('钉钉能力工具模块（方案 5.3：dws + skill，零 native tools）'),
   rejectNotice: Schema.boolean().default(true).description('拒绝未绑定用户或非白名单群时，是否回复通用原因提示'),
   robotName: Schema.string().default('').volatile().description('机器人名称；用于展示与后续卡片署名'),
+  mergeIntoOpenSession: Schema.boolean()
+    .default(true)
+    .volatile()
+    .description('钉钉消息并入工作台会话：客户端把绑定指到当前打开的会话并在换会话时跟随；连接器本体不消费'),
   proxy: Schema.string()
     .default('')
     .volatile()

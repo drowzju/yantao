@@ -61,7 +61,9 @@ import { runRefine, type RefineRunnerArgs } from './refine.ts'
 import { runScheduledTask } from './scheduler.ts'
 import { runValidate, type ValidateScope } from './validate.ts'
 import { loadModelsConfig, saveModelsConfig, type ModelsConfigDraft } from './model-config.ts'
-import { loadDingTalkConfig, saveDingTalkConfig, type DingTalkConfigDraft } from './dingtalk-config.ts'
+import {
+  loadDingTalkConfig, loadDingTalkMergeFlag, saveDingTalkConfig, type DingTalkConfigDraft,
+} from './dingtalk-config.ts'
 import { promptCurrentSession } from './session-prompt.ts'
 import { loadSessionDetail } from './session-detail.ts'
 import { loadDingtalkBindings, sessionRemoteOf, setDingtalkBinding, usageRemoteOf, unwrapRemote } from './remote.ts'
@@ -216,7 +218,29 @@ export function apply(ctx: Context): void {
     if (svc !== undefined) run(svc)
     else ctx.inject(['uiWorkspace'], (scope) => { run(scope.uiWorkspace) })
   }
-  ctx.inject(['uiWorkspace'], (scope) => { uiWorkspaceRef.current = scope.uiWorkspace })
+  ctx.inject(['uiWorkspace'], (scope) => {
+    uiWorkspaceRef.current = scope.uiWorkspace
+    // 钉钉消息并入工作台会话（ADR-0062 修订）：勾选状态下，当前会话一变就把
+    // 所有已知绑定指过去——「消息出现在当前窗口里」由此成立，重启后第一次
+    // 导航也会自动对齐。读失败静默：跟随是锦上添花，绝不打扰导航本身。
+    let tail: Promise<void> = Promise.resolve()
+    scope.uiWorkspace.onMainSelectionChange((sessionId) => {
+      if (sessionId === undefined) return
+      tail = tail.then(async () => {
+        try {
+          if (!(await loadDingTalkMergeFlag(ctx))) return
+          const rows = await loadDingtalkBindings(ctx)
+          for (const row of rows) {
+            if (row.sessionId !== sessionId) {
+              await setDingtalkBinding(ctx, row.conversationId, sessionId)
+            }
+          }
+        } catch (reason: unknown) {
+          console.warn('dingtalk merge-follow failed:', reason)
+        }
+      })
+    })
+  })
   const conversationRef: { current: { input?: SessionInputResolver } | undefined } = { current: undefined }
   ctx.inject(['conversation'], (scope) => {
     conversationRef.current = scope.conversation satisfies { input?: SessionInputResolver } | undefined

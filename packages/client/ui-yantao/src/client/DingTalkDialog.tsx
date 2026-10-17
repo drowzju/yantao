@@ -191,6 +191,9 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
   const [robotName, setRobotName] = useState('')
   const [proxy, setProxy] = useState('')
   const [debug, setDebug] = useState(false)
+  // 钉钉消息并入工作台会话（ADR-0062 修订）：勾选时绑定指到当前打开的会话，
+  // 且换会话自动跟随（跟随逻辑在 apply 世界订阅导航事件）；取消即还原独立。
+  const [mergeInto, setMergeInto] = useState(true)
   // 绑定会话（ADR-0061 决定 2）：展开时懒读一次，之后留在内存里。
   const [bindings, setBindings] = useState<readonly KbDingtalkBindingRow[] | null>(null)
   const [bindingsError, setBindingsError] = useState(false)
@@ -213,6 +216,7 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
     setRobotName(loaded.robotName)
     setProxy(loaded.proxy)
     setDebug(loaded.debug)
+    setMergeInto(loaded.mergeIntoOpenSession)
     setSecretDraft('')
     setSaved(false)
   }, [])
@@ -264,31 +268,48 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
     setMirrorSession(current => (current === sessionId ? null : sessionId))
   }, [])
 
-  // 并入手势（ADR-0062 决定 4）：把这条钉钉会话接进当前打开的工作台会话，
-  // 或还原独立。成功后刷新绑定列表（sessionId 变了，行内显示跟着换）。
+  // 并入勾选（ADR-0062 修订）：一个勾选框替代原先每行的并入/还原按钮——
+  // 勾上立刻把所有已知绑定接到当前打开的会话（也是跟随逻辑的起点），
+  // 取消立刻还原独立会话。配置与绑定动作都即时生效，不等「保存」。
   const [mergeNote, setMergeNote] = useState<string | null>(null)
-  const [mergeBusy, setMergeBusy] = useState<string | null>(null)
+  const [mergeBusy, setMergeBusy] = useState(false)
 
-  const mergeOrRestore = useCallback(async (row: KbDingtalkBindingRow): Promise<void> => {
-    if (mergeBusy !== null) return
-    const target = mergeTarget()
-    const next = target === row.sessionId ? null : target
-    if (next === undefined) {
+  const toggleMergeFollow = useCallback(async (checked: boolean): Promise<void> => {
+    if (mergeBusy || view === null) return
+    const target = checked ? mergeTarget() : null
+    if (target === undefined) {
       setMergeNote(t('dingtalk.bindings.noTarget'))
       return
     }
-    setMergeBusy(row.conversationId)
+    setMergeBusy(true)
     setMergeNote(null)
+    const previous = mergeInto
+    setMergeInto(checked)
     try {
-      await mergeBinding(row.conversationId, next)
-      setMergeNote(next === null ? t('dingtalk.bindings.restored') : t('dingtalk.bindings.merged'))
+      const result = await save({
+        enabled, clientId, robotName, proxy, debug, mergeIntoOpenSession: checked, secret: secretDraft,
+      })
+      if (result.kind !== 'saved') {
+        setMergeInto(previous)
+        setMergeNote(result.kind === 'conflict' ? t('dingtalk.conflict') : result.message)
+        return
+      }
+      const rows = bindings ?? await loadBindings()
+      for (const row of rows) {
+        if (row.sessionId !== target) await mergeBinding(row.conversationId, target)
+      }
       setBindings(await loadBindings())
+      setMergeNote(checked ? t('dingtalk.bindings.merged') : t('dingtalk.bindings.restored'))
+      setSaved(false)
+      setView(await load())
     } catch {
-      setMergeNote(`${t('dingtalk.bindings.mergeFailed')}：${row.conversationId}`)
+      setMergeInto(previous)
+      setMergeNote(t('dingtalk.bindings.mergeFailed'))
     } finally {
-      setMergeBusy(null)
+      setMergeBusy(false)
     }
-  }, [mergeBinding, mergeTarget, mergeBusy, loadBindings, t])
+  }, [mergeBusy, view, mergeInto, mergeTarget, save, enabled, clientId, robotName, proxy, debug,
+    secretDraft, bindings, loadBindings, mergeBinding, load, t])
 
   const saveDraft = async (): Promise<void> => {
     if (view === null || busy) return
@@ -296,7 +317,7 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
     setError(null)
     setSaved(false)
     try {
-      const result = await save({ enabled, clientId, robotName, proxy, debug, secret: secretDraft })
+      const result = await save({ enabled, clientId, robotName, proxy, debug, mergeIntoOpenSession: mergeInto, secret: secretDraft })
       if (result.kind === 'saved') {
         setSaved(true)
         setSecretDraft('')
@@ -332,6 +353,14 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
               {t('dingtalk.enabled')}
             </label>
             <span style={hintStyle}>{t('dingtalk.enabledHint')}</span>
+            {/* 钉钉消息并入工作台会话（ADR-0062 修订）：一个勾选框说清全部语义。 */}
+            <label style={checkLabelStyle}>
+              <input type="checkbox" checked={mergeInto} disabled={busy || mergeBusy}
+                data-dingtalk-merge-follow="true"
+                onChange={(event) => { void toggleMergeFollow(event.target.checked) }} />
+              {t('dingtalk.mergeFollow')}
+            </label>
+            <span style={hintStyle}>{t('dingtalk.mergeFollowHint')}</span>
             <label style={fieldStyle}>
               {t('dingtalk.clientId')}
               <input style={inputStyle} value={clientId} disabled={busy} data-dingtalk-client-id="true"
@@ -388,15 +417,6 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
                           {row.conversationId}
                         </span>
                         <span style={{ marginLeft: 'auto', flexShrink: 0, display: 'flex', gap: 'var(--yt-space-1)' }}>
-                          {/* 并入手势（ADR-0062 决定 4）：把这条钉钉会话接进当前
-                              打开的会话流；已在当前会话里则提供还原。 */}
-                          <button data-hover="true" type="button"
-                            disabled={mergeBusy !== null}
-                            style={{ ...ghostStyle, minHeight: 24, padding: '0 var(--yt-space-2)' }}
-                            onClick={() => { void mergeOrRestore(row) }}>
-                            {mergeBusy === row.conversationId ? '…'
-                              : mergeTarget() === row.sessionId ? t('dingtalk.bindings.restore') : t('dingtalk.bindings.merge')}
-                          </button>
                           <button data-hover="true" type="button"
                             style={{ ...ghostStyle, minHeight: 24, padding: '0 var(--yt-space-2)', ...(mirrorSession === row.sessionId ? { borderColor: 'var(--yt-accent-border)', color: 'var(--yt-accent, inherit)' } : {}) }}
                             aria-expanded={mirrorSession === row.sessionId}

@@ -43,6 +43,12 @@ export interface UiWorkspace {
    */
   readonly currentSessionId: SessionId | undefined
   /**
+   * Subscribe to main-selection changes (ADR-0062 follow): the listener fires
+   * with the freshly selected session id — or `undefined` when the selection
+   * clears — after every navigation. Returns the unsubscribe disposer.
+   */
+  onMainSelectionChange(listener: (sessionId: SessionId | undefined) => void): () => void
+  /**
    * Connect a Workspace and open its Session unless a later navigation supersedes it.
    * @param workspaceId - target Workspace.
    * @param beforeOpen - optional synchronous preparation for the selected Session,
@@ -215,6 +221,18 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   /** The session the main column is currently showing, if any (ADR-0062 并入手势的目标). */
   get currentSessionId(): SessionId | undefined {
     return this.mainReference?.sessionId
+  }
+
+  private readonly selectionListeners = new Set<(sessionId: SessionId | undefined) => void>()
+
+  onMainSelectionChange(listener: (sessionId: SessionId | undefined) => void): () => void {
+    this.selectionListeners.add(listener)
+    return () => { this.selectionListeners.delete(listener) }
+  }
+
+  private emitSelection(): void {
+    const sessionId = this.mainReference?.sessionId
+    for (const listener of this.selectionListeners) listener(sessionId)
   }
 
   async openWorkspace(workspaceId: WorkspaceId, beforeOpen?: (sessionId: SessionId) => void): Promise<void> {
@@ -409,6 +427,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     this.selection.set({})
     previous?.release()
     this.ctx.layout.selectPanel(null)
+    this.emitSelection()
   }
 
   private replaceMain(
@@ -441,6 +460,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     this.mainReference = reference
     previous?.release()
     if (panel === 'reveal') this.ctx.layout.selectPanel(null)
+    this.emitSelection()
   }
 
 }

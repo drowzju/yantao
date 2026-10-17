@@ -34,6 +34,11 @@ export interface DingTalkConfigView {
   readonly robotName: string
   readonly proxy: string
   readonly debug: boolean
+  /**
+   * 钉钉消息并入工作台会话（ADR-0062 修订）：勾选时客户端把绑定指到当前打开的
+   * 会话并在换会话时跟随；缺省 true——默认就是要并进当前窗口。
+   */
+  readonly mergeIntoOpenSession: boolean
   /** Whether the referenced credential holds a value (never the value itself). */
   readonly secretConfigured: boolean
   readonly secretWritable: boolean
@@ -48,6 +53,7 @@ export interface DingTalkConfigDraft {
   readonly robotName: string
   readonly proxy: string
   readonly debug: boolean
+  readonly mergeIntoOpenSession: boolean
   readonly secret: string
 }
 
@@ -96,10 +102,25 @@ export async function loadDingTalkConfig(ctx: Context): Promise<DingTalkConfigVi
     robotName: stringAt(value, 'robotName'),
     proxy: stringAt(value, 'proxy'),
     debug: boolAt(value, 'debug', false),
+    mergeIntoOpenSession: boolAt(value, 'mergeIntoOpenSession', true),
     secretConfigured: credentials.ok && credentials.value[SECRET_REF]?.configured === true,
     secretWritable: !(credentials.ok && credentials.value[SECRET_REF]?.writable === false),
     revision: ns.revision,
   }
+}
+
+/**
+ * Read just the merge-follow flag (ADR-0062 修订): the navigation-follow hook
+ * calls this on every session switch, so it skips the credential lookup the
+ * full view needs. Absent field means true — merging is the default posture.
+ */
+export async function loadDingTalkMergeFlag(ctx: Context): Promise<boolean> {
+  const described = await ctx.remote.settings.describe()
+  if (!described.ok) throw described.error
+  const ns = described.value.namespaces.find(candidate => candidate.ns === DINGTALK_NAMESPACE)
+  if (ns === undefined) return true
+  const value = isJsonObject(ns.value) ? ns.value : {}
+  return boolAt(value, 'mergeIntoOpenSession', true)
 }
 
 /**
@@ -125,6 +146,9 @@ export async function saveDingTalkConfig(ctx: Context, draft: DingTalkConfigDraf
   const proxy = draft.proxy.trim()
   if (proxy !== view.proxy) ops.push({ op: 'set', path: ['proxy'], value: proxy })
   if (draft.debug !== view.debug) ops.push({ op: 'set', path: ['debug'], value: draft.debug })
+  if (draft.mergeIntoOpenSession !== view.mergeIntoOpenSession) {
+    ops.push({ op: 'set', path: ['mergeIntoOpenSession'], value: draft.mergeIntoOpenSession })
+  }
   if (ops.length > 0) {
     const written = await ctx.remote.settings.mutate(DINGTALK_NAMESPACE, ops, view.revision)
     if (!written.ok) {

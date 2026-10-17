@@ -101,6 +101,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     robotName: config.robotName.get(),
     proxy: config.proxy.get(),
     debug: config.debug.get(),
+    mergeIntoOpenSession: config.mergeIntoOpenSession.get(),
   })
 
   // ADR-0060 决定 2 高级区：面板配置的代理优先于环境变量；proxy 是 volatile

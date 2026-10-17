@@ -148,8 +148,8 @@ export const zh = {
   'dingtalk.bindings.robot': '机器人',
   'dingtalk.bindings.employee': '数字员工',
   // 并入手势（ADR-0062 决定 4）：把钉钉会话接进当前打开的会话流
-  'dingtalk.bindings.merge': '并入当前会话',
-  'dingtalk.bindings.restore': '还原独立会话',
+  'dingtalk.mergeFollow': '钉钉消息并入工作台会话',
+  'dingtalk.mergeFollowHint': '勾选后，钉钉里的消息直接进你当前打开的会话，换了会话自动跟上；取消勾选则各自独立。',
   'dingtalk.bindings.merged': '已并入当前会话——钉钉消息会直接出现在那边。',
   'dingtalk.bindings.restored': '已还原为独立会话。',
   'dingtalk.bindings.noTarget': '先在左侧打开一个会话，再回来点「并入当前会话」。',
@@ -679,8 +679,8 @@ export const en = {
   'dingtalk.bindings.robot': 'Robot',
   'dingtalk.bindings.employee': 'Digital employee',
   // The merge gesture (ADR-0062 决定 4): pipe the DingTalk thread into the open session
-  'dingtalk.bindings.merge': 'Merge into open session',
-  'dingtalk.bindings.restore': 'Restore separate session',
+  'dingtalk.mergeFollow': 'Merge DingTalk messages into the open workbench session',
+  'dingtalk.mergeFollowHint': 'When checked, DingTalk messages land in the session you have open and follow you when you switch; uncheck to keep them separate.',
   'dingtalk.bindings.merged': 'Merged — DingTalk messages now land in the open session.',
   'dingtalk.bindings.restored': 'Restored to a separate session.',
   'dingtalk.bindings.noTarget': 'Open a session on the left first, then come back and merge.',
