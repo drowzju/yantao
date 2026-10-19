@@ -68,6 +68,14 @@ twins, no `.i18n.yaml` records, no re-recording; the pairing gate still governs 
 
 - **New package or Remote?** Re-run the generators (`pnpm run gen-tsconfig-paths`, doc/catalog generators) so the tsconfig
   references, package maps, and catalogs include it.
+- **Changed `packages/yantao/**` or a controller's `@Remote` surface?** The narrow `tsc -b <pkg>` emits declarations only
+  (`outDir: lib/types`); the runtime `lib/index.js` and typert tables stay stale until you rebuild them, and every normal
+  check (vitest, narrow tsc, bundle) stays green meanwhile — the breakage only surfaces when a human clicks the new button.
+  Required: `npx tsdown --env.DSH_BUILD_FACE host -F "<full scoped package name>"` from the repo root; for a new or changed
+  `@Remote` method additionally rebuild the browser-side aggregate (`npx tsdown --env.DSH_BUILD_FACE client` **inside**
+  `packages/api/remotes`); then probe the artifacts (e.g. `Select-String lib/typert.host.js <newMethodName>`) before handing
+  over. Do not route through full `npm run build:lib:host` — its tsc gate is currently blocked by legacy type errors in
+  unrelated test files.
 
 ## When the work is upstream work
 
