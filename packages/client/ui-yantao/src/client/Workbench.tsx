@@ -1138,6 +1138,14 @@ export interface IntakeRailProps extends RailProps {
   readonly workspaceRunsClear: WorkspaceRunsClearer
   /** Delete one history row (2026-10-15 截图评审); a still-running row refuses. */
   readonly workspaceRunDelete: WorkspaceRunDeleter
+  /**
+   * Bumped by the frame when the 调度 tab's 查看运行记录 asks for the
+   * 工作空间 tab (ADR-0064): any change brings that tab to the front —
+   * the nonce mirror of revealConnector.
+   */
+  readonly revealWorkspace?: { readonly nonce: number }
+  /** Jump to the 调度 tab (ADR-0064) — a cron badge's click in the 触发 column. Optional (tests). */
+  readonly onOpenSchedule?: () => void
 }
 
 // 错误行的重试钮收敛到 ./buttons.ts 的幽灵面（P1-2 收敛，2026-10-12）——
@@ -1229,6 +1237,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
     memoryList, memoryAdd, memoryDelete,
     promptShortcutList, promptShortcutSave, fillShortcut,
     workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList, workspaceRunsClear, workspaceRunDelete,
+    onOpenSchedule,
     onActiveTabChange,
   } = props
   const mailDelete = props.mailDelete
@@ -1259,6 +1268,11 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
   useEffect(() => {
     if (props.revealConnector !== undefined && props.revealConnector.nonce > 0) setTab('connector')
   }, [props.revealConnector])
+  // ADR-0064: the 调度 tab's 查看运行记录 — the 工作空间 tab comes to the
+  // front, where the run-history table lives.
+  useEffect(() => {
+    if (props.revealWorkspace !== undefined && props.revealWorkspace.nonce > 0) setTab('workspace')
+  }, [props.revealWorkspace])
   // Reveal a selection this rail owns: the tab carrying the file comes to the
   // front, so the highlighted row is a visible one. A selection owned by the
   // other rail leaves the human's own tab choice alone. Only a *new*
@@ -1447,6 +1461,7 @@ export function IntakeRail(props: IntakeRailProps): ReactElement {
             clearRuns={workspaceRunsClear}
             deleteRun={workspaceRunDelete}
             onOpenLog={(runId) => { onOpenFile(WORKSPACE_RUN_LOG_PATH(runId), 'read') }}
+            {...(onOpenSchedule !== undefined ? { onOpenSchedule } : {})}
           />
         )}
         {tab === 'resources' && (

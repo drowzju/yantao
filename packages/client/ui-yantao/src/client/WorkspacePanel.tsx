@@ -27,7 +27,6 @@ import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 import { ghostButtonStyle, primaryButtonStyle, toolButtonArmedStyle, toolButtonStyle } from './buttons.ts'
 import { useArmedAction } from './use-armed-action.ts'
 import { formatStamp } from './stamp.ts'
-import { cronNextFire, parseCron } from './cron.ts'
 
 /** What the panel needs: the five workspace RPCs, already bound to the context. */
 export interface WorkspacePanelProps {
@@ -49,6 +48,9 @@ export interface WorkspacePanelProps {
   readonly deleteRun: WorkspaceRunDeleter
   /** Open one run's distilled process log as a read-only centre tab. */
   readonly onOpenLog: (runId: string) => void
+  /** Jump to the 调度 tab — the trigger column's badge gesture (ADR-0064).
+      Optional: embedders without the face (tests) simply never jump. */
+  readonly onOpenSchedule?: () => void
 }
 
 /** A client-minted store id — same recipe as the kb store's (`<prefix>_<base36 ms>_<random>`). */
@@ -248,7 +250,12 @@ function RunResult(props: { readonly t: WorkbenchT; readonly text: string }): Re
   )
 }
 
-/** One instruction's editor form: name, optional cron, enabled, the step chain. */
+/**
+ * One instruction's editor form: name, the step chain. The trigger rule no
+ * longer edits here (ADR-0064): the cron lives on the instruction but is
+ * configured in the 调度 tab — this form only carries the stored value
+ * through untouched (same for the enabled flag).
+ */
 function InstructionForm(props: {
   readonly t: WorkbenchT
   readonly draft: {
@@ -264,13 +271,6 @@ function InstructionForm(props: {
   readonly onCancel: () => void
 }): ReactElement {
   const { t, draft, busy, onChange, onSubmit, onCancel } = props
-  // cron 即时反馈（2026-10-15 impeccable P1 修复）：此前敲错一个字段的表现
-  // 是「安静地永远不跑」——解析与下次触发预览复用 ./cron.ts，与 SchedulePane
-  // 同一口径；留空仍是合法的手动触发。
-  const cronTrimmed = draft.cron.trim()
-  const cronParsed = cronTrimmed === '' ? null : parseCron(cronTrimmed)
-  const cronInvalid = cronTrimmed !== '' && cronParsed === null
-  const cronNext = cronParsed === null ? null : cronNextFire(cronTrimmed, new Date())
   return (
     <div style={formStyle} data-workspace-instruction-form={draft.id ?? 'new'}>
       <input
@@ -280,26 +280,7 @@ function InstructionForm(props: {
         disabled={busy}
         onChange={(event) => { onChange({ name: event.target.value }) }}
       />
-      <input
-        style={inputStyle}
-        value={draft.cron}
-        placeholder={t('workspace.cronPlaceholder')}
-        disabled={busy}
-        aria-invalid={cronInvalid || undefined}
-        onChange={(event) => { onChange({ cron: event.target.value }) }}
-      />
-      {cronInvalid && <div style={errorStyle} role="alert" data-workspace-cron-error="true">{t('workspace.cronInvalid')}</div>}
-      {cronParsed !== null && (
-        <div style={metaStyle} data-workspace-cron-next="true">
-          {cronNext !== null
-            ? t('workspace.nextFire', { time: formatStamp(cronNext.toISOString()) })
-            : t('workspace.neverFires')}
-        </div>
-      )}
-      <label style={{ display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center', fontSize: 'var(--yt-type-label)' }}>
-        <input type="checkbox" checked={draft.enabled} disabled={busy} onChange={(event) => { onChange({ enabled: event.target.checked }) }} />
-        {t('workspace.enabled')}
-      </label>
+      <div style={metaStyle}>{t('workspace.scheduleHint')}</div>
       <div style={metaStyle}>{t('workspace.stepsLabel')}</div>
       {draft.steps.map((step, index) => (
         <div key={index} style={stepRowStyle}>
@@ -331,7 +312,7 @@ function InstructionForm(props: {
       )}
       <div style={formActionsStyle}>
         <button type="button" style={primaryButtonStyle} data-hover="primary"
-          disabled={busy || draft.name.trim() === '' || draft.steps.some(step => step.trim() === '') || cronInvalid}
+          disabled={busy || draft.name.trim() === '' || draft.steps.some(step => step.trim() === '')}
           onClick={onSubmit}>
           {t('workspace.save')}
         </button>
@@ -348,7 +329,9 @@ function InstructionForm(props: {
  * @param props - see {@link WorkspacePanelProps}.
  * @returns the panel element.
  */
-export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, deleteRun, onOpenLog }: WorkspacePanelProps): ReactElement {
+export function WorkspacePanel(
+  { t, list, save, run, stop, listRuns, clearRuns, deleteRun, onOpenLog, onOpenSchedule }: WorkspacePanelProps,
+): ReactElement {
   // Every seam is a fresh closure on each render (inject face), so the loads
   // and writes read them through a ref — the same discipline MemoryPanel uses.
   const latest = useRef({ list, save, run, stop, listRuns, clearRuns, deleteRun })
@@ -650,12 +633,22 @@ export function WorkspacePanel({ t, list, save, run, stop, listRuns, clearRuns, 
                       <span style={nameTextStyle}>{instruction.name}</span>
                       {!instruction.enabled && <span style={disabledTagStyle}>{t('workspace.disabledTag')}</span>}
                     </td>
-                    <td style={tdMetaStyle} title={instruction.cron}>
+                    <td style={tdMetaStyle}>
                       {/* cron 表达式收进 tooltip（2026-10-12 截图评审）：原始
-                          五段式把窄栏的名称列挤到硬折行；单元格只答「怎么触发」。 */}
+                          五段式把窄栏的名称列挤到硬折行；单元格只答「怎么触发」。
+                          ADR-0064：定时一格是只读徽标，点击跳「调度」页——规则的
+                          编辑家在那里，这里不再藏着第二份编辑入口。 */}
                       {instruction.cron === undefined
                         ? t('workspace.triggerManual')
-                        : t('workspace.triggerCron')}
+                        : (
+                          <button data-hover="true" type="button" style={iconButtonStyle}
+                            title={`${t('workspace.triggerCron')}：${instruction.cron}（点击到「调度」页修改）`}
+                            aria-label={`${t('workspace.triggerCron')}：${instruction.cron}`}
+                            data-workspace-schedule-badge={instruction.id}
+                            onClick={() => { onOpenSchedule?.() }}>
+                            {t('workspace.triggerCron')}
+                          </button>
+                        )}
                     </td>
                     <td style={tdMetaStyle}>{t('workspace.stepsCount', { count: instruction.steps.length })}</td>
                     <td style={tdMetaStyle}

@@ -49,7 +49,7 @@ import type {
   KbCapabilityRouteUpdateArgs, KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation,
   KbPromptShortcutSaveArgs, KbProposalInboxEnqueueArgs, KbProposalInboxResolveArgs,
   KbScheduleMarkArgs, KbScheduleSaveArgs, KbSkillRewriteApplyArgs, KbWriteTodosArgs,
-  KbWorkspaceRunArgs, KbWorkspaceSaveArgs,
+  KbWorkspaceRunArgs, KbWorkspaceSaveArgs, KbWorkspaceInstructionScheduleSetArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { UsageWireDailyArgs } from '@deepseek-ai/dsh-api-yantao-usage-controller/types'
 import type {
@@ -91,7 +91,7 @@ import {
   loadSchedules, markSchedule, savePromptShortcuts, saveSchedules, setKbRoot,
   enqueueInboxProposal, loadProposalInbox, loadRelationGraph, resolveInboxProposal,
   applyInboxProposal, undoInboxProposal,
-  loadWorkspaces, saveWorkspaces, runWorkspaceInstruction, stopWorkspaceRun, loadWorkspaceRuns,
+  loadWorkspaces, saveWorkspaces, setWorkspaceInstructionSchedule, runWorkspaceInstruction, stopWorkspaceRun, loadWorkspaceRuns,
   clearWorkspaceRunHistory, deleteWorkspaceRunRow,
   setRelation, unregisterCapability, updateCapabilityRoute, writeFile, writeTodos,
 } from './remote.ts'
@@ -426,6 +426,8 @@ export function apply(ctx: Context): void {
       // panel polls while a chain is live.
       workspaceList: () => loadWorkspaces(ctx),
       workspaceSave: (args: KbWorkspaceSaveArgs) => saveWorkspaces(ctx, args),
+      // ADR-0064: the 调度 tab's narrow write into one instruction's rule.
+      workspaceInstructionScheduleSet: (args: KbWorkspaceInstructionScheduleSetArgs) => setWorkspaceInstructionSchedule(ctx, args),
       workspaceRun: (args: KbWorkspaceRunArgs) => runWorkspaceInstruction(ctx, args),
       workspaceRunStop: (runId: string) => stopWorkspaceRun(ctx, runId),
       workspaceRunsList: () => loadWorkspaceRuns(ctx),

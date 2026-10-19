@@ -25,6 +25,7 @@ import type {
   ScheduleSaver, ProposalInboxEnqueuer, ProposalInboxLister, ProposalInboxResolver,
   ProposalInboxApplier, ProposalInboxUndoer, ShortcutFiller,
   WorkspaceLister, WorkspaceRunner, WorkspaceRunDeleter, WorkspaceRunsClearer, WorkspaceRunsLister, WorkspaceRunStopper, WorkspaceSaver,
+  WorkspaceInstructionScheduleSetter,
   RootLoader, RootSetter,
   Archiver, SkillRewriteApplier,
   SessionPrompter, TodoLoader, TodoWriter,
@@ -51,7 +52,7 @@ import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage, type ResourceViewReader } from '../remote.ts'
 import { notifySchedule, scheduleScan, formatRunStats, type ScheduleRunner } from '../scheduler.ts'
 import { SchedulePane } from '../SchedulePane.tsx'
-import type { KbCapabilitySummary, KbDeleteResourceResult, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbQueuedProposal, KbRelationGraphResult, KbSchedule, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary, KbDeleteResourceResult, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbQueuedProposal, KbRelationGraphResult, KbSchedule, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId, KbWorkspace, KbWorkspaceInstructionScheduleSetArgs } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
@@ -205,6 +206,8 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly workspaceList: WorkspaceLister
   /** Replace the whole workspace list (ADR-0056). */
   readonly workspaceSave: WorkspaceSaver
+  /** Set one instruction's trigger rule in place (ADR-0064) — the 调度 tab's narrow write. */
+  readonly workspaceInstructionScheduleSet: WorkspaceInstructionScheduleSetter
   /** Trigger one workspace instruction now (ADR-0056 决定 3). */
   readonly workspaceRun: WorkspaceRunner
   /** Kill one running chain (ADR-0056 决定 4). */
@@ -553,7 +556,8 @@ export function Frame({
   sessionDetail, onKbRootChanged, mailDelete, mailArchive, skillRewriteApply,
   promptShortcutList, promptShortcutSave, fillShortcut,
   scheduleList, scheduleSave, scheduleMark, runSchedule,
-  workspaceList, workspaceSave, workspaceRun, workspaceRunStop, workspaceRunsList, workspaceRunsClear, workspaceRunDelete,
+  workspaceList, workspaceSave, workspaceInstructionScheduleSet, workspaceRun, workspaceRunStop,
+  workspaceRunsList, workspaceRunsClear, workspaceRunDelete,
   proposalInboxList, proposalInboxResolve, proposalInboxEnqueue, proposalInboxApply, proposalInboxUndo, relationGraph,
   loadModelsConfig, saveModelsConfig, loadDingTalkConfig, saveDingTalkConfig, loadDingTalkBindings, setDingTalkBinding,
   currentDingtalkMergeTarget, openDingtalkSession,
@@ -996,6 +1000,20 @@ export function Frame({
     return () => { stale = true }
   }, [scheduleList])
 
+  // ── ADR-0064: the 调度 tab's second section reads the workspace store ────
+  // Instruction rules stay in workspaces.json (the controller's tick is still
+  // the executor); the pane edits one row's cron through the narrow RPC, and
+  // this read feeds the pane's list — nothing else ever writes through it.
+  const [workspaces, setWorkspaces] = useState<readonly KbWorkspace[]>([])
+  useEffect(() => {
+    let stale = false
+    workspaceList().then(
+      (result) => { if (!stale) setWorkspaces(result.workspaces) },
+      (failure: unknown) => { if (!stale) setCapabilityNotice(`工作空间读取失败：${remoteMessage(failure)}`, { severity: 'error' }) },
+    )
+    return () => { stale = true }
+  }, [workspaceList])
+
   // ── the 提议 tab and its inbox (ADR-0047) ────────────────────────────────
   // The scheduler's proposals wait here for the human's verdict: 批准
   // applies through the same human-channel seams as every other card and
@@ -1184,6 +1202,24 @@ export function Frame({
   const commitSchedules = useCallback((next: readonly KbSchedule[]): Promise<boolean> =>
     enqueueScheduleWrite(async () => (await scheduleSave({ schedules: next })).schedules, '调度保存失败'),
   [enqueueScheduleWrite, scheduleSave])
+
+  /** ADR-0064: the 调度 tab's narrow write into one instruction's rule —
+      resolves null on success (the pane treats that as saved), else the
+      error prose for the editor's inline alert. The returned list refreshes
+      the frame's workspace snapshot in place. */
+  const commitInstructionSchedule = useCallback(async (args: KbWorkspaceInstructionScheduleSetArgs): Promise<string | null> => {
+    try {
+      const result = await workspaceInstructionScheduleSet(args)
+      setWorkspaces(result.workspaces)
+      return null
+    } catch (failure: unknown) {
+      return remoteMessage(failure)
+    }
+  }, [workspaceInstructionScheduleSet])
+
+  // ADR-0064: the 调度 tab's 查看运行记录 jumps the left rail to the
+  // 工作空间 tab — the nonce mirror of connectorReveal (ADR-0031).
+  const [workspaceReveal, setWorkspaceReveal] = useState(0)
 
   /** The scheduler's bookkeeping seam: a single-row stamp patch, never a full-list save. */
   const markScheduleStamps = useCallback((id: string, patch: { lastFiredAt?: string | null; lastMissedAt?: string | null }): void => {
@@ -2012,6 +2048,8 @@ export function Frame({
           fillShortcut={fillShortcut}
           workspaceList={workspaceList}
           workspaceSave={workspaceSave}
+          revealWorkspace={{ nonce: workspaceReveal }}
+          onOpenSchedule={() => { activate(SCHEDULE_TAB) }}
           workspaceRun={workspaceRun}
           workspaceRunStop={workspaceRunStop}
           workspaceRunsList={workspaceRunsList}
@@ -2084,6 +2122,9 @@ export function Frame({
           <SchedulePane
             schedules={schedules}
             onSave={commitSchedules}
+            workspaces={workspaces}
+            onInstructionScheduleSave={commitInstructionSchedule}
+            onViewRunRecords={() => { setWorkspaceReveal(nonce => nonce + 1) }}
             promptShortcutList={promptShortcutList}
             capabilityNames={capabilityScopes}
           />

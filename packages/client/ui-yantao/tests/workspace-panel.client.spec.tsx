@@ -74,12 +74,13 @@ describe('WorkspacePanel', () => {
     const { container } = render(<WorkspacePanel {...props()} />)
     await screen.findByText('报告目录')
     expect(container.querySelector('[data-workspace-space="wsp_a_1"]')).not.toBeNull()
-    // 触发列只答「怎么触发」；cron 表达式收在单元格的 title 里
-    // （2026-10-12 截图评审：裸 cron 把名称列挤到硬折行；
-    //   2026-10-15 名称列也带 title 兜底省略，故按下标取第二列）。
+    // 触发列只答「怎么触发」：cron 指令是一枚只读徽标钮，表达式收在
+    // title 里，点击跳「调度」页（ADR-0064——cron 编辑已撤出本面板）。
     const triggerCell = container.querySelector('[data-workspace-instruction="ins_a_1"] td:nth-of-type(2)')
     expect(triggerCell?.textContent).toBe('定时')
-    expect(triggerCell?.getAttribute('title')).toBe('0 9 * * 1-5')
+    const badge = triggerCell?.querySelector('[data-workspace-schedule-badge="ins_a_1"]')
+    expect(badge).not.toBeNull()
+    expect(badge?.getAttribute('title')).toContain('0 9 * * 1-5')
     expect(container.querySelector('[data-workspace-instruction="ins_a_1"]')?.textContent).toContain('2 步')
     expect(container.querySelector('[data-workspace-instruction="ins_b_1"]')?.textContent).toContain('已停用')
     expect(container.querySelector('[data-workspace-instruction="ins_b_1"]')?.textContent).toContain('手动')
@@ -106,13 +107,15 @@ describe('WorkspacePanel', () => {
     expect(await screen.findByText('已保存。')).toBeTruthy()
   })
 
-  it('adds an instruction with a minted ins_ id; empty cron means manual', async () => {
+  it('adds an instruction with a minted ins_ id; leaving the trigger unset means manual', async () => {
     const panel = props()
     const { container } = render(<WorkspacePanel {...panel} />)
     await screen.findByText('报告目录')
     fireEvent.click(container.querySelector('[data-workspace-add-instruction="wsp_a_1"]') as Element)
     fireEvent.change(screen.getByPlaceholderText('指令名称'), { target: { value: '日常巡检' } })
-    fireEvent.change(screen.getByPlaceholderText('五段 cron（分 时 日 月 周），留空则仅手动'), { target: { value: '' } })
+    // ADR-0064: the form no longer carries a cron input — the trigger rule
+    // lives in the 调度 pane; a fresh instruction is born manual-only.
+    expect(screen.queryByPlaceholderText('五段 cron（分 时 日 月 周），留空则仅手动')).toBeNull()
     fireEvent.change(container.querySelector('[data-workspace-instruction-form="new"] textarea') as Element, { target: { value: '巡检一遍' } })
     await act(async () => {
       fireEvent.click(screen.getAllByText('保存').at(-1) as Element)

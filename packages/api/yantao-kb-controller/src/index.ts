@@ -57,7 +57,7 @@ import {
   readPromptShortcuts, writePromptShortcuts, PROMPT_SHORTCUTS_DISPLAY_PATH,
   readSchedules, writeSchedules, markSchedule, SCHEDULES_DISPLAY_PATH,
   enqueueProposal, readProposalInbox, resolveProposalInboxEntry, annotateProposalInboxEntry, PROPOSAL_INBOX_DISPLAY_PATH,
-  readWorkspaces, writeWorkspaces, markInstruction, WORKSPACES_DISPLAY_PATH,
+  readWorkspaces, writeWorkspaces, markInstruction, setInstructionSchedule, WORKSPACES_DISPLAY_PATH,
   readWorkspaceRuns, appendWorkspaceRun, clearWorkspaceRuns, deleteWorkspaceRun, WORKSPACE_RUNS_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
 import { pruneOrphanRunLogs } from './workspace/run-log.ts'
@@ -141,6 +141,8 @@ import type {
   KbWorkspaceRunStopResult,
   KbWorkspaceSaveArgs,
   KbWorkspaceSaveResult,
+  KbWorkspaceInstructionScheduleSetArgs,
+  KbWorkspaceInstructionScheduleSetResult,
   KbMemoryListResult,
   KbMemoryProposalApproveArgs,
   KbMemoryProposalApproveResult,
@@ -2532,6 +2534,31 @@ export class YantaoKbController extends TypertRemoteService {
       })
       await writeWorkspaces(this.kbRoot, merged as readonly WorkspaceDef[])
       return { workspaces: await readWorkspaces(this.kbRoot), path: WORKSPACES_DISPLAY_PATH }
+    } catch (error: unknown) {
+      throw this.workspaceError(error, WORKSPACES_DISPLAY_PATH)
+    }
+  }
+
+  /**
+   * Set one instruction's trigger rule in place (ADR-0064): the 调度 tab's
+   * narrow write once the cron editing moves there — a targeted patch
+   * instead of riding `workspaceSave`'s full-list replace, so the two
+   * panels' writes can never clobber each other's fields. The tick-owned
+   * stamps are preserved (the store helper rebuilds field-by-field);
+   * `cron: null` clears the rule and the instruction returns to
+   * manual-only. Human channel only — same grant as `workspaceSave`.
+   * @param args - the instruction and its new rule.
+   * @returns the full workspace list as stored after the patch.
+   */
+  @Remote('workspaceInstructionScheduleSet')
+  async workspaceInstructionScheduleSet(args: KbWorkspaceInstructionScheduleSetArgs): Promise<KbWorkspaceInstructionScheduleSetResult> {
+    this.requireKbRootForWorkspaces(WORKSPACES_DISPLAY_PATH)
+    try {
+      const workspaces = await setInstructionSchedule(this.kbRoot, args.workspaceId, args.instructionId, {
+        cron: args.cron,
+        enabled: args.enabled,
+      })
+      return { workspaces, path: WORKSPACES_DISPLAY_PATH }
     } catch (error: unknown) {
       throw this.workspaceError(error, WORKSPACES_DISPLAY_PATH)
     }

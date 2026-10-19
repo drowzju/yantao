@@ -174,6 +174,50 @@ describe('yantaoKb.workspaceList / workspaceSave', () => {
   })
 })
 
+describe('yantaoKb.workspaceInstructionScheduleSet', () => {
+  it('sets one instruction\'s cron in place and preserves the tick stamps (ADR-0064)', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    await markInstruction(kbRoot, 'wsp_a', 'ins_a', { lastFiredAt: '2026-10-03T09:00:00.000Z' })
+    const result = await ctx.yantaoKbController.workspaceInstructionScheduleSet({
+      workspaceId: 'wsp_a', instructionId: 'ins_a', cron: '0 9 * * 1-5', enabled: true,
+    })
+    expect(result.workspaces[0].instructions[0]).toMatchObject({
+      cron: '0 9 * * 1-5',
+      enabled: true,
+      steps: ['向目录里的代码打个招呼'],
+      lastFiredAt: '2026-10-03T09:00:00.000Z',
+    })
+    expect(result.path).toBe('.dsh/yantao/workspaces.json')
+  })
+
+  it('clears the cron with null — the instruction returns to manual-only', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace({ instructions: [instruction({ cron: '0 9 * * *' })] })] } as never)
+    const result = await ctx.yantaoKbController.workspaceInstructionScheduleSet({
+      workspaceId: 'wsp_a', instructionId: 'ins_a', cron: null, enabled: true,
+    })
+    expect(result.workspaces[0].instructions[0]).toMatchObject({ enabled: true, steps: ['向目录里的代码打个招呼'] })
+    expect(result.workspaces[0].instructions[0].cron).toBeUndefined()
+  })
+
+  it('rejects a malformed cron, quoting the instruction name', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const failure = await ctx.yantaoKbController.workspaceInstructionScheduleSet({
+      workspaceId: 'wsp_a', instructionId: 'ins_a', cron: '61 * * * *', enabled: true,
+    }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((failure as Error).message).toContain('打招呼')
+  })
+
+  it('refuses an unknown instruction', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const failure = await ctx.yantaoKbController.workspaceInstructionScheduleSet({
+      workspaceId: 'wsp_a', instructionId: 'ins_ghost', cron: '0 9 * * *', enabled: true,
+    }).catch((error: unknown) => error)
+    expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
+    expect((failure as Error).message).toContain('不存在')
+  })
+})
+
 describe('yantaoKb.workspaceRun', () => {
   it('refuses an unknown workspace', async () => {
     await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })

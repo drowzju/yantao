@@ -1213,6 +1213,31 @@ export interface KbWorkspaceSaveResult {
   readonly path: string
 }
 
+/**
+ * Parameters of `yantaoKb.workspaceInstructionScheduleSet` (ADR-0064): the
+ * 调度 tab's narrow write into one instruction's trigger rule — a targeted
+ * patch instead of a full-list save, so the two panels' writes can never
+ * clobber each other's fields.
+ */
+export interface KbWorkspaceInstructionScheduleSetArgs {
+  /** The workspace holding the instruction. */
+  readonly workspaceId: string
+  /** The instruction whose rule changes. */
+  readonly instructionId: string
+  /** The new five-field cron; `null` clears the rule (manual-only again). */
+  readonly cron: string | null
+  /** The enabled flag, carried as-is. */
+  readonly enabled: boolean
+}
+
+/** Result of `yantaoKb.workspaceInstructionScheduleSet` (ADR-0064). */
+export interface KbWorkspaceInstructionScheduleSetResult {
+  /** The full workspace list as stored after the patch (stamps preserved). */
+  readonly workspaces: readonly KbWorkspace[]
+  /** KB-relative path of the store, for the UI's error copy. */
+  readonly path: string
+}
+
 /** Parameters of `yantaoKb.workspaceRun` (ADR-0056): manual trigger. */
 export interface KbWorkspaceRunArgs {
   /** The workspace holding the instruction. */

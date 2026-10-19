@@ -663,9 +663,9 @@ export { cronMatchesAt, cronNextAfter, parseCron } from './cron.ts'
 export type { CronSchedule } from './cron.ts'
 export {
   markInstruction, newInstructionId, newWorkspaceId, normalizeWorkspaces, readWorkspaces,
-  WORKSPACES_DISPLAY_PATH, WORKSPACES_SOFT_CAP, writeWorkspaces,
+  setInstructionSchedule, WORKSPACES_DISPLAY_PATH, WORKSPACES_SOFT_CAP, writeWorkspaces,
 } from './workspaces.ts'
-export type { InstructionStampsPatch, WorkspaceDef, WorkspaceFile, WorkspaceInstruction } from './workspaces.ts'
+export type { InstructionSchedulePatch, InstructionStampsPatch, WorkspaceDef, WorkspaceFile, WorkspaceInstruction } from './workspaces.ts'
 export {
   appendWorkspaceRun, clearWorkspaceRuns, deleteWorkspaceRun, finalizeInterruptedRuns, newRunId, normalizeWorkspaceRuns,
   patchWorkspaceRun, readWorkspaceRuns, RUN_HISTORY_CAP, runLogPath, WORKSPACE_RUN_LOG_DIR,

@@ -286,6 +286,61 @@ export async function writeWorkspaces(kbRoot: string, workspaces: readonly Works
 }
 
 /**
+ * The schedule-facing patch of one instruction (ADR-0064): the 调度 tab is
+ * the cron's only editor once the workspace panel sheds its own — a
+ * single-row patch instead of a full-list save, so the two panels' writes
+ * can never clobber each other's fields. `cron: null` clears the rule
+ * (the instruction returns to manual-only); a string sets it (validated by
+ * the write's own shape check). `enabled` is always carried.
+ * @param kbRoot - the live KB root.
+ * @param workspaceId - the owning workspace.
+ * @param instructionId - the instruction to patch.
+ * @param patch - the new cron (null clears) and the enabled flag.
+ * @returns the full list as stored after the patch.
+ */
+export interface InstructionSchedulePatch {
+  /** The new five-field cron; `null` clears the rule (manual-only again). */
+  readonly cron: string | null
+  /** The enabled flag, carried as-is. */
+  readonly enabled: boolean
+}
+
+export async function setInstructionSchedule(
+  kbRoot: string,
+  workspaceId: string,
+  instructionId: string,
+  patch: InstructionSchedulePatch,
+): Promise<WorkspaceDef[]> {
+  const spaces = await readWorkspaces(kbRoot)
+  const space = spaces.find(candidate => candidate.id === workspaceId)
+  if (space === undefined) {
+    throw new KbError('unknown-workspace', `工作空间 ${workspaceId} 不存在`)
+  }
+  if (!space.instructions.some(instruction => instruction.id === instructionId)) {
+    throw new KbError('unknown-instruction', `指令 ${instructionId} 不存在于工作空间「${space.name}」`)
+  }
+  const cron = patch.cron === null ? undefined : patch.cron.trim()
+  const next = spaces.map(candidate => candidate.id !== workspaceId ? candidate : {
+    ...candidate,
+    instructions: candidate.instructions.map((instruction) => {
+      if (instruction.id !== instructionId) return instruction
+      // 逐字段重建（markInstruction 的配方）：null 的语义是"清除"，spread 会留旧值
+      return {
+        id: instruction.id,
+        name: instruction.name,
+        ...cron !== undefined && cron !== '' ? { cron } : {},
+        enabled: patch.enabled,
+        steps: instruction.steps,
+        ...instruction.lastFiredAt !== undefined ? { lastFiredAt: instruction.lastFiredAt } : {},
+        ...instruction.lastMissedAt !== undefined ? { lastMissedAt: instruction.lastMissedAt } : {},
+      }
+    }),
+  })
+  await writeWorkspaces(kbRoot, next)
+  return next
+}
+
+/**
  * The tick-owned stamps of one instruction (ADR-0056 决定 5): the two fields
  * the human editor never authors. A patch value of `undefined` leaves the
  * field alone; `null` clears it (a real fire clears the missed mark).

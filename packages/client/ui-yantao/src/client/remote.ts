@@ -66,6 +66,7 @@ import type {
   KbWorkspaceRunResult, KbWorkspaceRunsClearResult, KbWorkspaceRunsListResult, KbWorkspaceRunDeleteArgs,
   KbWorkspaceRunDeleteResult, KbWorkspaceRunStopArgs,
   KbWorkspaceRunStopResult, KbWorkspaceSaveArgs, KbWorkspaceSaveResult,
+  KbWorkspaceInstructionScheduleSetArgs, KbWorkspaceInstructionScheduleSetResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 
 /** The yantaoKb namespace's callable surface, structurally satisfied by the mounted contribution. */
@@ -164,6 +165,10 @@ export interface KbRemote {
   workspaceList(): Promise<RemoteResult<KbWorkspaceListResult>>
   /** Replace the whole workspace list (ADR-0056); cron/chain shape is validated, tick stamps preserved. */
   workspaceSave(args: KbWorkspaceSaveArgs): Promise<RemoteResult<KbWorkspaceSaveResult>>
+  /** Set one instruction's trigger rule in place (ADR-0064); `cron: null` clears the rule. */
+  workspaceInstructionScheduleSet(
+    args: KbWorkspaceInstructionScheduleSetArgs,
+  ): Promise<RemoteResult<KbWorkspaceInstructionScheduleSetResult>>
   /** Trigger one instruction now (ADR-0056 决定 3); the controller spawns the chain. */
   workspaceRun(args: KbWorkspaceRunArgs): Promise<RemoteResult<KbWorkspaceRunResult>>
   /** Kill one running chain's process tree (ADR-0056 决定 4). */
@@ -365,6 +370,11 @@ export type WorkspaceLister = () => Promise<KbWorkspaceListResult>
 
 /** Replace the whole workspace list (ADR-0056); the host validates cron and chain shape. */
 export type WorkspaceSaver = (args: KbWorkspaceSaveArgs) => Promise<KbWorkspaceSaveResult>
+
+/** Set one instruction's trigger rule in place (ADR-0064); `cron: null` clears the rule. */
+export type WorkspaceInstructionScheduleSetter = (
+  args: KbWorkspaceInstructionScheduleSetArgs,
+) => Promise<KbWorkspaceInstructionScheduleSetResult>
 
 /** Trigger one workspace instruction now (ADR-0056 决定 3); resolves the new run's id. */
 export type WorkspaceRunner = (args: KbWorkspaceRunArgs) => Promise<KbWorkspaceRunResult>
@@ -1239,6 +1249,24 @@ export async function saveWorkspaces(ctx: Context, args: KbWorkspaceSaveArgs): P
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.workspaceSave(args))
+}
+
+/**
+ * Set one workspace instruction's trigger rule in place (ADR-0064): the
+ * 调度 tab's narrow write once the cron editing moves there — a targeted
+ * patch that never races the 工作空间 tab's full-list saves, because the
+ * host patches the single instruction instead of replacing the list.
+ * @param ctx - client root context.
+ * @param args - the instruction and its new rule (`cron: null` clears).
+ * @returns the full workspace list as stored after the patch.
+ */
+export async function setWorkspaceInstructionSchedule(
+  ctx: Context,
+  args: KbWorkspaceInstructionScheduleSetArgs,
+): Promise<KbWorkspaceInstructionScheduleSetResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.workspaceInstructionScheduleSet(args))
 }
 
 /**

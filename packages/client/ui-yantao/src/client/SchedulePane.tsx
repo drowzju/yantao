@@ -7,6 +7,13 @@
  * with an advanced mode that types the cron directly (决定 6); the prompt
  * field's 「从惯用提示词填入」 copies a snapshot, never a reference (决定 5).
  *
+ * ADR-0064: the pane grows a second kind of schedulee — a workspace
+ * instruction (ADR-0056). Its cron lives on the instruction itself and the
+ * controller's tick fires it; this pane is merely the rule's editing view
+ * (and, after the workspace panel shed its own cron editor, its only one).
+ * Writes go through the narrow `workspaceInstructionScheduleSet` patch, never
+ * a full-list save, so the two panels can't clobber each other's fields.
+ *
  * Design discipline (apps/yantao/DESIGN.md): colors and metrics ride the
  * `--yt-*` tokens; the cron is a code fragment and wears the code font;
  * evidence (下次触发/上次触发/上次错过) owns its own muted line — never a
@@ -14,12 +21,20 @@
  * dirty-editor guard is an in-pane confirm strip, never window.confirm.
  */
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import type { KbPromptShortcut, KbSchedule } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbPromptShortcut, KbSchedule, KbWorkspace } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { cronNextFire } from './cron.ts'
 import { ghostButtonStyle, primaryButtonStyle, raisedButtonStyle, toolButtonArmedStyle, toolButtonStyle } from './buttons.ts'
 import { useArmedAction } from './use-armed-action.ts'
 import { formatStamp } from './stamp.ts'
 import type { PromptShortcutLister } from './remote.ts'
+
+/** The instruction-schedule save seam's argument shape (ADR-0064). */
+export interface InstructionScheduleSaveArgs {
+  readonly workspaceId: string
+  readonly instructionId: string
+  readonly cron: string | null
+  readonly enabled: boolean
+}
 
 /** The pane's props: the store's rows, the save seam, the shortcut source, and the capability roster. */
 export interface SchedulePaneProps {
@@ -31,6 +46,15 @@ export interface SchedulePaneProps {
   readonly promptShortcutList: PromptShortcutLister
   /** The registered capabilities' names — the editor's 绑定能力 menu. */
   readonly capabilityNames: readonly string[]
+  /** The workspaces (ADR-0056) — the 工作空间指令 section's source. */
+  readonly workspaces: readonly KbWorkspace[]
+  /**
+   * Set one instruction's trigger rule (ADR-0064); resolves null on
+   * success, or the host's error prose for the editor's inline line.
+   */
+  readonly onInstructionScheduleSave: (args: InstructionScheduleSaveArgs) => Promise<string | null>
+  /** Jump to the 工作空间 tab's run history (the instruction rows' affordance). */
+  readonly onViewRunRecords: () => void
 }
 
 /** The editor's trigger-rule draft; the stored cron is always derived. */
@@ -70,15 +94,21 @@ function ruleOfCron(cron: string): RuleDraft {
   return { mode: 'cron', cron }
 }
 
-/** One schedule being edited; `id` null means a not-yet-saved new row. */
+/** One schedule being edited; `id` null means a not-yet-saved new row (prompt kind) or a workspace-instruction row. */
 interface EditorDraft {
   readonly id: string | null
+  /** What this draft schedules: a prompt snapshot or a workspace instruction (ADR-0064). */
+  kind: 'prompt' | 'instruction'
   name: string
   prompt: string
   rule: RuleDraft
   enabled: boolean
-  /** The optional capability binding (首跳直通)；'' = 不绑定. */
+  /** The optional capability binding (首跳直通)；'' = 不绑定. Prompt kind only. */
   capability: string
+  /** Instruction kind only: the owning workspace (null until chosen). */
+  workspaceId: string | null
+  /** Instruction kind only: the scheduled instruction (null until chosen). */
+  instructionId: string | null
 }
 
 /** A fresh schedule id — the browser twin of the kb store's `newScheduleId`. */
@@ -212,13 +242,29 @@ const missedBadgeStyle = {
   fontSize: 'var(--yt-type-label)',
 } as const
 
+/** A list section's muted heading (提示词调度 / 工作空间指令). */
+const sectionHeadStyle = {
+  padding: 'var(--yt-space-2) var(--yt-space-2) var(--yt-space-1)',
+  color: 'var(--yt-text-muted)',
+  fontSize: 'var(--yt-type-label)',
+  fontWeight: 600,
+} as const
+
+/** The editor's inline error line (the narrow patch's refusal prose). */
+const errorLineStyle = {
+  color: 'var(--yt-error)',
+  fontSize: 'var(--yt-type-label)',
+} as const
+
 const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const
 
 /**
  * Render the 调度 tab: definition list + editor.
  * @param props - see {@link SchedulePaneProps}.
  */
-export function SchedulePane({ schedules, onSave, promptShortcutList, capabilityNames }: SchedulePaneProps): ReactElement {
+export function SchedulePane({
+  schedules, onSave, promptShortcutList, capabilityNames, workspaces, onInstructionScheduleSave, onViewRunRecords,
+}: SchedulePaneProps): ReactElement {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<EditorDraft | null>(null)
   const [busy, setBusy] = useState(false)
@@ -231,7 +277,7 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
   // 先比对，有未保存修改就问一声，不再无声丢稿。
   const [snapshot, setSnapshot] = useState('')
   // 站内脏态确认（2026-10-12 评审 P2-2）：window.confirm 是系统级灰模态，
-  // 撕裂暖纸语境——dirty 时先把续作存起来，人点「放弃修改」才放行。
+  // 撕裂暖纸语境——脏时先把续作存起来，人点「放弃修改」才放行。
   const [pendingAbandon, setPendingAbandon] = useState<(() => void) | null>(null)
   // 确认条出现即夺焦（复检 P1 补课）：alertdialog 不移焦点等于没宣告，
   // 默认落在「继续编辑」——Enter 的默认动作永远是非破坏的那一侧。
@@ -239,6 +285,9 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
   useEffect(() => {
     if (pendingAbandon !== null) keepEditingRef.current?.focus()
   }, [pendingAbandon])
+  // 指令调度保存的内联报错（ADR-0064）：窄接口的拒绝理由（未知指令、坏
+  // cron）就近贴在编辑器里，不静默。
+  const [instructionError, setInstructionError] = useState<string | null>(null)
 
   // The 填入 source loads once with the pane; a missing store is an empty menu.
   useEffect(() => {
@@ -274,13 +323,17 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
     abandonGuard(() => {
       setSelectedId(schedule.id)
       disarmDelete()
+      setInstructionError(null)
       const next: EditorDraft = {
         id: schedule.id,
+        kind: 'prompt',
         name: schedule.name,
         prompt: schedule.prompt,
         rule: ruleOfCron(schedule.cron),
         enabled: schedule.enabled,
         capability: schedule.capability ?? '',
+        workspaceId: null,
+        instructionId: null,
       }
       setDraft(next)
       setSnapshot(JSON.stringify(next))
@@ -291,7 +344,50 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
     abandonGuard(() => {
       setSelectedId(null)
       disarmDelete()
-      const next: EditorDraft = { id: null, name: '', prompt: '', rule: { mode: 'daily', time: '09:00' }, enabled: true, capability: '' }
+      setInstructionError(null)
+      const next: EditorDraft = { id: null, kind: 'prompt', name: '', prompt: '', rule: { mode: 'daily', time: '09:00' }, enabled: true, capability: '', workspaceId: null, instructionId: null }
+      setDraft(next)
+      setSnapshot(JSON.stringify(next))
+    })
+  }
+
+  /** ADR-0064: a brand-new draft picks its 调度对象 — switching resets the
+      opposing fields but keeps the trigger rule and the enabled flag. Existing
+      rows never switch: a prompt schedule and an instruction rule are
+      different stores, and retyping one into the other would be a lie. */
+  const switchDraftKind = (kind: 'prompt' | 'instruction'): void => {
+    if (draft === null || draft.id !== null || draft.kind === kind) return
+    setDraft({ ...draft, kind, name: '', prompt: '', capability: '', workspaceId: null, instructionId: null })
+    setInstructionError(null)
+  }
+
+  /** The workspace instructions that carry a cron — the second list section. */
+  const instructionRows = useMemo(() => workspaces.flatMap(space => space.instructions
+    .filter(instruction => instruction.cron !== undefined)
+    .map(instruction => ({ space, instruction }))), [workspaces])
+
+  /** A list row's composite key for an instruction schedule. */
+  const instructionRowId = (spaceId: string, instructionId: string): string => `ws:${spaceId}:${instructionId}`
+
+  /** Open one workspace instruction's rule in the editor (ADR-0064). */
+  const openInstructionEditor = (space: KbWorkspace, instruction: KbWorkspace['instructions'][number]): void => {
+    const key = instructionRowId(space.id, instruction.id)
+    if (selectedId === key && draft !== null) return
+    abandonGuard(() => {
+      setSelectedId(key)
+      disarmDelete()
+      setInstructionError(null)
+      const next: EditorDraft = {
+        id: null,
+        kind: 'instruction',
+        name: instruction.name,
+        prompt: '',
+        rule: ruleOfCron(instruction.cron ?? ''),
+        enabled: instruction.enabled,
+        capability: '',
+        workspaceId: space.id,
+        instructionId: instruction.id,
+      }
       setDraft(next)
       setSnapshot(JSON.stringify(next))
     })
@@ -309,6 +405,26 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
     setBusy(true)
     try {
       const cron = cronOfRule(draft.rule)
+      // ADR-0064: an instruction draft saves through the narrow patch, not
+      // the prompt store — its cron lives on the instruction itself.
+      if (draft.kind === 'instruction') {
+        if (draft.workspaceId === null || draft.instructionId === null) return
+        const failure = await onInstructionScheduleSave({
+          workspaceId: draft.workspaceId,
+          instructionId: draft.instructionId,
+          cron,
+          enabled: draft.enabled,
+        })
+        if (failure === null) {
+          setInstructionError(null)
+          // 新建成功后高亮列表里对应的指令行（组合键与列表一致）。
+          setSelectedId(instructionRowId(draft.workspaceId, draft.instructionId))
+          setSnapshot(JSON.stringify(draft))
+        } else {
+          setInstructionError(failure)
+        }
+        return
+      }
       if (draft.id === null) {
         const created: KbSchedule = {
           id: newScheduleId(),
@@ -368,6 +484,46 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
     await onSave(schedules.map(row => row.id === schedule.id ? { ...row, enabled: !row.enabled } : row))
   }
 
+  /** Toggle one instruction schedule's enabled flag through the narrow patch (ADR-0064). */
+  const toggleInstructionEnabled = async (space: KbWorkspace, instruction: KbWorkspace['instructions'][number]): Promise<void> => {
+    const failure = await onInstructionScheduleSave({
+      workspaceId: space.id,
+      instructionId: instruction.id,
+      cron: instruction.cron ?? null,
+      enabled: !instruction.enabled,
+    })
+    if (failure !== null) setInstructionError(failure)
+  }
+
+  /**
+   * 「清除定时」(ADR-0064): an instruction schedule's destructive gesture
+   * clears the rule — the instruction itself survives, manual-only again.
+   * The instruction's life cycle stays the workspace panel's business.
+   */
+  const clearInstructionSchedule = async (): Promise<void> => {
+    if (draft === null || draft.kind !== 'instruction' || busy) return
+    if (draft.workspaceId === null || draft.instructionId === null) return
+    setBusy(true)
+    try {
+      const failure = await onInstructionScheduleSave({
+        workspaceId: draft.workspaceId,
+        instructionId: draft.instructionId,
+        cron: null,
+        enabled: draft.enabled,
+      })
+      if (failure === null) {
+        setDraft(null)
+        setSelectedId(null)
+        setInstructionError(null)
+      } else {
+        setInstructionError(failure)
+      }
+    } finally {
+      setBusy(false)
+      disarmDelete()
+    }
+  }
+
   const ruleDraft = draft?.rule ?? null
   const draftCron = useMemo(() => (ruleDraft === null ? '' : cronOfRule(ruleDraft)), [ruleDraft])
   const draftNext = draftCron === '' ? null : cronNextFire(draftCron, new Date())
@@ -380,9 +536,10 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
           <button data-hover="true" type="button" style={raisedButtonStyle} onClick={openNew}>+ 新建</button>
         </div>
         <div style={listBodyStyle}>
-          {schedules.length === 0 && (
-            <div style={{ padding: 'var(--yt-space-2)', color: 'var(--yt-text-muted)' }}>还没有调度。新建一条，到点自动在后台跑一段提示词。</div>
+          {schedules.length === 0 && instructionRows.length === 0 && (
+            <div style={{ padding: 'var(--yt-space-2)', color: 'var(--yt-text-muted)' }}>还没有调度。新建一条，到点自动在后台跑一段提示词；也可以把工作空间指令挂上定时。</div>
           )}
+          {schedules.length > 0 && <div style={sectionHeadStyle}>提示词调度</div>}
           {schedules.map((schedule) => {
             const next = cronNextFire(schedule.cron, new Date())
             return (
@@ -426,6 +583,46 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
               </div>
             )
           })}
+          {instructionRows.length > 0 && <div style={sectionHeadStyle}>工作空间指令</div>}
+          {instructionRows.map(({ space, instruction }) => {
+            const rowId = instructionRowId(space.id, instruction.id)
+            const next = cronNextFire(instruction.cron ?? '', new Date())
+            return (
+              <div
+                key={rowId}
+                style={selectedId === rowId ? activeRowStyle : rowStyle}
+                data-schedule-instruction-row={rowId}
+                onClick={() => { openInstructionEditor(space, instruction) }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--yt-space-2)' }}>
+                  <input
+                    type="checkbox"
+                    checked={instruction.enabled}
+                    title={instruction.enabled ? '停用' : '启用'}
+                    aria-label={instruction.enabled ? `停用 ${instruction.name}` : `启用 ${instruction.name}`}
+                    onClick={(event) => { event.stopPropagation() }}
+                    onChange={() => { void toggleInstructionEnabled(space, instruction) }}
+                  />
+                  <button
+                    type="button"
+                    data-hover="true"
+                    data-selected={selectedId === rowId || undefined}
+                    style={nameButtonStyle}
+                    onClick={(event) => { event.stopPropagation(); openInstructionEditor(space, instruction) }}
+                  >
+                    {instruction.name}
+                  </button>
+                </div>
+                <div style={{ ...metaLineStyle, fontFamily: CODE_FONT }}>{instruction.cron}</div>
+                <div style={metaLineStyle}>工作空间 {space.name}</div>
+                <div style={metaLineStyle}>{next !== null ? `下次触发 ${formatStamp(next.toISOString())}` : '永不触发'}</div>
+                {instruction.lastFiredAt !== undefined && <div style={metaLineStyle}>上次触发 {formatStamp(instruction.lastFiredAt)}</div>}
+                {instruction.lastMissedAt !== undefined && (
+                  <div style={{ ...metaLineStyle, ...missedBadgeStyle }}>上次错过 {formatStamp(instruction.lastMissedAt)}（不补跑）</div>
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
       <div style={editColStyle}>
@@ -455,46 +652,118 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
                 <button ref={keepEditingRef} data-hover="true" type="button" style={ghostButtonStyle} onClick={() => { setPendingAbandon(null) }}>继续编辑</button>
               </div>
             )}
-            <label style={fieldLabelStyle}>
-              名称
-              <input style={inputStyle} value={draft.name} onChange={(event) => { setDraft({ ...draft, name: event.target.value }) }} />
-            </label>
-            <label style={fieldLabelStyle}>
-              提示词
-              <textarea
-                style={{ ...inputStyle, minHeight: 120, resize: 'vertical' }}
-                value={draft.prompt}
-                onChange={(event) => { setDraft({ ...draft, prompt: event.target.value }) }}
-              />
-            </label>
-            <div style={metaLineStyle}>到点作为独立后台会话运行。</div>
-            <div style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center' }}>
-              <select
-                style={{ ...inputStyle, width: 180 }}
-                value={shortcutAlias}
-                title={shortcutAlias}
-                onChange={(event) => { setShortcutAlias(event.target.value) }}
-              >
-                <option value="">选择惯用提示词…</option>
-                {shortcuts.map(shortcut => <option key={shortcut.alias} value={shortcut.alias}>/{shortcut.alias}</option>)}
-              </select>
-              <button data-hover="true" type="button" style={raisedButtonStyle} disabled={shortcutAlias === ''} onClick={fillShortcut}>
-                从惯用提示词填入
-              </button>
-            </div>
-            <div style={metaLineStyle}>填入是拷贝快照：之后改惯用提示词不影响本条调度。</div>
-            <label style={fieldLabelStyle}>
-              绑定能力（可选）
-              <select
-                style={inputStyle}
-                value={draft.capability}
-                onChange={(event) => { setDraft({ ...draft, capability: event.target.value }) }}
-              >
-                <option value="">不绑定</option>
-                {capabilityNames.map(name => <option key={name} value={name}>{name}</option>)}
-              </select>
-              <div style={metaLineStyle}>绑定后触发时会把该能力的指令正文直接附在提示词前（首跳直通），agent 不必再花一轮读取能力。</div>
-            </label>
+            {draft.id === null && (
+              <div style={{ display: 'flex', gap: 'var(--yt-space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={metaLineStyle}>调度对象</span>
+                <label style={{ display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center' }}>
+                  <input type="radio" name="schedule-kind" checked={draft.kind === 'prompt'} onChange={() => { switchDraftKind('prompt') }} />
+                  提示词
+                </label>
+                <label style={{ display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center' }}>
+                  <input type="radio" name="schedule-kind" checked={draft.kind === 'instruction'} onChange={() => { switchDraftKind('instruction') }} />
+                  工作空间指令
+                </label>
+              </div>
+            )}
+            {draft.kind === 'prompt' && (
+              <label style={fieldLabelStyle}>
+                名称
+                <input style={inputStyle} value={draft.name} onChange={(event) => { setDraft({ ...draft, name: event.target.value }) }} />
+              </label>
+            )}
+            {draft.kind === 'instruction' && draft.name !== '' && (
+              <div style={metaLineStyle}>调度对象：工作空间指令「{draft.name}」</div>
+            )}
+            {draft.kind === 'instruction' && (
+              <label style={fieldLabelStyle}>
+                工作空间
+                <select
+                  style={inputStyle}
+                  value={draft.workspaceId ?? ''}
+                  disabled={busy}
+                  onChange={(event) => {
+                    setDraft({ ...draft, workspaceId: event.target.value === '' ? null : event.target.value, instructionId: null })
+                  }}
+                >
+                  <option value="">选择工作空间…</option>
+                  {workspaces.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}
+                </select>
+              </label>
+            )}
+            {draft.kind === 'instruction' && (() => {
+              const space = workspaces.find(candidate => candidate.id === draft.workspaceId) ?? null
+              return (
+                <label style={fieldLabelStyle}>
+                  指令
+                  <select
+                    style={inputStyle}
+                    value={draft.instructionId ?? ''}
+                    disabled={busy || space === null}
+                    onChange={(event) => {
+                      const picked = space?.instructions.find(candidate => candidate.id === event.target.value)
+                      setDraft(picked === undefined
+                        ? { ...draft, instructionId: null }
+                        : {
+                          ...draft,
+                          instructionId: picked.id,
+                          name: picked.name,
+                          rule: ruleOfCron(picked.cron ?? ''),
+                          enabled: picked.enabled,
+                        })
+                    }}
+                  >
+                    <option value="">选择指令…</option>
+                    {(space?.instructions ?? []).map(instruction => (
+                      <option key={instruction.id} value={instruction.id}>{instruction.name}</option>
+                    ))}
+                  </select>
+                  <div style={metaLineStyle}>指令本体（步骤链）在「工作空间」里维护，这里只定到点怎么触发。</div>
+                </label>
+              )
+            })()}
+            {draft.kind === 'instruction' && instructionError !== null && (
+              <div style={errorLineStyle} role="alert">{instructionError}</div>
+            )}
+            {draft.kind === 'prompt' && (
+              <>
+                <label style={fieldLabelStyle}>
+                  提示词
+                  <textarea
+                    style={{ ...inputStyle, minHeight: 120, resize: 'vertical' }}
+                    value={draft.prompt}
+                    onChange={(event) => { setDraft({ ...draft, prompt: event.target.value }) }}
+                  />
+                </label>
+                <div style={metaLineStyle}>到点作为独立后台会话运行。</div>
+                <div style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center' }}>
+                  <select
+                    style={{ ...inputStyle, width: 180 }}
+                    value={shortcutAlias}
+                    title={shortcutAlias}
+                    onChange={(event) => { setShortcutAlias(event.target.value) }}
+                  >
+                    <option value="">选择惯用提示词…</option>
+                    {shortcuts.map(shortcut => <option key={shortcut.alias} value={shortcut.alias}>/{shortcut.alias}</option>)}
+                  </select>
+                  <button data-hover="true" type="button" style={raisedButtonStyle} disabled={shortcutAlias === ''} onClick={fillShortcut}>
+                    从惯用提示词填入
+                  </button>
+                </div>
+                <div style={metaLineStyle}>填入是拷贝快照：之后改惯用提示词不影响本条调度。</div>
+                <label style={fieldLabelStyle}>
+                  绑定能力（可选）
+                  <select
+                    style={inputStyle}
+                    value={draft.capability}
+                    onChange={(event) => { setDraft({ ...draft, capability: event.target.value }) }}
+                  >
+                    <option value="">不绑定</option>
+                    {capabilityNames.map(name => <option key={name} value={name}>{name}</option>)}
+                  </select>
+                  <div style={metaLineStyle}>绑定后触发时会把该能力的指令正文直接附在提示词前（首跳直通），agent 不必再花一轮读取能力。</div>
+                </label>
+              </>
+            )}
             <div style={fieldLabelStyle}>
               触发规则
               <div style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -580,27 +849,58 @@ export function SchedulePane({ schedules, onSave, promptShortcutList, capability
               </label>
               <div style={metaLineStyle}>停用的调度保留在列表里但不触发。</div>
             </div>
-            <div style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center' }}>
-              <button type="button" style={primaryButtonStyle} data-hover="primary" disabled={busy || draft.name.trim() === '' || draft.prompt.trim() === ''} onClick={() => { void saveDraft() }}>
-                {draft.id === null ? '创建' : '保存'}
-              </button>
-              <button data-hover="true" type="button" style={raisedButtonStyle} disabled={busy} onClick={() => { abandonGuard(() => { setDraft(null); setSelectedId(null); disarmDelete() }) }}>
-                取消
-              </button>
-              {draft.id !== null && (
-                <button data-hover="true"
-                  type="button"
-                  style={armedDeleteId === draft.id ? toolButtonArmedStyle : toolButtonStyle}
-                  disabled={busy}
-                  data-armed={(draft.id !== null && armedDeleteId === draft.id) || undefined}
-                  title="删除这条调度，不可恢复"
-                  onClick={() => {
-                    if (draft.id === null) return
-                    attemptDelete(draft.id, () => { void removeDraft() })
-                  }}
-                >
-                  {armedDeleteId === draft.id ? '确认删除？' : '删除'}
-                </button>
+            <div style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+              {draft.kind === 'prompt' ? (
+                <>
+                  <button type="button" style={primaryButtonStyle} data-hover="primary" disabled={busy || draft.name.trim() === '' || draft.prompt.trim() === ''} onClick={() => { void saveDraft() }}>
+                    {draft.id === null ? '创建' : '保存'}
+                  </button>
+                  <button data-hover="true" type="button" style={raisedButtonStyle} disabled={busy} onClick={() => { abandonGuard(() => { setDraft(null); setSelectedId(null); disarmDelete() }) }}>
+                    取消
+                  </button>
+                  {draft.id !== null && (
+                    <button data-hover="true"
+                      type="button"
+                      style={armedDeleteId === draft.id ? toolButtonArmedStyle : toolButtonStyle}
+                      disabled={busy}
+                      data-armed={(draft.id !== null && armedDeleteId === draft.id) || undefined}
+                      title="删除这条调度，不可恢复"
+                      onClick={() => {
+                        if (draft.id === null) return
+                        attemptDelete(draft.id, () => { void removeDraft() })
+                      }}
+                    >
+                      {armedDeleteId === draft.id ? '确认删除？' : '删除'}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <button type="button" style={primaryButtonStyle} data-hover="primary"
+                    disabled={busy || draft.workspaceId === null || draft.instructionId === null}
+                    onClick={() => { void saveDraft() }}>
+                    保存
+                  </button>
+                  <button data-hover="true" type="button" style={raisedButtonStyle} disabled={busy} onClick={() => { abandonGuard(() => { setDraft(null); setSelectedId(null); disarmDelete() }) }}>
+                    取消
+                  </button>
+                  <button data-hover="true"
+                    type="button"
+                    style={armedDeleteId === 'clear' ? toolButtonArmedStyle : toolButtonStyle}
+                    disabled={busy || draft.workspaceId === null || draft.instructionId === null}
+                    data-armed={armedDeleteId === 'clear' || undefined}
+                    title="清除这条指令的定时，指令本身保留、回到仅手动"
+                    onClick={() => { attemptDelete('clear', () => { void clearInstructionSchedule() }) }}
+                  >
+                    {armedDeleteId === 'clear' ? '确认清除？' : '清除定时'}
+                  </button>
+                  <button data-hover="true" type="button" style={raisedButtonStyle}
+                    disabled={draft.workspaceId === null || draft.instructionId === null}
+                    title="到「工作空间」页看这条指令的运行记录"
+                    onClick={() => { onViewRunRecords() }}>
+                    查看运行记录
+                  </button>
+                </>
               )}
             </div>
           </>
