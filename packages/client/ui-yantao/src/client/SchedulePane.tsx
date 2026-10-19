@@ -306,6 +306,14 @@ export function SchedulePane({
   /** 还有未保存修改吗？以打开/保存时刻的草稿快照为基线。 */
   const dirty = draft !== null && JSON.stringify(draft) !== snapshot
 
+  // 确认条与脏态同步（2026-10-19 用户报告）：保存在途时点别的行，守卫按
+  // 当时还脏的快照布下确认条；随后保存落定、快照刷新，草稿已干净——确认条
+  // 却不会自己散去，像「点了没反应」。脏一旦解除（保存成功或手工改回），
+  // 确认条随之蒸发，不再赖着等人裁决。
+  useEffect(() => {
+    if (pendingAbandon !== null && !dirty) setPendingAbandon(null)
+  }, [pendingAbandon, dirty])
+
   /**
    * 脏态守卫（续作式）：干净就直接放行；脏则把续作暂存，渲染站内确认条，
    * 由人点「放弃修改」（放行）或「继续编辑」（撤销）裁决。
