@@ -459,7 +459,14 @@ describe('the tool surface declarations (ADR-0043)', () => {
 
   it('registers the execution bridge and the nomination tool alongside kb_run_capability', () => {
     const names = state.registerTool.mock.calls.map(call => (call[0] as { name: string }).name)
-    expect(names).toEqual(['kb_run_capability', 'kb_exec_capability_script', 'kb_propose_actions', 'kb_add_todo'])
+    // ADR-0063 把直写矩阵补齐到二十五件套：待办四刀、记忆三件、工作台两件
+    // 依注册顺序排在 kb_add_todo 之后。
+    expect(names).toEqual([
+      'kb_run_capability', 'kb_exec_capability_script', 'kb_propose_actions', 'kb_add_todo',
+      'kb_read_todos', 'kb_toggle_todo', 'kb_update_todo', 'kb_remove_todo',
+      'kb_list_memory', 'kb_add_memory', 'kb_delete_memory',
+      'kb_list_workspaces', 'kb_run_workspace_instruction',
+    ])
   })
 
   it('prefixes the environment note onto an instruction capability\'s rendered answer (决定 3)', () => {

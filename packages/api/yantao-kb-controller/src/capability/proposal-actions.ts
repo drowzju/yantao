@@ -79,6 +79,24 @@ import { isEntityLocatorPrefix } from '@deepseek-ai/dsh-yantao-kb'
 const ENTITY_PATH_KINDS: ReadonlySet<string> = new Set(['append-log', 'write-state', 'create-link'])
 
 /**
+ * The mail-knife kinds whose `entryId` must be a real Outlook EntryID — the
+ * long hex string the fetch result carries beside its `id` field, and the
+ * only key `GetItemFromID` resolves (ADR-0034 决定 5 / ADR-0037 决定 2).
+ */
+const MAIL_ACTION_KINDS: ReadonlySet<string> = new Set(['delete-mails', 'archive-mails'])
+
+/**
+ * The fingerprint shape of the fetch result's `id` field: sha1 hex, exactly
+ * 40 chars (read_outlook.py's `mail_id`). An entryId wearing this shape is
+ * almost certainly the dedup key pasted into the wrong slot — the knife
+ * would answer `missing` for every such row at apply time (2026-10-19 邮件
+ * 提议零写入事故：七封邮件的处置卡四条删除全部「找不到邮件」). Named back
+ * here, while the model still holds the fetch output and can repair the row
+ * in the same turn.
+ */
+const FINGERPRINT_PATTERN = /^[0-9a-f]{40}$/i
+
+/**
  * Mirror of the kb resolver's locator grammar: `type:name` with a non-empty
  * name, the type spelling tested through the kb package's own predicate
  * (`isEntityLocatorPrefix`) so what enqueuing accepts is mechanically pinned
@@ -239,6 +257,10 @@ function diagnoseAction(entry: unknown, at: number, readSource?: (path: string) 
     || (bag[field] === '' && !EMPTY_OK_FIELDS.has(`${kind}:${field}`)))
   if (missing.length > 0) {
     return `第 ${at + 1} 项「${kind}」缺必填字段 ${missing.join('、')}（该项形如 ${KIND_EXAMPLES[kind as ActionKind]}）`
+  }
+  if (MAIL_ACTION_KINDS.has(kind as string) && FINGERPRINT_PATTERN.test((bag.entryId as string).trim())) {
+    return `第 ${at + 1} 项「${kind}」的 entryId 是 40 位指纹（取数结果的去重键 id），不是 Outlook EntryID——`
+      + '删除/保存刀只认 EntryID，请改填同一封邮件的 entryId 字段（取数结果里那条长十六进制串）'
   }
   if (ENTITY_PATH_KINDS.has(kind as string)) {
     // Trim like the resolver does (`locator.trim()` in paths.ts), so the

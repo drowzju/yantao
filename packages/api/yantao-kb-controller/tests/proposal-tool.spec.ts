@@ -179,6 +179,24 @@ describe('partitionProposedActions（2026-10-10 裁决：逐项容错，一跑�
     expect(valid).toEqual([nameless])
     expect(diagnostics).toHaveLength(1)
   })
+
+  it('邮件刀的 entryId 填成 40 位指纹（sha1 去重键 id）被点名剔除（2026-10-19 零写入事故防线）', () => {
+    const fingerprint = 'ddc60250d9f6de98d41a6bdd73af8f19465d4b61'
+    const entryId = '00000000BC25E032A7F9B34982D76BE86185042E0700A7A91D5B974D3141B8F1D93686ED431800000000010C000095A6EC9EAA0FBE42BF8917053EA39ADF0003B61C2BF80000'
+    const { valid, diagnostics } = partitionProposedActions([
+      { kind: 'delete-mails', entryId: fingerprint, sender: 'Microsoft Outlook', subject: '邮箱快满了。' },
+      { kind: 'archive-mails', entryId: fingerprint.toUpperCase(), sender: '徐军2', subject: '现状报告' },
+      { kind: 'delete-mails', entryId, sender: '张旭卫', subject: '周报' },
+      { kind: 'archive-mails', entryId: 'a', sender: '徐军2', subject: '现状报告' },
+    ])
+    // 真 EntryID（长串）与短样本照常通过；40 位指纹（含大写形态）双双点名
+    expect(valid).toHaveLength(2)
+    expect(diagnostics).toHaveLength(2)
+    for (const line of diagnostics) {
+      expect(line).toContain('40 位指纹')
+      expect(line).toContain('entryId 字段')
+    }
+  })
 })
 
 describe('withDerivedEntityNames / deriveEntityName（2026-10-15 松绑：展示名推导）', () => {
