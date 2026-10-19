@@ -99,6 +99,10 @@ interface EditorDraft {
   readonly id: string | null
   /** What this draft schedules: a prompt snapshot or a workspace instruction (ADR-0064). */
   kind: 'prompt' | 'instruction'
+  /** Where the draft came from: only a brand-new draft may retype its 调度对象 —
+      an opened row is what it is (a prompt schedule and an instruction rule
+      live in different stores; retyping would be a lie, ADR-0064 决定 4). */
+  origin: 'new' | 'prompt' | 'instruction'
   name: string
   prompt: string
   rule: RuleDraft
@@ -327,6 +331,7 @@ export function SchedulePane({
       const next: EditorDraft = {
         id: schedule.id,
         kind: 'prompt',
+        origin: 'prompt',
         name: schedule.name,
         prompt: schedule.prompt,
         rule: ruleOfCron(schedule.cron),
@@ -345,7 +350,7 @@ export function SchedulePane({
       setSelectedId(null)
       disarmDelete()
       setInstructionError(null)
-      const next: EditorDraft = { id: null, kind: 'prompt', name: '', prompt: '', rule: { mode: 'daily', time: '09:00' }, enabled: true, capability: '', workspaceId: null, instructionId: null }
+      const next: EditorDraft = { id: null, kind: 'prompt', origin: 'new', name: '', prompt: '', rule: { mode: 'daily', time: '09:00' }, enabled: true, capability: '', workspaceId: null, instructionId: null }
       setDraft(next)
       setSnapshot(JSON.stringify(next))
     })
@@ -356,7 +361,7 @@ export function SchedulePane({
       rows never switch: a prompt schedule and an instruction rule are
       different stores, and retyping one into the other would be a lie. */
   const switchDraftKind = (kind: 'prompt' | 'instruction'): void => {
-    if (draft === null || draft.id !== null || draft.kind === kind) return
+    if (draft === null || draft.origin !== 'new' || draft.kind === kind) return
     setDraft({ ...draft, kind, name: '', prompt: '', capability: '', workspaceId: null, instructionId: null })
     setInstructionError(null)
   }
@@ -380,6 +385,7 @@ export function SchedulePane({
       const next: EditorDraft = {
         id: null,
         kind: 'instruction',
+        origin: 'instruction',
         name: instruction.name,
         prompt: '',
         rule: ruleOfCron(instruction.cron ?? ''),
@@ -652,7 +658,7 @@ export function SchedulePane({
                 <button ref={keepEditingRef} data-hover="true" type="button" style={ghostButtonStyle} onClick={() => { setPendingAbandon(null) }}>继续编辑</button>
               </div>
             )}
-            {draft.id === null && (
+            {draft.origin === 'new' && (
               <div style={{ display: 'flex', gap: 'var(--yt-space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={metaLineStyle}>调度对象</span>
                 <label style={{ display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center' }}>
