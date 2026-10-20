@@ -40,6 +40,8 @@ python/**/.pytest_cache/
 packages/**/__pycache__/
 apps/web/dist/
 apps/yantao/dist/
+apps/yantao-desktop/.package-build/
+apps/yantao-desktop/dist/
 .artifacts/
 .dsh-build/
 .playwright-mcp/

@@ -8,11 +8,14 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "refresh": "pnpm -w run yantao:refresh && echo Refreshed. Quit the workbench from the tray, then run \"pnpm start\" again."
+    "refresh": "pnpm -w run yantao:refresh && echo Refreshed. Quit the workbench from the tray, then run \"pnpm start\" again.",
+    "build:win:dir": "node scripts/pack-win.mjs"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.1",
     "electron": "39.8.10",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.25.12",
     "tsx": "^4.20.6"
   }
 }

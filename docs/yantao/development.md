@@ -45,6 +45,28 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"     # headless:
 # workbench: open the printed URL; the probe line shows `tree() ok: …`
 ```
 
+## 出包(与源码解耦的运行实例)
+
+改代码会影响正在运行的实例(热注入、共享 `lib/`、Windows 文件锁),要一个「改代码时也能稳定跑」
+的实例就出包(ADR-0067):
+
+```bash
+# 前置:前端与 client bundle 是最新的(否则脚本会报缺哪个工件、该跑哪条命令)
+pnpm --filter @deepseek-ai/dsh-client-ui-yantao run bundle
+pnpm --filter @deepseek-ai/dsh-yantao-frontend run build
+# 出包(约数分钟,产出 GB 级目录)
+pnpm --filter @deepseek-ai/dsh-yantao-desktop run build:win:dir
+# 运行
+.\apps\yantao-desktop\.package-build\artifacts\win-unpacked\yantao-workbench.exe
+```
+
+- 打包实例读 `resources/runtime` 下的仓库副本,**任何链接指回仓库都会让构建失败**(断链门禁);
+  出包后改代码、重建 `lib/` 对它毫无影响。
+- 打包实例有自己的 home:`%APPDATA%\yantao-workbench\dsh-home`(首启播种 profile、拷贝 `.env`
+  与 `.credentials.yaml`),与开发实例的 `~/.dsh` 隔离;KB 根共享 `D:\yantao-data`,调度名册也跟着共享。
+- **同一时刻只开一个实例**:两个实例同时在线会双触发调度、抢钉钉消息。
+- 轮换秘钥后删掉打包 home 里的 `.env`,下次启动会从 `~/.dsh` 重拷。
+
 ## 离线双机同步(A 外网 ↔ B 内网)
 
 用 git bundle 走 U 盘/共享目录,进度记账在标签 `pair/base`(双方都已持有的最后一个提交)上:

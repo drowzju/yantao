@@ -66,6 +66,7 @@ pnpm --filter @deepseek-ai/dsh-yantao-desktop start          # start the workben
 
 pnpm --filter @deepseek-ai/dsh-client-ui-yantao run bundle   # after changing the client plugin
 pnpm --filter @deepseek-ai/dsh-yantao-frontend run build     # after changing the frontend
+pnpm --filter @deepseek-ai/dsh-yantao-desktop run build:win:dir  # pack a decoupled win-unpacked/ instance (ADR-0067)
 pnpm vitest run packages/yantao/kb packages/api/yantao-kb-controller packages/client/ui-yantao
 ```
 

@@ -23,7 +23,9 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
-import { basename, join } from 'node:path'
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, session, Tray } from 'electron'
 
@@ -37,11 +39,41 @@ const REPO = fileURLToPath(new URL('../../..', import.meta.url))
 /** This file's own directory (`…/apps/yantao-desktop/src/`) — ESM has no `__dirname`. */
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 
-/** The dsh launcher the shell spawns. */
-const CLI = join(REPO, 'apps', 'cli', 'src', 'bin.ts')
+/**
+ * Whether this process is the packaged build (`win-unpacked/yantao-workbench.exe`)
+ * or an `electron .` launch from the repository.
+ *
+ * The packaged build must never read code from the repository it was built in:
+ * decoupling the shipped instance from in-progress edits is the entire point of
+ * packing (a `live` patch reload would otherwise inject every save).
+ */
+const PACKAGED = app.isPackaged
 
-/** Which profile the host runs. `yantao-web` keeps live patch reload (HMR). */
-const PROFILE = 'yantao-web'
+/**
+ * Where the host's code lives. In development that is the repository itself;
+ * in a packaged build it is the materialized copy under `resources/runtime`
+ * (assembled by `apps/yantao-desktop/scripts/pack-win.mjs`, with every
+ * repository-internal link rewritten so the tree stands on its own).
+ */
+const RUNTIME = PACKAGED ? join(process.resourcesPath, 'runtime') : REPO
+
+/** The dsh launcher the shell spawns. */
+const CLI = join(RUNTIME, 'apps', 'cli', 'src', 'bin.ts')
+
+/**
+ * Which profile the host runs. Development keeps `yantao-web` (live patch
+ * reload); the packaged build gets its own `yantao-packaged` profile so the two
+ * instances never share a session store, a scheduler roster or a patch layer.
+ * The knowledge base itself is shared on purpose (`D:\yantao-data`).
+ */
+const PROFILE = PACKAGED ? 'yantao-packaged' : 'yantao-web'
+
+/**
+ * The packaged build's harness home. `DSH_HOME` is what the host resolves
+ * (packages/util/home-paths), so secrets, profiles and session storage land
+ * here instead of `~/.dsh` — the development instance keeps its own.
+ */
+const PACKAGED_HOME = join(app.getPath('userData'), 'dsh-home')
 
 /** How long to wait for the host to print its URL before giving up. */
 const HOST_BOOT_TIMEOUT_MS = 180_000
@@ -93,6 +125,75 @@ function nodeProgram(): string {
 }
 
 /**
+ * Materialize the packaged build's harness home on first launch.
+ *
+ * Three things have to exist before the host boots with `DSH_HOME` pointing
+ * here, and none of them can live inside the app bundle as-is:
+ *
+ * 1. **The profile** — `profiles/yantao-packaged` is seeded from
+ *    `resources/dsh-home-template` (no `patchReload`, same bundle list, same
+ *    `cordis.patch.yml`). It is copied once; afterwards the human owns it.
+ * 2. **The secrets** — `.env` and `.credentials.yaml` are copied from `~/.dsh`
+ *    once. The credentials store reads the home-level `.env` as its `user-env`
+ *    fallback layer (packages/boot/app-boot `loadLayeredEnv`), so nothing else
+ *    is needed. Rotation afterwards means deleting the copy here.
+ * 3. **The profile's plugin links** — `profiles/node_modules` is the layer the
+ *    bundle patches resolve through; on this machine it is a wall of junctions
+ *    into the repository's `node_modules/.pnpm/node_modules`. The manifest
+ *    records which names matter; each junction is (re)pointed at the same
+ *    relative path inside `resources/runtime`, which is why the packaged home
+ *    keeps working after the unpacked directory is moved.
+ *
+ * Re-running is cheap and self-healing: a link whose target drifted is
+ * recreated, a missing profile is re-seeded.
+ * @returns when the home is ready for the host.
+ */
+function ensurePackagedHome(): void {
+  const seeded = join(PACKAGED_HOME, 'profiles', PROFILE, 'package.json')
+  if (!existsSync(seeded)) {
+    mkdirSync(PACKAGED_HOME, { recursive: true })
+    cpSync(join(process.resourcesPath, 'dsh-home-template'), PACKAGED_HOME, { recursive: true })
+    console.log(`yantao: seeded packaged home at ${PACKAGED_HOME}`)
+  }
+
+  // Secrets: copied once, never overwritten — a rotated key in ~/.dsh must not
+  // silently clobber whatever the packaged instance was configured with.
+  for (const name of ['.env', '.credentials.yaml']) {
+    const destination = join(PACKAGED_HOME, name)
+    const source = join(homedir(), '.dsh', name)
+    if (existsSync(destination) || !existsSync(source)) continue
+    copyFileSync(source, destination)
+    console.log(`yantao: seeded ${name} from ~/.dsh`)
+  }
+
+  const manifest = join(PACKAGED_HOME, 'link-manifest.json')
+  if (!existsSync(manifest)) return
+  const names = JSON.parse(readFileSync(manifest, 'utf8')) as string[]
+  const links = join(PACKAGED_HOME, 'profiles', 'node_modules')
+  const store = join(RUNTIME, 'node_modules', '.pnpm', 'node_modules')
+  let repaired = 0
+  for (const name of names) {
+    const expected = join(store, name)
+    if (!existsSync(expected)) continue
+    const destination = join(links, name)
+    let current: string | undefined
+    try {
+      // Junctions may come back with the `\\?\` prefix; strip it before comparing.
+      current = readlinkSync(destination).replace(/^\\\\\?\\/, '')
+    } catch {
+      current = undefined
+    }
+    if (current === expected) continue
+    // `rmSync` on a junction removes the link itself, never its target.
+    if (current !== undefined) rmSync(destination, { force: true })
+    mkdirSync(dirname(destination), { recursive: true })
+    symlinkSync(expected, destination, 'junction')
+    repaired += 1
+  }
+  if (repaired > 0) console.log(`yantao: repaired ${repaired} profile link${repaired === 1 ? '' : 's'}`)
+}
+
+/**
  * Start the dsh host as a child process and resolve the workbench URL it prints.
  *
  * Why a child process and not `runProfile()` in here:
@@ -119,7 +220,15 @@ function bootHost(): { child: ChildProcess; url: Promise<string> } {
     // `--expose-internals` is what lets the profile's HMR row load; without it
     // the host fails with "--expose-internals is required for HMR service".
     ['--import', 'tsx/esm', '--expose-internals', CLI, '--profile', PROFILE, '--port', '0', '--no-open'],
-    { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true },
+    {
+      cwd: RUNTIME,
+      // The packaged instance reads its own home; the development instance
+      // keeps `~/.dsh` untouched. `DSH_HOME` also moves the credentials
+      // store's `user-env` fallback to the seeded `.env`.
+      env: PACKAGED ? { ...process.env, DSH_HOME: PACKAGED_HOME } : process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    },
   )
 
   const url = new Promise<string>((resolve, reject) => {
@@ -333,6 +442,10 @@ async function restartHost(): Promise<void> {
 
 async function main(): Promise<void> {
   await app.whenReady()
+
+  // Before the first bootHost: the packaged instance needs its seeded home,
+  // profile and plugin links. Idempotent and a no-op in development.
+  if (PACKAGED) ensurePackagedHome()
 
   // The notify bridge's other half. Only a hidden window earns a system
   // notification — a visible one shows the run in place, and doubling it up
