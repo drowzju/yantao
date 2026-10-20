@@ -208,6 +208,61 @@ export function sourceOverlapDiagnostic(text: string, sourcePath: string, conten
   return `内容与出处重叠过低（命中 ${hits}/${tokens.length}，来源 ${sourcePath}），疑似张冠李戴（校验 A）`
 }
 
+/**
+ * 校验 A 的证据面 (2026-10-21): when the row carries `sourceQuote` — the
+ * verbatim snippet it distilled from — that quote is what gets checked, not
+ * the distilled text. The old face compared the ASCII identifiers of the
+ * *text* against the source file: a Chinese condensation keeps two or three
+ * such tokens (a date, a version, a codename), so any rewording dropped half
+ * of them and a legitimate row was named back as 张冠李戴 — the 2026-10-20
+ * 周报 run lost two good rows that way. Quote-in-file is exact, cheap and
+ * fair: the entity still receives the condensed line, the quote only proves
+ * where it came from. Whitespace is stripped on both sides because the
+ * model's CJK output sprinkles spaces inside identifiers (`0- 团队管理`).
+ * @param quote - the row's `sourceQuote`, as handed over.
+ * @param sourcePath - the claimed source resource path.
+ * @param content - the source file's content, or null when unreadable.
+ * @returns the diagnostic, or '' when the quote is found (short quotes are
+ *   skipped here; the caller falls back to the token face for those).
+ */
+export function sourceQuoteDiagnostic(quote: string, sourcePath: string, content: string | null): string {
+  if (content === null) return ''
+  const squash = (text: string): string => text.replace(/\s+/g, '')
+  const needle = squash(quote)
+  // 少于 8 字无法定位一段话（也容易撞上任何文件），退回 token 面判。
+  if (needle.length < 8) return ''
+  if (squash(content).includes(needle)) return ''
+  return `sourceQuote 在来源里找不到（sourceQuote 必须逐字摘自源文件，来源 ${sourcePath}），疑似张冠李戴（校验 A）`
+}
+
+/**
+ * Fill an entity-landing row's `entityPath` from `entityType` + `entityName`
+ * (2026-10-21). The tool surface is name-first everywhere else — `kb_read_entity`
+ * takes a name, `kb_list_entities` answers names, `create-entity` takes
+ * type+name — and only the three entity-landing kinds demanded a
+ * `type:name` locator, with the shape documented nowhere before the first
+ * failure. The 2026-10-20 周报 run paid fourteen minutes for that asymmetry:
+ * four append-log rows carried entityName+entityType, were named back as
+ * "缺必填字段 entityPath", and the model went off to rebuild paths from the
+ * report. Accepting the majority spelling at the gate is the fix; the path
+ * stays the stored form, so the applier is untouched. A row that already has
+ * a path, or lacks either half, passes through unchanged.
+ * @param entry - one action exactly as the model handed it over.
+ * @returns the row with `entityPath` filled when it was derivable.
+ */
+function withLocatorPath(entry: unknown): unknown {
+  if (typeof entry !== 'object' || entry === null) return entry
+  const bag = entry as Record<string, unknown>
+  const kind = typeof bag.kind === 'string' ? bag.kind : ''
+  if (!ENTITY_PATH_KINDS.has(kind)) return entry
+  const path = typeof bag.entityPath === 'string' ? bag.entityPath.trim() : ''
+  if (path !== '') return entry
+  const name = typeof bag.entityName === 'string' ? bag.entityName.trim() : ''
+  const type = typeof bag.entityType === 'string' ? bag.entityType.trim() : ''
+  if (name === '' || type === '' || !isEntityLocatorPrefix(type)) return entry
+  return { ...bag, entityPath: `${type}:${name}` }
+}
+
 /** One minimal valid example per kind, inlined into missing-field
  * diagnostics (2026-10-10 补提事故：the drop note named the missing fields
  * but not the shape, and a post-compaction repair rebuilt the rows without
@@ -296,10 +351,15 @@ function diagnoseAction(entry: unknown, at: number, readSource?: (path: string) 
   }
   // ADR-0059 决定 2 校验 A: the claimed source's content must carry the
   // text's tokens — the 张冠李戴 guard, one grep of cost.
-  if (readSource !== undefined && typeof bag.sourcePath === 'string' && typeof bag.text === 'string') {
+  if (readSource !== undefined && typeof bag.sourcePath === 'string') {
     const sourcePath = bag.sourcePath.trim()
     if (sourcePath !== '') {
-      const line = sourceOverlapDiagnostic(bag.text, sourcePath, readSource(sourcePath))
+      const content = readSource(sourcePath)
+      const quote = typeof bag.sourceQuote === 'string' ? bag.sourceQuote.trim() : ''
+      // 有逐字摘录就核摘录（精确）；没有（或短到无法定位）才退回 token 重叠。
+      const line = quote.replace(/\s+/g, '').length >= 8
+        ? sourceQuoteDiagnostic(quote, sourcePath, content)
+        : (typeof bag.text === 'string' ? sourceOverlapDiagnostic(bag.text, sourcePath, content) : '')
       if (line !== '') return `第 ${at + 1} 项「${kind}」${line}`
     }
   }
@@ -349,7 +409,9 @@ export function partitionProposedActions(
   }
   const valid: unknown[] = []
   const diagnostics: string[] = []
-  raw.forEach((entry, at) => {
+  // 先补可推导的 entityPath（名字+类型 → type:name），再校验：模型按名字
+  // 优先的工具面写行，闸门不该逼它记住路径拼法（2026-10-21）。
+  raw.map(withLocatorPath).forEach((entry, at) => {
     const line = diagnoseAction(entry, at, readSource)
     if (line === '') valid.push(entry)
     else diagnostics.push(line)

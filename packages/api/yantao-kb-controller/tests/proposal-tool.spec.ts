@@ -12,6 +12,26 @@ import { deriveEntityName, EMPTY_OK_FIELDS, KINDS, mailSpanNote, normalizeMailRa
 import { TRUNCATION_MARKER as EXEC_TRUNCATION_MARKER } from '../src/capability/exec.ts'
 
 describe('validateProposedActions（ADR-0055 提名工具的服务端校验）', () => {
+  it('只给 entityType + entityName 时自动拼出 entityPath（2026-10-21 周报事故）', () => {
+    const { valid, diagnostics } = partitionProposedActions([
+      { kind: 'append-log', entityType: 'project', entityName: '平台工程', text: '有进展' },
+    ])
+    expect(diagnostics).toEqual([])
+    expect(valid).toEqual([
+      { kind: 'append-log', entityType: 'project', entityName: '平台工程', text: '有进展', entityPath: 'project:平台工程' },
+    ])
+    // 缺一半、类型拼错：不猜，照旧点名缺 entityPath
+    expect(partitionProposedActions([{ kind: 'append-log', entityName: '平台工程', text: 'x' }]).diagnostics[0])
+      .toContain('缺必填字段 entityPath')
+    expect(partitionProposedActions([{ kind: 'append-log', entityType: 'folder', entityName: 'x', text: 'y' }]).diagnostics[0])
+      .toContain('缺必填字段 entityPath')
+    // 已有路径的行原样保留，不被名字覆盖
+    expect(partitionProposedActions([
+      { kind: 'append-log', entityPath: 'project:别的', entityType: 'project', entityName: '平台工程', text: 'x' },
+    ]).valid[0]).toMatchObject({ entityPath: 'project:别的' })
+  })
+
+
   const VALID_APPEND_LOG = { kind: 'append-log', entityPath: '项目/dsh 学习.md', entityName: 'dsh 学习', text: '有进展' }
 
   it('合法动作表通过（返回空诊断）', () => {
@@ -118,6 +138,31 @@ describe('溯源字段与校验 A（ADR-0059 决定 1/2：内容与出处重叠�
     const unreadable = { kind: 'append-log', entityPath: 'person:x', entityName: 'x', text: 'MCA-255 完成 37%', sourcePath: 'resources/不存在.md' }
     expect(validateProposedActions([unreadable], reader({}))).toEqual([])
     expect(validateProposedActions([unreadable])).toEqual([])
+  })
+
+  it('有逐字摘录时核摘录：中文改写放行，摘错才判坏（2026-10-21）', () => {
+    // 改写后的正文只剩 1020 / QPS 两个 ASCII token，源文件里都没有——旧面（核 text）会误杀，
+    // 新面（核 sourceQuote）放行。
+    const rewritten = {
+      kind: 'append-log', entityPath: 'project:平台工程', entityName: '平台工程',
+      text: '1020 期完成接口治理筛查，QPS 波动点已收敛',
+      sourcePath: 'resources/平台工程.md',
+      sourceQuote: '统一协议涉及 48 个未授权接口逐一排查评估',
+    }
+    const source = '……统一协议涉及 48 个未授权接口逐一排查评估，形成完整评估结论表……'
+    expect(validateProposedActions([rewritten], reader({ 'resources/平台工程.md': source }))).toEqual([])
+    // 摘错（源文件里没有这段）：判坏，且点名 quote 而不是正文
+    const wrongQuote = { ...rewritten, sourceQuote: '这一段话在源文件里根本不存在' }
+    const diagnostics = validateProposedActions([wrongQuote], reader({ 'resources/平台工程.md': source }))
+    expect(diagnostics[0]).toContain('sourceQuote 在来源里找不到')
+  })
+
+  it('逐字比对忽略空白（模型的 CJK 输出会插空格）', () => {
+    const action = {
+      kind: 'append-log', entityPath: 'project:x', entityName: 'x', text: 'x',
+      sourcePath: 'resources/x.md', sourceQuote: '0- 团队管理 周报2026',
+    }
+    expect(validateProposedActions([action], reader({ 'resources/x.md': '目录 0-团队管理 周报2026 下' }))).toEqual([])
   })
 
   it('sourcePath/sourceQuote 形状不诚实被点名；纯决策类动作不得携带（豁免条款）', () => {

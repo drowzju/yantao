@@ -629,7 +629,8 @@ export class YantaoKbController extends TypertRemoteService {
       description:
         '把值得人拍板的写入动作打包成提议，送进「提议」收件箱等人批准（ADR-0055）。只入队，不执行。'
         + 'actions 每项 {"kind":…,…}，服务端逐项校验：坏项点名剔除、好项照常入队，全坏才整单拒绝；'
-        + 'append-log/write-state/create-link 的 entityName 可省（从 entityPath 推导，路径空串时必填）。'
+        + 'append-log/write-state/create-link 认 entityPath（形如 project:某项目），也可只给 entityType+entityName（自动拼成路径）；entityName 本身可省，从 entityPath 推导。'
+        + '带 sourcePath 的动作建议同时给 sourceQuote（逐字摘自源文件的 20–40 字），闸门按它核出处；不给则按正文关键词核。'
         + '分批任务用 draft:true 暂存本批、收尾用缺省调用合并成一张卡；能力脚本可经 CAPABILITY_RUN_STAGING 直接写暂存。'
         + '没有值得提议的动作就不要调用；入队后不要在回答里重复信封 JSON。',
       parameters: {
