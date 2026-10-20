@@ -506,9 +506,10 @@ export function apply(ctx: Context, config: Config): void {
       + 'path 指向文件时返回其 UTF-8 全文；.pdf 自动抽取文本、.eml 自动解析为头部与正文（ADR-0046），'
       + '其余二进制文件（含 NUL 字节）会拒绝并报大小，不注入乱码。'
       + 'path 指向目录时返回递归清单（每项路径与字节大小，最多 100 项，超出标注 truncated）——'
-      + '清单不带内容，看中哪个文件再逐个读取。',
+      + '清单不带内容，看中哪个文件再逐个读取。目录超过百项时传 prefix 只回路径包含该子串的条目。',
     parameters: {
       path: { type: 'string', required: true, description: '知识库内资源路径，以 resources/ 开头（文件或目录）' },
+      prefix: { type: 'string', description: '目录模式下的名称过滤（相对路径包含该子串，不区分大小写）；文件模式忽略' },
     },
     output: {
       schema: {
@@ -542,7 +543,7 @@ export function apply(ctx: Context, config: Config): void {
           : value.content ?? '',
       }],
     },
-    execute: args => readResource(liveRoot.root, args.path),
+    execute: args => readResource(liveRoot.root, args.path, args.prefix),
   }))
 
   ctx.tools.register(defineTool({

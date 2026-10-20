@@ -726,6 +726,17 @@ describe('kb_read_resource', () => {
     })
   })
 
+  it('filters a listing by name substring (2026-10-20 上百项目录定位)', async () => {
+    await writeResource(kbRoot, 'resources/big/2026-09/周报.md', '旧')
+    await writeResource(kbRoot, 'resources/big/2026-10/周报.md', '新')
+    await writeResource(kbRoot, 'resources/big/其他.md', '别')
+    const listed = await readResource(kbRoot, 'resources/big', '2026-10')
+    if (listed.kind !== 'dir') throw new Error('预期目录清单')
+    expect(listed.entries).toEqual([{ path: '2026-10/周报.md', size: 3 }])
+    // 大小写不敏感，且空过滤等于不过滤
+    expect((await readResource(kbRoot, 'resources/big', '周报')).kind).toBe('dir')
+  })
+
   it('caps a listing at one hundred entries and marks it truncated', async () => {
     for (let index = 0; index < 101; index++) {
       await writeResource(kbRoot, `resources/many/f${String(index).padStart(3, '0')}.txt`, 'x')

@@ -625,7 +625,7 @@ export type ReadResourceResult =
  * @param path - KB-relative resource path, e.g. `resources/报告/周报.md` or `resources/报告`.
  * @returns the file's text, or the directory's recursive listing.
  */
-export async function readResource(kbRoot: string, path: string): Promise<ReadResourceResult> {
+export async function readResource(kbRoot: string, path: string, prefix?: string): Promise<ReadResourceResult> {
   const root = resolveWithinKb(kbRoot)
   const segments = path.split(/[\\/]/).filter(segment => segment !== '')
   if (segments[0] !== 'resources') {
@@ -653,17 +653,24 @@ export async function readResource(kbRoot: string, path: string): Promise<ReadRe
   }
   if (info.isDirectory()) {
     const entries: ListedResource[] = []
+    // 名称过滤（2026-10-20）：目录动辄上百项，100 项上限让「找某一层」变成
+    // 瞎猜——传入 prefix 只回匹配项（相对路径的子串，不区分大小写），
+    // 目录仍然下钻（子目录名可能不匹配、但里面的文件匹配）。
+    const needle = (prefix ?? '').trim().toLowerCase()
+    const matches = (rel: string): boolean => needle === '' || rel.toLowerCase().includes(needle)
     // Walk one directory level; answers whether the entry cap ended the listing.
-    const walk = async (dir: string, prefix: string): Promise<boolean> => {
+    const walk = async (dir: string, relative: string): Promise<boolean> => {
       const dirents = await readdir(dir, { withFileTypes: true })
       dirents.sort((left, right) => left.name.localeCompare(right.name))
       for (const dirent of dirents) {
         if (entries.length >= MAX_DIR_ENTRIES) return true
         if (dirent.isDirectory()) {
-          if (await walk(join(dir, dirent.name), `${prefix}${dirent.name}/`)) return true
+          if (await walk(join(dir, dirent.name), `${relative}${dirent.name}/`)) return true
         } else if (dirent.isFile()) {
+          const rel = `${relative}${dirent.name}`
+          if (!matches(rel)) continue
           const fileStat = await stat(join(dir, dirent.name))
-          entries.push({ path: `${prefix}${dirent.name}`, size: fileStat.size })
+          entries.push({ path: rel, size: fileStat.size })
         }
       }
       return false
