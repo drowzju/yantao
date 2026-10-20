@@ -390,10 +390,12 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'kb_read_entity',
-    description: '读取一个实体笔记的完整内容（frontmatter、『状态』区与『流水』区原文）。',
+    description: '读取一个实体笔记的原文（frontmatter、『状态』区与『流水』区）。'
+      + 'maxChars 只回尾部：实体的最新记录在『流水』末尾，长实体不必整份读入。',
     parameters: {
       type: { ...ENTITY_TYPE_PARAM, required: true },
       name: { type: 'string', required: true, description: '实体显示名（文件名，不含 .md）' },
+      maxChars: { type: 'integer', description: '只回最后 N 字（从行首开始，省略的前文会标注）；省略=全文' },
     },
     output: {
       schema: {
@@ -402,11 +404,18 @@ export function apply(ctx: Context, config: Config): void {
         properties: {
           path: { type: 'string', required: true },
           content: { type: 'string', required: true },
+          truncated: { type: 'boolean', description: '是否只回了尾部' },
+          omittedChars: { type: 'integer', description: '被省略的前文字数' },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: value.content }],
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.truncated === true
+          ? `（已省略前 ${value.omittedChars ?? 0} 字，只回最后 ${value.content.length} 字；要全文就去掉 maxChars 再读一次）\n\n${value.content}`
+          : value.content,
+      }],
     },
-    execute: args => readEntity(liveRoot.root, args.type, args.name),
+    execute: args => readEntity(liveRoot.root, args.type, args.name, args.maxChars),
   }))
 
   ctx.tools.register(defineTool({

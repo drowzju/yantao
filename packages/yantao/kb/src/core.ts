@@ -413,11 +413,38 @@ export function resolveEntityPath(kbRoot: string, locator: string): { path: stri
  *   basename is `<YYYY-MM-DD> <name>`, which this lookup also matches.
  * @returns the KB-relative path and the file's complete content.
  */
-export async function readEntity(kbRoot: string, type: EntityType, name: string): Promise<{ path: string; content: string }> {
+/**
+ * Read one entity note, optionally only its tail.
+ *
+ * `maxChars` (2026-10-21): an entity's useful state is its newest 流水 lines at
+ * the bottom, but the file grows without bound — the largest project note here
+ * is 173KB, which alone eats half a context window. A caller that only needs
+ * "what did we already record" (the weekly-refresh collision step) asks for the
+ * tail and gets an honest `truncated` marker instead of a silent cut. The cut
+ * starts at a line boundary so the first line is never half a sentence.
+ * @param kbRoot - the KB root.
+ * @param type - the entity type.
+ * @param name - the entity display name.
+ * @param maxChars - keep only the last N characters; omitted keeps the file whole.
+ * @returns the display path, the (possibly truncated) content, and how much was dropped.
+ */
+export async function readEntity(
+  kbRoot: string,
+  type: EntityType,
+  name: string,
+  maxChars?: number,
+): Promise<{ path: string; content: string; truncated?: boolean; omittedChars?: number }> {
   const root = resolveWithinKb(kbRoot)
   const { content, display } = await readEntityFile(root, resolveEntityLocator(root, `${type}:${name}`))
   parseFrontmatter(content, display)
-  return { path: display, content }
+  if (maxChars === undefined || !Number.isFinite(maxChars)) return { path: display, content }
+  // 下限 200 字：再小就只剩一行，等于什么也没读到。
+  const limit = Math.max(200, Math.floor(maxChars))
+  if (content.length <= limit) return { path: display, content }
+  const rough = content.length - limit
+  const boundary = content.indexOf('\n', rough)
+  const start = boundary === -1 ? rough : boundary + 1
+  return { path: display, content: content.slice(start), truncated: true, omittedChars: start }
 }
 
 /** One listed entity row. */

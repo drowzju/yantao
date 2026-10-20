@@ -557,6 +557,25 @@ describe('kb_append_log', () => {
 })
 
 describe('kb_read_entity', () => {
+  it('maxChars 只回尾部，从行首起，并标注省略量（2026-10-21 长实体）', async () => {
+    await createEntity(kbRoot, 'project', '长实体')
+    for (let index = 0; index < 40; index += 1) {
+      await appendLog(kbRoot, 'project:长实体', `第 ${index} 条：${'内容'.repeat(10)}`)
+    }
+    const whole = await readEntity(kbRoot, 'project', '长实体')
+    const tail = await readEntity(kbRoot, 'project', '长实体', 400)
+    expect(whole.content.length).toBeGreaterThan(400)
+    expect(tail.truncated).toBe(true)
+    expect(tail.omittedChars).toBeGreaterThan(0)
+    expect(tail.content.length).toBeLessThanOrEqual(400)
+    // 尾部是原文的后缀，且从行首开始（不是半行）
+    expect(whole.content.endsWith(tail.content)).toBe(true)
+    expect(tail.content.startsWith('第 ') || tail.content.startsWith('- ')).toBe(true)
+    // 比阈值短时原样返回，不标截断
+    const short = await readEntity(kbRoot, 'project', '长实体', 100000)
+    expect(short.truncated).toBeUndefined()
+    expect(short.content).toBe(whole.content)
+  })
   it('returns the complete file content', async () => {
     await createEntity(kbRoot, 'area', '健康')
     const result = await readEntity(kbRoot, 'area', '健康')
@@ -737,6 +756,7 @@ describe('kb_read_resource', () => {
     expect(listed.path).toBe('resources/周报/2026-10月/20261020')
     expect(listed.entries.map(entry => entry.path)).toEqual(['新.md'])
   })
+
 
   it('filters a listing by name substring (2026-10-20 上百项目录定位)', async () => {
     await writeResource(kbRoot, 'resources/big/2026-09/周报.md', '旧')
