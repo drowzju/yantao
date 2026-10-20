@@ -557,6 +557,14 @@ describe('kb_append_log', () => {
 })
 
 describe('kb_read_entity', () => {
+  it('列目录跳过 _assets 附件目录（2026-10-21 图片挤爆上限）', async () => {
+    await writeResource(kbRoot, 'resources/镜像/20261020/周报.md', '正文')
+    await writeResource(kbRoot, 'resources/镜像/20261020/_assets/周报/图.png', 'png')
+    const listed = await readResource(kbRoot, 'resources/镜像/20261020')
+    if (listed.kind !== 'dir') throw new Error('预期目录清单')
+    expect(listed.entries.map(entry => entry.path)).toEqual(['周报.md'])
+  })
+
   it('maxChars 只回尾部，从行首起，并标注省略量（2026-10-21 长实体）', async () => {
     await createEntity(kbRoot, 'project', '长实体')
     for (let index = 0; index < 40; index += 1) {

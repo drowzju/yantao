@@ -758,6 +758,9 @@ export async function readResource(kbRoot: string, path: string, prefix?: string
       for (const dirent of dirents) {
         if (entries.length >= MAX_DIR_ENTRIES) return true
         if (dirent.isDirectory()) {
+          // 镜像附件目录（dd.py 把文档配图放在 <文档>/_assets/）：列清单时跳过。
+          // 2026-10-21 实测：周报月目录的上百项上限被 png 占满，md 一个都看不见。
+          if (dirent.name === '_assets') continue
           if (await walk(join(dir, dirent.name), `${relative}${dirent.name}/`)) return true
         } else if (dirent.isFile()) {
           const rel = `${relative}${dirent.name}`
