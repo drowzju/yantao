@@ -510,6 +510,7 @@ export function apply(ctx: Context, config: Config): void {
     parameters: {
       path: { type: 'string', required: true, description: '知识库内资源路径，以 resources/ 开头（文件或目录）' },
       prefix: { type: 'string', description: '目录模式下的名称过滤（相对路径包含该子串，不区分大小写）；文件模式忽略' },
+      latest: { type: 'boolean', description: '目录模式下先逐层下钻到「最新一期」子目录（名字日期优先，时间戳兜底）再列清单；用于「最新周报」这类不想关心目录名的场景' },
     },
     output: {
       schema: {
@@ -543,7 +544,7 @@ export function apply(ctx: Context, config: Config): void {
           : value.content ?? '',
       }],
     },
-    execute: args => readResource(liveRoot.root, args.path, args.prefix),
+    execute: args => readResource(liveRoot.root, args.path, args.prefix, args.latest === true),
   }))
 
   ctx.tools.register(defineTool({

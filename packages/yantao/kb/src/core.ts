@@ -625,7 +625,69 @@ export type ReadResourceResult =
  * @param path - KB-relative resource path, e.g. `resources/报告/周报.md` or `resources/报告`.
  * @returns the file's text, or the directory's recursive listing.
  */
-export async function readResource(kbRoot: string, path: string, prefix?: string): Promise<ReadResourceResult> {
+
+/**
+ * 名字里的日期 → 期次序号（天）；解析不出返回 null（2026-10-20 `latest` 用）。
+ * 支持 `20261020`、`2026-10-20`、`2026年10月20日`、`2026-10月`，中文数字先转阿拉伯。
+ * 只认「名字里有日期」这一种强信号；认不出时由调用方退回文件系统时间戳。
+ */
+function periodOrdinalOf(name: string): number | null {
+  const digits: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }
+  const asNumber = (raw: string): number => {
+    if (/^\d+$/.test(raw)) return Number(raw)
+    if (raw === '十') return 10
+    if (raw.includes('十')) {
+      const [left = '', right = ''] = raw.split('十')
+      const tens = left === '' ? 1 : (digits[left] ?? 1)
+      const ones = right === '' ? 0 : (digits[right] ?? 0)
+      return tens * 10 + ones
+    }
+    return digits[raw] ?? Number.NaN
+  }
+  const normalized = name.trim().replace(/[一二三四五六七八九十]+/g, match => String(asNumber(match)))
+  const patterns: Array<[RegExp, (match: RegExpMatchArray) => [number, number, number]]> = [
+    [/^(20\d{2})[-_.年]?(\d{2})(\d{2})$/, match => [Number(match[1]), Number(match[2]), Number(match[3])]],
+    [/^(20\d{2})年(\d{1,2})月(\d{1,2})日?$/, match => [Number(match[1]), Number(match[2]), Number(match[3])]],
+    [/^(20\d{2})[-_.年](\d{1,2})月?$/, match => [Number(match[1]), Number(match[2]), 1]],
+  ]
+  for (const [pattern, parts] of patterns) {
+    const match = normalized.match(pattern)
+    if (match === null) continue
+    const [year, month, day] = parts(match)
+    const at = Date.UTC(year, month - 1, day)
+    return Number.isNaN(at) ? null : Math.floor(at / 86_400_000)
+  }
+  return null
+}
+
+/**
+ * 逐层下钻到「最新一期」目录：每层取子目录里期次最大的那个，直到没有子目录。
+ * 排序依据与 dd.py 的 `--latest` 同一口径——名字日期优先，文件系统时间戳兜底；
+ * 认不出日期的目录（如「公共软件服务部」）不靠名字取胜。最多八层，防符号链接成环。
+ * @param dir - 起始目录。
+ * @returns 最新一期的叶子目录。
+ */
+async function latestDescendant(dir: string): Promise<string> {
+  let current = dir
+  for (let depth = 0; depth < 8; depth += 1) {
+    const entries = await readdir(current, { withFileTypes: true })
+    const dirs = entries.filter(entry => entry.isDirectory())
+    if (dirs.length === 0) return current
+    let best: { path: string; key: number } | undefined
+    for (const entry of dirs) {
+      const child = join(current, entry.name)
+      const info = await stat(child)
+      const ordinal = periodOrdinalOf(entry.name)
+      // 名字能解析出日期时压过任何时间戳：时间戳只做兜底（回改旧月不改出生时间）。
+      const key = ordinal !== null ? 1e15 + ordinal : (info.birthtimeMs || info.mtimeMs)
+      if (best === undefined || key > best.key) best = { path: child, key }
+    }
+    if (best === undefined) return current
+    current = best.path
+  }
+  return current
+}
+export async function readResource(kbRoot: string, path: string, prefix?: string, latest = false): Promise<ReadResourceResult> {
   const root = resolveWithinKb(kbRoot)
   const segments = path.split(/[\\/]/).filter(segment => segment !== '')
   if (segments[0] !== 'resources') {
@@ -652,6 +714,10 @@ export async function readResource(kbRoot: string, path: string, prefix?: string
     throw error
   }
   if (info.isDirectory()) {
+    // latest（2026-10-20）：先下钻到最新一期，再列它的清单——调用方不必知道
+    // 目录名是 2026-10月 还是 十月，也不用自己列目录猜。
+    const listingRoot = latest ? await latestDescendant(target) : target
+    const listingDisplay = latest ? displayPath(root, listingRoot) : display
     const entries: ListedResource[] = []
     // 名称过滤（2026-10-20）：目录动辄上百项，100 项上限让「找某一层」变成
     // 瞎猜——传入 prefix 只回匹配项（相对路径的子串，不区分大小写），
@@ -675,8 +741,8 @@ export async function readResource(kbRoot: string, path: string, prefix?: string
       }
       return false
     }
-    const truncated = await walk(target, '')
-    return { kind: 'dir', path: display, entries, ...(truncated ? { truncated: true } : {}) }
+    const truncated = await walk(listingRoot, '')
+    return { kind: 'dir', path: listingDisplay, entries, ...(truncated ? { truncated: true } : {}) }
   }
   if (!info.isFile()) {
     throw new KbError('resource-not-file', `「${display}」既不是普通文件也不是目录`)

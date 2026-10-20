@@ -726,6 +726,18 @@ describe('kb_read_resource', () => {
     })
   })
 
+  it('latest 逐层下钻到最新一期（名字日期优先，非日期目录不靠时间戳取胜）', async () => {
+    await writeResource(kbRoot, 'resources/周报/2026-9月/0901/旧.md', '旧')
+    await writeResource(kbRoot, 'resources/周报/2026-10月/20261013/中.md', '中')
+    await writeResource(kbRoot, 'resources/周报/2026-10月/20261020/新.md', '新')
+    // 野目录最后创建（birthtime 最新），但它没有日期名——不该赢
+    await writeResource(kbRoot, 'resources/周报/公共软件服务部/野.md', '野')
+    const listed = await readResource(kbRoot, 'resources/周报', undefined, true)
+    if (listed.kind !== 'dir') throw new Error('预期目录清单')
+    expect(listed.path).toBe('resources/周报/2026-10月/20261020')
+    expect(listed.entries.map(entry => entry.path)).toEqual(['新.md'])
+  })
+
   it('filters a listing by name substring (2026-10-20 上百项目录定位)', async () => {
     await writeResource(kbRoot, 'resources/big/2026-09/周报.md', '旧')
     await writeResource(kbRoot, 'resources/big/2026-10/周报.md', '新')
