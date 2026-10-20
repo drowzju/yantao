@@ -54,6 +54,10 @@ const EXCLUDED = [
   '.git',
   '.github',
   '.scratch',
+  // Agent tooling scratch (worktrees, caches). A leftover worktree carries its
+  // own node_modules with junctions into paths that no longer exist, and the
+  // copy dies on the first dangling link — 2026-10-20 出包首跑即此。
+  '.codebuddy',
   'coverage',
   'docs',
   'website',
@@ -114,7 +118,16 @@ function copyTree(from, to, links) {
     const destination = join(to, entry.name)
     const stat = lstatSync(source)
     if (stat.isSymbolicLink()) {
-      const target = realpathSync(source)
+      // Dangling links are normal in a pnpm tree: optional packages for other
+      // platforms (linux-arm64, …) are never installed on this host, yet the
+      // link remains. There is nothing to copy, and the copy must not fail on
+      // it — 2026-10-20 出包第二跑即此。
+      let target
+      try {
+        target = realpathSync(source)
+      } catch {
+        continue
+      }
       const rewritten = insideRepo(target) ? join(RUNTIME, relative(REPO, target)) : target
       if (rewritten !== target && isExcluded(target)) continue
       links.push({ destination, target: rewritten, directory: statSync(target).isDirectory() })
