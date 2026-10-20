@@ -319,6 +319,8 @@ describe('kb_propose_actions 工具（注册面 + 入队）', () => {
     ctx.provide('skills', { get: async () => undefined } as never)
     registered = []
     ctx.provide('tools', { register: (definition: ToolDefinition) => { registered.push(definition) } } as never)
+    // kb_read_session_log reads through the session controller; these tests never call it.
+    ctx.provide('sessionController', { follow: () => (async function* () {})(), page: async () => ({ records: [], hasMore: false }) } as never)
     fiber = await ctx.plugin(YantaoKbController)
   })
 

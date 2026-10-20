@@ -92,6 +92,10 @@ export function scheduleScan(schedule: Scannable, now: Date, toleranceMs: number
 export interface ScheduleRunResult {
   /** The session the run lived in — kept so the judgement can be re-read in the 任务 tab (ADR-0033). */
   readonly sessionId: string
+  /** ISO timestamp the session was created — the run-report's 起点锚. */
+  readonly startedAt: string
+  /** ISO timestamp the run settled (the final answer landed, or the failure threw). */
+  readonly finishedAt: string
   /** The turn's final assistant text, for the completion notification's body. */
   readonly answer: string
   /**
@@ -673,16 +677,22 @@ export async function runScheduledTask(options: {
       }
     }
   }
+  // 运行上报的起止锚（born-terminal 报告的两端）：startedAt 即会话创建时刻，
+  // finishedAt 收在此处——提案入队、闭合扫描都不算进运行时长。
+  const finishedAt = new Date().toISOString()
+  const startedAtIso = new Date(startedAt).toISOString()
   if (proposalId !== undefined) {
     return {
       sessionId,
+      startedAt: startedAtIso,
+      finishedAt,
       answer: finalAnswer,
       proposalId,
       ...(warnings !== undefined ? { warnings } : {}),
       ...(stats !== undefined ? { stats } : {}),
     }
   }
-  return { sessionId, answer: finalAnswer, ...(stats !== undefined ? { stats } : {}) }
+  return { sessionId, startedAt: startedAtIso, finishedAt, answer: finalAnswer, ...(stats !== undefined ? { stats } : {}) }
 }
 
 declare global {

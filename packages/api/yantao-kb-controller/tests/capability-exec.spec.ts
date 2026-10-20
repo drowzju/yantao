@@ -80,6 +80,8 @@ beforeEach(async () => {
     registerProvider: state.registerProvider,
   } as unknown as SkillRegistry)
   ctx.provide('tools', { register: state.registerTool } as unknown as never)
+  // kb_read_session_log reads through the session controller; these tests never call it.
+  ctx.provide('sessionController', { follow: () => (async function* () {})(), page: async () => ({ records: [], hasMore: false }) } as never)
   fiber = await ctx.plugin(YantaoKbController)
 })
 

@@ -23,6 +23,7 @@ export interface WorkspaceRunEvent {
     finishedAt?: string
     failedStep?: number
     finalResult?: string
+    error?: string
     steps?: readonly { index?: number; error?: string; resultExcerpt?: string }[]
   }
 }
@@ -41,6 +42,7 @@ const TRIGGER_TEXT: Record<string, string> = {
   manual: '手动',
   cron: '定时',
   agent: '会话触发',
+  schedule: '调度',
 }
 
 /** 起止时刻都齐时算一段墙钟时长；解析不动就放弃（宁缺毋假）。 */
@@ -85,21 +87,27 @@ export class RunPusher {
     const failedStep = run.failedStep !== undefined
       ? run.steps?.find(step => step?.index === run.failedStep)
       : undefined
+    const isSchedule = run.trigger === 'schedule'
+    const failureLine = run.status === 'failed'
+      ? (failedStep?.error !== undefined
+        ? `失败原因：${excerpt(failedStep.error, 300)}`
+        : run.error !== undefined
+          ? `失败原因：${excerpt(run.error, 300)}`
+          : undefined)
+      : undefined
     const text = [
-      `指令：${run.instructionName ?? run.id}`,
+      `${isSchedule ? '调度任务' : '指令'}：${run.instructionName ?? run.id}`,
       run.trigger !== undefined ? `触发：${TRIGGER_TEXT[run.trigger] ?? run.trigger}` : '',
       durationLine(run.startedAt, run.finishedAt),
       run.finalResult !== undefined && run.finalResult !== ''
         ? `结果摘要：${excerpt(run.finalResult, 300)}`
         : undefined,
-      run.status === 'failed' && failedStep?.error !== undefined
-        ? `失败原因：${excerpt(failedStep.error, 300)}`
-        : undefined,
-      '完整日志见工作台 · 工作空间 · 运行历史。',
+      failureLine,
+      isSchedule ? '详情见工作台 · 任务 tab（会话可点开）。' : '完整日志见工作台 · 工作空间 · 运行历史。',
     ]
       .filter(Boolean)
       .join('\n')
-    const ok = await channel.sendMarkdown(userId, `工作空间运行${statusText}`, text)
+    const ok = await channel.sendMarkdown(userId, `${isSchedule ? '调度任务' : '工作空间'}运行${statusText}`, text)
     this.deps.log(`workspace run ${run.id} (${run.status}): proactive markdown to ${userId} → ${ok ? 'sent' : 'FAILED'}`)
   }
 }

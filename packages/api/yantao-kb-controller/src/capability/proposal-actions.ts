@@ -479,3 +479,61 @@ export function parseStoredProposal(raw: unknown): Proposal | null {
     ...(highlights !== undefined ? { highlights } : {}),
   }
 }
+
+/**
+ * Compress per-row diagnostics into per-REASON lines (2026-10-20 闸门回执瘦身):
+ * the 10:10 run's all-fingerprint card returned thirty near-identical lines —
+ * 4KB of prose the model then had to carry through the next compaction. The
+ * verdicts stay one per reason, the row numbers become a range list.
+ * A line that does not carry the `第 N 项` prefix passes through untouched.
+ * @param diagnostics - the lines {@link partitionProposedActions} returned.
+ * @returns one line per distinct reason, row numbers compressed (`4–11、14–26`).
+ */
+export function groupDiagnostics(diagnostics: readonly string[]): readonly string[] {
+  const groups = new Map<string, { at: number[]; first: string }>()
+  const passthrough: string[] = []
+  for (const line of diagnostics) {
+    const match = /^第 (\d+) 项([\s\S]*)$/.exec(line)
+    if (match === null) {
+      passthrough.push(line)
+      continue
+    }
+    const at = Number(match[1])
+    const rest = match[2] as string
+    const group = groups.get(rest)
+    if (group === undefined) groups.set(rest, { at: [at], first: line })
+    else group.at.push(at)
+  }
+  const grouped: string[] = []
+  for (const [rest, group] of groups) {
+    grouped.push(group.at.length === 1 ? group.first : `第 ${formatRowRanges(group.at)} 项${rest}`)
+  }
+  return [...passthrough, ...grouped]
+}
+
+/**
+ * Render 1-based row numbers as a compact range list (`4–11、14、20–26`),
+ * sorted and de-duplicated — the row half of {@link groupDiagnostics}'s line.
+ * @param rows - the row numbers, in any order.
+ * @returns the compressed list, `、`-joined.
+ */
+function formatRowRanges(rows: readonly number[]): string {
+  const sorted = [...new Set(rows)].sort((a, b) => a - b)
+  const parts: string[] = []
+  let start = sorted[0] as number
+  let previous = start
+  const flush = (): void => {
+    parts.push(start === previous ? `${start}` : `${start}–${previous}`)
+  }
+  for (const row of sorted.slice(1)) {
+    if (row === previous + 1) {
+      previous = row
+      continue
+    }
+    flush()
+    start = row
+    previous = row
+  }
+  flush()
+  return parts.join('、')
+}

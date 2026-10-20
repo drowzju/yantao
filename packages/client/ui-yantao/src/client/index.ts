@@ -48,7 +48,7 @@ import type {} from '@deepseek-ai/dsh-client-shortcuts/client'
 import type {
   KbCapabilityRouteUpdateArgs, KbCreatableEntityType, KbMailFetchArgs, KbMailMarkReadArgs, KbPersonRelation,
   KbPromptShortcutSaveArgs, KbProposalInboxEnqueueArgs, KbProposalInboxResolveArgs,
-  KbScheduleMarkArgs, KbScheduleSaveArgs, KbSkillRewriteApplyArgs, KbWriteTodosArgs,
+  KbScheduleMarkArgs, KbScheduleRunReportArgs, KbScheduleSaveArgs, KbSkillRewriteApplyArgs, KbWriteTodosArgs,
   KbWorkspaceRunArgs, KbWorkspaceSaveArgs, KbWorkspaceInstructionScheduleSetArgs,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import type { UsageWireDailyArgs } from '@deepseek-ai/dsh-api-yantao-usage-controller/types'
@@ -90,7 +90,7 @@ import {
   loadImageBinary,
   loadSchedules, markSchedule, savePromptShortcuts, saveSchedules, setKbRoot,
   enqueueInboxProposal, loadProposalInbox, loadRelationGraph, resolveInboxProposal,
-  applyInboxProposal, undoInboxProposal,
+  applyInboxProposal, undoInboxProposal, reportScheduleRun,
   loadWorkspaces, saveWorkspaces, setWorkspaceInstructionSchedule, runWorkspaceInstruction, stopWorkspaceRun, loadWorkspaceRuns,
   clearWorkspaceRunHistory, deleteWorkspaceRunRow,
   setRelation, unregisterCapability, updateCapabilityRoute, writeFile, writeTodos,
@@ -457,6 +457,7 @@ export function apply(ctx: Context): void {
         const cwd = await kbCwd()
         return runScheduledTask({ ctx, ...args, ...(cwd !== undefined ? { cwd } : {}) })
       },
+      scheduleRunReport: (args: KbScheduleRunReportArgs) => reportScheduleRun(ctx, args),
       // ADR-0032 批次③: the behavior-memory surface — the 记忆 tab's
       // management view, the mail panel's direct write, and the proposal
       // card's 记忆 rows all land on these three.

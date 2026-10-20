@@ -77,6 +77,8 @@ describe('ADR-0063 对话直写工具', () => {
     ctx.provide('skills', { get: async () => undefined } as never)
     registered = []
     ctx.provide('tools', { register: (definition: ToolDefinition) => { registered.push(definition) } } as never)
+    // kb_read_session_log reads through the session controller; these tests never call it.
+    ctx.provide('sessionController', { follow: () => (async function* () {})(), page: async () => ({ records: [], hasMore: false }) } as never)
     fiber = await ctx.plugin(YantaoKbController)
   })
 

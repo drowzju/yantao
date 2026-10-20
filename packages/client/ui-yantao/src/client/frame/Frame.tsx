@@ -52,7 +52,7 @@ import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage, type ResourceViewReader } from '../remote.ts'
 import { notifySchedule, scheduleScan, formatRunStats, type ScheduleRunner } from '../scheduler.ts'
 import { SchedulePane } from '../SchedulePane.tsx'
-import type { KbCapabilitySummary, KbDeleteResourceResult, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbQueuedProposal, KbRelationGraphResult, KbSchedule, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId, KbWorkspace, KbWorkspaceInstructionScheduleSetArgs } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary, KbDeleteResourceResult, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbQueuedProposal, KbRelationGraphResult, KbSchedule, KbScheduleRunReportArgs, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId, KbWorkspace, KbWorkspaceInstructionScheduleSetArgs } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
@@ -202,6 +202,8 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly scheduleMark: ScheduleMarker
   /** Fire one schedule's prompt as a background session (ADR-0045 决定 2). */
   readonly runSchedule: ScheduleRunner
+  /** Report one fired schedule's settled run to the host's 运行历史 (ADR-0045 可观测性补齐). */
+  readonly scheduleRunReport: (args: KbScheduleRunReportArgs) => Promise<unknown>
   /** List the workspaces (ADR-0056) — the 工作空间 tab's read. */
   readonly workspaceList: WorkspaceLister
   /** Replace the whole workspace list (ADR-0056). */
@@ -555,7 +557,7 @@ export function Frame({
   promptSession, memoryList, memoryAdd, memoryDelete, memoryProposalList, memoryProposalApprove, memoryProposalDiscard,
   sessionDetail, onKbRootChanged, mailDelete, mailArchive, skillRewriteApply,
   promptShortcutList, promptShortcutSave, fillShortcut,
-  scheduleList, scheduleSave, scheduleMark, runSchedule,
+  scheduleList, scheduleSave, scheduleMark, runSchedule, scheduleRunReport,
   workspaceList, workspaceSave, workspaceInstructionScheduleSet, workspaceRun, workspaceRunStop,
   workspaceRunsList, workspaceRunsClear, workspaceRunDelete,
   proposalInboxList, proposalInboxResolve, proposalInboxEnqueue, proposalInboxApply, proposalInboxUndo, relationGraph,
@@ -1255,6 +1257,7 @@ export function Frame({
     }
     const startRun = (schedule: KbSchedule): void => {
       scheduleFiring.current = new Set([...scheduleFiring.current, schedule.id])
+      const firedAt = new Date().toISOString()
       const taskId = taskBegin('schedule', `调度「${schedule.name}」`, '执行中')
       const controller = new AbortController()
       scheduleAborts.current.set(taskId, controller)
@@ -1292,13 +1295,49 @@ export function Frame({
         // The proposal is on the disk store the moment the run ends: pull it
         // into the pane now rather than waiting for the next scan.
         if (result.proposalId !== undefined) loadInbox()
+        // 运行上报（born-terminal）：把这次点火记进运行历史并广播出去——钉钉
+        // 推送和 kb_list_workspace_runs 都从这条链上看到调度运行。上报失败只
+        // 警告：丢行可诊断，不值得打断已成功的运行。
+        void scheduleRunReport({
+          scheduleId: schedule.id,
+          scheduleName: schedule.name,
+          sessionId: result.sessionId,
+          prompt: schedule.prompt,
+          status: 'success',
+          startedAt: result.startedAt,
+          finishedAt: result.finishedAt,
+          finalResult: result.answer,
+        }).catch((reason: unknown) => {
+          console.warn(`run report for schedule ${schedule.id} failed; the history row is lost:`, reason)
+        })
       }, (failure: unknown) => {
         if (controller.signal.aborted) {
           taskEnd(taskId, 'cancelled', '已取消')
+          void scheduleRunReport({
+            scheduleId: schedule.id,
+            scheduleName: schedule.name,
+            prompt: schedule.prompt,
+            status: 'stopped',
+            startedAt: firedAt,
+            finishedAt: new Date().toISOString(),
+          }).catch((reason: unknown) => {
+            console.warn(`run report for schedule ${schedule.id} failed; the history row is lost:`, reason)
+          })
         } else {
           const message = remoteMessage(failure)
           taskEnd(taskId, 'failed', `失败：${message}`)
           notifySchedule({ title: `调度「${schedule.name}」失败`, body: message })
+          void scheduleRunReport({
+            scheduleId: schedule.id,
+            scheduleName: schedule.name,
+            prompt: schedule.prompt,
+            status: 'failed',
+            startedAt: firedAt,
+            finishedAt: new Date().toISOString(),
+            error: message,
+          }).catch((reason: unknown) => {
+            console.warn(`run report for schedule ${schedule.id} failed; the history row is lost:`, reason)
+          })
         }
       }).finally(() => {
         const next = new Set(scheduleFiring.current)
@@ -1357,7 +1396,7 @@ export function Frame({
     tick()
     const timer = setInterval(tick, SCHEDULE_SCAN_MS)
     return () => { clearInterval(timer) }
-  }, [schedulesLoaded, markScheduleStamps, runSchedule, taskBegin, taskPatch, taskEnd, loadInbox, reloadSchedules])
+  }, [schedulesLoaded, markScheduleStamps, runSchedule, scheduleRunReport, taskBegin, taskPatch, taskEnd, loadInbox, reloadSchedules])
   // A row menu's capability click (ADR-0052 决定 3): always the gesture —
   // the plain user message rides the watched session, and the controller's
   // pre-step injects the SKILL.md body. No subprocess, no abort line, no

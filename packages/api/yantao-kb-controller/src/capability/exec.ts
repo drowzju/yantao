@@ -34,6 +34,22 @@ import { readFile } from 'node:fs/promises'
 import { join, resolve, sep } from 'node:path'
 import type { SpawnLike } from '../open.ts'
 import { CapabilityError } from './run.ts'
+import { stagingPathOf } from './proposal-staging.ts'
+
+/**
+ * One run's scratch ledger path (the mail capability's body dedup ledger,
+ * 2026-10-20 邮件窗口去重): a file under the KB's operational area, named by
+ * the sanitized run token. The SCRIPT owns the file's contents — the bridge
+ * only picks the path, so concurrent calls in one run merge best-effort and
+ * a missing file means「no dedup」, never an error.
+ * @param kbRoot - the live KB root.
+ * @param runToken - the calling session's id.
+ * @returns an absolute path inside `<kbRoot>/.dsh/yantao/run-ledgers/`.
+ */
+export function runLedgerPathOf(kbRoot: string, runToken: string): string {
+  const safe = runToken.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 120) || 'anonymous'
+  return join(resolve(kbRoot), '.dsh', 'yantao', 'run-ledgers', `${safe}.json`)
+}
 
 /**
  * The host-owned environment note (ADR-0043 决定 3; ADR-0052 决定 3/4), prefixed
@@ -92,6 +108,14 @@ export interface ExecCapabilityScriptOptions {
   readonly input?: string
   /** How long the command may run before it is killed; defaults to 120s. */
   readonly timeoutMs?: number
+  /**
+   * The calling session's id, when known — the run scope for scripts that
+   * dedupe work across calls (the mail capability's body ledger). When set,
+   * the bridge hands the script a per-run scratch ledger path via
+   * `CAPABILITY_RUN_LEDGER`; absent (human channel, tests) the variable is
+   * simply absent and scripts degrade to no dedup.
+   */
+  readonly runToken?: string
   /** The spawn to use; tests pass a fake so no shell is ever touched. */
   readonly spawn?: SpawnLike
 }
@@ -213,6 +237,15 @@ export async function execCapabilityScript(
       KB_ROOT: options.kbRoot,
       CAPABILITY_NAME: options.name,
       CAPABILITY_CHANNEL: 'agent',
+      ...(options.runToken !== undefined
+        ? {
+          CAPABILITY_RUN_LEDGER: runLedgerPathOf(options.kbRoot, options.runToken),
+          // 分批落盘（2026-10-20）：同一运行键下的暂存文件，脚本直接往里写
+          // 动作行（entryId 由脚本自己从取数结果解析），最后 kb_propose_actions
+          // 一次性合并成一张卡——动作 JSON 因此不必经过模型上下文。
+          CAPABILITY_RUN_STAGING: stagingPathOf(options.kbRoot, options.runToken),
+        }
+        : {}),
       PYTHONIOENCODING: 'utf-8',
     },
     shell: true,

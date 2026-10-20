@@ -44,13 +44,14 @@ export interface WorkspaceRun {
   /** Stable identity, assigned at trigger time. */
   readonly id: string
   /** The owning workspace; dangling after a workspace deletion — rows are history, not references. */
-  readonly workspaceId: string
+  readonly workspaceId?: string
   /** The instruction that produced this run. */
   readonly instructionId: string
   /** The instruction's name at trigger time (snapshots survive renames). */
   readonly instructionName: string
-  /** What pulled the trigger (`agent` = an agent session's kb_run_workspace_instruction, ADR-0063). */
-  readonly trigger: 'manual' | 'cron' | 'agent'
+  /** What pulled the trigger (`agent` = an agent session's kb_run_workspace_instruction, ADR-0063;
+   *  `schedule` = a fired 调度 tab schedule, reported by the frontend scheduler). */
+  readonly trigger: 'manual' | 'cron' | 'agent' | 'schedule'
   /** Lifecycle: `running` until a terminal status replaces it. */
   readonly status: 'running' | 'success' | 'failed' | 'stopped' | 'missed' | 'interrupted'
   /** ISO timestamp the run was created. */
@@ -61,6 +62,8 @@ export interface WorkspaceRun {
   readonly failedStep?: number
   /** The last successful step's result text, for the history card. */
   readonly finalResult?: string
+  /** Why the run failed, when the failure left no step to blame (schedule rows). */
+  readonly error?: string
   /** Per-step records, in chain order. A `missed` row has none. */
   readonly steps: readonly WorkspaceRunStep[]
 }
@@ -139,13 +142,18 @@ export function normalizeWorkspaceRuns(runs: readonly unknown[]): WorkspaceRun[]
       throw new KbError('duplicate-workspace-run', `运行记录 id「${id}」重复了`)
     }
     seen.add(id)
-    for (const key of ['workspaceId', 'instructionId', 'instructionName'] as const) {
+    for (const key of ['instructionId', 'instructionName'] as const) {
       if (typeof raw[key] !== 'string' || raw[key].trim() === '') {
         throw new KbError('bad-workspace-run', `运行记录「${id}」缺少 ${key}`)
       }
     }
-    if (raw.trigger !== 'manual' && raw.trigger !== 'cron' && raw.trigger !== 'agent') {
+    if (raw.trigger !== 'manual' && raw.trigger !== 'cron' && raw.trigger !== 'agent' && raw.trigger !== 'schedule') {
       throw new KbError('bad-workspace-run', `运行记录「${id}」的触发方式不合法`)
+    }
+    // 调度行不属于任何工作区（workspaceId 缺席合法）；工作区行仍必备。
+    if (raw.trigger !== 'schedule'
+      && (typeof raw.workspaceId !== 'string' || (raw.workspaceId as string).trim() === '')) {
+      throw new KbError('bad-workspace-run', `运行记录「${id}」缺少 workspaceId`)
     }
     const status = raw.status
     if (status !== 'running' && status !== 'success' && status !== 'failed'
@@ -262,6 +270,60 @@ export function appendWorkspaceRun(kbRoot: string, seed: WorkspaceRunSeed, now: 
           steps: seed.steps.map((prompt, index) => ({ index, promptSnapshot: prompt })),
         }),
       startedAt: now.toISOString(),
+    }
+    await writeWorkspaceRuns(kbRoot, trimToCap([...runs, run]))
+    return run
+  })
+}
+
+/** What the frontend scheduler reports when a fired schedule settles (born-terminal). */
+export interface ScheduleRunSeed {
+  /** The schedule definition's id (`sch_…`). */
+  readonly scheduleId: string
+  /** The schedule's display name at fire time. */
+  readonly scheduleName: string
+  /** The agent session the run lived in — the 任务 tab and kb_read_session_log anchor here. */
+  readonly sessionId?: string
+  /** The prompt the schedule fired with (snapshot, same discipline as workspace steps). */
+  readonly prompt?: string
+  /** Terminal state; a fire that never settled reports `failed` with the error. */
+  readonly status: 'success' | 'failed' | 'stopped'
+  /** ISO timestamp the session was created. */
+  readonly startedAt: string
+  /** ISO timestamp the run settled. */
+  readonly finishedAt: string
+  /** The final answer's excerpt (or the failure message when the run threw). */
+  readonly finalResult?: string
+  /** Why the run failed, when it did. */
+  readonly error?: string
+}
+
+/**
+ * Append one born-terminal `schedule` row (the frontend scheduler's write
+ * path): the fired session has already settled by the time the report
+ * arrives, so unlike {@link appendWorkspaceRun} there is no `running` phase
+ * to patch — a crash between fire and report loses the row entirely, the
+ * same silence the store had before schedule rows existed.
+ * @param kbRoot - the live KB root.
+ * @param seed - the run's identity and outcome.
+ * @returns the created row as stored.
+ */
+export function appendScheduleRun(kbRoot: string, seed: ScheduleRunSeed, now: Date = new Date()): Promise<WorkspaceRun> {
+  return withRunsLock(async () => {
+    const runs = await readWorkspaceRuns(kbRoot)
+    const run: WorkspaceRun = {
+      id: newRunId(now),
+      instructionId: seed.scheduleId,
+      instructionName: seed.scheduleName,
+      trigger: 'schedule',
+      status: seed.status,
+      startedAt: seed.startedAt,
+      finishedAt: seed.finishedAt,
+      ...(seed.finalResult !== undefined ? { finalResult: clamp(seed.finalResult, RESULT_EXCERPT_MAX) } : {}),
+      ...(seed.error !== undefined ? { error: clamp(seed.error, ERROR_MAX) } : {}),
+      steps: seed.sessionId !== undefined
+        ? [{ index: 0, promptSnapshot: seed.prompt ?? '', sessionId: seed.sessionId }]
+        : [],
     }
     await writeWorkspaceRuns(kbRoot, trimToCap([...runs, run]))
     return run

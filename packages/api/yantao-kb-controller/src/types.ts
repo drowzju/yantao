@@ -1169,14 +1169,16 @@ export interface KbWorkspaceRunStep {
 export interface KbWorkspaceRun {
   /** Stable identity, assigned at trigger time. */
   readonly id: string
-  /** The owning workspace; dangling after a workspace deletion — rows are history, not references. */
-  readonly workspaceId: string
+  /** The owning workspace; dangling after a workspace deletion — rows are history, not references.
+   *  Absent on `schedule` rows (ADR-0045 调度不属于任何工作区). */
+  readonly workspaceId?: string
   /** The instruction that produced this run. */
   readonly instructionId: string
   /** The instruction's name at trigger time (snapshots survive renames). */
   readonly instructionName: string
-  /** What pulled the trigger (`agent` = kb_run_workspace_instruction, ADR-0063). */
-  readonly trigger: 'manual' | 'cron' | 'agent'
+  /** What pulled the trigger (`agent` = kb_run_workspace_instruction, ADR-0063;
+   *  `schedule` = a fired 调度 tab schedule). */
+  readonly trigger: 'manual' | 'cron' | 'agent' | 'schedule'
   /** Lifecycle: `running` until a terminal status replaces it. */
   readonly status: 'running' | 'success' | 'failed' | 'stopped' | 'missed' | 'interrupted'
   /** ISO timestamp the run was created. */
@@ -1187,6 +1189,8 @@ export interface KbWorkspaceRun {
   readonly failedStep?: number
   /** The last successful step's result text, for the history card. */
   readonly finalResult?: string
+  /** Why the run failed, when the failure left no step to blame (schedule rows). */
+  readonly error?: string
   /** Per-step records, in chain order. A `missed` row has none. */
   readonly steps: readonly KbWorkspaceRunStep[]
 }
@@ -1270,6 +1274,34 @@ export interface KbWorkspaceRunsListResult {
   readonly runs: readonly KbWorkspaceRun[]
   /** KB-relative path of the store, for the UI's error copy. */
   readonly path: string
+}
+
+/** Parameters of `yantaoKb.scheduleRunReport`: the frontend scheduler's born-terminal report. */
+export interface KbScheduleRunReportArgs {
+  /** The schedule definition's id (`sch_…`). */
+  readonly scheduleId: string
+  /** The schedule's display name at fire time. */
+  readonly scheduleName: string
+  /** The agent session the run lived in. */
+  readonly sessionId?: string
+  /** The prompt the schedule fired with (snapshot). */
+  readonly prompt?: string
+  /** Terminal state; a fire that threw reports `failed`. */
+  readonly status: 'success' | 'failed' | 'stopped'
+  /** ISO timestamp the session was created. */
+  readonly startedAt: string
+  /** ISO timestamp the run settled. */
+  readonly finishedAt: string
+  /** The final answer's excerpt (or the failure message when the run threw). */
+  readonly finalResult?: string
+  /** Why the run failed, when it did. */
+  readonly error?: string
+}
+
+/** Result of `yantaoKb.scheduleRunReport`. */
+export interface KbScheduleRunReportResult {
+  /** The created row's id. */
+  readonly runId: string
 }
 
 /** Result of `yantaoKb.workspaceRunsClear`: the history after the human's clear gesture. */

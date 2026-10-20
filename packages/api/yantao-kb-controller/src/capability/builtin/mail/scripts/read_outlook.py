@@ -59,9 +59,11 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from html import unescape
 
 EXIT_OK = 0
@@ -95,6 +97,10 @@ OL_CC = 2
 
 # 6 = olFolderInbox
 OL_FOLDER_INBOX = 6
+
+# 运行级正文账本的老化线（小时）：一次调度运行几十分钟足矣，隔天的账本视为
+# 前尘——写入时顺手清掉过期文件，目录不会被无限堆积。
+LEDGER_MAX_AGE_HOURS = 24
 
 # 3 = olFolderDeletedItems：删除刀的去处（ADR-0034 决定 5）。移动而非永久
 # 删除——回收站里还能捞回来，误删有闸。
@@ -203,6 +209,70 @@ def mail_id(received_at, sender_address, subject):
     """稳定去重键：收件时间 + 发件地址 + 主题。"""
     payload = f"{received_at}|{sender_address}|{subject}"
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+def ledger_path_from_env():
+    """
+    运行级正文账本的路径：宿主执行桥在 agent 会话里注入
+    CAPABILITY_RUN_LEDGER（同一会话的多次取数共用一份）；缺席（人通道、
+    命令行裸跑、测试）返回 None——一切去重行为随之关闭，脚本照旧。
+    """
+    path = os.environ.get("CAPABILITY_RUN_LEDGER") or ""
+    return path if path else None
+
+
+def load_ledger(path):
+    """读账本：id → True 的字典。文件缺席/损坏都按空账处理——去重是
+    优化不是权威，账本坏了宁可多送一遍，绝不因此失败。"""
+    if not path:
+        return set()
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return {str(key) for key in data} if isinstance(data, list) else set()
+    except (OSError, ValueError):
+        return set()
+
+
+def save_ledger(path, seen_ids):
+    """
+    合并写回账本：先重读盘上最新的一份再做并集（同一次运行里的并行取数
+    各自读写，谁后落盘谁的视野全；丢一条的代价只是多送一次正文，可接受），
+    临时文件 + os.replace 原子落盘。顺手清掉老化线之外的旧账本。全程
+    best-effort：任何失败静默放弃，绝不让去重账本拖垮取数本身。
+    """
+    if not path:
+        return
+    try:
+        merged = load_ledger(path) | {str(key) for key in seen_ids}
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+            prune_old_ledgers(directory)
+        scratch = f"{path}.{os.getpid()}.tmp"
+        with open(scratch, "w", encoding="utf-8") as handle:
+            json.dump(sorted(merged), handle, ensure_ascii=False)
+        os.replace(scratch, path)
+    except OSError:
+        pass
+
+
+def prune_old_ledgers(directory, now=None):
+    """删掉目录里超过老化线的账本文件（含别的会话留下的）；失败不管。"""
+    now = now or time.time()
+    cutoff = now - LEDGER_MAX_AGE_HOURS * 3600
+    try:
+        for name in os.listdir(directory):
+            if not name.endswith(".json"):
+                continue
+            candidate = os.path.join(directory, name)
+            try:
+                if os.stat(candidate).st_mtime < cutoff:
+                    os.unlink(candidate)
+            except OSError:
+                continue
+    except OSError:
+        pass
 
 
 def thread_fields(item):
@@ -327,16 +397,43 @@ def find_folder(ns, name):
     return None
 
 
-def read_mails(folder, since, until, limit, me_name="", me_address="", superior_addresses=(), slim=False):
+def stub_row(message):
+    """
+    正文重复送达时的桩行（2026-10-20 邮件窗口去重）：保留提名所需的身份
+    字段（id/entryId/发件人/主题/收件时间），砍掉体积大头（正文）与其余
+    已在上下文里的字段，标 deduped 供 agent 认领「这封前面看过全文」。
+    """
+    return {
+        "id": message["id"],
+        "entryId": message["entryId"],
+        "receivedAt": message["receivedAt"],
+        "senderName": message["senderName"],
+        "senderAddress": message["senderAddress"],
+        "subject": message["subject"],
+        "deduped": True,
+    }
+
+
+def read_mails(folder, since, until, limit, me_name="", me_address="", superior_addresses=(), slim=False, dedupe_ledger=None, wanted_ids=None):
     """
     取 folder 里收件时间落在开区间 (since, until) 的最新 limit 封邮件（两端都不含）。
+    wanted_ids 给出时是「按 id 找信」的快捷面（stage_actions.py 用）：
+    从最新往旧扫，找齐这些 id 立即收工——不必扫完整个窗口。
     slim=True 时是元数据模式：跳过正文提取（输出的体积大头），其余字段照回——
-    翻页/巡扫用它，单页几十封也不会触碰工作台 64KB 输出截断。
+    翻页/巡扫用它，单页几十封也不会触碰工作台 64KB 输出截断；slim 行不与账本
+    发生关系（翻页锚点依赖完整行，且 slim 送达不算「见过正文」）。
+    dedupe_ledger 给出账本路径时（仅非 slim），本运行已带正文送过的邮件只回
+    桩行——重扫窗口不再重复付正文的价钱。
     """
     items = folder.Items
     items.Sort("[ReceivedTime]", True)
 
     messages = []
+    seen_bodies = load_ledger(dedupe_ledger) if (dedupe_ledger and not slim) else set()
+    delivered = []
+    # 「按 id 找信」的收工条件：找齐即停，别为几封新信扫完整箱。
+    wanted = set(wanted_ids) if wanted_ids else set()
+    found = set()
     # 注意：这里刻意不用 items.Restrict("[ReceivedTime] >= '…'")——那个日期
     # 字面量在部分 Outlook 版本上受区域设置影响。先把排好序的邮件取回来，
     # 再在 Python 里用 datetime 比较。
@@ -363,7 +460,7 @@ def read_mails(folder, since, until, limit, me_name="", me_address="", superior_
             entry_id = str(getattr(item, "EntryID", "") or "")
             conversation_id, conversation_topic = thread_fields(item)
 
-            messages.append({
+            message = {
                 "id": mail_id(received_at, sender_address, subject),
                 "entryId": entry_id,
                 "receivedAt": received_at,
@@ -376,7 +473,22 @@ def read_mails(folder, since, until, limit, me_name="", me_address="", superior_
                 "superiorInvolved": superior_involved(item, superior_addresses),
                 "conversationId": conversation_id,
                 "conversationTopic": conversation_topic,
-            })
+            }
+            # 运行级正文去重（2026-10-20）：这笔正文已经在本运行送过一次的，
+            # 这次只回桩行——重扫窗口不再重复付正文的价钱。slim 模式不走这里。
+            if not slim and message["id"] in seen_bodies:
+                messages.append(stub_row(message))
+                continue
+            delivered.append(message["id"])
+            messages.append(message)
+            if wanted:
+                # 两种键都认：指纹 id（取数结果的主键）与 EntryID（刀只认它）——
+                # 调用方给哪种都能收工，不会因为键形态不同扫完整箱。
+                for candidate in (message["id"], message["entryId"]):
+                    if candidate in wanted:
+                        found.add(candidate)
+                if found >= wanted:
+                    break
         except Exception as error:
             # 单封邮件读属性失败（加密、损坏、权限）不该拖垮整批；只提示，不回传。
             sys.stderr.write(f"[跳过一封邮件] {error}\n")
@@ -384,6 +496,9 @@ def read_mails(folder, since, until, limit, me_name="", me_address="", superior_
         if limit > 0 and len(messages) >= limit:
             break
 
+    # 本页新送的正文创进账本（best-effort）：下一窗再碰到这些 id 就只剩桩行。
+    if delivered:
+        save_ledger(dedupe_ledger, delivered)
     return messages
 
 
@@ -436,12 +551,15 @@ def delete_messages(entry_ids):
     return {"moved": moved, "missing": missing, "failed": failed}
 
 
-def fetch_messages(since_text, until_text, limit, folder_name, superior_addresses=(), slim=False):
+def fetch_messages(since_text, until_text, limit, folder_name, superior_addresses=(), slim=False, dedupe_ledger=None, wanted_ids=None):
     """
     取数核心：把 (since, until) 开区间窗口里的最新 limit 封邮件取回来。
     供 entry.py 以函数方式调用；失败抛 OutlookError（kind/message 与命令行
     stderr 的 JSON 同词表）。superior_addresses 是上级的 SMTP 地址集合，只为
     计算 superiorInvolved 旗标（ADR-0034 批次②）。slim=True 见 read_mails。
+    dedupe_ledger 是运行级正文账本的路径（agent 会话由宿主经
+    CAPABILITY_RUN_LEDGER 注入，命令行可用 --dedupe-ledger 显式给出）；
+    缺席即不去重。
     """
     try:
         import win32com.client
@@ -489,23 +607,32 @@ def fetch_messages(since_text, until_text, limit, folder_name, superior_addresse
         raise OutlookError("folder-missing", f"打开邮件文件夹失败：{error}") from error
 
     try:
-        return read_mails(folder, since, until, limit, *current_user(ns), superior_addresses=superior_addresses, slim=slim)
+        return read_mails(folder, since, until, limit, *current_user(ns),
+                          superior_addresses=superior_addresses, slim=slim,
+                          dedupe_ledger=dedupe_ledger, wanted_ids=wanted_ids)
     except Exception as error:
         raise OutlookError("other", f"读取邮件失败：{error}") from error
 
 
 def main():
     parser = argparse.ArgumentParser(description="读取本地 Outlook 邮件并输出 JSON")
-    parser.add_argument("--since", required=True, help="只取收件时间晚于该时刻的邮件（ISO 8601）")
+    parser.add_argument("--since", default=None, help="只取收件时间晚于该时刻的邮件（ISO 8601）；缺省 30 天前，与 entry.py 的首读兜底一致")
     parser.add_argument("--until", default=None, help="只取收件时间早于该时刻的邮件（ISO 8601，与 --since 组成区间）")
     parser.add_argument("--limit", type=int, default=50, help="最多返回几封（默认 50，<=0 表示不限）")
     parser.add_argument("--folder", default=None, help="文件夹名称，默认收件箱")
     parser.add_argument("--slim", action="store_true", help="元数据模式：不取正文，翻页/巡扫用，防 64KB 截断")
+    parser.add_argument("--dedupe-ledger", default=None, dest="dedupe_ledger",
+                        help="运行级正文账本路径：本运行已带正文送过的邮件只回桩行；缺省读 CAPABILITY_RUN_LEDGER 环境变量")
     parser.add_argument("--json", action="store_true", help="JSON 输出模式（唯一支持的模式）")
     args = parser.parse_args()
 
+    ledger = args.dedupe_ledger or ledger_path_from_env()
+    since_text = args.since
+    if not since_text:
+        since_text = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     try:
-        messages = fetch_messages(args.since, args.until, args.limit, args.folder, slim=args.slim)
+        messages = fetch_messages(since_text, args.until, args.limit, args.folder, slim=args.slim,
+                                  dedupe_ledger=None if args.slim else ledger)
     except OutlookError as error:
         fail(error.message, error.kind, EXIT_BY_KIND.get(error.kind, EXIT_OTHER))
         return

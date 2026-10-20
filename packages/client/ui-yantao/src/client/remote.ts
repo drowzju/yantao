@@ -67,6 +67,7 @@ import type {
   KbWorkspaceRunDeleteResult, KbWorkspaceRunStopArgs,
   KbWorkspaceRunStopResult, KbWorkspaceSaveArgs, KbWorkspaceSaveResult,
   KbWorkspaceInstructionScheduleSetArgs, KbWorkspaceInstructionScheduleSetResult,
+  KbScheduleRunReportArgs, KbScheduleRunReportResult,
 } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 
 /** The yantaoKb namespace's callable surface, structurally satisfied by the mounted contribution. */
@@ -179,6 +180,8 @@ export interface KbRemote {
   workspaceRunsClear(): Promise<RemoteResult<KbWorkspaceRunsClearResult>>
   /** Delete one history row (2026-10-15 截图评审); a still-running row refuses. */
   workspaceRunDelete(args: KbWorkspaceRunDeleteArgs): Promise<RemoteResult<KbWorkspaceRunDeleteResult>>
+  /** The frontend scheduler's born-terminal report of one fired schedule. */
+  scheduleRunReport(args: KbScheduleRunReportArgs): Promise<RemoteResult<KbScheduleRunReportResult>>
   /** The proposal inbox's listing (ADR-0047), in enqueue order — pending and decided alike. */
   proposalInboxList(): Promise<RemoteResult<KbProposalInboxListResult>>
   /** Append one proposal to the inbox (ADR-0047); the store assigns id, stamp and pending status. */
@@ -1371,6 +1374,20 @@ export async function enqueueInboxProposal(ctx: Context, args: KbProposalInboxEn
   const kb = kbRemoteOf(ctx)
   if (kb === undefined) throw missing()
   return unwrapRemote(await kb.proposalInboxEnqueue(args))
+}
+/**
+ * Report one fired schedule's settled run (运行可观测性的补齐): the host
+ * appends the born-terminal row and broadcasts it — the DingTalk pusher and
+ * the run-history panel pick it up from there. Warn-and-continue lives with
+ * the caller; this only unwraps the Remote.
+ * @param ctx - client root context.
+ * @param args - the schedule's identity and the run's outcome.
+ * @returns the created row's id.
+ */
+export async function reportScheduleRun(ctx: Context, args: KbScheduleRunReportArgs): Promise<KbScheduleRunReportResult> {
+  const kb = kbRemoteOf(ctx)
+  if (kb === undefined) throw missing()
+  return unwrapRemote(await kb.scheduleRunReport(args))
 }
 
 /**

@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 
 import archive_mail
 import read_outlook
-from read_outlook import OutlookError, delete_messages, fetch_messages
+from read_outlook import OutlookError, delete_messages, fetch_messages, ledger_path_from_env
 
 # 与工作台侧一致的陈旧阈值（ADR-0019）：没有水印，或水印老于 30 天，都算
 # 「可能有断层」，由 UI 决定要不要补读，脚本绝不悄悄补。
@@ -67,8 +67,14 @@ def is_stale(last_read_at):
     return datetime.now(timezone.utc) - then > timedelta(days=MAIL_STALE_DAYS)
 
 
-def run_fetch(caller_input, state):
-    """取数动词：把 input/state 翻译成窗口，取回一页邮件。"""
+def run_fetch(caller_input, state, channel=None):
+    """取数动词：把 input/state 翻译成窗口，取回一页邮件。
+
+    agent 通道缺省 slim（2026-10-20 实测裁决）：首屏只要元数据，正文按需
+    单封取。那次 29 封带正文的首取花了 319 秒，而同一批 slim 只要 8 秒；
+    分诊本来也不需要整页正文（SKILL.md 的「512 字摘要就够」纪律）。
+    人通道行为不变；调用方显式给 slim 时以它为准。
+    """
     last_read_at = state.get("lastReadAt")
     since = caller_input.get("since") or last_read_at or default_since()
     until = caller_input.get("until") or None
@@ -83,8 +89,16 @@ def run_fetch(caller_input, state):
     superior = caller_input.get("superiorAddresses")
     superior_addresses = [str(address) for address in superior if str(address)] if isinstance(superior, list) else []
 
+    # agent 通道缺省 slim；显式 slim 优先。人通道保持整页正文（确认卡要看）。
+    explicit_slim = caller_input.get("slim")
+    slim = explicit_slim if isinstance(explicit_slim, bool) else channel != "human"
+
     try:
-        messages = fetch_messages(since, until, limit, folder, superior_addresses)
+        # 运行级正文去重（2026-10-20）：宿主在 agent 会话里注入
+        # CAPABILITY_RUN_LEDGER 时，本运行已带正文送过的邮件只回桩行——
+        # 人通道没有这个环境变量，取数行为与从前完全一致。
+        messages = fetch_messages(since, until, limit, folder, superior_addresses,
+                                  slim=slim, dedupe_ledger=ledger_path_from_env())
     except OutlookError as error:
         emit({
             "ok": False,
@@ -101,6 +115,8 @@ def run_fetch(caller_input, state):
         result = {
             "since": since,
             "stale": is_stale(last_read_at),
+            # 告诉调用方这一页有没有正文：slim 页要正文就单封再取，别整页重拉。
+            "slim": slim,
             "messages": messages,
             "hasMore": len(messages) >= limit if limit > 0 else False,
         }
@@ -223,7 +239,7 @@ def main():
     if verb == "archive":
         run_archive(caller_input, channel, request.get("kbRoot"))
         return
-    run_fetch(caller_input, state)
+    run_fetch(caller_input, state, channel)
 
 
 if __name__ == "__main__":

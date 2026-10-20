@@ -58,16 +58,19 @@ import {
   readSchedules, writeSchedules, markSchedule, newScheduleId, SCHEDULES_DISPLAY_PATH,
   enqueueProposal, readProposalInbox, resolveProposalInboxEntry, annotateProposalInboxEntry, PROPOSAL_INBOX_DISPLAY_PATH,
   readWorkspaces, writeWorkspaces, markInstruction, setInstructionSchedule, WORKSPACES_DISPLAY_PATH,
-  readWorkspaceRuns, appendWorkspaceRun, clearWorkspaceRuns, deleteWorkspaceRun, runLogPath, WORKSPACE_RUNS_DISPLAY_PATH,
+  readWorkspaceRuns, appendWorkspaceRun, appendScheduleRun, clearWorkspaceRuns, deleteWorkspaceRun, runLogPath, WORKSPACE_RUNS_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
 import { pruneOrphanRunLogs } from './workspace/run-log.ts'
+import { DIGEST_CHAR_CAP, collectSessionEvents, digestOfEvents } from './session-log.ts'
 import type { EntityType, Schedule, TodoFile, WorkspaceDef } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities, seedBuiltinRoutes } from './capability/builtin.ts'
 import { applySkillRewrite } from './capability/rewrite.ts'
 import { CAPABILITY_HINTS, CapabilityError, runCapability } from './capability/run.ts'
 import type { CapabilityInvoker } from './capability/run.ts'
 import { CAPABILITY_ENVIRONMENT_NOTE, execCapabilityScript, instructionTextOf } from './capability/exec.ts'
-import { mailSpanNote, normalizeMailRange, parseStoredProposal, partitionProposedActions, withDerivedEntityNames } from './capability/proposal-actions.ts'
+import { groupDiagnostics, mailSpanNote, normalizeMailRange, parseStoredProposal, partitionProposedActions, withDerivedEntityNames } from './capability/proposal-actions.ts'
+import { appendStagedActions, clearStagedActions, readStagedActions, stagingPathOf } from './capability/proposal-staging.ts'
+import { flushStagedProposal } from './capability/staging-flush.ts'
 import { allProposalActions, applyProposal, ProposalPreflightError } from './proposal-apply.ts'
 import type {
   KbProposalInboxApplyArgs, KbProposalInboxApplyResult, KbProposalInboxUndoArgs,
@@ -130,6 +133,8 @@ import type {
   KbScheduleMarkResult,
   KbScheduleSaveArgs,
   KbScheduleSaveResult,
+  KbScheduleRunReportArgs,
+  KbScheduleRunReportResult,
   KbWorkspaceListResult,
   KbWorkspaceRunArgs,
   KbWorkspaceRunResult,
@@ -218,6 +223,8 @@ declare module '@deepseek-ai/dsh-llm' {
 declare module '@deepseek-ai/cordis' {
   interface Context {
     yantaoKbController: YantaoKbController
+    /** The session controller's cold-read face (follow/page), backing kb_read_session_log. */
+    sessionController: import('./session-log.ts').SessionCollectorFace
   }
 }
 
@@ -390,7 +397,7 @@ export class YantaoKbController extends TypertRemoteService {
    * resolves capability directories (ADR-0021); `tools` carries
    * `kb_run_capability` (ADR-0023).
    */
-  static inject = ['yantaoKb', 'skills', 'tools']
+  static inject = ['yantaoKb', 'skills', 'tools', 'sessionController']
 
   /** The workspace cron tick's cadence — same rhythm as the frontend scheduler. */
   private static readonly WORKSPACE_TICK_INTERVAL_MS = 30_000
@@ -485,11 +492,26 @@ export class YantaoKbController extends TypertRemoteService {
           source,
           content: [{ type: 'text', text: renderCapabilityCatalog(entries) }],
         }))
+
       }
       const invocation = await this.skillInvocationOf(last)
       if (invocation !== undefined) injections.push(invocation)
       if (injections.length === 0) return decision
       return { ...decision, messages: [...messages, ...injections] }
+    }))
+
+    // 运行收尾兜底（2026-10-20）：跑完了却没提交，暂存就会孤零零留在文件里
+    // （11:43 那轮 14 项）。回合停止时若暂存仍有货，自动合成一张卡——人照样
+    // 要批准，信任锚不动。
+    this.ctx.effect(() => this.ctx.on('agent/turn-stopping', async ({ agent }) => {
+      try {
+        const flushed = await flushStagedProposal(this.kbRoot, agent.session.id)
+        if (flushed.entry === undefined) return
+        const update: KbProposalInboxEvent = { action: 'enqueue', entry: flushed.entry as KbQueuedProposal }
+        this.ctx.emit('yantao-kb/proposal-inbox', update)
+      } catch {
+        // 兜底失败不得影响回合结束：最坏是暂存留到下一次运行。
+      }
     }))
     this.ctx.tools.register(defineTool({
       name: 'kb_run_capability',
@@ -538,12 +560,10 @@ export class YantaoKbController extends TypertRemoteService {
     this.ctx.tools.register(defineTool({
       name: 'kb_exec_capability_script',
       description:
-        '在已安装能力的技能目录内执行一段脚本（ADR-0043 执行桥；ADR-0052 起是一切脚本执行的唯一通道）。'
-        + '用途：技能指令里「执行 python xxx」这类中途步骤，或直接运行能力自带的命令行。'
-        + 'cwd 锁定该能力的目录（<知识库>/.dsh/skills/<name>，越出即拒绝）；命令本身不做内容审查——安装即授权。'
-        + 'KB_ROOT（知识库根目录）经环境变量送达，命令行里的 $KB_ROOT 与 %KB_ROOT% 占位符在执行前直接替换为真实路径——两种写法在任何平台都等价；'
-        + 'stdin 也会收到一个 JSON 信封：input 若是 JSON 对象/数组会先解析成字典再送达（否则原样传字符串），state 字段携带该能力已持久化的断点。'
-        + 'kb_run_capability 只返回技能的指令正文，脚本执行一律走本工具。',
+        '在能力目录内执行一段脚本（ADR-0043/0052 唯一执行通道）：技能指令里的「执行 python xxx」走这里。'
+        + 'cwd 锁定 <知识库>/.dsh/skills/<name>，越界即拒；命令不审查（安装即授权）。'
+        + 'KB_ROOT 环境变量与 $KB_ROOT/%KB_ROOT% 占位符可用；stdin 收到 JSON 信封（input 解析后送达，state 是该能力断点）。'
+        + 'kb_run_capability 只回指令正文，脚本执行一律走本工具。',
       parameters: {
         name: { type: 'string', required: true, description: '能力名，取自注入的能力目录；必须对 agent 开放' },
         command: { type: 'string', required: true, description: '在该能力目录内经平台 shell 执行的命令行' },
@@ -568,7 +588,7 @@ export class YantaoKbController extends TypertRemoteService {
             + (value.stderr === '' ? '' : `\nstderr：\n${value.stderr}`),
         }],
       },
-      execute: async ({ name, command, input, timeoutMs }) => {
+      execute: async ({ name, command, input, timeoutMs }, exec) => {
         const skillsRoot = join(this.kbRoot, '.dsh', 'skills')
         const directory = await this.agentCapabilityDirectory(name)
         try {
@@ -580,6 +600,10 @@ export class YantaoKbController extends TypertRemoteService {
             kbRoot: this.kbRoot,
             ...input !== undefined ? { input } : {},
             ...timeoutMs !== undefined ? { timeoutMs } : {},
+            // 运行作用域（2026-10-20 邮件窗口去重）：agent 的会话 id 就是
+            // 一次调度运行的天然钥匙——同一会话里的多次脚本执行共用一份
+            // 去重账本。人的确认卡与测试没有 agent，账本缺席即不去重。
+            ...exec?.agent?.id !== undefined ? { runToken: exec.agent.id } : {},
           })
           // The accounting seam (ADR-0053 决定 3): a bridged run's success is
           // its exit code; the gate above already threw on rejections, so
@@ -603,55 +627,67 @@ export class YantaoKbController extends TypertRemoteService {
     this.ctx.tools.register(defineTool({
       name: 'kb_propose_actions',
       description:
-        '把值得人拍板的写入动作打包成一个提议，送进「提议」收件箱等人在提议页批准（ADR-0055）。'
-        + '本工具只入队不执行——动作由人批准后才落库，不要为了让动作生效而调用本工具。'
-        + 'actions 每项形如 {"kind":"append-log","entityPath":…,…}，kind 与必填字段在服务端校验：'
-        + '不合格的项会被点名剔除（诊断随结果返回，修正后可再次调用补提），合格的项照常入队；'
-        + 'append-log/write-state/create-link 的 entityName 是展示名，可省略——缺省从 entityPath 推导（entityPath 为空串时必填）。'
-        + '全部项都不合格才整单拒绝。'
-        + '没有值得提议的动作就不要调用本工具（纯文字汇报即可）；入队成功后不要再在回答里重复输出信封 JSON。',
+        '把值得人拍板的写入动作打包成提议，送进「提议」收件箱等人批准（ADR-0055）。只入队，不执行。'
+        + 'actions 每项 {"kind":…,…}，服务端逐项校验：坏项点名剔除、好项照常入队，全坏才整单拒绝；'
+        + 'append-log/write-state/create-link 的 entityName 可省（从 entityPath 推导，路径空串时必填）。'
+        + '分批任务用 draft:true 暂存本批、收尾用缺省调用合并成一张卡；能力脚本可经 CAPABILITY_RUN_STAGING 直接写暂存。'
+        + '没有值得提议的动作就不要调用；入队后不要在回答里重复信封 JSON。',
       parameters: {
-        title: { type: 'string', required: true, description: '一句话概括这批动作，作为提议卡标题' },
+        title: { type: 'string', required: true, description: '一句话概括这批动作，作为卡标题' },
         actions: {
           type: 'array',
           required: true,
-          description: '待人工批准的写入动作列表，每项一个对象',
-          items: { type: 'object', additionalProperties: true, description: '一个动作项：kind 加该类别的必填字段' },
+          description: '写入动作列表（暂存有货时可为空数组）',
+          items: { type: 'object', additionalProperties: true, description: '一个动作项：kind 加该类必填字段' },
         },
-        note: { type: 'string', description: '给人的备注一行，显示在提议卡上；可省略' },
+        note: { type: 'string', description: '给卡上的一句话备注，可省' },
         mails: {
           type: 'object',
           additionalProperties: false,
-          description: '邮件水位范围（仅邮件解析任务）：{"lastReadAt":"…","firstReadAt":"…"}，抄实际批次首尾的 receivedAt；人裁决时据此推进水位',
+          description: '邮件水位（仅邮件任务）：抄批次首尾的 receivedAt，人裁决后据此推进水位',
           properties: {
-            lastReadAt: { type: 'string', description: '本批最后一封的 receivedAt（ISO 8601）' },
-            firstReadAt: { type: 'string', description: '本批最早一封的 receivedAt（ISO 8601），可省略' },
+            lastReadAt: { type: 'string', description: '最后一封的 receivedAt' },
+            firstReadAt: { type: 'string', description: '最早一封的 receivedAt，可省' },
           },
         },
-        source: { type: 'string', description: '来源标识（调度约定会给出，如 schedule:sch_xxx）；交互会话省略' },
-        sourceName: { type: 'string', description: '来源显示名（调度约定会给出）；交互会话省略' },
+        source: { type: 'string', description: '来源标识（调度约定给出，如 schedule:sch_xxx）' },
+        sourceName: { type: 'string', description: '来源显示名（调度约定给出）' },
+        draft: { type: 'boolean', description: 'true=只暂存本批、不建卡；缺省=提交成卡（并入已暂存项）' },
       },
       output: {
         schema: {
           type: 'object',
           additionalProperties: false,
           properties: {
-            id: { type: 'string', required: true },
-            dropped: { type: 'array', items: { type: 'string' }, description: '被剔除项的逐条诊断；一项都没剔时缺省' },
+            id: { type: 'string', description: '入队后的提议 id（draft 时不返回）' },
+            staged: { type: 'integer', description: '本次暂存的动作数（draft 时返回）' },
+            total: { type: 'integer', description: '暂存文件里的动作总数（draft 时返回）' },
+            merged: { type: 'integer', description: '本次提交时并入的已暂存动作数' },
+            dropped: { type: 'array', items: { type: 'string' }, description: '被剔除项的逐条诊断（同因合并成一条）；一项都没剔时缺省' },
           },
         },
         // Validation failure THROWS (the execute below) — a rendered value is
-        // always an enqueued one; there is no ok:false face (ocr 评审 #6).
+        // always an enqueued or staged one; there is no ok:false face (ocr 评审 #6).
         render: (_args, value) => [{
           type: 'text',
-          text: value.dropped === undefined
-            ? `提议已入队（${value.id}），等人在「提议」页批准或丢弃。回答里不要再重复输出提议信封。`
-            : `提议已入队（${value.id}），但 ${value.dropped.length} 项不合格被剔除：${value.dropped.join('；')}。`
-              + '合格的已在卡上等人在「提议」页批准或丢弃；修正后可再次调用补提被剔除的动作。回答里不要再重复输出提议信封。',
+          text: value.staged !== undefined
+            ? `已暂存 ${value.staged} 项（本运行暂存共 ${value.total ?? value.staged} 项）。`
+              + (value.dropped === undefined ? '' : `另有 ${value.dropped.length} 条被剔除：${value.dropped.join('；')}。`)
+              + '收尾时用缺省 draft 的一次调用提交成一张卡。'
+            : `提议已入队（${value.id}）`
+              + (value.merged !== undefined && value.merged > 0 ? `，并入 ${value.merged} 项暂存动作` : '')
+              + (value.dropped === undefined ? '' : `，但 ${value.dropped.length} 条诊断被剔除：${value.dropped.join('；')}`)
+              + '。等人在「提议」页批准或丢弃。回答里不要再重复输出提议信封。',
         }],
       },
-      execute: async ({ title, actions, note, mails, source, sourceName }) => {
+      execute: async ({ title, actions, note, mails, source, sourceName, draft }, exec) => {
         this.requireKbRootForInbox()
+        // 运行作用域（2026-10-20 分批落盘）：暂存文件按会话 id 命名，与 exec 桥
+        // 下发的 CAPABILITY_RUN_STAGING 是同一个文件——脚本把邮件动作直接写进去
+        // （entryId 由脚本从取数结果解析），工具把模型草拟的动作写进去，收尾时
+        // 两边合并成一张卡。动作 JSON 因此可以完全不经过上下文。
+        const runToken = exec?.agent?.id
+        const stagingPath = runToken !== undefined ? stagingPathOf(this.kbRoot, runToken) : undefined
         // 逐项容错（2026-10-10 裁决）：一跑一卡的提名动辄几十项，整单制会让
         // 一条坏行沉掉整船。合格项照常入队，坏项点名随结果带回；只有全军覆没
         // 才拒绝——那时也没有任何东西可入队。信任锚不动：入队的每一项仍然
@@ -660,24 +696,52 @@ export class YantaoKbController extends TypertRemoteService {
         // 各读一次（读不到记 null），再以同步查找表喂给校验器——校验器保持
         // 纯函数，测试可以喂夹具；读不到的来源不判罪（那是校验 B 正向闭合
         // 的事），这里只拦「读了但内容对不上」的张冠李戴。
-        const sourcePaths = [...new Set(actions
-          .filter((entry): entry is { sourcePath: string } =>
-            typeof entry === 'object' && entry !== null
-            && typeof (entry as { sourcePath?: unknown }).sourcePath === 'string')
-          .map(entry => entry.sourcePath.trim())
-          .filter(path => path !== ''))]
-        const sourceCache = new Map<string, string | null>()
-        for (const path of sourcePaths) {
-          try {
-            sourceCache.set(path, await readFile(resolveWithinKb(this.kbRoot, path), 'utf8'))
-          } catch {
-            sourceCache.set(path, null)
+        const validate = async (rows: readonly unknown[]) => {
+          const sourcePaths = [...new Set(rows
+            .filter((entry): entry is { sourcePath: string } =>
+              typeof entry === 'object' && entry !== null
+              && typeof (entry as { sourcePath?: unknown }).sourcePath === 'string')
+            .map(entry => entry.sourcePath.trim())
+            .filter(path => path !== ''))]
+          const sourceCache = new Map<string, string | null>()
+          for (const path of sourcePaths) {
+            try {
+              sourceCache.set(path, await readFile(resolveWithinKb(this.kbRoot, path), 'utf8'))
+            } catch {
+              sourceCache.set(path, null)
+            }
+          }
+          return partitionProposedActions(rows, path => sourceCache.get(path) ?? null)
+        }
+
+        // 草稿面（draft:true）：只暂存，不建卡——分批任务的中间结果落在上下文
+        // 之外，压缩再也不能把它们吞掉。
+        if (draft === true) {
+          if (stagingPath === undefined) {
+            throw new Error('草稿暂存只在会话运行里可用（拿不到运行作用域）——人通道请直接提交成卡')
+          }
+          const { valid, diagnostics } = await validate(actions)
+          if (valid.length === 0) {
+            throw new Error(`草稿未通过校验，没有一项合格（未暂存）：${groupDiagnostics(diagnostics).join('；')}`)
+          }
+          const total = await appendStagedActions(stagingPath, withDerivedEntityNames(valid))
+          return {
+            staged: valid.length,
+            total,
+            ...(diagnostics.length > 0 ? { dropped: [...groupDiagnostics(diagnostics)] } : {}),
           }
         }
-        const { valid, diagnostics } = partitionProposedActions(actions,
-          path => sourceCache.get(path) ?? null)
+
+        // 提交面：先并入本运行的暂存动作（脚本写的与草稿写的都在里面），
+        // 一次校验、一张卡，随后清空暂存。
+        const staged = await readStagedActions(stagingPath)
+        const merged = [...staged, ...actions]
+        if (merged.length === 0) {
+          throw new Error('actions 不能为空——没有值得提议的就不要调用本工具')
+        }
+        const { valid, diagnostics } = await validate(merged)
         if (valid.length === 0) {
-          throw new Error(`提议未通过校验，没有一项合格（整单未入队）：${diagnostics.join('；')}`)
+          throw new Error(`提议未通过校验，没有一项合格（整单未入队）：${groupDiagnostics(diagnostics).join('；')}`)
         }
         const range = normalizeMailRange(mails)
         const noteParts = [note, mailSpanNote(range)].filter((part): part is string => part !== undefined && part !== '')
@@ -703,9 +767,12 @@ export class YantaoKbController extends TypertRemoteService {
           const update: KbProposalInboxEvent = { action: 'enqueue', entry: fresh as KbQueuedProposal }
           this.ctx.emit('yantao-kb/proposal-inbox', update)
         }
+        // 卡片落定才清暂存：入队抛错时暂存仍在，下一次提交还能把它带上。
+        await clearStagedActions(stagingPath)
         return {
           id: fresh?.id ?? '',
-          ...(diagnostics.length > 0 ? { dropped: [...diagnostics] } : {}),
+          ...(staged.length > 0 ? { merged: staged.length } : {}),
+          ...(diagnostics.length > 0 ? { dropped: [...groupDiagnostics(diagnostics)] } : {}),
         }
       },
     }))
@@ -1245,10 +1312,11 @@ export class YantaoKbController extends TypertRemoteService {
     this.ctx.tools.register(defineTool({
       name: 'kb_list_workspace_runs',
       description:
-        '查询工作空间的运行历史（ADR-0065）：每次指令执行的记录——状态（运行中/成功/失败/停止/错过/中断）、'
-        + '触发方式、起止时间、失败步骤、最终结果摘要。默认倒序（最新的在前）。'
-        + '用 kb_run_workspace_instruction 触发后想知道「跑完了吗、结果是什么、为什么失败」，用本工具查询；'
-        + '指定 runId 且 includeLog 时附带该次运行的蒸馏日志尾部。',
+        '查询运行历史（ADR-0065）：工作空间指令的每次执行，加上调度任务（trigger=schedule）的每次点火——'
+        + '状态（运行中/成功/失败/停止/错过/中断）、触发方式、起止时间、失败步骤、最终结果摘要。默认倒序（最新的在前）。'
+        + '想知道某次调度或指令「跑完了吗、结果是什么、为什么失败」，用本工具查询；'
+        + '行里的 sessionId 可交给 kb_read_session_log 看该次会话的完整经过；'
+        + '指定 runId 且 includeLog 时附带该次运行的蒸馏日志尾部（仅工作区指令运行有）。',
       parameters: {
         runId: { type: 'string', description: '只查这一次运行（取自 kb_run_workspace_instruction 的返回值）' },
         workspaceId: { type: 'string', description: '只查这个工作空间的运行，取自 kb_list_workspaces' },
@@ -1267,7 +1335,7 @@ export class YantaoKbController extends TypertRemoteService {
                 additionalProperties: false,
                 properties: {
                   id: { type: 'string', required: true },
-                  workspaceId: { type: 'string', required: true },
+                  workspaceId: { type: 'string' },
                   instructionName: { type: 'string', required: true },
                   trigger: { type: 'string', required: true },
                   status: { type: 'string', required: true },
@@ -1276,6 +1344,7 @@ export class YantaoKbController extends TypertRemoteService {
                   failedStep: { type: 'integer' },
                   finalResult: { type: 'string' },
                   error: { type: 'string' },
+                  sessionId: { type: 'string' },
                 },
               },
             },
@@ -1328,9 +1397,10 @@ export class YantaoKbController extends TypertRemoteService {
             const failedStepRow = run.failedStep !== undefined
               ? run.steps.find(step => step.index === run.failedStep)
               : undefined
+            const sessionStep = run.steps.find(step => step.sessionId !== undefined)
             return {
               id: run.id,
-              workspaceId: run.workspaceId,
+              ...(run.workspaceId !== undefined ? { workspaceId: run.workspaceId } : {}),
               instructionName: run.instructionName,
               trigger: run.trigger,
               status: run.status,
@@ -1338,11 +1408,66 @@ export class YantaoKbController extends TypertRemoteService {
               ...(run.finishedAt !== undefined ? { finishedAt: run.finishedAt } : {}),
               ...(run.failedStep !== undefined ? { failedStep: run.failedStep } : {}),
               ...(run.finalResult !== undefined ? { finalResult: run.finalResult } : {}),
-              ...(failedStepRow?.error !== undefined ? { error: failedStepRow.error } : {}),
+              ...(failedStepRow?.error !== undefined ? { error: failedStepRow.error }
+                : run.error !== undefined ? { error: run.error } : {}),
+              ...(sessionStep?.sessionId !== undefined ? { sessionId: sessionStep.sessionId } : {}),
             }
           }),
           ...(logTail !== undefined ? { logTail } : {}),
         }
+      },
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'kb_read_session_log',
+      description:
+        '读一次 agent 会话的法医摘要（运行可观测性的最深一层，只读）：每次工具调用及其结果、每次助手发言、每个报错，'
+        + '按时间顺序一行一事。配合 kb_list_workspace_runs 用——运行行里的 sessionId 就是这里的入参；'
+        + '用户问「今早那次调度到底干了什么/卡在哪/为什么没产出」而运行行的摘要不够用时，用它看全程。'
+        + 'digest 模式给全程浓缩（默认），tail 模式只给末尾窗口（较详细）。',
+      parameters: {
+        sessionId: { type: 'string', required: true, description: '会话 id（session-… 或裸 uuid），取自 kb_list_workspace_runs 的行' },
+        mode: { type: 'string', description: 'digest（默认，全程浓缩）/ tail（末尾窗口，较详细）' },
+        maxChars: { type: 'integer', description: '输出字符上限，默认 12000，上限 30000' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            digest: { type: 'string', required: true },
+            eventCount: { type: 'integer', required: true },
+            truncated: { type: 'boolean', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: value.digest + (value.truncated ? '\n…（有省略；要看更细的末端可用 mode=tail）' : ''),
+        }],
+      },
+      execute: async ({ sessionId, mode, maxChars }) => {
+        if (typeof sessionId !== 'string' || sessionId.trim() === '') {
+          throw new Error('sessionId 不能为空——先在 kb_list_workspace_runs 的行里找到它。')
+        }
+        const id = sessionId.trim().startsWith('session-') ? sessionId.trim().slice('session-'.length) : sessionId.trim()
+        const cap = Math.max(1_000, Math.min(maxChars ?? 12_000, DIGEST_CHAR_CAP))
+        const events = await collectSessionEvents(this.ctx.sessionController, id)
+        if (events.length === 0) {
+          throw new Error('会话「' + sessionId + '」不存在，或它的日志还没有可读事件。')
+        }
+        let folded = events
+        if (mode === 'tail') {
+          const approx = Math.max(20, Math.floor(cap / 120))
+          folded = events.slice(-approx)
+        }
+        const { digest, eventCount } = digestOfEvents(folded)
+        let text = digest
+        let truncated = folded.length < events.length
+        if (text.length > cap) {
+          const head = 1_500
+          text = text.slice(0, head) + '\n…（中段省略）…\n' + text.slice(text.length - (cap - head))
+          truncated = true
+        }
+        return { digest: text, eventCount, truncated }
       },
     }))
     this.ctx.tools.register(defineTool({
@@ -3042,6 +3167,40 @@ export class YantaoKbController extends TypertRemoteService {
     this.requireKbRootForWorkspaces(WORKSPACE_RUNS_DISPLAY_PATH)
     try {
       return { runs: (await readWorkspaceRuns(this.kbRoot)).slice().reverse(), path: WORKSPACE_RUNS_DISPLAY_PATH }
+    } catch (error: unknown) {
+      throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)
+    }
+  }
+
+  /**
+   * Record one fired schedule's settled run (ADR-0045 运行可观测性的补齐):
+   * the frontend scheduler reports born-terminal — the session has already
+   * settled by the time this fires. The row lands in the same history ring
+   * the workspace runtime writes, and the same `yantao-kb/workspace-run`
+   * broadcast rides out, so the DingTalk pusher and `kb_list_workspace_runs`
+   * see schedule runs with no new consumer. A report failure fails the RPC
+   * (the caller warns and moves on — a lost row is diagnosable, not fatal).
+   * @param args - the schedule's identity and the run's outcome.
+   * @returns the created row's id.
+   */
+  @Remote('scheduleRunReport')
+  async scheduleRunReport(args: KbScheduleRunReportArgs): Promise<KbScheduleRunReportResult> {
+    this.requireKbRootForWorkspaces(WORKSPACE_RUNS_DISPLAY_PATH)
+    try {
+      const run = await appendScheduleRun(this.kbRoot, {
+        scheduleId: args.scheduleId,
+        scheduleName: args.scheduleName,
+        ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {}),
+        ...(args.prompt !== undefined ? { prompt: args.prompt } : {}),
+        status: args.status,
+        startedAt: args.startedAt,
+        finishedAt: args.finishedAt,
+        ...(args.finalResult !== undefined ? { finalResult: args.finalResult } : {}),
+        ...(args.error !== undefined ? { error: args.error } : {}),
+      })
+      // 与运行链落定点同一广播：连接器的 RunPusher 据此推结果卡。
+      this.ctx.emit('yantao-kb/workspace-run', { run })
+      return { runId: run.id }
     } catch (error: unknown) {
       throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)
     }

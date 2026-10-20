@@ -36,6 +36,8 @@ beforeEach(async () => {
   // kb_run_capability; the watermark write never invokes it, so a no-op stub
   // is enough.
   ctx.provide('tools', { register: () => {} } as never)
+  // kb_read_session_log reads through the session controller; these tests never call it.
+  ctx.provide('sessionController', { follow: () => (async function* () {})(), page: async () => ({ records: [], hasMore: false }) } as never)
   fiber = await ctx.plugin(YantaoKbController)
 })
 

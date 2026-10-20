@@ -87,6 +87,8 @@ beforeEach(async () => {
     registerProvider: state.registerProvider,
   } as unknown as SkillRegistry)
   ctx.provide('tools', { register: state.registerTool } as unknown as never)
+  // kb_read_session_log reads through the session controller; these tests never call it.
+  ctx.provide('sessionController', { follow: () => (async function* () {})(), page: async () => ({ records: [], hasMore: false }) } as never)
   fiber = await ctx.plugin(YantaoKbController)
 })
 
@@ -462,12 +464,14 @@ describe('the tool surface declarations (ADR-0043)', () => {
     // ADR-0063 把直写矩阵补齐到二十五件套：待办四刀、记忆三件、工作台两件
     // 依注册顺序排在 kb_add_todo 之后。ADR-0065 再补六件：三个只读查询面
     // （运行历史/提议收件箱/调度表）+ 调度全权写三刀，收口会话通道。
+    // kb_read_session_log 是运行历史的最后一层：拿运行行里的 sessionId
+    // 读该次会话的法医摘要（只读，冷读 session controller 的 follow/page）。
     expect(names).toEqual([
       'kb_run_capability', 'kb_exec_capability_script', 'kb_propose_actions', 'kb_add_todo',
       'kb_read_todos', 'kb_toggle_todo', 'kb_update_todo', 'kb_remove_todo',
       'kb_list_memory', 'kb_add_memory', 'kb_delete_memory',
       'kb_list_workspaces', 'kb_run_workspace_instruction',
-      'kb_list_workspace_runs', 'kb_list_proposals', 'kb_list_schedules',
+      'kb_list_workspace_runs', 'kb_read_session_log', 'kb_list_proposals', 'kb_list_schedules',
       'kb_add_schedule', 'kb_update_schedule', 'kb_remove_schedule',
     ])
   })

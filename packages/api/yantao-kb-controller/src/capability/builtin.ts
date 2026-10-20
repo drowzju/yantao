@@ -46,7 +46,16 @@ const RETIRED: readonly string[] = ['ebook']
  */
 function builtinRoot(): string {
   const fallback = new URL('./builtin', import.meta.url)
-  const candidates = [fallback, new URL('../../../src/capability/builtin', import.meta.url)]
+  // Three layouts: beside the module (a copied lib tree), the per-file tsc
+  // layout (`lib/types/capability/`), and the bundled `lib/index.js` — the
+  // last one sits one directory higher, so its relative path has one fewer
+  // `..`. Without it the seed silently finds nothing and the KB keeps its old
+  // SKILL.md version.
+  const candidates = [
+    fallback,
+    new URL('../../../src/capability/builtin', import.meta.url),
+    new URL('../src/capability/builtin', import.meta.url),
+  ]
   const found = candidates.find(candidate => existsSync(fileURLToPath(candidate)))
   return fileURLToPath(found ?? fallback)
 }

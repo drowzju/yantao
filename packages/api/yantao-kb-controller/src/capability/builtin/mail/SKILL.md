@@ -4,7 +4,7 @@ description: 读取本地 Outlook 桌面客户端的邮件，按断点增量拉�
 disable-model-invocation: true
 metadata:
   yantao:
-    version: 19
+    version: 23
 ---
 
 # 邮件能力
@@ -31,6 +31,9 @@ yantao 工作台的邮件能力（ADR-0019 建立，ADR-0021 迁移为能力目�
   **agent 场景直接省略这个参数**：知识库的人物实体不保存邮箱地址，构造不出可靠的
   集合；上级关联改为在分析时按发件人身份（对照人物实体的关系标注）判断，
   不要为凑这个参数去读实体。
+- **agent 通道缺省 slim（2026-10-20）**：`entry.py` 在 agent 信封下默认不取正文
+  （回执 `slim: true`、每封 `body` 为空串），人通道保持整页正文。要正文时显式
+  传 `slim: false`，或按下面的纪律单封小页取——别整页重拉。
 - `state`：`{lastReadAt?}`——上次读到的水印，由工作台持久化，脚本只读不写
   （推进水印是批准后的另一个动作）。
 - 成功：`{ok: true, result: {since, until?, lastReadAt?, stale, messages, hasMore}}`，
@@ -54,11 +57,18 @@ yantao 工作台的邮件能力（ADR-0019 建立，ADR-0021 迁移为能力目�
   id/receivedAt 被裁掉，翻页锚点就丢了。
 - **已知事实，不必再探测**：`--slim` 输出按收件时间**新→旧**排序（页底=最早），
   单封约 0.7KB——`--limit 40` 的一页约 28KB，远离截断线。巡扫直接从断点起
-  `--slim --json --limit 40` 一页扫到底：返回封数少于 limit 即触底，无需先用
-  小页探序。
+  `--slim --json --since <断点> --limit 40` 一页扫到底（`--since` 可省，缺省
+  30 天前）：返回封数少于 limit 即触底，无需先用小页探序。
 - 翻页锚定协议：区间两端都不含（见上），下一页 `--until` 取当前页底时间
   **+1 秒**（越过开区间下界的同秒兄弟信才不丢），重叠出现的邮件按 `id` 去重；
   返回单封且与上页重复即证明区间触底。
+- **运行级正文去重（2026-10-20）**：agent 会话里宿主给每次脚本执行注入
+  `CAPABILITY_RUN_LEDGER`（本次会话专用的正文账本）。带正文的取数（entry.py
+  缺省动词、CLI 不带 `--slim`）里，**本运行已经带正文送过的邮件只回桩行**
+  （`{id, entryId, receivedAt, senderName, senderAddress, subject, deduped: true}`，
+  没有正文）——重扫窗口、翻页重叠、修复轮重拉都不再重复付正文的价钱，见到
+  `deduped: true` 就说明这封的正文你已经有了，不必再要。slim 行不进账本也不
+  被桩掉（翻页锚点依赖完整行）；人通道没有账本，行为不变。
 - 需要补充判断依据时，再单独小页（limit 1-3）拉取那一封——回来的同样是 512 字
   摘要；摘要仍不够下判断，就按元数据判断，不要反复重读。
 
@@ -130,11 +140,48 @@ python-missing / outlook-unavailable / folder-missing / not-invocable / other。
 一个批量动作（如 `mailIds` 数组或 `targets` 列表）：服务端校验器只认逐封字段，
 批量形态整单被拒（2026-10-10 早晨事故）。
 
+**`entryId` 填 `entryId` 字段，不是 `id`**：取数结果里 `id` 是 40 位 sha1 指纹
+（去重键），`entryId` 是长十六进制串（Outlook 的定位键）。删除/保存刀只认
+`entryId`；填成指纹会被服务端整批剔除（2026-10-20 事故，32 项全废）。
+用 `stage_actions.py` 就不必手工抄——它只收 `id`，`entryId` 由脚本解析。
+
 **一跑一卡（2026-10-10 裁决）**：整个任务的提名在收尾时汇总为**一次**
-`kb_propose_actions` 调用——人只在一张卡上逐封勾选裁决，不要按批次拆成
-多张卡。校验是逐项容错的：不合格的项被点名剔除（诊断随工具结果返回），
-合格项照常入队；只有全部项都不合格才整单拒绝。被剔除的项修正后随收尾的
-下一次调用补提即可；除非反复被拒，不要预防性地拆小批。
+`kb_propose_actions` 调用——人只在一张卡上逐封勾选裁决。校验是逐项容错的：
+不合格的项被点名剔除（诊断随工具结果返回），合格项照常入队；只有全部项都
+不合格才整单拒绝。被剔除的项修正后随收尾的下一次调用补提即可。
+
+**分批暂存（2026-10-20，一跑一卡的落地方式）**：积压几十封时不要「全读完
+再凭记忆组装一张大卡」——上下文会被压缩吞掉，组装时只能凭记忆抄 id，正是
+2026-10-20 那次 32 项全被剔除的原因。改为**每处理完一批（约 20 封）就把这一批
+的动作暂存**，收尾时一次提交：
+
+- 邮件动作（删除/归档）用 `scripts/stage_actions.py`：只给 id，脚本自己从
+  Outlook 解析 `entryId`/`sender`/`subject` 并直接写进本运行的暂存文件——
+  动作 JSON 不经过上下文，也就不存在抄错 id 的可能。照抄这个调用（换掉 id 与时间）：
+  ```
+  kb_exec_capability_script(
+    name="mail",
+    command="python scripts/stage_actions.py",
+    input="{\"delete\":[\"<40 位 id>\"],\"archive\":[{\"id\":\"<40 位 id>\",\"summary\":\"<一句话摘要>\"}],\"since\":\"2026-10-18T00:00:00Z\"}"
+  )
+  ```
+  `input` 放计划 JSON（字符串）；脚本从执行桥信封的 `input` 字段取它。回执只有一行
+  `{ok, staged, delete, archive, total, missing}`；`missing` 非空说明有 id 不在
+  该窗口里，换窗口或核对 id 后补跑一次。`delete`/`archive` 都只写 id——
+  `entryId` 由脚本解析，**不要自己拼动作 JSON**。
+  不确定形状时直接跑 `python scripts/stage_actions.py --help`（不读 stdin，回接口说明）——
+  **不要读脚本源码、不要用 python -c 试探模块路径**：每一步都要付一轮压缩。
+
+**一页一暂存（2026-10-20 实测节奏）**：`read_outlook.py --slim` 翻一页（40 封内）→
+当场判断这一页的删除/归档 → 立刻 `stage_actions.py` 暂存 → 再翻下一页。
+不要「先扫完全部、再统一判断」：上下文留不住几十封的细节，压缩一过就只剩
+记忆，而记忆正是抄错 id 的来源。`entry.py` 在 agent 通道已缺省 slim（回执里
+`slim: true`，`body` 为空串）——需要正文的只有少数几封，用 2 秒窗单独取。
+- 其他动作（新建实体、流水、待办）数量少，照常直接调用 `kb_propose_actions`，
+  但加 `draft:true` 先暂存，不要每批建卡。
+- 收尾：`kb_propose_actions`（**不带 draft**）把暂存与本次 actions 合并成一张
+  卡。卡建好后暂存自动清空；中途重跑某一批不会重复入卡（同一封按 entryId 合并）。
+- 上下文里只记「已暂存多少项、覆盖到哪个时间」，不要记动作明细。
 
 若本任务读取或处理过邮件，调用时再加一个 `mails` 水位参数，抄自实际取到的
 批次首尾：`mails:{"lastReadAt":"<最新一封的 receivedAt>","firstReadAt":

@@ -266,12 +266,9 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'kb_create_entity',
     description:
-      '创建一个实体笔记文件（type + name）。实体名会转换为安全文件名；同名实体已存在时拒绝——'
-      + '之后的一切补充都通过 kb_append_log 追加或 kb_write_state 改写状态。'
-      + '正文骨架来自 .dsh/yantao/templates/<type>.md（无此文件时用内置模板）；「流水」区由机制保证必然存在，'
-      + '「状态」区以模板为准（模板没写该区段时 kb_write_state 不可用）。'
-      + 'relation 与 email 仅对 person 有意义，relation 默认 subordinate；date 仅对 meeting 有意义，是该会议的日期，默认今天。'
-      + 'todo 是单例，不能用此工具创建。',
+      '创建实体笔记（type+name）：实体名转安全文件名，同名已存在则拒绝——后续补充走 kb_append_log/kb_write_state。'
+      + '骨架取自 .dsh/yantao/templates/<type>.md（缺省内置模板）；「流水」区必存在，「状态」区以模板为准。'
+      + 'relation/email 仅 person（relation 默认 subordinate）；date 仅 meeting（默认今天）。todo 是单例，不能用本工具创建。',
     parameters: {
       type: { ...CREATABLE_ENTITY_TYPE_PARAM, required: true },
       name: { type: 'string', required: true, description: '实体显示名，例如「dsh 学习」或「周会」' },
@@ -667,11 +664,11 @@ export {
 } from './workspaces.ts'
 export type { InstructionSchedulePatch, InstructionStampsPatch, WorkspaceDef, WorkspaceFile, WorkspaceInstruction } from './workspaces.ts'
 export {
-  appendWorkspaceRun, clearWorkspaceRuns, deleteWorkspaceRun, finalizeInterruptedRuns, newRunId, normalizeWorkspaceRuns,
+  appendScheduleRun, appendWorkspaceRun, clearWorkspaceRuns, deleteWorkspaceRun, finalizeInterruptedRuns, newRunId, normalizeWorkspaceRuns,
   patchWorkspaceRun, readWorkspaceRuns, RUN_HISTORY_CAP, runLogPath, WORKSPACE_RUN_LOG_DIR,
   WORKSPACE_RUNS_DISPLAY_PATH,
 } from './workspace-runs.ts'
-export type { WorkspaceRun, WorkspaceRunPatch, WorkspaceRunSeed, WorkspaceRunStep, WorkspaceRunsFile } from './workspace-runs.ts'
+export type { ScheduleRunSeed, WorkspaceRun, WorkspaceRunPatch, WorkspaceRunSeed, WorkspaceRunStep, WorkspaceRunsFile } from './workspace-runs.ts'
 export {
   annotateProposalInboxEntry, enqueueProposal, INBOX_PENDING_SOFT_CAP, newProposalInboxId, normalizeInboxEntries,
   PROPOSAL_INBOX_DISPLAY_PATH, readProposalInbox, resolveProposalInboxEntry, writeProposalInbox,

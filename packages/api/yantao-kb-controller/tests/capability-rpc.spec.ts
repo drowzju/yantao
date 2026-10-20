@@ -109,6 +109,8 @@ beforeEach(async () => {
   // The controller registers kb_run_capability (ADR-0023); a one-method
   // stand-in captures the registration without the real tool registry.
   ctx.provide('tools', { register: state.registerTool } as unknown as never)
+  // kb_read_session_log reads through the session controller; these tests never call it.
+  ctx.provide('sessionController', { follow: () => (async function* () {})(), page: async () => ({ records: [], hasMore: false }) } as never)
   fiber = await ctx.plugin(YantaoKbController)
 })
 

@@ -29,6 +29,8 @@ beforeEach(async () => {
   // ADR-0023: the controller also injects the tool layer to register
   // kb_run_capability; intake never invokes it, so a no-op stub is enough.
   ctx.provide('tools', { register: () => {} } as never)
+  // kb_read_session_log reads through the session controller; these tests never call it.
+  ctx.provide('sessionController', { follow: () => (async function* () {})(), page: async () => ({ records: [], hasMore: false }) } as never)
   fiber = await ctx.plugin(YantaoKbController)
 })
 
