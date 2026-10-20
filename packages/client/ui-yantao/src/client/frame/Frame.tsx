@@ -1203,6 +1203,26 @@ export function Frame({
     enqueueScheduleWrite(async () => (await scheduleSave({ schedules: next })).schedules, '调度保存失败'),
   [enqueueScheduleWrite, scheduleSave])
 
+  /**
+   * ADR-0065: the tick re-pulls the store through the same write queue, so
+   * definitions written outside this window — the agent's kb_add/update/
+   * remove_schedule, a manual file edit — surface within one scan cycle.
+   * Tail-chaining on the write queue keeps the order total: a reload can
+   * never stomp an in-flight local write, and a local write queued after a
+   * reload always lands on top. Failures stay silent — the mount-time load
+   * already reports read errors, and a transient miss is healed next tick.
+   */
+  const reloadSchedules = useCallback((): void => {
+    const run = scheduleWriteQueue.current.then(async (): Promise<void> => {
+      try {
+        const fresh = await scheduleList()
+        schedulesRef.current = fresh.schedules
+        setSchedules(fresh.schedules)
+      } catch { /* silent: retried on the next tick */ }
+    })
+    scheduleWriteQueue.current = run
+  }, [scheduleList])
+
   /** ADR-0064: the 调度 tab's narrow write into one instruction's rule —
       resolves null on success (the pane treats that as saved), else the
       error prose for the editor's inline alert. The returned list refreshes
@@ -1329,11 +1349,15 @@ export function Frame({
       // producer (today the scheduler, tomorrow others) surfaces within one
       // tick without a remount.
       loadInbox()
+      // ADR-0065: the schedule store re-read rides the scan too — the agent's
+      // scheduling tools write the file host-side, and the in-memory snapshot
+      // must not outlive it by more than one cycle.
+      reloadSchedules()
     }
     tick()
     const timer = setInterval(tick, SCHEDULE_SCAN_MS)
     return () => { clearInterval(timer) }
-  }, [schedulesLoaded, markScheduleStamps, runSchedule, taskBegin, taskPatch, taskEnd, loadInbox])
+  }, [schedulesLoaded, markScheduleStamps, runSchedule, taskBegin, taskPatch, taskEnd, loadInbox, reloadSchedules])
   // A row menu's capability click (ADR-0052 决定 3): always the gesture —
   // the plain user message rides the watched session, and the controller's
   // pre-step injects the SKILL.md body. No subprocess, no abort line, no

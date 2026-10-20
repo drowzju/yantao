@@ -49,6 +49,8 @@ export interface ProposalInboxEvent {
     sourceName?: string
     note?: string
     proposal?: unknown
+    /** 裁决行的逐动作落库结果（ADR-0059 决定 5）；resolve 事件携带。 */
+    applyResults?: readonly { ok?: boolean; error?: string }[]
   }
 }
 
@@ -69,7 +71,7 @@ export interface ProposalDigest {
 }
 
 /** 折叠空白并截断到 maxLen（超长以 … 收尾）——明细行保持一行一条。 */
-function excerpt(text: string, maxLen: number): string {
+export function excerpt(text: string, maxLen: number): string {
   const flat = text.replace(/\s+/g, ' ').trim()
   return flat.length > maxLen ? `${flat.slice(0, maxLen)}…` : flat
 }
@@ -161,6 +163,12 @@ export class ProposalPusher {
   private readonly dangerousTracks = new Set<string>()
   /** 已武装（首击过）的轨道：再击才真正落库。内存态，重启即清（fail-safe）。 */
   private readonly armedApprovals = new Set<string>()
+  /**
+   * 卡片回调自己发起落库的条目 id（ADR-0065 决定 3）：这些 id 的 resolve
+   * 事件是本类自己触发的回声，handleResolved 见到即跳过——回调路径已经
+   * 就地推过结果，同一裁决不能推两遍。RPC 失败时撤销登记，不留幽灵。
+   */
+  private readonly selfResolvedIds = new Set<string>()
 
   constructor(
     private readonly deps: {
@@ -178,8 +186,13 @@ export class ProposalPusher {
     if (at >= 0) this.channels.splice(at, 1)
   }
 
-  /** `yantao-kb/proposal-inbox` 的 enqueue 消费者：推一张待决卡给属主。 */
+  /** `yantao-kb/proposal-inbox` 的消费者：enqueue 推待决卡；resolve（ADR-0065
+   * 决定 3）推裁决结果知会——卡片回调自己发起的落库除外（回声抑制）。 */
   async handleEvent(update: ProposalInboxEvent): Promise<void> {
+    if (update?.action === 'resolve') {
+      await this.handleResolved(update)
+      return
+    }
     if (update?.action !== 'enqueue' || update.entry?.status !== 'pending') return
     if (!this.deps.resolveController()) {
       this.deps.log('proposal enqueue: KB controller unavailable — card not pushed')
@@ -232,6 +245,45 @@ export class ProposalPusher {
   }
 
   /**
+   * resolve 分支（ADR-0065 决定 3）：人裁决完一条提议后，属主收到结果知会
+   * ——四态各一词（已批准/部分批准/零写入/已丢弃），带逐动作失败计数。
+   * 决策本身永远在工作台提议页（或卡片），这里只做知会。
+   */
+  private async handleResolved(update: ProposalInboxEvent): Promise<void> {
+    const entry = update.entry
+    if (entry?.id === undefined) return
+    if (this.selfResolvedIds.delete(entry.id)) {
+      this.deps.log(`proposal resolve ${entry.id}: self-originated (card callback) — echo suppressed`)
+      return
+    }
+    const channel = this.channels.find(candidate => candidate.ownerStaffId() !== undefined)
+    if (channel === undefined) {
+      this.deps.log(`proposal resolve ${entry.id}: no robot with a bound owner — not pushed`)
+      return
+    }
+    const userId = channel.ownerStaffId() as string
+    const verdicts: Record<string, string> = {
+      approved: '✅ 已批准，全部动作落库',
+      'approved-with-errors': '🟡 部分批准，部分动作落库失败',
+      failed: '🔴 批准执行，但全部动作落库失败',
+      discarded: '⚪ 已丢弃，未做任何写入',
+    }
+    const verdict = verdicts[entry.status] ?? `裁决结果：${entry.status}`
+    const failedCount = (entry.applyResults ?? []).filter(record => record?.ok === false).length
+    const text = [
+      entry.title ?? entry.id,
+      entry.sourceName ? `来源：${entry.sourceName}` : '',
+      verdict,
+      failedCount > 0 ? `其中 ${failedCount} 个动作落库失败，明细见工作台提议页。` : undefined,
+      '明细见工作台的提议页。',
+    ]
+      .filter(Boolean)
+      .join('\n')
+    const ok = await channel.sendMarkdown(userId, `提议已裁决：${entry.title ?? entry.id}`, text)
+    this.deps.log(`proposal resolve ${entry.id} (${entry.status}): proactive markdown to ${userId} → ${ok ? 'sent' : 'FAILED'}`)
+  }
+
+  /**
    * 卡片按钮回调（#14）：approve → 服务端 apply（与工作台同一 RPC，重复
    * 点击幂等）；reject → 服务端记丢弃。返回值是卡片状态补丁；undefined 表示
    * 不是本类的卡，交还外层链。
@@ -261,10 +313,12 @@ export class ProposalPusher {
         }
       }
       try {
+        this.selfResolvedIds.add(id)
         const outcome = await controller.proposalInboxApply({ id })
         this.disarm(callback.outTrackId)
         return { cardData: { cardParamMap: { status: cardStatusFor(outcome) } }, ...CARD_UPDATE_OPTIONS }
       } catch (error) {
+        this.selfResolvedIds.delete(id)
         const message = error instanceof Error ? error.message : String(error)
         this.deps.log(`proposal card approve failed: ${message}`)
         // 行不存在（已被清理）如实点灭；其余故障保持待决，工作台仍是真相。
@@ -276,10 +330,12 @@ export class ProposalPusher {
       }
     }
     try {
+      this.selfResolvedIds.add(id)
       await controller.proposalInboxResolve({ id, status: 'discarded' })
       this.disarm(callback.outTrackId)
       return { cardData: { cardParamMap: { status: 'rejected' } }, ...CARD_UPDATE_OPTIONS }
     } catch (error) {
+      this.selfResolvedIds.delete(id)
       const message = error instanceof Error ? error.message : String(error)
       this.deps.log(`proposal card discard failed: ${message}`)
       // 已决行的重复丢弃是幂等事件，如实回报；真故障保持待决。

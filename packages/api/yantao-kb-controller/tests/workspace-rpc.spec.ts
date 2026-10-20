@@ -535,3 +535,71 @@ describe('yantaoKb.workspaceRunDelete', () => {
     expect(remoteErrorOf(failure)).toMatchObject({ code: 'yantao-kb/rejected' })
   })
 })
+
+describe("'yantao-kb/workspace-run' 广播（ADR-0065 决定 3）", () => {
+  function collectEvents(): { readonly events: Array<{ run: { id: string; status: string } }> } {
+    const events: Array<{ run: { id: string; status: string } }> = []
+    ctx.on('yantao-kb/workspace-run', (update) => { events.push(update as never) })
+    return { events }
+  }
+
+  it('emits once when a run settles success', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const fake = fakeSpawn(({ child }) => { succeedWith(child, '好') })
+    ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+    const { events } = collectEvents()
+
+    await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+    await until('run settles success', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
+
+    expect(events).toHaveLength(1)
+    expect(events[0]?.run).toMatchObject({ status: 'success', finalResult: '好' })
+  })
+
+  it('emits when a run settles failed', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const fake = fakeSpawn(({ child }) => {
+      queueMicrotask(() => {
+        child.stderr.emit('data', Buffer.from('boom'))
+        child.emit('close', 1)
+      })
+    })
+    ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+    const { events } = collectEvents()
+
+    await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+    await until('run settles failed', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'failed')
+
+    expect(events).toHaveLength(1)
+    expect(events[0]?.run).toMatchObject({ status: 'failed', failedStep: 0 })
+  })
+
+  it('emits when a run is stopped mid-chain', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const fake = fakeSpawn(() => undefined) // 挂着不退出
+    ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+    const { events } = collectEvents()
+
+    const { runId } = await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+    await until('child spawned', async () => fake.calls.length > 0)
+    await ctx.yantaoKbController.workspaceRunStop({ runId })
+    await until('row marked stopped', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'stopped')
+
+    expect(events).toHaveLength(1)
+    expect(events[0]?.run).toMatchObject({ id: runId, status: 'stopped' })
+  })
+
+  it("does not emit when disposal marks the run 'interrupted'", async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const fake = fakeSpawn(() => undefined) // 挂着不退出
+    ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+    const { events } = collectEvents()
+
+    await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+    await until('child spawned', async () => fake.calls.length > 0)
+    await fiber.dispose()
+    await until('run marked interrupted', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'interrupted')
+
+    expect(events).toEqual([]) // 控制器自己死了，无人可推
+  })
+})

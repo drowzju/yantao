@@ -38,6 +38,7 @@ import {
   type WorkspaceDef,
   type WorkspaceInstruction,
   type WorkspaceRun,
+  type WorkspaceRunPatch,
   type WorkspaceRunStep,
 } from '@deepseek-ai/dsh-yantao-kb'
 import { CodebuddyOutputParser } from './output-parse.ts'
@@ -94,6 +95,15 @@ interface StepOutcome {
 export interface WorkspaceRuntimeOptions {
   /** The live KB root accessor — the stores live beside it. */
   readonly kbRoot: () => string
+  /**
+   * Called after a run reaches a push-worthy terminal state (ADR-0065 决定 3):
+   * `success` / `failed` / `stopped` only. `missed` rows are born terminal in
+   * {@link trigger} and `interrupted` rows mean the controller itself died —
+   * neither passes here. The controller wires this to the
+   * `yantao-kb/workspace-run` broadcast; a throwing listener must not break
+   * the chain, so callers wrap their own try/catch.
+   */
+  readonly onFinalized?: (run: WorkspaceRun) => void
 }
 
 /**
@@ -173,9 +183,29 @@ export class WorkspaceRuntime {
     live.stopped = true
     live.kill?.()
     const finishedAt = new Date().toISOString()
-    void patchWorkspaceRun(this.options.kbRoot(), runId, { status: 'stopped', finishedAt })
+    void this.patchAndNotify(this.options.kbRoot(), runId, { status: 'stopped', finishedAt })
       .catch((error: unknown) => { console.warn(`stop-patch for run ${runId} failed:`, error) })
     return true
+  }
+
+  /**
+   * Patch one run row, then hand the post-write row to {@link onFinalized}
+   * when it settled on a push-worthy terminal state (ADR-0065 决定 3). A
+   * throwing listener is swallowed — a push failure must never disturb the
+   * chain's own bookkeeping.
+   */
+  private async patchAndNotify(kbRoot: string, runId: string, patch: WorkspaceRunPatch): Promise<void> {
+    const runs = await patchWorkspaceRun(kbRoot, runId, patch)
+    const onFinalized = this.options.onFinalized
+    if (onFinalized === undefined) return
+    const run = runs.find(candidate => candidate.id === runId)
+    if (run === undefined) return
+    if (run.status !== 'success' && run.status !== 'failed' && run.status !== 'stopped') return
+    try {
+      onFinalized(run)
+    } catch (error: unknown) {
+      console.warn(`finalize notification for run ${runId} failed:`, error)
+    }
   }
 
   /**
@@ -229,7 +259,7 @@ export class WorkspaceRuntime {
         const failedAt = new Date().toISOString()
         const errorText = outcome.error ?? `退出码 ${outcome.exitCode ?? '未知'}${outcome.stderrHint === undefined ? '' : `：${outcome.stderrHint}`}`
         log.line(`\n✘ 第 ${step.index + 1} 步失败：${errorText}`)
-        await patchWorkspaceRun(kbRoot, run.id, {
+        await this.patchAndNotify(kbRoot, run.id, {
           status: 'failed',
           finishedAt: failedAt,
           failedStep: step.index,
@@ -249,7 +279,7 @@ export class WorkspaceRuntime {
       await patchWorkspaceRun(kbRoot, run.id, { steps })
     }
     log.line('\n✔ 完成')
-    await patchWorkspaceRun(kbRoot, run.id, {
+    await this.patchAndNotify(kbRoot, run.id, {
       status: 'success',
       finishedAt: new Date().toISOString(),
       finalResult: lastResult ?? null,

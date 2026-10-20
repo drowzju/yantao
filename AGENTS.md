@@ -17,7 +17,7 @@ carrying the **yantao** personal knowledge workbench on a local branch `main`. U
    `packages/api/yantao-kb-controller/**`, `packages/bundle/yantao*/**`, `apps/yantao/**`). Upstream files receive only the
    registrations listed as the merge surface in [docs/yantao/README.md](docs/yantao/README.md#%E5%90%88%E5%B9%B6%E9%9D%A2%E6%88%91%E4%BB%AC%E6%94%B9%E5%8A%A8%E7%9A%84%E4%B8%8A%E6%B8%B8%E6%96%87%E4%BB%B6).
    That list is deliberately short — do not grow it without an ADR.
-2. **The trust boundary is the tool layer.** The agent gets the twenty-five `kb_*` tools and no generic write capability; it may edit an
+2. **The trust boundary is the tool layer.** The agent gets the thirty-one `kb_*` tools and no generic write capability; it may edit an
    entity's `状态` (ADR-0010 overturned ADR-0004's human-only rule) through `kb_write_state`, or any `## ` section but `流水`
    through `kb_edit_section` (ADR-0026), and under `resources/` it creates new text files only through `kb_write_resource`
    (creation only, never overwrite) and reads files or directory listings only through `kb_read_resource` (read-only, ADR-0028);
@@ -27,7 +27,12 @@ carrying the **yantao** personal knowledge workbench on a local branch `main`. U
    `kb_delete_memory` (ADR-0063) in interactive sessions — scheduled sessions queue through `kb_propose_memory` (ADR-0044),
    whose proposals are nominations that never reach a prompt until a human approves; it lists workspaces and triggers an
    already-defined instruction through `kb_list_workspaces`/`kb_run_workspace_instruction` (ADR-0063, a targeted opening of
-   ADR-0056's human-only verdict — writing workspace definitions stays human-channel);
+   ADR-0056's human-only verdict — writing workspace definitions stays human-channel); it inspects the operational state those
+   runs leave behind through `kb_list_workspace_runs`/`kb_list_proposals`/`kb_list_schedules` (ADR-0065, read-only queries —
+   run history, the proposal inbox, the schedule roster); and it manages schedule definitions through
+   `kb_add_schedule`/`kb_update_schedule`/`kb_remove_schedule` (ADR-0065, a targeted opening of ADR-0045's human-only verdict,
+   on the ADR-0063 presence-is-authorization footing — an explicit in-conversation request is itself the authorization, and
+   ADR-0045's ledger #3 reopening condition is thereby fulfilled);
    but sessions booked as scheduled runs in the controller's registry are refused by all of these write tools and must queue
    through `kb_propose_actions`;
    it runs a capability

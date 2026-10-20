@@ -29,6 +29,7 @@ import { QuestionManager } from './questions.js'
 import { WorkspaceLinker } from './workspace.js'
 import { InteractionCards } from './interaction-card.js'
 import { ProposalPusher, type ProposalInboxControllerFace, type ProposalInboxEvent } from './proposal-push.js'
+import { RunPusher, type WorkspaceRunEvent } from './run-push.js'
 import { OwnerBinding } from './owner.js'
 import { DwsTools } from './tools.js'
 import { downloadFileByCode, downloadImageByCode } from './media.js'
@@ -227,6 +228,21 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     })`,
   )
 
+  // ADR-0065 决定 3：工作空间运行完结（成功/失败/停止）→ 属主私聊结果卡。
+  // 订阅姿势与提议推送相同——挂 apply 一次，机器人栈启停只增删通道。
+  const runPush = new RunPusher({ log })
+  const offRunEvent = (
+    ctx as unknown as {
+      on: (event: string, listener: (update: WorkspaceRunEvent) => void) => () => void
+    }
+  ).on('yantao-kb/workspace-run', (update: WorkspaceRunEvent) => {
+    log(`workspace run event received: run=${update.run?.id ?? '?'} status=${update.run?.status ?? '?'}`)
+    void runPush.handleEvent(update).catch((error: unknown) =>
+      log(`workspace run push failed (${error instanceof Error ? error.message : error})`),
+    )
+  })
+  log('workspace run push subscribed')
+
   const startStacks = async (): Promise<void> => {
     if (!config.enabled.get()) return
     // 每次启动都重新解析凭据：停用期间面板可能已把 Secret 写进凭据存储。
@@ -236,7 +252,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       log(`robot ${id}: clientId already used by an earlier robot — skipped`)
     for (const account of fresh.accounts) {
       try {
-        stackDisposers.push(await startAccount(ctx, plainConfig(), account, cwd, dwsTools, interrupted, proposalPush))
+        stackDisposers.push(await startAccount(ctx, plainConfig(), account, cwd, dwsTools, interrupted, proposalPush, runPush))
       } catch (error) {
         log(`robot ${account.id}: failed to start (${error instanceof Error ? error.message : error})`)
       }
@@ -289,6 +305,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   await ctx.effect(
     async () => async () => {
       offProposalEvent()
+      offRunEvent()
       await stopStacks()
     },
     'dingtalk-robot-stacks',
@@ -578,6 +595,7 @@ async function startAccount(
   dwsTools: DwsTools | undefined,
   interrupted: { pending: boolean },
   proposalPush: ProposalPusher,
+  runPush: RunPusher,
 ): Promise<() => Promise<void>> {
   const { clientId, clientSecret } = account
   const log = (line: string) => {
@@ -705,6 +723,13 @@ async function startAccount(
   // ADR-0060 决定 7 ⑥：本栈作为提议卡的推送通道——属主已绑定才够格；
   // 未绑定也先登记（ownerStaffId() 自查为 undefined 时不会入选）。
   proposalPush.addChannel({
+    accountId: account.id,
+    ownerStaffId: () => owner.status().ownerStaffId,
+    cards: interactionCards,
+    sendMarkdown: (userId, title, text) => outbound.sendProactiveMarkdown(userId, title, text),
+  })
+  // ADR-0065 决定 3：本栈同时是运行结果卡的推送通道（同一属主判定）。
+  runPush.addChannel({
     accountId: account.id,
     ownerStaffId: () => owner.status().ownerStaffId,
     cards: interactionCards,
@@ -1095,6 +1120,7 @@ async function startAccount(
   // listener. Idempotent — a later plugin-unload pass finds nothing to do.
   return async () => {
     proposalPush.removeChannel(account.id)
+    runPush.removeChannel(account.id)
     offSessionEvent()
     queue.close()
     source.stop()

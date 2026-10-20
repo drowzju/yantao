@@ -339,3 +339,87 @@ describe('ProposalPusher.handleCardCallback（ADR-0060 决定 7 ⑦）', () => {
     expect(rearmed).toMatchObject({ cardData: { cardParamMap: { approveLabel: '⚠️ 确认执行？' } } })
   })
 })
+
+describe('ProposalPusher 裁决知会（ADR-0065 决定 5）', () => {
+  function resolveEvent(status: string, overrides: Record<string, unknown> = {}): {
+    action: string
+    entry: Record<string, unknown>
+  } {
+    return { action: 'resolve', entry: { id: 'prp_r', status, title: '晨检发现', sourceName: '晨检', ...overrides } }
+  }
+
+  it('四种裁决各推一条 markdown 知会', async () => {
+    const expectations: Array<[string, RegExp]> = [
+      ['approved', /✅ 已批准，全部动作落库/],
+      ['approved-with-errors', /🟡 部分批准，部分动作落库失败/],
+      ['failed', /🔴 批准执行，但全部动作落库失败/],
+      ['discarded', /⚪ 已丢弃，未做任何写入/],
+    ]
+    for (const [status, pattern] of expectations) {
+      const ch = channel()
+      const pusher = new ProposalPusher({ resolveController: () => controller(), log: vi.fn() })
+      pusher.addChannel(ch)
+      await pusher.handleEvent(resolveEvent(status))
+      expect(ch.sendMarkdown).toHaveBeenCalledTimes(1)
+      const [userId, title, text] = ch.sendMarkdown.mock.calls[0] as [string, string, string]
+      expect(userId).toBe('staff_owner')
+      expect(title).toBe('提议已裁决：晨检发现')
+      expect(text).toContain('晨检发现')
+      expect(text).toMatch(pattern)
+    }
+  })
+
+  it('部分失败带失败计数行；未知状态如实转述', async () => {
+    const ch = channel()
+    const pusher = new ProposalPusher({ resolveController: () => controller(), log: vi.fn() })
+    pusher.addChannel(ch)
+    await pusher.handleEvent(resolveEvent('approved-with-errors', {
+      applyResults: [{ ok: true }, { ok: false, error: '实体不在' }, { ok: false, error: '磁盘满' }],
+    }))
+    const [, , text] = ch.sendMarkdown.mock.calls[0] as [string, string, string]
+    expect(text).toContain('其中 2 个动作落库失败')
+
+    const ch2 = channel()
+    const pusher2 = new ProposalPusher({ resolveController: () => controller(), log: vi.fn() })
+    pusher2.addChannel(ch2)
+    await pusher2.handleEvent(resolveEvent('exotic-status'))
+    const [, title2, text2] = ch2.sendMarkdown.mock.calls[0] as [string, string, string]
+    expect(title2).toBe('提议已裁决：晨检发现')
+    expect(text2).toContain('裁决结果：exotic-status')
+  })
+
+  it('卡片回调发起的裁决不回推（回声抑制）；回调失败不留幽灵', async () => {
+    const ch = channel()
+    const pusher = new ProposalPusher({ resolveController: () => controller(), log: vi.fn() })
+    pusher.addChannel(ch)
+    await pusher.handleEvent(enqueueEvent('prp_echo'))
+    await pusher.handleCardCallback({
+      outTrackId: `${PROPOSAL_TRACK_PREFIX}prp_echo`, userId: 'staff_owner', actionIds: ['approve'], params: {},
+    })
+    // 服务端随后广播 resolve：这正是卡片回调触发的，必须抑制。
+    await pusher.handleEvent({ action: 'resolve', entry: { id: 'prp_echo', status: 'approved', title: '晨检发现' } })
+    expect(ch.sendMarkdown).not.toHaveBeenCalled()
+
+    // 回调抛错：登记被撤销，之后真正的裁决（他处做出）照常推。
+    const flaky = new ProposalPusher({
+      resolveController: () => controller({ apply: vi.fn(async () => { throw new Error('disk full') }) }),
+      log: vi.fn(),
+    })
+    const ch2 = channel()
+    flaky.addChannel(ch2)
+    await flaky.handleEvent(enqueueEvent('prp_flaky'))
+    await flaky.handleCardCallback({
+      outTrackId: `${PROPOSAL_TRACK_PREFIX}prp_flaky`, userId: 'staff_owner', actionIds: ['approve'], params: {},
+    })
+    await flaky.handleEvent({ action: 'resolve', entry: { id: 'prp_flaky', status: 'failed', title: '晨检发现' } })
+    expect(ch2.sendMarkdown).toHaveBeenCalledTimes(1)
+  })
+
+  it('非卡片回调做出的裁决（工作台）照常推', async () => {
+    const ch = channel()
+    const pusher = new ProposalPusher({ resolveController: () => controller(), log: vi.fn() })
+    pusher.addChannel(ch)
+    await pusher.handleEvent(resolveEvent('approved'))
+    expect(ch.sendMarkdown).toHaveBeenCalledTimes(1)
+  })
+})

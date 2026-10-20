@@ -273,4 +273,227 @@ describe('ADR-0063 对话直写工具', () => {
         .rejects.toThrow(/链再触发链/)
     })
   })
+
+  /* ── ADR-0065：运行历史 / 提议收件箱 / 调度面 ────────────────────────── */
+
+  describe('kb_list_workspace_runs', () => {
+    const RUNS_STORE = join('.dsh', 'yantao', 'workspace-runs.json')
+
+    function seedRuns(runs: readonly unknown[]): Promise<void> {
+      const target = join(kbRoot, RUNS_STORE)
+      return mkdir(dirname(target), { recursive: true })
+        .then(() => writeFile(target, JSON.stringify({ version: 1, runs }), 'utf8'))
+    }
+
+    function runRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        id: 'run_a', workspaceId: 'ws_a', instructionId: 'ins_1', instructionName: '拉周报',
+        trigger: 'agent', status: 'success',
+        startedAt: '2026-10-19T08:00:00.000Z', finishedAt: '2026-10-19T08:05:00.000Z',
+        finalResult: '周报拉好了', steps: [],
+        ...overrides,
+      }
+    }
+
+    it('倒序列出运行历史（最新在前），带终态与结果摘要', async () => {
+      await seedRuns([runRow(), runRow({ id: 'run_b', instructionName: '收邮件', trigger: 'cron' })])
+      const result = await tool('kb_list_workspace_runs').execute({}, {} as never) as {
+        runs: readonly { id: string; instructionName: string; status: string; finalResult?: string }[]
+      }
+      expect(result.runs.map(entry => entry.id)).toEqual(['run_b', 'run_a'])
+      expect(result.runs[1]).toMatchObject({ status: 'success', finalResult: '周报拉好了' })
+    })
+
+    it('按 workspaceId 与 runId 过滤', async () => {
+      await seedRuns([
+        runRow(),
+        runRow({ id: 'run_b', workspaceId: 'ws_other', instructionName: '别处的指令' }),
+      ])
+      const bySpace = await tool('kb_list_workspace_runs')
+        .execute({ workspaceId: 'ws_other' }, {} as never) as { runs: readonly { id: string }[] }
+      expect(bySpace.runs.map(entry => entry.id)).toEqual(['run_b'])
+      const byRun = await tool('kb_list_workspace_runs')
+        .execute({ runId: 'run_a' }, {} as never) as { runs: readonly { id: string }[] }
+      expect(byRun.runs).toHaveLength(1)
+      expect(byRun.runs[0]?.id).toBe('run_a')
+    })
+
+    it('失败行带上失败步骤的错误原文', async () => {
+      await seedRuns([runRow({
+        status: 'failed', failedStep: 0, finalResult: undefined,
+        steps: [{ index: 0, promptSnapshot: '第一步', error: '退出码 1：boom' }],
+      })])
+      const result = await tool('kb_list_workspace_runs')
+        .execute({ runId: 'run_a' }, {} as never) as { runs: readonly { status: string; error?: string }[] }
+      expect(result.runs[0]).toMatchObject({ status: 'failed', error: '退出码 1：boom' })
+    })
+
+    it('includeLog 附带日志尾部；日志已被清理时如实降级', async () => {
+      await seedRuns([runRow()])
+      const logDir = join(kbRoot, 'sessions', 'workspace')
+      await mkdir(logDir, { recursive: true })
+      await writeFile(join(logDir, 'run_a.log'), '第一行\n第二行\n✔ 完成\n', 'utf8')
+      const withLog = await tool('kb_list_workspace_runs')
+        .execute({ runId: 'run_a', includeLog: true }, {} as never) as { logTail?: string }
+      expect(withLog.logTail).toContain('✔ 完成')
+      await rm(join(logDir, 'run_a.log'))
+      const withoutLog = await tool('kb_list_workspace_runs')
+        .execute({ runId: 'run_a', includeLog: true }, {} as never) as { logTail?: string }
+      expect(withoutLog.logTail).toBeUndefined()
+    })
+  })
+
+  describe('kb_list_proposals', () => {
+    const INBOX_STORE = join('.dsh', 'yantao', 'proposal-inbox.json')
+
+    function seedInbox(entries: readonly unknown[]): Promise<void> {
+      const target = join(kbRoot, INBOX_STORE)
+      return mkdir(dirname(target), { recursive: true })
+        .then(() => writeFile(target, JSON.stringify({ version: 1, proposals: entries }), 'utf8'))
+    }
+
+    function entryRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        id: 'prp_a', createdAt: '2026-10-19T08:00:00.000Z', source: 'schedule:sch_1',
+        sourceName: '收邮件', title: '三封邮件待归档',
+        proposal: { title: '三封邮件待归档', actions: [{ kind: 'archive-mails' }] },
+        status: 'pending',
+        ...overrides,
+      }
+    }
+
+    it('默认只列待批条目；decided/all 各自筛对', async () => {
+      await seedInbox([
+        entryRow(),
+        entryRow({ id: 'prp_b', title: '已批的提议', status: 'approved', decidedAt: '2026-10-19T09:00:00.000Z' }),
+        entryRow({
+          id: 'prp_c', title: '部分失败的提议', status: 'approved-with-errors', decidedAt: '2026-10-19T09:30:00.000Z',
+          applyResults: [{ index: 0, ok: true, error: '' }, { index: 1, ok: false, error: '实体不存在' }],
+        }),
+      ])
+      const pending = await tool('kb_list_proposals').execute({}, {} as never) as {
+        proposals: readonly { id: string; status: string }[]
+      }
+      expect(pending.proposals.map(row => row.id)).toEqual(['prp_a'])
+      const decided = await tool('kb_list_proposals')
+        .execute({ status: 'decided' }, {} as never) as { proposals: readonly { id: string }[] }
+      expect(decided.proposals.map(row => row.id)).toEqual(['prp_c', 'prp_b'])
+      const all = await tool('kb_list_proposals')
+        .execute({ status: 'all' }, {} as never) as { proposals: readonly { id: string }[] }
+      expect(all.proposals).toHaveLength(3)
+    })
+
+    it('已裁决行带失败动作计数；载荷不透传', async () => {
+      await seedInbox([entryRow({
+        id: 'prp_c', status: 'approved-with-errors', decidedAt: '2026-10-19T09:30:00.000Z',
+        applyResults: [{ index: 0, ok: true, error: '' }, { index: 1, ok: false, error: '坏了' }],
+      })])
+      const result = await tool('kb_list_proposals').execute({ status: 'decided' }, {} as never) as {
+        proposals: readonly { applyErrors?: number; proposal?: unknown }[]
+      }
+      expect(result.proposals[0]?.applyErrors).toBe(1)
+      expect(result.proposals[0]?.proposal).toBeUndefined()
+    })
+  })
+
+  describe('调度面四件套（ADR-0065）', () => {
+    const SCHEDULES_STORE = join('.dsh', 'yantao', 'schedules.json')
+
+    function seedSchedules(schedules: readonly unknown[]): Promise<void> {
+      const target = join(kbRoot, SCHEDULES_STORE)
+      return mkdir(dirname(target), { recursive: true })
+        .then(() => writeFile(target, JSON.stringify({ version: 1, schedules }), 'utf8'))
+    }
+
+    async function diskSchedules(): Promise<{ schedules: readonly Record<string, unknown>[] }> {
+      return JSON.parse(await readFile(join(kbRoot, SCHEDULES_STORE), 'utf8')) as { schedules: readonly Record<string, unknown>[] }
+    }
+
+    function scheduleRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        id: 'sch_a', name: '收邮件', prompt: '把邮箱里的新邮件收进来', cron: '0 8 * * *',
+        enabled: true, lastFiredAt: '2026-10-19T08:00:00.000Z',
+        ...overrides,
+      }
+    }
+
+    it('kb_list_schedules 列出全字段（含簿记戳）', async () => {
+      await seedSchedules([scheduleRow({ capability: 'mail' })])
+      const result = await tool('kb_list_schedules').execute({}, {} as never) as {
+        schedules: readonly { id: string; name: string; cron: string; enabled: boolean; capability?: string; lastFiredAt?: string }[]
+      }
+      expect(result.schedules[0]).toMatchObject({
+        id: 'sch_a', name: '收邮件', cron: '0 8 * * *', enabled: true,
+        capability: 'mail', lastFiredAt: '2026-10-19T08:00:00.000Z',
+      })
+    })
+
+    it('kb_add_schedule：新建落盘（默认启用），非法 cron 被拒', async () => {
+      const result = await tool('kb_add_schedule').execute({
+        name: '晨报', prompt: '整理昨天的动态', cron: '30 7 * * 1-5',
+      }, { agent: { id: 'sess_chat' } } as never) as { id: string; enabled: boolean }
+      expect(result.id).toMatch(/^sch_/)
+      expect(result).toMatchObject({ name: '晨报', cron: '30 7 * * 1-5', enabled: true })
+      const disk = await diskSchedules()
+      expect(disk.schedules).toHaveLength(1)
+      expect(disk.schedules[0]).toMatchObject({ name: '晨报' })
+
+      await expect(tool('kb_add_schedule')
+        .execute({ name: '坏任务', prompt: 'x', cron: '61 * * * *' }, {} as never))
+        .rejects.toThrow('超出 0-59 范围')
+    })
+
+    it('kb_update_schedule：改 cron 保簿记戳；传空 capability 清除绑定', async () => {
+      await seedSchedules([scheduleRow({ capability: 'mail' })])
+      const result = await tool('kb_update_schedule')
+        .execute({ id: 'sch_a', cron: '0 9 * * *' }, { agent: { id: 'sess_chat' } } as never) as {
+        cron: string
+      }
+      expect(result.cron).toBe('0 9 * * *')
+      const disk = await diskSchedules()
+      expect(disk.schedules[0]).toMatchObject({
+        cron: '0 9 * * *', lastFiredAt: '2026-10-19T08:00:00.000Z', capability: 'mail',
+      })
+
+      await tool('kb_update_schedule')
+        .execute({ id: 'sch_a', capability: '' }, { agent: { id: 'sess_chat' } } as never)
+      const cleared = await diskSchedules()
+      expect(cleared.schedules[0]).toMatchObject({ name: '收邮件' })
+      expect(cleared.schedules[0]?.capability).toBeUndefined()
+      expect(cleared.schedules[0]?.lastFiredAt).toBe('2026-10-19T08:00:00.000Z')
+    })
+
+    it('kb_update_schedule：不存在的 id 点名报错并列出现有任务', async () => {
+      await seedSchedules([scheduleRow()])
+      await expect(tool('kb_update_schedule')
+        .execute({ id: 'sch_ghost', cron: '0 9 * * *' }, {} as never))
+        .rejects.toThrow(/不存在.*收邮件\(sch_a\)/s)
+    })
+
+    it('kb_remove_schedule：删行；不存在的 id 拒绝', async () => {
+      await seedSchedules([scheduleRow(), scheduleRow({ id: 'sch_b', name: '周报' })])
+      const result = await tool('kb_remove_schedule')
+        .execute({ id: 'sch_a' }, { agent: { id: 'sess_chat' } } as never) as { remaining: number }
+      expect(result.remaining).toBe(1)
+      const disk = await diskSchedules()
+      expect(disk.schedules.map(row => row.id)).toEqual(['sch_b'])
+
+      await expect(tool('kb_remove_schedule').execute({ id: 'sch_ghost' }, {} as never))
+        .rejects.toThrow('不存在')
+    })
+
+    it('调度会话：增改删全被拒（无人监督的写入仍要等人操作）', async () => {
+      const controller = ctx.yantaoKbController as InstanceType<typeof YantaoKbController>
+      controller.scheduledRunMark({ sessionId: 'sess_fire' })
+      await expect(tool('kb_add_schedule')
+        .execute({ name: 'x', prompt: 'x', cron: '0 8 * * *' }, { agent: { id: 'sess_fire' } } as never))
+        .rejects.toThrow(/定时任务/)
+      await expect(tool('kb_update_schedule')
+        .execute({ id: 'sch_a' }, { agent: { id: 'sess_fire' } } as never))
+        .rejects.toThrow(/定时任务/)
+      await expect(tool('kb_remove_schedule')
+        .execute({ id: 'sch_a' }, { agent: { id: 'sess_fire' } } as never))
+        .rejects.toThrow(/定时任务/)
+    })
+  })
 })

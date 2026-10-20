@@ -55,13 +55,13 @@ import {
   listProposalScopes, proposalDisplayPath, removeMemoryProposalByText,
   loadSectionText, renderGlobalMemorySection, readGlobalMemoryEntries, YANTAO_SECTIONS,
   readPromptShortcuts, writePromptShortcuts, PROMPT_SHORTCUTS_DISPLAY_PATH,
-  readSchedules, writeSchedules, markSchedule, SCHEDULES_DISPLAY_PATH,
+  readSchedules, writeSchedules, markSchedule, newScheduleId, SCHEDULES_DISPLAY_PATH,
   enqueueProposal, readProposalInbox, resolveProposalInboxEntry, annotateProposalInboxEntry, PROPOSAL_INBOX_DISPLAY_PATH,
   readWorkspaces, writeWorkspaces, markInstruction, setInstructionSchedule, WORKSPACES_DISPLAY_PATH,
-  readWorkspaceRuns, appendWorkspaceRun, clearWorkspaceRuns, deleteWorkspaceRun, WORKSPACE_RUNS_DISPLAY_PATH,
+  readWorkspaceRuns, appendWorkspaceRun, clearWorkspaceRuns, deleteWorkspaceRun, runLogPath, WORKSPACE_RUNS_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
 import { pruneOrphanRunLogs } from './workspace/run-log.ts'
-import type { EntityType, TodoFile, WorkspaceDef } from '@deepseek-ai/dsh-yantao-kb'
+import type { EntityType, Schedule, TodoFile, WorkspaceDef } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities, seedBuiltinRoutes } from './capability/builtin.ts'
 import { applySkillRewrite } from './capability/rewrite.ts'
 import { CAPABILITY_HINTS, CapabilityError, runCapability } from './capability/run.ts'
@@ -420,7 +420,12 @@ export class YantaoKbController extends TypertRemoteService {
 
   constructor(ctx: Context) {
     super(ctx, 'yantaoKbController', { namespace: 'yantaoKb' })
-    this.workspaceRuntime = new WorkspaceRuntime({ kbRoot: () => this.kbRoot })
+    this.workspaceRuntime = new WorkspaceRuntime({
+      kbRoot: () => this.kbRoot,
+      // ADR-0065 决定 3: a run settling on success/failed/stopped broadcasts
+      // once — the DingTalk connector subscribes and pushes the result card.
+      onFinalized: (run) => { this.ctx.emit('yantao-kb/workspace-run', { run }) },
+    })
     this.ctx.effect(() => () => {
       this.revisionWatch.close()
     })
@@ -1227,6 +1232,425 @@ export class YantaoKbController extends TypertRemoteService {
         } catch (error: unknown) {
           throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)
         }
+      },
+    }))
+
+    // ── ADR-0065：会话通道收口——运行历史 / 提议收件箱 / 调度面的读与写 ──
+    // 三个只读工具把 agent 原来看不见的三个面（运行历史、提议队列、调度表）
+    // 打开成查询面——纯读，不设闸，不加新信任锚。调度写三件套（增/改/删）
+    // 是对 ADR-0045 决定 4「不读、不写、不提案」的定向松绑（ADR-0063 决定 1
+    // 的在场即授权推广到调度面）：对话里的明确要求本身就是授权，登记在册的
+    // 调度会话一律拒绝（无人监督的写入仍要等人批准）。改动经前端调度器
+    // 30s 重拉生效。
+    this.ctx.tools.register(defineTool({
+      name: 'kb_list_workspace_runs',
+      description:
+        '查询工作空间的运行历史（ADR-0065）：每次指令执行的记录——状态（运行中/成功/失败/停止/错过/中断）、'
+        + '触发方式、起止时间、失败步骤、最终结果摘要。默认倒序（最新的在前）。'
+        + '用 kb_run_workspace_instruction 触发后想知道「跑完了吗、结果是什么、为什么失败」，用本工具查询；'
+        + '指定 runId 且 includeLog 时附带该次运行的蒸馏日志尾部。',
+      parameters: {
+        runId: { type: 'string', description: '只查这一次运行（取自 kb_run_workspace_instruction 的返回值）' },
+        workspaceId: { type: 'string', description: '只查这个工作空间的运行，取自 kb_list_workspaces' },
+        limit: { type: 'integer', description: '最多返回几条，默认 10，上限 20' },
+        includeLog: { type: 'boolean', description: '是否附带运行日志尾部（仅在指定 runId 时有效），默认否' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            runs: {
+              type: 'array', required: true,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  id: { type: 'string', required: true },
+                  workspaceId: { type: 'string', required: true },
+                  instructionName: { type: 'string', required: true },
+                  trigger: { type: 'string', required: true },
+                  status: { type: 'string', required: true },
+                  startedAt: { type: 'string', required: true },
+                  finishedAt: { type: 'string' },
+                  failedStep: { type: 'integer' },
+                  finalResult: { type: 'string' },
+                  error: { type: 'string' },
+                },
+              },
+            },
+            logTail: { type: 'string' },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: (value.runs.length === 0
+            ? '运行历史里没有匹配的记录。'
+            : value.runs.map((run) => {
+              const statusText = {
+                running: '运行中', success: '✔ 成功', failed: '✘ 失败',
+                stopped: '■ 已停止', missed: '错过（cron 窗口被占用）', interrupted: '中断（进程随控制器退出）',
+              }[run.status] ?? run.status
+              const line = `【${statusText}】${run.instructionName}（${run.id}）`
+                + ` · 触发=${run.trigger} · 开始=${run.startedAt}${run.finishedAt !== undefined ? ` · 结束=${run.finishedAt}` : ''}`
+              const detail = run.error !== undefined
+                ? `\n    失败原因：${run.error}`
+                : run.finalResult !== undefined && run.finalResult !== ''
+                  ? `\n    结果摘要：${run.finalResult.length > 400 ? `${run.finalResult.slice(0, 400)}…` : run.finalResult}`
+                  : ''
+              return line + detail
+            }).join('\n'))
+          + (value.logTail !== undefined ? `\n\n──── 运行日志尾部 ────\n${value.logTail}` : ''),
+        }],
+      },
+      execute: async ({ runId, workspaceId, limit, includeLog }) => {
+        this.requireKbRootForWorkspaces(WORKSPACE_RUNS_DISPLAY_PATH)
+        const all = (await readWorkspaceRuns(this.kbRoot)).slice().reverse()
+        const filtered = all
+          .filter(run => runId === undefined || run.id === runId)
+          .filter(run => workspaceId === undefined || run.workspaceId === workspaceId)
+        const capped = filtered.slice(0, Math.max(1, Math.min(limit ?? 10, 20)))
+        let logTail: string | undefined
+        if (includeLog === true && runId !== undefined) {
+          if (!/^run_[a-z0-9_]+$/.test(runId)) {
+            throw new Error(`runId「${runId}」不像本系统发出的运行 id（应为 run_ 前缀）。`)
+          }
+          try {
+            const raw = await readFile(runLogPath(this.kbRoot, runId), 'utf8')
+            const lines = raw.split('\n')
+            logTail = lines.slice(-100).join('\n')
+          } catch {
+            logTail = undefined // 日志可能已被环形清理扫掉——历史行仍在，如实降级
+          }
+        }
+        return {
+          runs: capped.map((run) => {
+            const failedStepRow = run.failedStep !== undefined
+              ? run.steps.find(step => step.index === run.failedStep)
+              : undefined
+            return {
+              id: run.id,
+              workspaceId: run.workspaceId,
+              instructionName: run.instructionName,
+              trigger: run.trigger,
+              status: run.status,
+              startedAt: run.startedAt,
+              ...(run.finishedAt !== undefined ? { finishedAt: run.finishedAt } : {}),
+              ...(run.failedStep !== undefined ? { failedStep: run.failedStep } : {}),
+              ...(run.finalResult !== undefined ? { finalResult: run.finalResult } : {}),
+              ...(failedStepRow?.error !== undefined ? { error: failedStepRow.error } : {}),
+            }
+          }),
+          ...(logTail !== undefined ? { logTail } : {}),
+        }
+      },
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'kb_list_proposals',
+      description:
+        '查询提议收件箱（ADR-0047）里的条目：你自己用 kb_propose_actions 入队的、调度会话入队的都在这里。'
+        + '默认只列待批的；也可查已裁决的（批准/部分批准/零写入/丢弃）——'
+        + '用户问「我批的那几条写进去没有」「你之前提的议怎么样了」时用它核对状态。',
+      parameters: {
+        status: { type: 'string', description: '筛选：pending（默认，待批）/ decided（已裁决）/ all（全部）' },
+        limit: { type: 'integer', description: '最多返回几条，默认 10，上限 30' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            proposals: {
+              type: 'array', required: true,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  id: { type: 'string', required: true },
+                  title: { type: 'string', required: true },
+                  source: { type: 'string', required: true },
+                  sourceName: { type: 'string', required: true },
+                  status: { type: 'string', required: true },
+                  createdAt: { type: 'string', required: true },
+                  decidedAt: { type: 'string' },
+                  applyErrors: { type: 'integer' },
+                },
+              },
+            },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: value.proposals.length === 0
+            ? '提议收件箱里没有匹配的条目。'
+            : value.proposals.map((entry) => {
+              const statusText = {
+                pending: '待批', approved: '已批准', 'approved-with-errors': '部分批准',
+                failed: '零写入', discarded: '已丢弃',
+              }[entry.status] ?? entry.status
+              return `(${entry.id}) ${entry.status === 'pending' ? '⏳' : '🏁'} 【${statusText}】${entry.title}`
+                + ` · 来源=${entry.sourceName} · 入队=${entry.createdAt}`
+                + (entry.decidedAt !== undefined ? ` · 裁决=${entry.decidedAt}` : '')
+                + (entry.applyErrors !== undefined && entry.applyErrors > 0 ? ` · ${entry.applyErrors} 个动作落库失败` : '')
+            }).join('\n'),
+        }],
+      },
+      execute: async ({ status, limit }) => {
+        this.requireKbRootForInbox()
+        const all = await readProposalInbox(this.kbRoot)
+        const wanted = status ?? 'pending'
+        const filtered = all.filter(entry =>
+          wanted === 'all' || (wanted === 'pending' ? entry.status === 'pending' : entry.status !== 'pending'))
+        const capped = filtered.slice(-Math.max(1, Math.min(limit ?? 10, 30))).reverse()
+        return {
+          path: PROPOSAL_INBOX_DISPLAY_PATH,
+          proposals: capped.map(entry => ({
+            id: entry.id,
+            title: entry.title,
+            source: entry.source,
+            sourceName: entry.sourceName,
+            status: entry.status,
+            createdAt: entry.createdAt,
+            ...(entry.decidedAt !== undefined ? { decidedAt: entry.decidedAt } : {}),
+            ...(entry.applyResults !== undefined
+              ? { applyErrors: entry.applyResults.filter(record => !record.ok).length }
+              : {}),
+          })),
+        }
+      },
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'kb_list_schedules',
+      description:
+        '列出全部定时任务（ADR-0045 的调度表）：每条的 id、名称、cron、启用状态、绑定能力与上次触发时间。'
+        + '用户问「现在挂着哪些定时任务」「上次几点跑的」时用它；要改动时先从这里拿 id。',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            schedules: {
+              type: 'array', required: true,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  id: { type: 'string', required: true },
+                  name: { type: 'string', required: true },
+                  cron: { type: 'string', required: true },
+                  enabled: { type: 'boolean', required: true },
+                  capability: { type: 'string' },
+                  lastFiredAt: { type: 'string' },
+                  lastMissedAt: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: value.schedules.length === 0
+            ? '还没有定义任何定时任务。'
+            : value.schedules.map(schedule => `(${schedule.id}) ${schedule.enabled ? '▶' : '⏸'} ${schedule.name}`
+              + ` · cron ${schedule.cron}`
+              + (schedule.capability !== undefined ? ` · 绑定能力「${schedule.capability}」` : '')
+              + (schedule.lastFiredAt !== undefined ? ` · 上次触发 ${schedule.lastFiredAt}` : '')
+              + (schedule.lastMissedAt !== undefined ? ` · 上次错过 ${schedule.lastMissedAt}` : '')).join('\n'),
+        }],
+      },
+      execute: async () => {
+        this.requireKbRootForSchedules()
+        const schedules = await readSchedules(this.kbRoot)
+        return {
+          path: SCHEDULES_DISPLAY_PATH,
+          schedules: schedules.map(schedule => ({
+            id: schedule.id,
+            name: schedule.name,
+            cron: schedule.cron,
+            enabled: schedule.enabled,
+            ...(schedule.capability !== undefined ? { capability: schedule.capability } : {}),
+            ...(schedule.lastFiredAt !== undefined ? { lastFiredAt: schedule.lastFiredAt } : {}),
+            ...(schedule.lastMissedAt !== undefined ? { lastMissedAt: schedule.lastMissedAt } : {}),
+          })),
+        }
+      },
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'kb_add_schedule',
+      description:
+        '新建一条定时任务：到点后以其提示词开一个后台会话（可绑定能力做首跳直通）（ADR-0065）。'
+        + '仅限用户在对话里亲口要求时使用；定时任务会自主消耗模型额度，定时任务运行的会话里本工具会被拒绝。'
+        + '改动经前端调度器周期重拉生效（最长约 30 秒延迟）。',
+      parameters: {
+        name: { type: 'string', required: true, description: '任务名称，一句话（上限 64 字）' },
+        prompt: { type: 'string', required: true, description: '到点后要执行的任务提示词（快照语义，上限 4000 字）' },
+        cron: { type: 'string', required: true, description: '五段 cron（分 时 日 月 周），如「0 8 * * *」= 每天 8 点' },
+        enabled: { type: 'boolean', description: '是否启用，默认启用' },
+        capability: { type: 'string', description: '绑定的能力名称（首跳直通），可省略' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string', required: true },
+            name: { type: 'string', required: true },
+            cron: { type: 'string', required: true },
+            enabled: { type: 'boolean', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `已新建定时任务「${value.name}」（${value.id}）· cron ${value.cron} · ${value.enabled ? '启用' : '停用'}，将在前端调度器下次重拉后生效。`,
+        }],
+      },
+      execute: async ({ name, prompt, cron, enabled, capability }, exec) => {
+        this.assertInteractiveSession(exec,
+          '本会话是定时任务运行，不能增删改定时任务（无人监督时的写入仍要等人操作）。'
+          + '请让用户在对话会话里提出，或在工作台的调度页手动新建。')
+        this.requireKbRootForSchedules()
+        const current = await readSchedules(this.kbRoot)
+        const row = {
+          id: newScheduleId(),
+          name,
+          prompt,
+          cron,
+          enabled: enabled !== false,
+          ...(capability !== undefined && capability.trim() !== '' ? { capability: capability.trim() } : {}),
+        }
+        try {
+          await writeSchedules(this.kbRoot, [...current, row])
+        } catch (error: unknown) {
+          throw new Error(error instanceof KbError ? error.message : `无法保存调度：${(error as Error).message}`)
+        }
+        return { id: row.id, name: row.name, cron: row.cron, enabled: row.enabled }
+      },
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'kb_update_schedule',
+      description:
+        '修改一条既有定时任务：改 cron（如「收邮件改成每天8点」）、改名、改提示词、启用/停用、改绑定能力（ADR-0065）。'
+        + 'id 取自 kb_list_schedules；不存在的 id 会被拒绝并列出现有 id。'
+        + '仅限用户在对话里亲口让你修改时使用；定时任务运行的会话里本工具会被拒绝。'
+        + '改动经前端调度器周期重拉生效（最长约 30 秒延迟）。',
+      parameters: {
+        id: { type: 'string', required: true, description: '要修改的调度 id，取自 kb_list_schedules' },
+        cron: { type: 'string', description: '新的五段 cron（分 时 日 月 周）' },
+        name: { type: 'string', description: '新的任务名称' },
+        prompt: { type: 'string', description: '新的任务提示词（快照语义）' },
+        enabled: { type: 'boolean', description: '启用/停用' },
+        capability: { type: 'string', description: '新的绑定能力名称；传空字符串清除绑定' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string', required: true },
+            name: { type: 'string', required: true },
+            cron: { type: 'string', required: true },
+            enabled: { type: 'boolean', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `已修改定时任务「${value.name}」（${value.id}）：现为 cron ${value.cron} · ${value.enabled ? '启用' : '停用'}，将在前端调度器下次重拉后生效。`,
+        }],
+      },
+      execute: async ({ id, cron, name, prompt, enabled, capability }, exec) => {
+        this.assertInteractiveSession(exec,
+          '本会话是定时任务运行，不能增删改定时任务（无人监督时的写入仍要等人操作）。'
+          + '请让用户在对话会话里提出，或在工作台的调度页手动修改。')
+        this.requireKbRootForSchedules()
+        const current = await readSchedules(this.kbRoot)
+        const prev = current.find(row => row.id === id)
+        if (prev === undefined) {
+          throw new Error(`调度 ${id} 不存在。现有的调度：${
+            current.length === 0 ? '（无）' : current.map(row => `${row.name}(${row.id})`).join('、')
+          }。请先用 kb_list_schedules 查看最新列表。`)
+        }
+        const next = current.map((row) => {
+          if (row.id !== id) return row
+          const merged: Schedule = {
+            ...row,
+            ...(name !== undefined && name.trim() !== '' ? { name: name.trim() } : {}),
+            ...(prompt !== undefined && prompt.trim() !== '' ? { prompt: prompt.trim() } : {}),
+            ...(cron !== undefined && cron.trim() !== '' ? { cron: cron.trim() } : {}),
+            ...(enabled !== undefined ? { enabled } : {}),
+            ...(capability !== undefined && capability.trim() !== '' ? { capability: capability.trim() } : {}),
+          }
+          if (capability !== undefined && capability.trim() === '') {
+            // 显式传空 = 清除能力绑定（spread 空对象抹不掉既有字段，须重建行）。
+            return {
+              id: merged.id,
+              name: merged.name,
+              prompt: merged.prompt,
+              cron: merged.cron,
+              enabled: merged.enabled,
+              ...(merged.lastFiredAt !== undefined ? { lastFiredAt: merged.lastFiredAt } : {}),
+              ...(merged.lastMissedAt !== undefined ? { lastMissedAt: merged.lastMissedAt } : {}),
+            }
+          }
+          return merged
+        })
+        try {
+          await writeSchedules(this.kbRoot, next) // normalizeSchedules 保簿记戳之外的校验；簿记戳本就在行上未被触碰
+        } catch (error: unknown) {
+          throw new Error(error instanceof KbError ? error.message : `无法保存调度：${(error as Error).message}`)
+        }
+        const updated = next.find(row => row.id === id)
+        return {
+          id,
+          name: updated?.name ?? prev.name,
+          cron: updated?.cron ?? prev.cron,
+          enabled: updated?.enabled ?? prev.enabled,
+        }
+      },
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'kb_remove_schedule',
+      description:
+        '删除一条定时任务（ADR-0065）。id 取自 kb_list_schedules。'
+        + '仅限用户在对话里亲口让你删除时使用；定时任务运行的会话里本工具会被拒绝。'
+        + '改动经前端调度器周期重拉生效（最长约 30 秒延迟）。',
+      parameters: {
+        id: { type: 'string', required: true, description: '要删除的调度 id，取自 kb_list_schedules' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string', required: true },
+            remaining: { type: 'integer', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `已删除定时任务 ${value.id}，剩余 ${value.remaining} 条；将在前端调度器下次重拉后生效。`,
+        }],
+      },
+      execute: async ({ id }, exec) => {
+        this.assertInteractiveSession(exec,
+          '本会话是定时任务运行，不能增删改定时任务（无人监督时的写入仍要等人操作）。'
+          + '请让用户在对话会话里提出，或在工作台的调度页手动删除。')
+        this.requireKbRootForSchedules()
+        const current = await readSchedules(this.kbRoot)
+        if (!current.some(row => row.id === id)) {
+          throw new Error(`调度 ${id} 不存在。现有的调度：${
+            current.length === 0 ? '（无）' : current.map(row => `${row.name}(${row.id})`).join('、')
+          }。请先用 kb_list_schedules 查看最新列表。`)
+        }
+        const remaining = current.filter(row => row.id !== id)
+        try {
+          await writeSchedules(this.kbRoot, remaining)
+        } catch (error: unknown) {
+          throw new Error(error instanceof KbError ? error.message : `无法保存调度：${(error as Error).message}`)
+        }
+        return { id, remaining: remaining.length }
       },
     }))
   }

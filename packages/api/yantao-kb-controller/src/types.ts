@@ -1360,6 +1360,15 @@ declare module '@deepseek-ai/cordis' {
      * @param update - the action and the affected entry's post-write state.
      */
     'yantao-kb/proposal-inbox'(update: KbProposalInboxEvent): void
+    /**
+     * One workspace run reached a push-worthy terminal state (ADR-0065 决定 3):
+     * `success` / `failed` / `stopped` only — `missed` is bookkeeping, and
+     * `interrupted` means the controller itself died, so neither pushes.
+     * Emitted after the store patch succeeds; listeners must not throw.
+     * @mode emit
+     * @param update - the run's post-write state.
+     */
+    'yantao-kb/workspace-run'(update: { run: KbWorkspaceRun }): void
   }
 }
 
