@@ -4,7 +4,7 @@ description: 读取本地 Outlook 桌面客户端的邮件，按断点增量拉�
 disable-model-invocation: true
 metadata:
   yantao:
-    version: 23
+    version: 24
 ---
 
 # 邮件能力
@@ -178,7 +178,8 @@ python-missing / outlook-unavailable / folder-missing / not-invocable / other。
 记忆，而记忆正是抄错 id 的来源。`entry.py` 在 agent 通道已缺省 slim（回执里
 `slim: true`，`body` 为空串）——需要正文的只有少数几封，用 2 秒窗单独取。
 - 其他动作（新建实体、流水、待办）数量少，照常直接调用 `kb_propose_actions`，
-  但加 `draft:true` 先暂存，不要每批建卡。
+  但加 `draft:true` 先暂存，不要每批建卡。`add-todo` 必须带 `body` 键（可为空串）——
+  只写 `title` 会被点名剔除（2026-10-20 实测）。
 - 收尾：`kb_propose_actions`（**不带 draft**）把暂存与本次 actions 合并成一张
   卡。卡建好后暂存自动清空；中途重跑某一批不会重复入卡（同一封按 entryId 合并）。
 - 上下文里只记「已暂存多少项、覆盖到哪个时间」，不要记动作明细。

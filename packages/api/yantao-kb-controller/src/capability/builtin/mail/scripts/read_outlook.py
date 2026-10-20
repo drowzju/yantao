@@ -479,7 +479,11 @@ def read_mails(folder, since, until, limit, me_name="", me_address="", superior_
             if not slim and message["id"] in seen_bodies:
                 messages.append(stub_row(message))
                 continue
-            delivered.append(message["id"])
+            # 写侧也守一道（2026-10-20）：slim 行不进账本，调用方传没传
+            # ledger 都不例外——否则 slim 扫过的邮件在同运行内补正文只会
+            # 拿到桩行。读侧的 not slim 保护在 seen_bodies 那行。
+            if not slim:
+                delivered.append(message["id"])
             messages.append(message)
             if wanted:
                 # 两种键都认：指纹 id（取数结果的主键）与 EntryID（刀只认它）——

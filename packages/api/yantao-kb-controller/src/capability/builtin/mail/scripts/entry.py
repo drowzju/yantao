@@ -97,8 +97,11 @@ def run_fetch(caller_input, state, channel=None):
         # 运行级正文去重（2026-10-20）：宿主在 agent 会话里注入
         # CAPABILITY_RUN_LEDGER 时，本运行已带正文送过的邮件只回桩行——
         # 人通道没有这个环境变量，取数行为与从前完全一致。
+        # slim 页不得喂账本（对齐 CLI 的 None-if-slim）：slim 行一旦入账，
+        # 同一运行内再想单封补正文只会拿到桩行——2026-10-20 生产实测两次。
         messages = fetch_messages(since, until, limit, folder, superior_addresses,
-                                  slim=slim, dedupe_ledger=ledger_path_from_env())
+                                  slim=slim,
+                                  dedupe_ledger=None if slim else ledger_path_from_env())
     except OutlookError as error:
         emit({
             "ok": False,
