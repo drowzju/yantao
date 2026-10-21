@@ -661,42 +661,34 @@ describe('readPathsFromEvents（ADR-0059 决定 2：读取见证折叠）', () =
   })
 })
 
-describe('readClosureWarnings（ADR-0059 决定 2：正向伪证 + 反向遗漏）', () => {
-  const sourced = (sourcePath: string): ProposalAction => ({
+describe('readClosureWarnings（ADR-0059 决定 2：只查没有引文的出处）', () => {
+  const sourced = (sourcePath: string, sourceQuote?: string): ProposalAction => ({
     kind: 'append-log', entityPath: '项目/x.md', entityName: 'x', text: '有进展', reason: '晨检', sourcePath,
+    ...(sourceQuote !== undefined ? { sourceQuote } : {}),
   })
 
-  it('声称了没读过的来源 → 溯源校验警告（伪证嫌疑）', () => {
-    // 读集为空：没有反向遗漏可报，剩下的全是正向伪证
+  it('没带引文且没读过 → 溯源校验警告（伪证嫌疑）', () => {
     const warnings = readClosureWarnings(new Set(), [sourced('resources/phantom.md')])
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toMatchObject({ sender: '溯源校验', subject: 'resources/phantom.md' })
     expect(warnings[0]?.why).toContain('从未读取')
   })
 
-  it('读过却没有任何动作引用 → 读取闭合警告（遗漏嫌疑）', () => {
-    const warnings = readClosureWarnings(new Set(['resources/a.md', 'resources/unclaimed.md']), [sourced('resources/a.md')])
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toMatchObject({ sender: '读取闭合', subject: 'resources/unclaimed.md' })
-    expect(warnings[0]?.why).toContain('无要点')
+  it('带引文的动作即使本轮没读过也不报警（引文即自证，2026-10-21）', () => {
+    // 两段式流水线：上游摘要声明了出处并附逐字摘录，本会话只读摘要、没读原文
+    const action = sourced('resources/钉钉知识库/公共软件服务部/0-团队管理/周报2026/2026-10月/20261020/平台工程261020.md',
+      '词条翻译模块 FIREFLY2-557/578 已于 10/15 如期上线')
+    expect(readClosureWarnings(new Set(), [action])).toEqual([])
   })
 
-  it('note 声明「本期无要点」豁免反向闭合，但正向伪证照点', () => {
-    const exempt = readClosureWarnings(new Set(['resources/a.md']), [], '扫了一遍，本期无要点。')
-    expect(exempt).toEqual([])
-    const stillPhantom = readClosureWarnings(new Set(), [sourced('resources/ghost.md')], '本期无要点')
-    expect(stillPhantom).toHaveLength(1)
-    expect(stillPhantom[0]?.sender).toBe('溯源校验')
-  })
-
-  it('双向闭合：无警告', () => {
-    const warnings = readClosureWarnings(new Set(['resources/a.md']), [sourced('resources/a.md')], '有要点')
-    expect(warnings).toEqual([])
-  })
-
-  it('纯决策动作不带溯源也不参与闭合（豁免条款）', () => {
+  it('读过且引用 → 无警告；纯决策动作不参与闭合', () => {
+    expect(readClosureWarnings(new Set(['resources/a.md']), [sourced('resources/a.md')])).toEqual([])
     const todo: ProposalAction = { kind: 'add-todo', title: '跟进', body: '跟进一下', reason: 'r' }
     expect(readClosureWarnings(new Set(), [todo])).toEqual([])
+  })
+
+  it('读了没写不再报警（反向闭合已删除，2026-10-21）', () => {
+    expect(readClosureWarnings(new Set(['resources/unclaimed.md']), [])).toEqual([])
   })
 
   it('警告封顶 20 条', () => {

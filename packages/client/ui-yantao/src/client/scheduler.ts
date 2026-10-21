@@ -180,36 +180,33 @@ export function readPathsFromEvents(events: readonly SessionWireEvent[]): Readon
 }
 
 /**
- * 校验 B（ADR-0059 决定 2）——读取闭合的双向核对：
+ * 校验 B（ADR-0059 决定 2，2026-10-21 收敛为单向）——只查「没有引文的出处」。
  *
- * 正向（伪证）：每条动作声称的 `sourcePath` 必须 ∈ 实际读取集合——引用了
- * 没读过的文件就是伪证，纯精确匹配零误杀。
+ * 带 `sourceQuote` 的动作入队时已过校验 A 的逐字比对：内容确实在它声称的
+ * 那份文件里，出处就成立——本会话有没有读过它不改变这个事实（可能上一轮
+ * 读的、脚本读的、或由上游摘要转述）。**引文即自证**。
  *
- * 反向（遗漏）：读取集合中每个资源要么被至少一条动作引用，要么在 note 里
- * 声明「无要点」——读了没写就是遗漏。决定 1 的强制也由此兜底执法：缺
- * `sourcePath` 的提炼动作使其来源资源在反向闭合中无着落而被点名。
+ * 不带引文的动作，校验 A 只能退回关键词重叠（纯中文甚至零 token 直接放行），
+ * 这时「本轮读过没有」是唯一的兜底。
  *
- * 违例不阻塞任何东西——此处已是 run 收尾，入队早已发生——而是以警告附着
- * 到卡片（走既有 ProposalHighlight 通道），在人审批准前可见。
+ * 反向闭合（读了没写）已删除：它检的是会话行为而非事实，两段式流水线
+ * （读摘要、列目录）下必然误报，且不阻塞任何东西。
  * @param readPaths - the run's actual read set (from {@link readPathsFromEvents}).
  * @param actions - the enqueued proposal's actions.
- * @param note - the entry's note, whose 「无要点」declaration exempts the reverse check.
  * @returns the warnings, each shaped for the card's highlight channel.
  */
 export function readClosureWarnings(
   readPaths: ReadonlySet<string>,
   actions: readonly ProposalAction[],
-  note?: string,
 ): readonly ProposalHighlight[] {
   const warnings: ProposalHighlight[] = []
-  const cited = new Set<string>()
   const phantom = new Set<string>()
   for (const action of actions) {
-    const sourcePath = action.kind === 'append-log' || action.kind === 'write-state' || action.kind === 'create-link'
-      ? action.sourcePath?.trim()
-      : undefined
+    if (action.kind !== 'append-log' && action.kind !== 'write-state' && action.kind !== 'create-link') continue
+    const sourcePath = action.sourcePath?.trim()
     if (sourcePath === undefined || sourcePath === '') continue
-    cited.add(sourcePath)
+    // 引文即自证：校验 A 已逐字核过内容，不再拿会话行为二次怀疑。
+    if (typeof action.sourceQuote === 'string' && action.sourceQuote.trim() !== '') continue
     if (!readPaths.has(sourcePath) && !phantom.has(sourcePath)) {
       phantom.add(sourcePath)
       warnings.push({
@@ -219,19 +216,9 @@ export function readClosureWarnings(
       })
     }
   }
-  // 反向闭合的豁免：模型如实声明「本期无要点」即免——读了没写不算遗漏。
-  if (!note?.includes('无要点')) {
-    for (const path of readPaths) {
-      if (cited.has(path)) continue
-      warnings.push({
-        sender: '读取闭合',
-        subject: path,
-        why: '本轮读过该资源，但没有动作引用它，note 也未声明「本期无要点」（疑似遗漏）',
-      })
-    }
-  }
   return warnings.slice(0, CLOSURE_WARNINGS_MAX)
 }
+
 
 /**
  * Whether the durable log shows a `kb_propose_actions` call that SUCCEEDED —
@@ -552,7 +539,6 @@ export async function runScheduledTask(options: {
   // 校验 B 的供料（ADR-0059 决定 2）：工具入队路径下，命中条目的载荷与
   // note 在这里一并取回——闭合扫描要用它的 actions 和「无要点」豁免声明。
   let freshActions: readonly ProposalAction[] | undefined
-  let freshNote: string | undefined
 
   // Anti-silent-loss (2026-10-10 早晨事故): an answer that clearly TRIED to
   // close with an envelope but failed field validation used to vanish —
@@ -623,7 +609,6 @@ export async function runScheduledTask(options: {
         proposalId = fresh.id
         const payload = fresh.proposal as { actions?: ProposalAction[] } | null
         freshActions = Array.isArray(payload?.actions) ? payload.actions : []
-        freshNote = fresh.note
       }
     } catch (reason: unknown) {
       console.warn(`inbox lookup for schedule ${id} failed; keeping the plain notice:`, reason)
@@ -666,8 +651,7 @@ export async function runScheduledTask(options: {
   let warnings: readonly string[] | undefined
   if (proposalId !== undefined && eventsRead) {
     const actions = freshActions ?? proposal?.actions ?? []
-    const note = freshNote ?? (proposal !== null ? inboxNoteOf(proposal) : undefined)
-    const highlights = readClosureWarnings(readPathsFromEvents(events), actions, note)
+    const highlights = readClosureWarnings(readPathsFromEvents(events), actions)
     if (highlights.length > 0) {
       try {
         await annotateInboxProposal(ctx, { id: proposalId, highlights })
