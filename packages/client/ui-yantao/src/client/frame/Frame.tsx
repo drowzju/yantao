@@ -1229,6 +1229,15 @@ export function Frame({
       resolves null on success (the pane treats that as saved), else the
       error prose for the editor's inline alert. The returned list refreshes
       the frame's workspace snapshot in place. */
+  /** 工作空间保存后刷新帧里的快照（2026-10-22）：新建/改名指令后，调度 tab 的
+      指令下拉读的正是这份快照——不刷新就得重启才看得见（用户报的就是这个）。
+      保存接口本来就回全量列表，这里只多一步落地。 */
+  const saveWorkspaceAndRefresh: WorkspaceSaver = useCallback(async (args) => {
+    const result = await workspaceSave(args)
+    setWorkspaces(result.workspaces)
+    return result
+  }, [workspaceSave])
+
   const commitInstructionSchedule = useCallback(async (args: KbWorkspaceInstructionScheduleSetArgs): Promise<string | null> => {
     try {
       const result = await workspaceInstructionScheduleSet(args)
@@ -2110,7 +2119,7 @@ export function Frame({
           promptShortcutSave={promptShortcutSave}
           fillShortcut={fillShortcut}
           workspaceList={workspaceList}
-          workspaceSave={workspaceSave}
+          workspaceSave={saveWorkspaceAndRefresh}
           revealWorkspace={{ nonce: workspaceReveal }}
           onOpenSchedule={() => { activate(SCHEDULE_TAB) }}
           workspaceRun={workspaceRun}
