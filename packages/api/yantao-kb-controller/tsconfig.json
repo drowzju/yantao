@@ -12,10 +12,19 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/schemastery"
+    },
+    {
       "path": "../../skill/skill"
     },
     {
       "path": "../../skill/skill-filesystem"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../settings/settings"
     },
     {
       "path": "../../typert/protocol"

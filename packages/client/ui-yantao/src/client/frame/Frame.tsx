@@ -47,6 +47,8 @@ import { ConfigDialog } from '../ConfigDialog.tsx'
 import type { ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from '../model-config.ts'
 import { DingTalkDialog } from '../DingTalkDialog.tsx'
 import type { DingTalkConfigDraft, DingTalkConfigView, DingTalkSaveResult } from '../dingtalk-config.ts'
+import { WorkspaceCliDialog } from '../WorkspaceCliDialog.tsx'
+import type { WorkspaceCliConfigDraft, WorkspaceCliConfigView, WorkspaceCliSaveResult, WorkspaceCliTestResult } from '../workspace-cli-config.ts'
 import type { KbDingtalkBindingRow } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage, type ResourceViewReader } from '../remote.ts'
@@ -244,6 +246,12 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly loadDingTalkConfig: () => Promise<DingTalkConfigView>
   /** Commit a 钉钉 dialog draft; the result separates conflict from refusal. */
   readonly saveDingTalkConfig: (draft: DingTalkConfigDraft) => Promise<DingTalkSaveResult>
+  /** Read the workspace CLI's config view — the CLI dialog's open read (2026-10-23). */
+  readonly loadWorkspaceCliConfig: () => Promise<WorkspaceCliConfigView>
+  /** Commit a CLI dialog draft; the result separates conflict from refusal. */
+  readonly saveWorkspaceCliConfig: (draft: WorkspaceCliConfigDraft) => Promise<WorkspaceCliSaveResult>
+  /** Fire one bounded probe call — the CLI dialog's 测试连接 gesture. */
+  readonly testWorkspaceCli: () => Promise<WorkspaceCliTestResult>
   /** Read every conversation→session binding — the 钉钉 dialog's 绑定会话 list (ADR-0061 决定 2). */
   readonly loadDingTalkBindings: () => Promise<readonly KbDingtalkBindingRow[]>
   /** Rewire one conversation's binding — merge into / sever from a session (ADR-0062 决定 3). */
@@ -562,10 +570,12 @@ export function Frame({
   workspaceRunsList, workspaceRunsClear, workspaceRunDelete,
   proposalInboxList, proposalInboxResolve, proposalInboxEnqueue, proposalInboxApply, proposalInboxUndo, relationGraph,
   loadModelsConfig, saveModelsConfig, loadDingTalkConfig, saveDingTalkConfig, loadDingTalkBindings, setDingTalkBinding,
+  loadWorkspaceCliConfig, saveWorkspaceCliConfig, testWorkspaceCli,
   currentDingtalkMergeTarget, openDingtalkSession,
   shortcutCatalog, shortcutFixedCatalog,
 }: FrameProps): ReactElement {
   const [configOpen, setConfigOpen] = useState(false)
+  const [wsCliOpen, setWsCliOpen] = useState(false)
   const [dingtalkOpen, setDingtalkOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [intakeWidth, setIntakeWidth] = useState(RAIL_DEFAULT)
@@ -2370,6 +2380,10 @@ export function Frame({
         <button style={{ ...footerButtonStyle, marginLeft: 'auto' }} data-config-button="true" data-hover="true" onClick={() => { setConfigOpen(true) }}>
           {t('config.open')}
         </button>
+        {/* 2026-10-23：工作空间无头 CLI 的 key/模型配置，独立低频入口。 */}
+        <button style={footerButtonStyle} data-wscli-button="true" data-hover="true" onClick={() => { setWsCliOpen(true) }}>
+          {t('wscli.open')}
+        </button>
         {/* ADR-0060 决定 2：底部状态条的钉钉入口，配置对话框沿模型配置范式。 */}
         <button style={footerButtonStyle} data-dingtalk-button="true" data-hover="true" onClick={() => { setDingtalkOpen(true) }}>
           {t('dingtalk.open')}
@@ -2390,6 +2404,15 @@ export function Frame({
           load={loadModelsConfig}
           save={saveModelsConfig}
           onClose={() => { setConfigOpen(false) }}
+        />
+      )}
+      {wsCliOpen && (
+        <WorkspaceCliDialog
+          t={t}
+          load={loadWorkspaceCliConfig}
+          save={saveWorkspaceCliConfig}
+          test={testWorkspaceCli}
+          onClose={() => { setWsCliOpen(false) }}
         />
       )}
       {dingtalkOpen && (

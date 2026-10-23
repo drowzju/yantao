@@ -605,3 +605,63 @@ describe("'yantao-kb/workspace-run' 广播（ADR-0065 决定 3）", () => {
     expect(events).toEqual([]) // 控制器自己死了，无人可推
   })
 })
+
+describe('yantaoKb workspace CLI options (2026-10-23)', () => {
+  /** Point the controller's CLI resolver at a canned answer. */
+  function stubCliOptions(options: Record<string, string>): void {
+    const controller = ctx.yantaoKbController as unknown as {
+      workspaceCliOptions: () => Promise<Record<string, string>>
+    }
+    controller.workspaceCliOptions = async () => options
+  }
+
+  it('injects the configured key/network environment and the global default model when the workspace binds none', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    stubCliOptions({ apiKey: 'k-test', internetEnvironment: 'cloudhosted', model: 'glm-x-global' })
+    const previousPort = process.env.SERVER__PORT
+    process.env.SERVER__PORT = '9999'
+    try {
+      const fake = fakeSpawn(({ child }) => { succeedWith(child, '好') })
+      ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+
+      await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+      await until('cli run settles success', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
+
+      const call = fake.calls.find(candidate => candidate.command === 'codebuddy')
+      expect(call?.args).toEqual(['-p', '-y', '--output-format', 'stream-json', '--model', 'glm-x-global'])
+      const env = call?.options?.env as Record<string, string | undefined>
+      expect(env?.CODEBUDDY_API_KEY).toBe('k-test')
+      expect(env?.CODEBUDDY_INTERNET_ENVIRONMENT).toBe('cloudhosted')
+      // The wedge guard survives: session-scoped variables still never reach the child.
+      expect(env?.SERVER__PORT).toBeUndefined()
+    } finally {
+      restore(previousPort, 'SERVER__PORT')
+    }
+  })
+
+  it('lets the workspace own model binding beat the global default', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace({ model: 'space-model' })] as never })
+    stubCliOptions({ model: 'glm-x-global' })
+    const fake = fakeSpawn(({ child }) => { succeedWith(child, '好') })
+    ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+
+    await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+    await until('bound run settles success', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
+    const call = fake.calls.find(candidate => candidate.command === 'codebuddy')
+    expect(call?.args).toEqual(['-p', '-y', '--output-format', 'stream-json', '--model', 'space-model'])
+  })
+
+  it('adds nothing when no CLI options are configured (login-state fallback intact)', async () => {
+    await ctx.yantaoKbController.workspaceSave({ workspaces: [workspace()] as never })
+    const fake = fakeSpawn(({ child }) => { succeedWith(child, '好') })
+    ctx.yantaoKbController.workspaceRuntime.spawnImpl = fake.impl as never
+
+    await ctx.yantaoKbController.workspaceRun({ workspaceId: 'wsp_a', instructionId: 'ins_a' })
+    await until('plain run settles success', async () => (await readWorkspaceRuns(kbRoot))[0]?.status === 'success')
+    const call = fake.calls.find(candidate => candidate.command === 'codebuddy')
+    expect(call?.args).toEqual(['-p', '-y', '--output-format', 'stream-json'])
+    const env = call?.options?.env as Record<string, string | undefined>
+    expect(env?.CODEBUDDY_API_KEY).toBeUndefined()
+    expect(env?.CODEBUDDY_INTERNET_ENVIRONMENT).toBeUndefined()
+  })
+})

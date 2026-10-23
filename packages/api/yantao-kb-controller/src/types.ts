@@ -1268,6 +1268,22 @@ export interface KbWorkspaceRunStopResult {
   readonly runs: readonly KbWorkspaceRun[]
 }
 
+/** Result of `yantaoKb.workspaceCliModels` (2026-10-23): the CLI's model menu. */
+export interface KbWorkspaceCliModelsResult {
+  /** The model ids, in the CLI's own order (parsed from codebuddy --help). */
+  readonly models: readonly string[]
+}
+
+/** Result of `yantaoKb.workspaceCliTest` (2026-10-23): one bounded probe call. */
+export interface KbWorkspaceCliTestResult {
+  /** Whether the CLI answered a parsable success result. */
+  readonly ok: boolean
+  /** The answer text on success, or the diagnostic on any failure. */
+  readonly detail: string
+  /** Wall-clock cost of the probe, for the dialog's status line. */
+  readonly durationMs: number
+}
+
 /** Result of `yantaoKb.workspaceRunsList` (ADR-0056): the run-history ring. */
 export interface KbWorkspaceRunsListResult {
   /** The runs, newest first. */

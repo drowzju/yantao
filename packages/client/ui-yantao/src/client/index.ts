@@ -64,6 +64,9 @@ import { loadModelsConfig, saveModelsConfig, type ModelsConfigDraft } from './mo
 import {
   loadDingTalkConfig, loadDingTalkMergeFlag, saveDingTalkConfig, type DingTalkConfigDraft,
 } from './dingtalk-config.ts'
+import {
+  loadWorkspaceCliConfig, saveWorkspaceCliConfig, testWorkspaceCli, type WorkspaceCliConfigDraft,
+} from './workspace-cli-config.ts'
 import { promptCurrentSession } from './session-prompt.ts'
 import { loadSessionDetail } from './session-detail.ts'
 import { loadDingtalkBindings, sessionRemoteOf, setDingtalkBinding, usageRemoteOf, unwrapRemote } from './remote.ts'
@@ -487,6 +490,12 @@ export function apply(ctx: Context): void {
       // 见 ./dingtalk-config.ts。
       loadDingTalkConfig: () => loadDingTalkConfig(ctx),
       saveDingTalkConfig: (draft: DingTalkConfigDraft) => saveDingTalkConfig(ctx, draft),
+      // CLI 对话框（2026-10-23）：工作空间无头 CLI 的 key/模型/网络环境接缝。
+      // Secret 只进凭据存储（硬规则 5），配置命名空间只存非敏感字段；模型
+      // 列表与测试连接经控制器的 remote（渲染进程永不 spawn）。
+      loadWorkspaceCliConfig: () => loadWorkspaceCliConfig(ctx),
+      saveWorkspaceCliConfig: (draft: WorkspaceCliConfigDraft) => saveWorkspaceCliConfig(ctx, draft),
+      testWorkspaceCli: () => testWorkspaceCli(ctx),
       // 绑定会话（ADR-0061 决定 2）：钉钉群聊 ↔ 会话的对应表读面，以及
       // 从对话框一键跳进某个会话的手势（与总览卡片同一 uiWorkspace 通路）。
       loadDingTalkBindings: () => loadDingtalkBindings(ctx),

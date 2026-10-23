@@ -159,6 +159,30 @@ export const zh = {
   'dingtalk.mirror.loadFailed': '对话读取失败',
   'dingtalk.mirror.empty': '这个会话还没有对话记录。',
 
+  // CLI 配置对话框（右下角「CLI」按钮，2026-10-23）：工作空间无头运行的
+  // API key / 默认模型 / 网络环境；key 只进凭据存储（硬规则 5）。
+  'wscli.open': 'CLI',
+  'wscli.title': '工作空间 CLI',
+  'wscli.close': '关闭',
+  'wscli.loading': '读取配置中…',
+  'wscli.loadFailed': '配置读取失败',
+  'wscli.apiKey': 'API Key',
+  'wscli.apiKeyHint': '调度与手动运行改用这把 key 免登录鉴权，不再依赖本机登录态；只进凭据存储，不进配置文档。',
+  'wscli.keyStored': '已配置（留空保持不变）',
+  'wscli.keyPlaceholder': '粘贴 codebuddy 的 API Key',
+  'wscli.model': '默认模型',
+  'wscli.modelHint': '工作空间自带模型绑定时以其为准；此处是其余情况的兜底。列表来自本机 codebuddy --help。',
+  'wscli.modelDefault': '跟随 CLI 默认',
+  'wscli.internetEnv': '网络环境',
+  'wscli.internetEnvDefault': '跟随环境默认',
+  'wscli.save': '保存',
+  'wscli.saving': '保存中…',
+  'wscli.saved': '已保存，下一次运行即生效',
+  'wscli.conflict': '配置已被其他地方修改，已重新加载，请重试',
+  'wscli.test': '测试连接',
+  'wscli.testing': '测试中…',
+  'wscli.testOk': '连接正常',
+  'wscli.testFailed': '连接失败',
   // 快捷键目录（左下角「快捷键」按钮；只读，键帽实时读 shortcuts 注册表的 catalog）
   'shortcuts.open': '快捷键',
   'shortcuts.title': '快捷键',
@@ -691,6 +715,31 @@ export const en = {
   'dingtalk.mirror.loadFailed': 'Failed to load the transcript',
   'dingtalk.mirror.empty': 'This session has no transcript yet.',
 
+  // CLI config dialog (the bottom-right CLI button, 2026-10-23): the workspace
+  // headless runs' API key / default model / network environment; the key only
+  // ever enters the credentials store (hard rule 5).
+  'wscli.open': 'CLI',
+  'wscli.title': 'Workspace CLI',
+  'wscli.close': 'Close',
+  'wscli.loading': 'Loading configuration…',
+  'wscli.loadFailed': 'Failed to load the configuration',
+  'wscli.apiKey': 'API key',
+  'wscli.apiKeyHint': 'Scheduled and manual runs authenticate with this key instead of relying on this machine\'s login state; it goes only to the credentials store, never into the settings document.',
+  'wscli.keyStored': 'Configured (leave blank to keep)',
+  'wscli.keyPlaceholder': 'Paste the codebuddy API key',
+  'wscli.model': 'Default model',
+  'wscli.modelHint': 'A workspace\'s own model binding wins; this is the fallback for the rest. The list comes from the local codebuddy --help.',
+  'wscli.modelDefault': 'Follow the CLI default',
+  'wscli.internetEnv': 'Network environment',
+  'wscli.internetEnvDefault': 'Follow the ambient default',
+  'wscli.save': 'Save',
+  'wscli.saving': 'Saving…',
+  'wscli.saved': 'Saved — effective on the next run',
+  'wscli.conflict': 'The configuration changed elsewhere; reloaded — please retry',
+  'wscli.test': 'Test connection',
+  'wscli.testing': 'Testing…',
+  'wscli.testOk': 'Connected',
+  'wscli.testFailed': 'Connection failed',
   // 快捷键目录 (the bottom-left 快捷键 button; read-only, keycaps stream from
   // the shortcuts registry's catalog)
   'shortcuts.open': 'Shortcuts',

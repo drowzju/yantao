@@ -41,6 +41,7 @@ import {
   type WorkspaceRunPatch,
   type WorkspaceRunStep,
 } from '@deepseek-ai/dsh-yantao-kb'
+import { applyCliEnv, resolveStepModel, type WorkspaceCliOptions } from './cli.ts'
 import { CodebuddyOutputParser } from './output-parse.ts'
 import { pruneOrphanRunLogs, RunLogWriter, wallClock } from './run-log.ts'
 
@@ -104,6 +105,14 @@ export interface WorkspaceRuntimeOptions {
    * the chain, so callers wrap their own try/catch.
    */
   readonly onFinalized?: (run: WorkspaceRun) => void
+  /**
+   * The workspace CLI's global options resolver (2026-10-23): the API key /
+   * network environment / default model the 配置 dialog stores, resolved
+   * fresh per chain (the credentials store demands per-operation reads).
+   * Absent or rejecting means "not configured" — the spawn falls back to the
+   * operator's login state, exactly the pre-feature behavior.
+   */
+  readonly cliOptions?: () => Promise<WorkspaceCliOptions>
 }
 
 /**
@@ -235,6 +244,15 @@ export class WorkspaceRuntime {
     // chain fire-and-forget: a log failure never touches the run itself.
     const log = new RunLogWriter(runLogPath(kbRoot, run.id))
     log.open(`═══ 工作区「${space.name}」· 指令「${run.instructionName}」· ${run.trigger === 'cron' ? '定时' : run.trigger === 'agent' ? 'agent' : '手动'} · ${wallClock()} ═══`)
+    // The chain's CLI options resolve once, up front: the credentials store's
+    // per-operation read lands at the moment the chain actually spawns, and a
+    // resolver crash degrades to "not configured" rather than failing a run
+    // that would have worked on login-state auth alone.
+    let cli: WorkspaceCliOptions | undefined
+    const cliResolver = this.options.cliOptions
+    if (cliResolver !== undefined) {
+      cli = await cliResolver().catch(() => undefined)
+    }
     // The working copy of the step list: every patch rebuilds it so the next
     // patch carries the previous ones too (patches replace the whole list).
     let steps = [...run.steps]
@@ -247,7 +265,7 @@ export class WorkspaceRuntime {
       log.stepHeader(step.index, resumedSessionId)
       let outcome: StepOutcome
       try {
-        outcome = await this.runStep(space, step, resumedSessionId, live, log)
+        outcome = await this.runStep(space, step, resumedSessionId, live, log, cli)
       } catch (error: unknown) {
         outcome = { exitCode: null, error: (error as Error).message }
       }
@@ -299,13 +317,20 @@ export class WorkspaceRuntime {
     resumeSessionId: string | undefined,
     live: LiveRun,
     log: RunLogWriter,
+    cli: WorkspaceCliOptions | undefined,
   ): Promise<StepOutcome> {
     const args = ['-p', '-y', '--output-format', 'stream-json']
-    if (space.model !== undefined) args.push('--model', space.model)
+    // The workspace's own model binding wins; the 配置 dialog's global
+    // default answers when the workspace binds none (2026-10-23).
+    const model = resolveStepModel(space.model, cli)
+    if (model !== undefined) args.push('--model', model)
     if (resumeSessionId !== undefined) args.push('--resume', resumeSessionId)
     const child = this.spawnImpl('codebuddy', args, {
       cwd: space.directory,
-      env: spawnEnv(),
+      // The stripped session environment, then the configured CLI auth on
+      // top — CODEBUDDY_API_KEY / CODEBUDDY_INTERNET_ENVIRONMENT are the
+      // only two names the API-key path adds back (cli.ts).
+      env: applyCliEnv(spawnEnv(), cli),
       shell: true, // Windows: the npm shim is a .cmd; every token here is shell-safe (the prompt rides stdin)
       windowsHide: true,
       // POSIX only: the process becomes a group leader so stop can reap the tree with one signal.

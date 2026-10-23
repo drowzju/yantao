@@ -39,6 +39,7 @@ import { mkdir, readdir, readFile, rm, stat, writeFile, cp } from 'node:fs/promi
 import { existsSync, type Dirent } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { SkillDefinition, SkillInvocationSource, SkillSummary } from '@deepseek-ai/dsh-skill'
 import { renderSkillContent } from '@deepseek-ai/dsh-skill'
@@ -60,6 +61,10 @@ import {
   readWorkspaces, writeWorkspaces, markInstruction, setInstructionSchedule, WORKSPACES_DISPLAY_PATH,
   readWorkspaceRuns, appendWorkspaceRun, appendScheduleRun, clearWorkspaceRuns, deleteWorkspaceRun, runLogPath, WORKSPACE_RUNS_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
+import { spawn as nodeSpawn } from 'node:child_process'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import type {} from '@deepseek-ai/dsh-settings'
+import { WORKSPACE_CLI_KEY_REF, WORKSPACE_CLI_NAMESPACE, parseModelIds, probeCodebuddy, type WorkspaceCliOptions } from './workspace/cli.ts'
 import { pruneOrphanRunLogs } from './workspace/run-log.ts'
 import { DIGEST_CHAR_CAP, collectSessionEvents, digestOfEvents } from './session-log.ts'
 import type { EntityType, Schedule, TodoFile, WorkspaceDef } from '@deepseek-ai/dsh-yantao-kb'
@@ -135,6 +140,8 @@ import type {
   KbScheduleSaveResult,
   KbScheduleRunReportArgs,
   KbScheduleRunReportResult,
+  KbWorkspaceCliModelsResult,
+  KbWorkspaceCliTestResult,
   KbWorkspaceListResult,
   KbWorkspaceRunArgs,
   KbWorkspaceRunResult,
@@ -240,6 +247,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'yantao-kb/mail': { readonly kind: string; readonly hint: string }
     /** A capability run failed (ADR-0021); `kind` is one of its failure kinds. */
     'yantao-kb/capability': { readonly kind: string; readonly hint: string }
+    /** The workspace CLI probe failed (2026-10-23); `kind` names which probe. */
+    'yantao-kb/cli': { readonly kind: string }
   }
 }
 
@@ -399,8 +408,20 @@ export class YantaoKbController extends TypertRemoteService {
    */
   static inject = ['yantaoKb', 'skills', 'tools', 'sessionController']
 
+  /** The workspace CLI's non-secret knobs, exposed as this entry's settings
+   * namespace (the dialog writes them through settings.replace; the API key
+   * itself never lands here — it lives in the credentials store). Both fields
+   * are volatile so the form edits apply without remounting the controller. */
+  static Config = z.object({
+    internetEnvironment: z.string().default('').volatile(),
+    model: z.string().default('').volatile(),
+  })
+
   /** The workspace cron tick's cadence — same rhythm as the frontend scheduler. */
   private static readonly WORKSPACE_TICK_INTERVAL_MS = 30_000
+
+  /** How long one codebuddy --help parse answers the CLI model dropdown. */
+  private static readonly CLI_MODELS_CACHE_TTL_MS = 10 * 60_000
 
   /** How old a workspace cron fire may be and still count as live (covers the scan interval). */
   private static readonly WORKSPACE_FIRE_TOLERANCE_MS = 300_000
@@ -414,6 +435,15 @@ export class YantaoKbController extends TypertRemoteService {
    * triggering.
    */
   readonly workspaceRuntime: WorkspaceRuntime
+
+  /** The workspace CLI's model-list cache — one codebuddy --help per TTL. */
+  private cliModelsCache: { at: number; models: string[] } | undefined
+
+  /**
+   * The spawn the CLI probes (model list, 测试连接) route through; tests swap
+   * this on the instance so no CLI is ever touched.
+   */
+  probeSpawnImpl: typeof nodeSpawn = nodeSpawn
 
   /** Guards against overlapping ticks piling duplicate scans. */
   private workspaceTicking = false
@@ -432,6 +462,10 @@ export class YantaoKbController extends TypertRemoteService {
       // ADR-0065 决定 3: a run settling on success/failed/stopped broadcasts
       // once — the DingTalk connector subscribes and pushes the result card.
       onFinalized: (run) => { this.ctx.emit('yantao-kb/workspace-run', { run }) },
+      // The 配置 dialog's CLI options (API key / network environment / global
+      // default model), resolved fresh per chain — the credentials store
+      // demands per-operation reads (2026-10-23).
+      cliOptions: () => this.workspaceCliOptions(),
     })
     this.ctx.effect(() => () => {
       this.revisionWatch.close()
@@ -3156,6 +3190,114 @@ export class YantaoKbController extends TypertRemoteService {
     } catch (error: unknown) {
       throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)
     }
+  }
+
+  /**
+   * The workspace CLI's supported model ids (2026-10-23): parsed from one
+   * 'codebuddy --help' — the --model line enumerates them inline, no
+   * interactive /model needed — and cached for the dialog's dropdown. The
+   * renderer never spawns; this is the list's only read face.
+   * @returns the model ids, in the CLI's own order.
+   */
+  @Remote('workspaceCliModels')
+  async workspaceCliModels(): Promise<KbWorkspaceCliModelsResult> {
+    const cached = this.cliModelsCache
+    if (cached !== undefined && Date.now() - cached.at < YantaoKbController.CLI_MODELS_CACHE_TTL_MS) {
+      return { models: cached.models }
+    }
+    const text = await this.codebuddyHelpText()
+    const models = parseModelIds(text)
+    if (models.length === 0) {
+      throw new RemoteError('yantao-kb/cli', '未能从 codebuddy --help 解析出模型列表（CLI 是否已安装并在 PATH 上？）', { kind: 'models-unavailable' })
+    }
+    this.cliModelsCache = { at: Date.now(), models }
+    return { models }
+  }
+
+  /**
+   * Probe the configured CLI (2026-10-23): one minimal headless call with the
+   * stored key / network environment / model — the 测试连接 gesture's engine.
+   * Bounded, unlike the chains (ADR-0056 决定 4): a probe is an interactive
+   * gesture whose whole point is a timely answer.
+   * @returns the outcome — ok with the answer text, or the diagnostic.
+   */
+  @Remote('workspaceCliTest')
+  async workspaceCliTest(): Promise<KbWorkspaceCliTestResult> {
+    const options = await this.workspaceCliOptions()
+    const started = Date.now()
+    const outcome = await probeCodebuddy(options, this.probeSpawnImpl)
+    return { ok: outcome.ok, detail: outcome.detail, durationMs: Date.now() - started }
+  }
+
+  /**
+   * Gather the workspace CLI's global options: the non-secret half from the
+   * settings namespace 'workspace-cli', the raw key resolved fresh from the
+   * credentials store (hard rule 5 — it never sits in a settings document).
+   * Both services are optional mounts; an absent one degrades to 'not
+   * configured' and the spawn falls back to login-state auth.
+   * @returns the resolved options, sparse.
+   */
+  private async workspaceCliOptions(): Promise<WorkspaceCliOptions> {
+    let model: string | undefined
+    let internetEnvironment: string | undefined
+    let apiKey: string | undefined
+    const settings = this.ctx.get('settings')
+    if (settings !== undefined) {
+      try {
+        const view = settings.describe({ redactSecrets: true }).find(candidate => candidate.ns === WORKSPACE_CLI_NAMESPACE)
+        const value = view?.value
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+          const record = value as Record<string, unknown>
+          if (typeof record.model === 'string' && record.model !== '') model = record.model
+          if (typeof record.internetEnvironment === 'string' && record.internetEnvironment !== '') {
+            internetEnvironment = record.internetEnvironment
+          }
+        }
+      } catch { /* no settings provider — CLI defaults stand */ }
+    }
+    const credentials = this.ctx.get('credentials')
+    if (credentials !== undefined) {
+      try {
+        const resolved = await credentials.resolve(credentialRef(WORKSPACE_CLI_KEY_REF))
+        if (resolved !== undefined && resolved.value !== '') apiKey = resolved.value
+      } catch { /* no credential provider — login-state fallback */ }
+    }
+    return {
+      ...(model !== undefined ? { model } : {}),
+      ...(internetEnvironment !== undefined ? { internetEnvironment } : {}),
+      ...(apiKey !== undefined ? { apiKey } : {}),
+    }
+  }
+
+  /**
+   * One 'codebuddy --help' invocation's combined output, bounded at 15 s —
+   * the model list's source text.
+   */
+  private codebuddyHelpText(): Promise<string> {
+    return new Promise<string>((resolveHelp, rejectHelp) => {
+      let child: ReturnType<typeof nodeSpawn>
+      try {
+        child = this.probeSpawnImpl('codebuddy', ['--help'], { shell: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+      } catch (error: unknown) {
+        rejectHelp(new RemoteError('yantao-kb/cli', '无法启动 codebuddy：' + (error as Error).message, { kind: 'help-spawn' }))
+        return
+      }
+      const chunks: Buffer[] = []
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        rejectHelp(new RemoteError('yantao-kb/cli', 'codebuddy --help 15 秒无应答', { kind: 'help-timeout' }))
+      }, 15_000)
+      child.stdout?.on('data', (chunk: Buffer | string) => { chunks.push(typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk) })
+      child.stderr?.on('data', (chunk: Buffer | string) => { chunks.push(typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk) })
+      child.on('error', (error: Error) => {
+        clearTimeout(timer)
+        rejectHelp(new RemoteError('yantao-kb/cli', '无法启动 codebuddy：' + error.message, { kind: 'help-spawn' }))
+      })
+      child.on('close', () => {
+        clearTimeout(timer)
+        resolveHelp(Buffer.concat(chunks).toString('utf8'))
+      })
+    })
   }
 
   /**
