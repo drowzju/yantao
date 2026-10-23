@@ -4,6 +4,7 @@
  * (fetch instead of axios; access token cached until near expiry).
  */
 import type { DingTalkAppCredentials } from './credentials.js'
+import type { ProxyFetchInit } from './net.js'
 import path from 'node:path'
 import { proxyFetch } from './net.js'
 import { FILE_TYPES, IMAGE_TYPES, MAX_MEDIA_BYTES } from './media.js'
@@ -28,6 +29,22 @@ export interface MediaReceipt {
 interface CachedToken {
   value: string
   expiresAt: number
+}
+
+const RETRY_DELAYS_MS = [1_000, 3_000]
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/**
+ * 公司网关（McAfee Web Gateway）在域帐号票据失效的短窗口里会顶掉真实响应：
+ * 302/407 或一张 HTML 认证页，请求根本没到钉钉。钉钉自身的应答永远是 JSON，
+ * 所以 HTML 体也算“没送达”，值得重试；业务错误（400 之类）重试无用。
+ * 网络错误不重试——请求可能已经落地，重发会重复一条消息。
+ */
+function isGatewayInterstitial(status: number, body: string): boolean {
+  return status === 302 || status === 407 || status >= 500 || /^\s*</.test(body)
 }
 
 function markdownSummary(text: string, fallback: string): string {
@@ -73,19 +90,41 @@ export class Outbound {
     return this.#token.value
   }
 
+  /**
+   * 单次 POST，网关认证页/5xx 时退避重试。buildInit 每次重建请求体，
+   * 让 proactive 的 10s 超时按尝试各自计时而不是整轮共用一个。
+   */
+  private async postWithRetry(
+    label: string,
+    url: string,
+    buildInit: () => ProxyFetchInit,
+  ): Promise<{ ok: boolean; status: number; text: string }> {
+    for (let attempt = 0; ; attempt++) {
+      const resp = await proxyFetch(url, buildInit())
+      if (resp.ok) return { ok: true, status: resp.status, text: '' }
+      const text = await resp.text()
+      if (attempt >= RETRY_DELAYS_MS.length || !isGatewayInterstitial(resp.status, text))
+        return { ok: false, status: resp.status, text }
+      const delay = RETRY_DELAYS_MS[attempt]!
+      this.log(`${label} failed ${resp.status} (attempt ${attempt + 1}); retrying in ${delay}ms`)
+      await sleep(delay)
+    }
+  }
+
   private async send(sessionWebhook: string, payload: unknown, chars: number): Promise<boolean> {
     try {
       const token = await this.accessToken()
-      const resp = await proxyFetch(sessionWebhook, {
+      const body = JSON.stringify(payload)
+      const result = await this.postWithRetry('reply', sessionWebhook, () => ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-acs-dingtalk-access-token': token,
         },
-        body: JSON.stringify(payload),
-      })
-      if (!resp.ok) {
-        this.log(`reply failed ${resp.status}: ${await resp.text()}`)
+        body,
+      }))
+      if (!result.ok) {
+        this.log(`reply failed ${result.status}: ${result.text}`)
         return false
       }
       this.log(`reply sent (${chars} chars)`)
@@ -120,19 +159,23 @@ export class Outbound {
     if (!userId) return false
     try {
       const token = await this.accessToken()
-      const resp = await proxyFetch('https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-acs-dingtalk-access-token': token },
-        body: JSON.stringify({
-          robotCode: this.credentials.clientId,
-          userIds: [userId],
-          msgKey: 'sampleMarkdown',
-          msgParam: JSON.stringify({ title, text }),
+      const result = await this.postWithRetry(
+        'proactive markdown',
+        'https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend',
+        () => ({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-acs-dingtalk-access-token': token },
+          body: JSON.stringify({
+            robotCode: this.credentials.clientId,
+            userIds: [userId],
+            msgKey: 'sampleMarkdown',
+            msgParam: JSON.stringify({ title, text }),
+          }),
+          signal: AbortSignal.timeout(10_000),
         }),
-        signal: AbortSignal.timeout(10_000),
-      })
-      if (!resp.ok) {
-        this.log(`proactive markdown failed ${resp.status}: ${(await resp.text()).slice(0, 300)}`)
+      )
+      if (!result.ok) {
+        this.log(`proactive markdown failed ${result.status}: ${result.text.slice(0, 300)}`)
         return false
       }
       this.log(`proactive markdown sent (${text.length} chars)`)
