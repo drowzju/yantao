@@ -36,3 +36,5 @@ $exe = Join-Path $root 'apps\yantao-desktop\.package-build\artifacts\win-unpacke
 if (-not (Test-Path $exe)) { Die "打包完成但找不到 $exe" }
 Write-Host ""
 Write-Host "出包完成：$exe" -ForegroundColor Green
+# 任务栏图标按文件路径缓存：原地覆盖 exe 后旧图标可能还在，改名或清缓存即可。
+Write-Host "提示：任务栏图标若仍是旧图标，是 Windows 图标缓存——把 exe 改个名或执行 ie4uinit.exe -show。" -ForegroundColor DarkGray
