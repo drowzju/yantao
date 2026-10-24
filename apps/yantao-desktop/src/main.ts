@@ -131,8 +131,12 @@ function nodeProgram(): string {
  * here, and none of them can live inside the app bundle as-is:
  *
  * 1. **The profile** — `profiles/yantao-packaged` is seeded from
- *    `resources/dsh-home-template` (no `patchReload`, same bundle list, same
- *    `cordis.patch.yml`). It is copied once; afterwards the human owns it.
+ *    `resources/dsh-home-template` (no `patchReload`, same bundle list). The
+ *    bundle list is copied once; the `cordis.patch.yml` is MIRRORED from the
+ *    development profile (`~/.dsh/profiles/yantao-web`) at every launch
+ *    (2026-10-24 用户裁决：配置与本地代码运行必须一致，home 的分离只为代码
+ *    冻结服务) — a missing source falls back to the last mirrored copy, so a
+ *    moved installation still boots.
  * 2. **The secrets** — `.env` and `.credentials.yaml` are copied from `~/.dsh`
  *    once. The credentials store reads the home-level `.env` as its `user-env`
  *    fallback layer (packages/boot/app-boot `loadLayeredEnv`), so nothing else
@@ -191,6 +195,16 @@ function ensurePackagedHome(): void {
     repaired += 1
   }
   if (repaired > 0) console.log(`yantao: repaired ${repaired} profile link${repaired === 1 ? '' : 's'}`)
+
+  // 配置镜像（2026-10-24 用户裁决）：packaged profile 的 cordis.patch.yml 每次
+  // 启动都从开发 profile 覆盖——home 的分离只为代码冻结（junction 墙指进
+  // resources/runtime），配置的权威永远是开发侧的 yantao-web。源缺失（exe 被
+  // 挪到无 ~/.dsh 的机器）则保留上次镜像，安装仍可启动。
+  const devPatch = join(homedir(), '.dsh', 'profiles', 'yantao-web', 'cordis.patch.yml')
+  const packagedPatch = join(PACKAGED_HOME, 'profiles', PROFILE, 'cordis.patch.yml')
+  if (existsSync(devPatch)) {
+    copyFileSync(devPatch, packagedPatch)
+  }
 }
 
 /**

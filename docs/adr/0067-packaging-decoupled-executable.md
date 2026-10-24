@@ -68,3 +68,16 @@ status: accepted
 - 秘钥一次性拷贝后独立演进：轮换后删掉打包 home 里的 `.env`，下次启动重拷。
 - 出包前的常规工件构建（前端 `dist`、client bundle）仍会写仓库；那时若开发实例在跑，
   照样可能撞 EBUSY——这与出包本身无关，建议出包前从托盘退出开发实例。
+
+## 修订（2026-10-24）：配置镜像，home 分离只为代码冻结
+
+用户裁决：本 ADR 的本意是「exe 运行时不受**代码**影响」，配置/环境的加载逻辑应与
+开发实例完全一致——home 的分离只为代码冻结（junction 墙指进 `resources/runtime`）
+服务，不该连配置一起冻结。据此修订 `ensurePackagedHome`：
+
+- packaged profile 的 `cordis.patch.yml` **每次启动从开发 profile
+  （`~/.dsh/profiles/yantao-web`）镜像覆盖**——配置的唯一权威是开发侧，改配置
+  → 出包 → exe 重启即生效，不再有首启快照陈旧导致的「exe 显 128K」类漂移。
+- 源缺失（exe 被挪到无 `~/.dsh` 的机器）则保留上次镜像，安装仍可启动。
+- `.env` / `.credentials.yaml` 维持「拷贝一次、独立演进」不变（轮换语义见后果节）。
+- `cordis.yml` / `package.json` / link-manifest 属播种基础设施，维持自愈逻辑不变。
