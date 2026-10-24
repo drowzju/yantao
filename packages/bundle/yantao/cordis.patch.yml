@@ -84,6 +84,10 @@
 - insert:
     - id: yantao-kb
       name: '@deepseek-ai/dsh-yantao-kb'
+      # 2026-10-24 上收：KB 根是本部署实例的事实，原先在 yantao / yantao-web
+      # 两份用户层 patch 各抄一行——挪根要改两处，漏一处就两边写歪。单一权威。
+      config:
+        kbRoot: 'D:\yantao-data'
 
 # 会话用量台账（ADR-0050）：host 侧日用量聚合器，扫会话事件日志按天分桶，
 # KV 域 yantao_usage 持久化（不落 kbRoot）。洞察 tab 的数据面。
