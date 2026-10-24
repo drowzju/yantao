@@ -23,19 +23,37 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, session, Tray } from 'electron'
 
-/**
- * Repository root. This file is `apps/yantao-desktop/src/main.ts`, so the
- * module URL's directory is `…/apps/yantao-desktop/src/` and the root is three
- * levels up — `../..` lands on `apps/`, which is one short.
- */
-const REPO = fileURLToPath(new URL('../../..', import.meta.url))
-
-/** This file's own directory (`…/apps/yantao-desktop/src/`) — ESM has no `__dirname`. */
+/** This file's own directory (`…/apps/yantao-desktop/src/`; packaged: `…/dist/`). */
 const HERE = fileURLToPath(new URL('.', import.meta.url))
+
+/**
+ * Repository root — the packaged shell runs the repository's source (ADR-0067
+ * 2026-10-24 修订), so it must know where the checkout lives. Three sources,
+ * first match wins:
+ *
+ * 1. `YANTAO_REPO` environment override (a moved checkout);
+ * 2. `repo-path.txt` beside this module — written by pack-win at pack time,
+ *    because an asar has no repository three levels above it;
+ * 3. three levels up from this file — the development layout
+ *    (`apps/yantao-desktop/src/main.ts` → repo root).
+ */
+function resolveRepo(): string {
+  const override = process.env.YANTAO_REPO
+  if (override !== undefined && existsSync(join(override, 'apps', 'cli', 'src', 'bin.ts'))) return override
+  const marker = join(HERE, 'repo-path.txt')
+  if (existsSync(marker)) {
+    const recorded = readFileSync(marker, 'utf8').trim()
+    if (recorded !== '' && existsSync(join(recorded, 'apps', 'cli', 'src', 'bin.ts'))) return recorded
+  }
+  return fileURLToPath(new URL('../../..', import.meta.url))
+}
+
+const REPO = resolveRepo()
 
 /**
  * Whether this process is the packaged build (`win-unpacked/yantao-workbench.exe`)

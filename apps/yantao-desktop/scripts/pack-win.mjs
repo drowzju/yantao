@@ -14,7 +14,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync } from 'node:fs'
+import { copyFileSync, existsSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
 
@@ -55,6 +55,9 @@ async function compileMain() {
     logLevel: 'warning',
   })
   copyFileSync(join(APP, 'src', 'preload.cjs'), join(APP, 'dist', 'preload.cjs'))
+  // 打包壳运行的是仓库源码（ADR-0067 修订）：把仓库绝对路径写进 bundle，
+  // main.ts 的 resolveRepo 优先读它——asar 里没有「三级之上」的仓库。
+  writeFileSync(join(APP, 'dist', 'repo-path.txt'), `${REPO}\n`)
   console.log('pack-win: main process bundled into dist/main.js')
 }
 
