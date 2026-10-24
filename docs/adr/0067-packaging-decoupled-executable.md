@@ -79,5 +79,6 @@ status: accepted
   （`~/.dsh/profiles/yantao-web`）镜像覆盖**——配置的唯一权威是开发侧，改配置
   → 出包 → exe 重启即生效，不再有首启快照陈旧导致的「exe 显 128K」类漂移。
 - 源缺失（exe 被挪到无 `~/.dsh` 的机器）则保留上次镜像，安装仍可启动。
-- `.env` / `.credentials.yaml` 维持「拷贝一次、独立演进」不变（轮换语义见后果节）。
+- `.env` / `.credentials.yaml` 同样改为**每次启动镜像**（用户裁决：环境与配置一致，
+  密钥轮换自动跟随；源缺失保留上次镜像）。「拷贝一次、独立演进」的旧语义废止。
 - `cordis.yml` / `package.json` / link-manifest 属播种基础设施，维持自愈逻辑不变。

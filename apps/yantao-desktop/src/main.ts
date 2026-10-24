@@ -137,10 +137,11 @@ function nodeProgram(): string {
  *    (2026-10-24 用户裁决：配置与本地代码运行必须一致，home 的分离只为代码
  *    冻结服务) — a missing source falls back to the last mirrored copy, so a
  *    moved installation still boots.
- * 2. **The secrets** — `.env` and `.credentials.yaml` are copied from `~/.dsh`
- *    once. The credentials store reads the home-level `.env` as its `user-env`
+ * 2. **The secrets** — `.env` and `.credentials.yaml` are mirrored from `~/.dsh`
+ *    at every launch (2026-10-24 用户裁决：环境与配置一致，轮换自动跟随). The
+ *    credentials store reads the home-level `.env` as its `user-env`
  *    fallback layer (packages/boot/app-boot `loadLayeredEnv`), so nothing else
- *    is needed. Rotation afterwards means deleting the copy here.
+ *    is needed.
  * 3. **The profile's plugin links** — `profiles/node_modules` is the layer the
  *    bundle patches resolve through; on this machine it is a wall of junctions
  *    into the repository's `node_modules/.pnpm/node_modules`. The manifest
@@ -178,14 +179,12 @@ function ensurePackagedHome(): void {
     copyFileSync(templateManifest, join(PACKAGED_HOME, 'link-manifest.json'))
   }
 
-  // Secrets: copied once, never overwritten — a rotated key in ~/.dsh must not
-  // silently clobber whatever the packaged instance was configured with.
+  // Secrets: mirrored from ~/.dsh at every launch (2026-10-24 用户裁决：环境与
+  // 配置一致)。轮换密钥后 exe 下次启动自动跟随；源缺失则保留上次镜像。
   for (const name of ['.env', '.credentials.yaml']) {
-    const destination = join(PACKAGED_HOME, name)
     const source = join(homedir(), '.dsh', name)
-    if (existsSync(destination) || !existsSync(source)) continue
-    copyFileSync(source, destination)
-    console.log(`yantao: seeded ${name} from ~/.dsh`)
+    if (!existsSync(source)) continue
+    copyFileSync(source, join(PACKAGED_HOME, name))
   }
 
   const manifest = join(PACKAGED_HOME, 'link-manifest.json')
