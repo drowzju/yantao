@@ -34,9 +34,11 @@
         compat:
           thinkingFormat: deepseek
         models:
+          # 2026-10-24：网关实测按 768K 供窗，此前的 131072 声明让压缩提前
+          # 触发、agent 自述也跟着错——按部署实例的真实容量声明。
           - id: GLM5.1
             name: inner-glm5.1
-            contextWindow: 131072
+            contextWindow: 786432
             maxTokens: 32768
           # The gateway answers to several spellings of the same model (all are
           # served as glm52), so they are declared here as aliases: picking or
@@ -44,11 +46,11 @@
           # model". Keep them in sync when the gateway's model changes.
           - id: GLM
             name: inner-glm5.1（别名 GLM）
-            contextWindow: 131072
+            contextWindow: 786432
             maxTokens: 32768
           - id: glm52
             name: inner-glm5.1（别名 glm52）
-            contextWindow: 131072
+            contextWindow: 786432
             maxTokens: 32768
 
 - id: agent-default-model
