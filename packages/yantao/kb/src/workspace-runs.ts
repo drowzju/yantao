@@ -286,12 +286,17 @@ export interface ScheduleRunSeed {
   readonly sessionId?: string
   /** The prompt the schedule fired with (snapshot, same discipline as workspace steps). */
   readonly prompt?: string
-  /** Terminal state; a fire that never settled reports `failed` with the error. */
-  readonly status: 'success' | 'failed' | 'stopped'
+  /**
+   * Lifecycle. `running` is the 2026-10-24 early report: the frontend
+   * scheduler files the row the moment it fires, so a mid-run crash leaves a
+   * body the boot healer can finalize — born-terminal rows (the other three)
+   * are the classic settle-time report.
+   */
+  readonly status: 'running' | 'success' | 'failed' | 'stopped'
   /** ISO timestamp the session was created. */
   readonly startedAt: string
-  /** ISO timestamp the run settled. */
-  readonly finishedAt: string
+  /** ISO timestamp the run settled; absent on the early `running` report. */
+  readonly finishedAt?: string
   /** The final answer's excerpt (or the failure message when the run threw). */
   readonly finalResult?: string
   /** Why the run failed, when it did. */
@@ -299,11 +304,11 @@ export interface ScheduleRunSeed {
 }
 
 /**
- * Append one born-terminal `schedule` row (the frontend scheduler's write
- * path): the fired session has already settled by the time the report
- * arrives, so unlike {@link appendWorkspaceRun} there is no `running` phase
- * to patch — a crash between fire and report loses the row entirely, the
- * same silence the store had before schedule rows existed.
+ * Append one `schedule` row (the frontend scheduler's write path). Normally
+ * born-terminal — the fired session has already settled by the time the
+ * report arrives — but since 2026-10-24 the scheduler also files a `running`
+ * row at fire time and patches it via {@link patchWorkspaceRun} on settle, so
+ * a crash between fire and settle leaves a body instead of silence.
  * @param kbRoot - the live KB root.
  * @param seed - the run's identity and outcome.
  * @returns the created row as stored.
@@ -318,7 +323,7 @@ export function appendScheduleRun(kbRoot: string, seed: ScheduleRunSeed, now: Da
       trigger: 'schedule',
       status: seed.status,
       startedAt: seed.startedAt,
-      finishedAt: seed.finishedAt,
+      ...(seed.finishedAt !== undefined ? { finishedAt: seed.finishedAt } : {}),
       ...(seed.finalResult !== undefined ? { finalResult: clamp(seed.finalResult, RESULT_EXCERPT_MAX) } : {}),
       ...(seed.error !== undefined ? { error: clamp(seed.error, ERROR_MAX) } : {}),
       steps: seed.sessionId !== undefined
@@ -427,24 +432,39 @@ export function deleteWorkspaceRun(kbRoot: string, runId: string): Promise<Works
 }
 
 /**
- * Boot-time healing (ADR-0056 决定 4): every row still marked `running` is a
- * run whose process died with the last controller — mark it `interrupted`
- * with the boot moment as its end. Never catches up, never re-runs.
+ * Boot-time healing (ADR-0056 决定 4；2026-10-24 扩到调度行): every row still
+ * marked `running` is a run whose process died with the last controller.
+ * Workspace-chain rows are marked `interrupted` — nobody was watching, the
+ * adjudication says stay silent. Schedule rows are unattended work: they are
+ * marked `failed` with an explanatory error, so the healer's caller can
+ * broadcast them and the DingTalk pipe finally hears about the crash.
+ * Never catches up, never re-runs.
  * @param kbRoot - the live KB root.
  * @param now - the boot moment.
- * @returns how many rows were finalized.
+ * @returns the finalized rows, in stored order.
  */
-export async function finalizeInterruptedRuns(kbRoot: string, now: Date = new Date()): Promise<number> {
+export async function finalizeInterruptedRuns(kbRoot: string, now: Date = new Date()): Promise<WorkspaceRun[]> {
   return withRunsLock(async () => {
     const runs = await readWorkspaceRuns(kbRoot)
     const stale = runs.filter(run => run.status === 'running')
-    if (stale.length === 0) return 0
-    const stamped = new Map(stale.map(run => [run.id, {
-      ...run,
-      status: 'interrupted' as const,
-      finishedAt: now.toISOString(),
-    }]))
+    if (stale.length === 0) return []
+    const finishedAt = now.toISOString()
+    // 调度行是无人值守的工作：补记落 failed 并带原因，让调用方广播出去、
+    // 钉钉管道终于听得见崩溃；interrupted 的「不推」裁决只针对有人在看的
+    // 工作区链（run-push.ts 的 ADR-0065 决定 3 注释）。
+    const stamped = new Map(stale.map(run => [run.id, run.trigger === 'schedule'
+      ? {
+        ...run,
+        status: 'failed' as const,
+        finishedAt,
+        error: clamp('运行中断：应用在执行途中退出，未能等到任务收尾（下次启动补记）', ERROR_MAX),
+      }
+      : {
+        ...run,
+        status: 'interrupted' as const,
+        finishedAt,
+      }]))
     await writeWorkspaceRuns(kbRoot, trimToCap(runs.map(run => stamped.get(run.id) ?? run)))
-    return stale.length
+    return runs.filter(run => stamped.has(run.id)).map(run => stamped.get(run.id) as WorkspaceRun)
   })
 }

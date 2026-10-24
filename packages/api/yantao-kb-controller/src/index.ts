@@ -59,7 +59,8 @@ import {
   readSchedules, writeSchedules, markSchedule, newScheduleId, SCHEDULES_DISPLAY_PATH,
   enqueueProposal, readProposalInbox, resolveProposalInboxEntry, annotateProposalInboxEntry, PROPOSAL_INBOX_DISPLAY_PATH,
   readWorkspaces, writeWorkspaces, markInstruction, setInstructionSchedule, WORKSPACES_DISPLAY_PATH,
-  readWorkspaceRuns, appendWorkspaceRun, appendScheduleRun, clearWorkspaceRuns, deleteWorkspaceRun, runLogPath, WORKSPACE_RUNS_DISPLAY_PATH,
+  readWorkspaceRuns, appendWorkspaceRun, appendScheduleRun, clearWorkspaceRuns, deleteWorkspaceRun, patchWorkspaceRun,
+  runLogPath, WORKSPACE_RUNS_DISPLAY_PATH,
 } from '@deepseek-ai/dsh-yantao-kb'
 import { spawn as nodeSpawn } from 'node:child_process'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
@@ -478,7 +479,12 @@ export class YantaoKbController extends TypertRemoteService {
     // host-side because the fired work is a subprocess, not a UI action.
     this.ctx.effect(() => () => this.workspaceRuntime.dispose())
     this.ctx.effect(() => {
-      void this.workspaceRuntime.healOnBoot().catch((error: unknown) => {
+      // 2026-10-24 看门狗广播：healer 把上一任控制器留下的 running 行补记成
+      // 终态（调度行 failed、链行 interrupted），这里逐行广播出去——调度行
+      // 的失败由此进入钉钉管道（RunPusher 推 failed 卡），不再无声蒸发。
+      void this.workspaceRuntime.healOnBoot().then((healed) => {
+        for (const run of healed) this.ctx.emit('yantao-kb/workspace-run', { run })
+      }).catch((error: unknown) => {
         console.warn('workspace run healing failed:', error)
       })
       const timer = setInterval(() => { void this.workspaceTick() }, YantaoKbController.WORKSPACE_TICK_INTERVAL_MS)
@@ -3316,20 +3322,43 @@ export class YantaoKbController extends TypertRemoteService {
   }
 
   /**
-   * Record one fired schedule's settled run (ADR-0045 运行可观测性的补齐):
-   * the frontend scheduler reports born-terminal — the session has already
-   * settled by the time this fires. The row lands in the same history ring
-   * the workspace runtime writes, and the same `yantao-kb/workspace-run`
-   * broadcast rides out, so the DingTalk pusher and `kb_list_workspace_runs`
-   * see schedule runs with no new consumer. A report failure fails the RPC
-   * (the caller warns and moves on — a lost row is diagnosable, not fatal).
+   * Record one fired schedule's run (ADR-0045 运行可观测性的补齐；2026-10-24
+   * 两段式): without `runId` this files a new row — the frontend scheduler
+   * now reports `running` the moment it fires, so a mid-run crash leaves a
+   * body the boot healer finalizes; born-terminal reports (the settle-time
+   * call) still create their row outright. With `runId` this patches that
+   * running row to its terminal state instead. Terminal rows broadcast on
+   * the same `yantao-kb/workspace-run` event as chain runs, so the DingTalk
+   * pusher and `kb_list_workspace_runs` see schedule runs with no new
+   * consumer; a `running` row stays quiet (nothing to push yet). A report
+   * failure fails the RPC (the caller warns and moves on — a lost row is
+   * diagnosable, not fatal).
    * @param args - the schedule's identity and the run's outcome.
-   * @returns the created row's id.
+   * @returns the created (or patched) row's id.
    */
   @Remote('scheduleRunReport')
   async scheduleRunReport(args: KbScheduleRunReportArgs): Promise<KbScheduleRunReportResult> {
     this.requireKbRootForWorkspaces(WORKSPACE_RUNS_DISPLAY_PATH)
     try {
+      if (args.runId !== undefined) {
+        // The settle-time patch onto the fire-time row: terminal status must
+        // carry its finishedAt (the store enforces the pairing).
+        const runs = await patchWorkspaceRun(this.kbRoot, args.runId, {
+          status: args.status,
+          ...(args.finishedAt !== undefined ? { finishedAt: args.finishedAt } : {}),
+          ...(args.finalResult !== undefined ? { finalResult: args.finalResult } : {}),
+          ...(args.error !== undefined ? { error: args.error } : {}),
+          ...(args.sessionId !== undefined
+            ? { steps: [{ index: 0, promptSnapshot: args.prompt ?? '', sessionId: args.sessionId }] }
+            : {}),
+        })
+        const run = runs.find(candidate => candidate.id === args.runId)
+        if (run !== undefined && args.status !== 'running') {
+          // 与运行链落定点同一广播：连接器的 RunPusher 据此推结果卡。
+          this.ctx.emit('yantao-kb/workspace-run', { run })
+        }
+        return { runId: args.runId }
+      }
       const run = await appendScheduleRun(this.kbRoot, {
         scheduleId: args.scheduleId,
         scheduleName: args.scheduleName,
@@ -3337,12 +3366,14 @@ export class YantaoKbController extends TypertRemoteService {
         ...(args.prompt !== undefined ? { prompt: args.prompt } : {}),
         status: args.status,
         startedAt: args.startedAt,
-        finishedAt: args.finishedAt,
+        ...(args.finishedAt !== undefined ? { finishedAt: args.finishedAt } : {}),
         ...(args.finalResult !== undefined ? { finalResult: args.finalResult } : {}),
         ...(args.error !== undefined ? { error: args.error } : {}),
       })
-      // 与运行链落定点同一广播：连接器的 RunPusher 据此推结果卡。
-      this.ctx.emit('yantao-kb/workspace-run', { run })
+      if (args.status !== 'running') {
+        // 与运行链落定点同一广播：连接器的 RunPusher 据此推结果卡。
+        this.ctx.emit('yantao-kb/workspace-run', { run })
+      }
       return { runId: run.id }
     } catch (error: unknown) {
       throw this.workspaceError(error, WORKSPACE_RUNS_DISPLAY_PATH)

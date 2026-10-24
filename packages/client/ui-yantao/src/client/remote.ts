@@ -180,7 +180,7 @@ export interface KbRemote {
   workspaceRunsClear(): Promise<RemoteResult<KbWorkspaceRunsClearResult>>
   /** Delete one history row (2026-10-15 截图评审); a still-running row refuses. */
   workspaceRunDelete(args: KbWorkspaceRunDeleteArgs): Promise<RemoteResult<KbWorkspaceRunDeleteResult>>
-  /** The frontend scheduler's born-terminal report of one fired schedule. */
+  /** The frontend scheduler's two-phase run report (running at fire, terminal at settle). */
   scheduleRunReport(args: KbScheduleRunReportArgs): Promise<RemoteResult<KbScheduleRunReportResult>>
   /** The proposal inbox's listing (ADR-0047), in enqueue order — pending and decided alike. */
   proposalInboxList(): Promise<RemoteResult<KbProposalInboxListResult>>

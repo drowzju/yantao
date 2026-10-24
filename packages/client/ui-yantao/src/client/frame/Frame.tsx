@@ -1280,6 +1280,21 @@ export function Frame({
       const taskId = taskBegin('schedule', `调度「${schedule.name}」`, '执行中')
       const controller = new AbortController()
       scheduleAborts.current.set(taskId, controller)
+      // 2026-10-24 两段式上报（静默消失事故的根治）：点火即报 running——此前
+      // 运行行只在 promise settle 后落盘，渲染进程半途死亡＝零记录零通知。
+      // 先行的行给了崩溃一具尸体：下次启动的看门狗把它补记成 failed 并广播
+      // 到钉钉。settle 后的报告携带 runId 打补丁；先行报告失败则退回老路
+      // （settle 时新建终态行）。
+      const runningReport = scheduleRunReport({
+        scheduleId: schedule.id,
+        scheduleName: schedule.name,
+        prompt: schedule.prompt,
+        status: 'running',
+        startedAt: firedAt,
+      }).then(reported => (reported as { runId: string } | undefined)?.runId).catch((reason: unknown) => {
+        console.warn(`early run report for schedule ${schedule.id} failed; the row is born-terminal only:`, reason)
+        return undefined
+      })
       runSchedule({
         id: schedule.id,
         name: schedule.name,
@@ -1317,44 +1332,56 @@ export function Frame({
         // 运行上报（born-terminal）：把这次点火记进运行历史并广播出去——钉钉
         // 推送和 kb_list_workspace_runs 都从这条链上看到调度运行。上报失败只
         // 警告：丢行可诊断，不值得打断已成功的运行。
-        void scheduleRunReport({
-          scheduleId: schedule.id,
-          scheduleName: schedule.name,
-          sessionId: result.sessionId,
-          prompt: schedule.prompt,
-          status: 'success',
-          startedAt: result.startedAt,
-          finishedAt: result.finishedAt,
-          finalResult: result.answer,
-        }).catch((reason: unknown) => {
+        void (async () => {
+          const runId = await runningReport
+          await scheduleRunReport({
+            scheduleId: schedule.id,
+            scheduleName: schedule.name,
+            sessionId: result.sessionId,
+            prompt: schedule.prompt,
+            status: 'success',
+            startedAt: result.startedAt,
+            finishedAt: result.finishedAt,
+            finalResult: result.answer,
+            ...(runId !== undefined ? { runId } : {}),
+          })
+        })().catch((reason: unknown) => {
           console.warn(`run report for schedule ${schedule.id} failed; the history row is lost:`, reason)
         })
       }, (failure: unknown) => {
         if (controller.signal.aborted) {
           taskEnd(taskId, 'cancelled', '已取消')
-          void scheduleRunReport({
-            scheduleId: schedule.id,
-            scheduleName: schedule.name,
-            prompt: schedule.prompt,
-            status: 'stopped',
-            startedAt: firedAt,
-            finishedAt: new Date().toISOString(),
-          }).catch((reason: unknown) => {
+          void (async () => {
+            const runId = await runningReport
+            await scheduleRunReport({
+              scheduleId: schedule.id,
+              scheduleName: schedule.name,
+              prompt: schedule.prompt,
+              status: 'stopped',
+              startedAt: firedAt,
+              finishedAt: new Date().toISOString(),
+              ...(runId !== undefined ? { runId } : {}),
+            })
+          })().catch((reason: unknown) => {
             console.warn(`run report for schedule ${schedule.id} failed; the history row is lost:`, reason)
           })
         } else {
           const message = remoteMessage(failure)
           taskEnd(taskId, 'failed', `失败：${message}`)
           notifySchedule({ title: `调度「${schedule.name}」失败`, body: message })
-          void scheduleRunReport({
-            scheduleId: schedule.id,
-            scheduleName: schedule.name,
-            prompt: schedule.prompt,
-            status: 'failed',
-            startedAt: firedAt,
-            finishedAt: new Date().toISOString(),
-            error: message,
-          }).catch((reason: unknown) => {
+          void (async () => {
+            const runId = await runningReport
+            await scheduleRunReport({
+              scheduleId: schedule.id,
+              scheduleName: schedule.name,
+              prompt: schedule.prompt,
+              status: 'failed',
+              startedAt: firedAt,
+              finishedAt: new Date().toISOString(),
+              error: message,
+              ...(runId !== undefined ? { runId } : {}),
+            })
+          })().catch((reason: unknown) => {
             console.warn(`run report for schedule ${schedule.id} failed; the history row is lost:`, reason)
           })
         }

@@ -219,10 +219,12 @@ export class WorkspaceRuntime {
 
   /**
    * Boot-time healing (ADR-0056 决定 4): rows still `running` belong to a
-   * dead controller — mark them `interrupted`. Never re-runs.
-   * @returns how many rows were finalized.
+   * dead controller — mark them finalized (schedule rows `failed`, chain
+   * rows `interrupted`). Never re-runs. The caller broadcasts the returned
+   * rows, so a crashed schedule's failure reaches the DingTalk pipe.
+   * @returns the finalized rows, in stored order.
    */
-  healOnBoot(): Promise<number> {
+  healOnBoot(): Promise<readonly WorkspaceRun[]> {
     return finalizeInterruptedRuns(this.options.kbRoot())
   }
 

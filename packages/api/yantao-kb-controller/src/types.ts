@@ -1292,7 +1292,12 @@ export interface KbWorkspaceRunsListResult {
   readonly path: string
 }
 
-/** Parameters of `yantaoKb.scheduleRunReport`: the frontend scheduler's born-terminal report. */
+/**
+ * Parameters of `yantaoKb.scheduleRunReport`: the frontend scheduler's run
+ * report. Two-phase since 2026-10-24 — a `running` report at fire time
+ * (creating the row), then the terminal report carrying the returned `runId`
+ * (patching it). A report without `runId` still creates its row outright.
+ */
 export interface KbScheduleRunReportArgs {
   /** The schedule definition's id (`sch_…`). */
   readonly scheduleId: string
@@ -1302,16 +1307,18 @@ export interface KbScheduleRunReportArgs {
   readonly sessionId?: string
   /** The prompt the schedule fired with (snapshot). */
   readonly prompt?: string
-  /** Terminal state; a fire that threw reports `failed`. */
-  readonly status: 'success' | 'failed' | 'stopped'
+  /** `running` files (or leaves) the row in flight; the rest are terminal. */
+  readonly status: 'running' | 'success' | 'failed' | 'stopped'
   /** ISO timestamp the session was created. */
   readonly startedAt: string
-  /** ISO timestamp the run settled. */
-  readonly finishedAt: string
+  /** ISO timestamp the run settled; absent on the `running` report. */
+  readonly finishedAt?: string
   /** The final answer's excerpt (or the failure message when the run threw). */
   readonly finalResult?: string
   /** Why the run failed, when it did. */
   readonly error?: string
+  /** The fire-time row to patch (absent = create a new row). */
+  readonly runId?: string
 }
 
 /** Result of `yantaoKb.scheduleRunReport`. */

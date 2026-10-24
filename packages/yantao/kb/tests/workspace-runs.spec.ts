@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   appendWorkspaceRun, clearWorkspaceRuns, deleteWorkspaceRun, finalizeInterruptedRuns, newRunId, normalizeWorkspaceRuns,
-  patchWorkspaceRun, readWorkspaceRuns, RUN_HISTORY_CAP,
+  appendScheduleRun, patchWorkspaceRun, readWorkspaceRuns, RUN_HISTORY_CAP,
   type WorkspaceRun,
 } from '../src/workspace-runs.ts'
 import { KbError } from '../src/types.ts'
@@ -215,12 +215,53 @@ describe('finalizeInterruptedRuns', () => {
     const [, second] = await readWorkspaceRuns(kbRoot)
     await patchWorkspaceRun(kbRoot, second?.id ?? '', { status: 'success', finishedAt: '2026-10-10T09:05:00.000Z' })
     const healed = await finalizeInterruptedRuns(kbRoot, new Date('2026-10-10T12:00:00.000Z'))
-    expect(healed).toBe(1)
+    expect(healed).toHaveLength(1)
     const runs = await readWorkspaceRuns(kbRoot)
     expect(runs[0]).toMatchObject({ status: 'interrupted', finishedAt: '2026-10-10T12:00:00.000Z' })
     expect(runs[1]?.status).toBe('success')
     // 再跑一遍是空操作
-    await expect(finalizeInterruptedRuns(kbRoot)).resolves.toBe(0)
+    await expect(finalizeInterruptedRuns(kbRoot)).resolves.toEqual([])
+  })
+
+  it('调度行的崩溃补记落 failed 并带原因（看门狗要把它送进钉钉管道）', async () => {
+    await appendScheduleRun(kbRoot, {
+      scheduleId: 'sch_mv0iguvc_982f1d0f',
+      scheduleName: '周五公共AI提效周进展',
+      status: 'running',
+      startedAt: '2026-10-23T08:49:05.000Z',
+    })
+    const healed = await finalizeInterruptedRuns(kbRoot, new Date('2026-10-23T09:01:00.000Z'))
+    expect(healed).toHaveLength(1)
+    const [row] = await readWorkspaceRuns(kbRoot)
+    expect(row).toMatchObject({
+      trigger: 'schedule',
+      status: 'failed',
+      finishedAt: '2026-10-23T09:01:00.000Z',
+    })
+    expect(row?.error).toContain('运行中断')
+  })
+
+  it('running 调度行可以两段式收尾：先 running 落行，再 patch 到终态', async () => {
+    const run = await appendScheduleRun(kbRoot, {
+      scheduleId: 'sch_x',
+      scheduleName: '每日邮件解析',
+      status: 'running',
+      startedAt: '2026-10-24T01:00:00.000Z',
+    })
+    expect(run.status).toBe('running')
+    expect(run.finishedAt).toBeUndefined()
+    // 正确姿势：patch 带 finishedAt
+    const runs = await patchWorkspaceRun(kbRoot, run.id, {
+      status: 'success',
+      finishedAt: '2026-10-24T01:04:00.000Z',
+      finalResult: '已解析 12 封',
+      steps: [{ index: 0, promptSnapshot: '', sessionId: 'session-x' }],
+    })
+    expect(runs[0]).toMatchObject({
+      status: 'success',
+      finishedAt: '2026-10-24T01:04:00.000Z',
+      finalResult: '已解析 12 封',
+    })
   })
 })
 
