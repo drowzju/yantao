@@ -14,6 +14,9 @@
  * @module gen-tray-icon
  */
 import { deflateSync } from 'node:zlib'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 /** Ink of the yantao world (`--yt-ink`). */
 const INK = [0x2e, 0x2b, 0x26]
@@ -182,3 +185,37 @@ for (const size of [16, 32, 64]) {
   console.log(`--- ${size}x${size}: ${png.length} bytes, opaque ${(opaque / (size * size) * 100).toFixed(0)}%, ink ${(ink / (size * size) * 100).toFixed(0)}%`)
   console.log(`const TRAY_ICON_${size} = 'data:image/png;base64,${b64}'`)
 }
+
+// --- Windows application icon (exe / taskbar) --------------------------------
+// electron-builder embeds this into the .exe; without it Windows shows the
+// default Electron icon on the taskbar even though the window sets its own
+// runtime icon (2026-10-24 用户发现). Multi-size ICO, PNG-compressed entries
+// (Vista+). 256 is mandatory for Explorer's large-icon views.
+const ICON_SIZES = [256, 64, 48, 32, 16]
+const iconDir = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'build')
+mkdirSync(iconDir, { recursive: true })
+const iconPngs = ICON_SIZES.map(size => ({ size, png: Buffer.from(encodePng(size, render(size))) }))
+const dirHeader = Buffer.alloc(6)
+dirHeader.writeUInt16LE(0, 0) // reserved
+dirHeader.writeUInt16LE(1, 2) // type: icon
+dirHeader.writeUInt16LE(iconPngs.length, 4) // image count
+let offset = 6 + 16 * iconPngs.length
+const dirEntries = []
+for (const { size, png } of iconPngs) {
+  const entry = Buffer.alloc(16)
+  entry.writeUInt8(size >= 256 ? 0 : size, 0) // width (0 means 256)
+  entry.writeUInt8(size >= 256 ? 0 : size, 1) // height
+  entry.writeUInt8(0, 2) // palette colours
+  entry.writeUInt8(0, 3) // reserved
+  entry.writeUInt16LE(1, 4) // colour planes
+  entry.writeUInt16LE(32, 6) // bits per pixel
+  entry.writeUInt32LE(png.length, 8)
+  entry.writeUInt32LE(offset, 12)
+  dirEntries.push(entry)
+  offset += png.length
+}
+writeFileSync(
+  join(iconDir, 'icon.ico'),
+  Buffer.concat([dirHeader, ...dirEntries, ...iconPngs.map(({ png }) => png)]),
+)
+console.log(`--- wrote build/icon.ico (${ICON_SIZES.join('/')})`)

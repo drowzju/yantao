@@ -31,6 +31,10 @@ export default {
   electronDist: join(app, 'node_modules', 'electron', 'dist'),
   // The packaged manifest must not keep pointing at `src/entry.mjs`: that file
   // registers tsx, and the packaged main process is precompiled instead.
+  // Windows 任务栏显示的是 exe 内嵌图标（不是窗口运行时图标）：不给的话
+  // electron-builder 用默认 Electron 图标，dev 与 exe 观感分裂（2026-10-24
+  // 用户发现）。由 scripts/gen-tray-icon.mjs 从同一枚徽标生成。
+  icon: join(app, 'build/icon.ico'),
   extraMetadata: { main: 'dist/main.js' },
   files: ['dist/main.js', 'dist/preload.cjs', 'dist/repo-path.txt', 'package.json'],
   // 2026-10-24 合一裁决：runtime 物化副本与 dsh-home-template 废除——宿主以
