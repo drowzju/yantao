@@ -33,9 +33,6 @@ export default {
   // registers tsx, and the packaged main process is precompiled instead.
   extraMetadata: { main: 'dist/main.js' },
   files: ['dist/main.js', 'dist/preload.cjs', 'package.json'],
-  extraResources: [
-    { from: join(build, 'runtime'), to: 'runtime' },
-    { from: join(build, 'runtime', 'node_modules'), to: 'runtime/node_modules' },
-    { from: join(build, 'dsh-home-template'), to: 'dsh-home-template' },
-  ],
-}
+  // 2026-10-24 合一裁决：runtime 物化副本与 dsh-home-template 废除——宿主以
+  // 仓库源码运行，配置走 ~/.dsh，壳里不再携带任何 extraResources。
+};
