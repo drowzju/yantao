@@ -446,6 +446,9 @@ importers:
       '@deepseek-ai/dsh-yantao-kb':
         specifier: workspace:*
         version: link:../../packages/yantao/kb
+      '@deepseek-ai/dsh-yantao-model-window':
+        specifier: workspace:*
+        version: link:../../packages/yantao/model-window
       '@deepseek-ai/dsh-yantao-usage':
         specifier: workspace:*
         version: link:../../packages/yantao/usage
@@ -14785,6 +14788,21 @@ importers:
       '@types/mailparser':
         specifier: ^3.9.0
         version: 3.9.0
+
+  packages/yantao/model-window:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
 
   packages/yantao/usage:
     dependencies:

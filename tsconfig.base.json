@@ -345,6 +345,8 @@
       "@deepseek-ai/dsh-yantao-kb": ["./packages/yantao/kb/src"],
       // Same for packages/yantao/usage (ADR-0050).
       "@deepseek-ai/dsh-yantao-usage": ["./packages/yantao/usage/src"],
+      // Same for packages/yantao/model-window (2026-10-24 模型窗口披露).
+      "@deepseek-ai/dsh-yantao-model-window": ["./packages/yantao/model-window/src"],
       // Same for packages/yantao/dingtalk-connector (ADR-0060).
       "@deepseek-ai/dsh-yantao-dingtalk": ["./packages/yantao/dingtalk-connector/src"],
       // BEGIN generated package aliases — pnpm run gen-tsconfig-paths

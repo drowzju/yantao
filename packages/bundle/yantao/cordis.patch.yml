@@ -83,6 +83,13 @@
     - id: yantao-usage
       name: '@deepseek-ai/dsh-yantao-usage'
 
+# 模型窗口披露（2026-10-24）：把 request/context 解析的上下文窗口经动态
+# 上下文段回灌给 agent——模型对自身窗口的自我描述（训练记忆里的 128K）
+# 与部署配置脱节，问答类问题以平台配置为准。换模型/改配置自动跟随。
+- insert:
+    - id: yantao-model-window
+      name: '@deepseek-ai/dsh-yantao-model-window'
+
 # 钉钉 IM 通道（ADR-0060）：Stream 长连接入站 + 卡片出站，随工作台捆绑的
 # 内置插件。启用与否是配置问题（settings 启用开关，P0-T3），不再走安装流程；
 # 部署实例配置（workspace、ownerStaffId 等）放用户层 profile patch 的
