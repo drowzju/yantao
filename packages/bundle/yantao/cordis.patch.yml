@@ -35,11 +35,17 @@
           thinkingFormat: deepseek
         models:
           # 2026-10-24：网关实测按 768K 供窗，此前的 131072 声明让压缩提前
-          # 触发、agent 自述也跟着错——按部署实例的真实容量声明。
+          # 触发、agent 自述也跟着错——按部署实例的真实容量声明。模型行的
+          # input/compat 是两份用户层抄本上收后的全集：模型事实只在这一处
+          # 声明，yantao / yantao-web 两个 profile 不再各抄一份（消除漂移）。
           - id: GLM5.1
             name: inner-glm5.1
             contextWindow: 786432
             maxTokens: 32768
+            input: []
+            compat:
+              chatTemplateKwargs: {}
+              chatTemplateArgs: {}
           # The gateway answers to several spellings of the same model (all are
           # served as glm52), so they are declared here as aliases: picking or
           # typing any of them resolves instead of failing with "no configured
