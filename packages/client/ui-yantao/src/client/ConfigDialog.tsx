@@ -104,7 +104,9 @@ const errorStyle = {
   fontSize: 'var(--yt-type-label)',
 } as const
 
-const okStyle = { margin: 0, color: 'var(--yt-accent, var(--yt-text-secondary))', fontSize: 'var(--yt-type-label)' } as const
+// 2026-10-23 评审 P2：保存成功是状态，不是「选中」——§2.5 成功走 success，
+// accent 是链接/主操作。三个对话框此前各抄了一遍 accent 版本。
+const okStyle = { margin: 0, color: 'var(--yt-success-text)', fontSize: 'var(--yt-type-label)' } as const
 
 const footerStyle = {
   display: 'flex',

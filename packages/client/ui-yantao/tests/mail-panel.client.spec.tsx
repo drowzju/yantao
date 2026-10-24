@@ -222,7 +222,7 @@ describe('MailPanel', () => {
     expect(screen.getByText('确认写入（0）')).toBeTruthy()
     fireEvent.click(screen.getByText('全部接受'))
     expect(screen.getByText('确认写入（4）')).toBeTruthy()
-    fireEvent.click(screen.getByText('全部忽略'))
+    fireEvent.click(screen.getByText('全部取消勾选'))
     expect(screen.getByText('确认写入（0）')).toBeTruthy()
   })
 

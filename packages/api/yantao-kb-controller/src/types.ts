@@ -1274,6 +1274,21 @@ export interface KbWorkspaceCliModelsResult {
   readonly models: readonly string[]
 }
 
+/**
+ * One probe's draft overrides (2026-10-23): 测试连接 要测的是「表单里现在这
+ * 一套」，不是「上次保存的那一套」——否则改了模型或网络环境还没保存就点
+ * 测试，报的是另一个配置的结果。字段缺省表示「沿用已存值」；空字符串对
+ * model/internetEnvironment 表示「用 CLI 默认」（即显式清空）。
+ */
+export interface KbWorkspaceCliProbeDraft {
+  /** The model id the form currently holds. */
+  readonly model?: string
+  /** The network environment the form currently holds. */
+  readonly internetEnvironment?: string
+  /** A typed key not yet saved; '' means probe with the stored credential. */
+  readonly apiKey?: string
+}
+
 /** Result of `yantaoKb.workspaceCliTest` (2026-10-23): one bounded probe call. */
 export interface KbWorkspaceCliTestResult {
   /** Whether the CLI answered a parsable success result. */

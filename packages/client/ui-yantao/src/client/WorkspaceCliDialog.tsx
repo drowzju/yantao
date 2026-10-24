@@ -74,7 +74,9 @@ const errorStyle = {
   fontSize: 'var(--yt-type-label)',
 } as const
 
-const okStyle = { margin: 0, color: 'var(--yt-accent, var(--yt-text-secondary))', fontSize: 'var(--yt-type-label)' } as const
+// 2026-10-23 评审 P2：保存成功是状态，不是「选中」——§2.5 成功走 success，
+// accent 是链接/主操作。三个对话框此前各抄了一遍 accent 版本。
+const okStyle = { margin: 0, color: 'var(--yt-success-text)', fontSize: 'var(--yt-type-label)' } as const
 
 const footerStyle = {
   display: 'flex',
@@ -98,8 +100,8 @@ export interface WorkspaceCliDialogProps {
   readonly load: () => Promise<WorkspaceCliConfigView>
   /** Commit a draft (the plugin body's seam). */
   readonly save: (draft: WorkspaceCliConfigDraft) => Promise<WorkspaceCliSaveResult>
-  /** Fire one bounded probe call (the plugin body's seam). */
-  readonly test: () => Promise<WorkspaceCliTestResult>
+  /** Fire one bounded probe call against the current draft (the plugin body's seam). */
+  readonly test: (draft: WorkspaceCliConfigDraft) => Promise<WorkspaceCliTestResult>
   readonly onClose: () => void
 }
 
@@ -187,7 +189,7 @@ export function WorkspaceCliDialog(props: WorkspaceCliDialogProps): ReactElement
     setProbe(null)
     setError(null)
     try {
-      setProbe(await test())
+      setProbe(await test({ model, internetEnvironment, apiKey: keyDraft }))
     } catch (failure) {
       setProbe({ ok: false, detail: remoteMessage(failure), durationMs: 0 })
     } finally {

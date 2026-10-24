@@ -280,7 +280,9 @@ export function SessionDetailDrawer(props: {
         >
           <span>{open ? '▾' : '▸'}</span>
           <span style={item.error !== null ? errorTagStyle : undefined}>{item.name}</span>
-          <span style={{ opacity: 0.7 }}>{digest}</span>
+          {/* 2026-10-23 评审 B：12px 摘要 opacity 0.7 实测 3.05:1，不过 AA——摘要
+              正是「这次工具调了什么」的唯一线索，改用 secondary token（5.77:1）。 */}
+          <span style={{ color: 'var(--yt-text-secondary)' }}>{digest}</span>
         </button>
         {open && (
           <div style={toolBodyStyle}>

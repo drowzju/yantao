@@ -76,10 +76,10 @@ describe('WorkspacePanel', () => {
     expect(container.querySelector('[data-workspace-space="wsp_a_1"]')).not.toBeNull()
     // 触发列只答「怎么触发」：cron 指令是一枚只读徽标钮，表达式收在
     // title 里，点击跳「调度」页（ADR-0064——cron 编辑已撤出本面板）。
-    const triggerCell = container.querySelector('[data-workspace-instruction="ins_a_1"] td:nth-of-type(2)')
-    expect(triggerCell?.textContent).toBe('定时')
-    const badge = triggerCell?.querySelector('[data-workspace-schedule-badge="ins_a_1"]')
+    // 2026-10-23：五列表改成两行堆叠（名称行 + meta 行），徽标钮自己就是锚点。
+    const badge = container.querySelector('[data-workspace-schedule-badge="ins_a_1"]')
     expect(badge).not.toBeNull()
+    expect(badge?.textContent).toBe('定时')
     expect(badge?.getAttribute('title')).toContain('0 9 * * 1-5')
     expect(container.querySelector('[data-workspace-instruction="ins_a_1"]')?.textContent).toContain('2 步')
     expect(container.querySelector('[data-workspace-instruction="ins_b_1"]')?.textContent).toContain('已停用')

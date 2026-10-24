@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-api-yantao-kb-controller/workspace-cli-spec
  */
 import { describe, expect, it } from 'vitest'
-import { applyCliEnv, parseModelIds, resolveStepModel } from '../src/workspace/cli.ts'
+import { applyCliEnv, parseModelIds, probeOptions, resolveStepModel } from '../src/workspace/cli.ts'
 
 describe('parseModelIds', () => {
   it('reads the parenthesized id list off the --model help line (real contract, probed 2026-10-23)', () => {
@@ -38,6 +38,29 @@ describe('resolveStepModel', () => {
     expect(resolveStepModel(undefined, undefined)).toBeUndefined()
     expect(resolveStepModel(undefined, {})).toBeUndefined()
     expect(resolveStepModel(undefined, { model: '' })).toBeUndefined()
+  })
+})
+
+describe('probeOptions（测试连接验的是表单，不是已存）', () => {
+  const stored = { model: 'saved-model', internetEnvironment: 'ioa', apiKey: 'stored-key' }
+
+  it('the draft wins over the stored configuration', () => {
+    expect(probeOptions({ model: 'draft-model', internetEnvironment: 'cloudhosted', apiKey: 'draft-key' }, stored))
+      .toEqual({ model: 'draft-model', internetEnvironment: 'cloudhosted', apiKey: 'draft-key' })
+  })
+
+  it('an empty model or environment clears the stored value instead of falling back', () => {
+    expect(probeOptions({ model: '', internetEnvironment: '' }, stored))
+      .toEqual({ apiKey: 'stored-key' })
+  })
+
+  it('an empty key draft keeps the stored credential (the form never shows it)', () => {
+    expect(probeOptions({ apiKey: '' }, stored).apiKey).toBe('stored-key')
+  })
+
+  it('absent fields keep whatever is stored', () => {
+    expect(probeOptions({}, stored)).toEqual(stored)
+    expect(probeOptions({}, {})).toEqual({})
   })
 })
 

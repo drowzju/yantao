@@ -1,7 +1,8 @@
 /**
  * Workbench keyboard commands (batch one of the keyboard-efficiency pass):
- * three centre-tab jumps (ADR-0057 collapsed the six-tab strip to three;
- * Digit4-6 sit vacant rather than carrying two-step sub-region semantics)
+ * four centre-tab jumps (ADR-0057 collapsed the six-tab strip to three, then
+ * 2026-10-23 added 提议 on the vacant Digit4 — Digit5-6 stay vacant rather
+ * than carrying two-step sub-region semantics)
  * and the config dialog — registered through the shared shortcuts framework
  * (the same registry ui-workspace contributes to), never a bespoke keydown
  * listener. The proposal card's verdict keys (J/K/Space/Enter, 2026-10-12
@@ -27,7 +28,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ShortcutCommand, ShortcutCommandId, ShortcutFixedInput } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 import type { PanelToggles } from './frame/layout.ts'
-import { CONVERSATION_TAB, INSIGHTS_TAB, TASKS_TAB } from './tabs.ts'
+import { CONVERSATION_TAB, INBOX_TAB, INSIGHTS_TAB, TASKS_TAB } from './tabs.ts'
 import { PROPOSAL_MODAL_ID, proposalVerdictSeat, type ProposalVerdictHandler } from './proposal-verdict-seat.ts'
 
 /** One centre-tab jump: the registry row and the tab it activates. */
@@ -44,11 +45,14 @@ export interface WorkbenchTabJump {
   readonly tab: string
 }
 
-/** The three tab jumps in Digit1..Digit3 order — pure data, asserted in tests. */
+/** The four tab jumps in Digit1..Digit4 order — pure data, asserted in tests.
+    提议 补 Digit4（2026-10-23 评审 P2）：它是常驻且不可关的一等页签，此前
+    唯一只能靠鼠标点的固定页签；Digit4 在 ADR-0057 平铺化后一直空着。 */
 export const WORKBENCH_TAB_JUMPS: readonly WorkbenchTabJump[] = [
   { tail: 'conversation', labelKey: 'center.conversation', aliases: ['go to conversation'], code: 'Digit1', tab: CONVERSATION_TAB },
   { tail: 'tasks', labelKey: 'center.tasks', aliases: ['go to tasks'], code: 'Digit2', tab: TASKS_TAB },
   { tail: 'insights', labelKey: 'center.insights', aliases: ['go to insights'], code: 'Digit3', tab: INSIGHTS_TAB },
+  { tail: 'inbox', labelKey: 'center.inbox', aliases: ['go to proposals', 'inbox'], code: 'Digit4', tab: INBOX_TAB },
 ]
 
 /**

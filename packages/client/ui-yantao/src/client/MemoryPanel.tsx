@@ -224,7 +224,7 @@ export function MemoryPanel({
         <div style={addFormStyle} data-memory-add="true">
           <select
             style={addScopeStyle}
-            aria-label="scope"
+            aria-label={t('memory.scopeLabel')}
             title={scopeLabel(t, scope)}
             value={scope}
             disabled={busy}

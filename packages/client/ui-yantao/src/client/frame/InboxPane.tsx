@@ -234,7 +234,8 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, onReenqueue, 
                   </span>
                   {/* ADR-0059 决定 5: the per-action trail is the settled
                       card's authoritative display data — the failed subset
-                      stays on the row, folded display and retry come with P2. */}
+                      stays on the row. 重试 = 重新入队（2026-10-23 评审 P2）：
+                      失败条目的内容原样投回队列再裁一次，不另造一套重放机制。 */}
                   {(entry.status === 'approved-with-errors' || entry.status === 'failed')
                     && entry.applyResults !== undefined && (
                     <span style={errorListStyle}>
@@ -260,8 +261,10 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, onReenqueue, 
                     丢弃
                   </button>
                 )}
-                {/* 误丢弃的后悔药：内容原样投回队列等重新裁决，本条留痕不动。 */}
-                {entry.status === 'discarded' && (
+                {/* 误丢弃的后悔药 + 写入失败的重试（2026-10-23 评审 P2）：内容
+                    原样投回队列等重新裁决，本条留痕不动。全成功的不给——再投
+                    一次等于把同一批写两遍。 */}
+                {(entry.status === 'discarded' || entry.status === 'failed' || entry.status === 'approved-with-errors') && (
                   <button
                     type="button"
                     style={toolButtonStyle}
@@ -290,7 +293,8 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, onReenqueue, 
               // 只读审计面：看完再决定要不要投回队列——重新入队不再是盲投。
               readOnly: true,
               onDismiss: () => { setOpenId(null) },
-              ...(openEntry.status === 'discarded'
+              ...(openEntry.status === 'discarded' || openEntry.status === 'failed'
+                || openEntry.status === 'approved-with-errors'
                 ? { onReenqueue: () => { setOpenId(null); onReenqueue(openEntry) } }
                 : {}),
             })}

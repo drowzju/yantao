@@ -432,12 +432,12 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
                         </span>
                         <span style={{ marginLeft: 'auto', flexShrink: 0, display: 'flex', gap: 'var(--yt-space-1)' }}>
                           <button data-hover="true" type="button"
-                            style={{ ...ghostStyle, minHeight: 24, padding: '0 var(--yt-space-2)', ...(mirrorSession === row.sessionId ? { borderColor: 'var(--yt-accent-border)', color: 'var(--yt-accent, inherit)' } : {}) }}
+                            style={{ ...ghostStyle, padding: '0 var(--yt-space-2)', ...(mirrorSession === row.sessionId ? { borderColor: 'var(--yt-accent-border)', color: 'var(--yt-accent, inherit)' } : {}) }}
                             aria-expanded={mirrorSession === row.sessionId}
                             onClick={() => { toggleMirror(row.sessionId) }}>
                             {t('dingtalk.bindings.read')}
                           </button>
-                          <button data-hover="true" type="button" style={{ ...ghostStyle, flexShrink: 0, minHeight: 24, padding: '0 var(--yt-space-2)' }}
+                          <button data-hover="true" type="button" style={{ ...ghostStyle, flexShrink: 0, padding: '0 var(--yt-space-2)' }}
                             onClick={() => { onClose(); openSession(row.sessionId) }}>
                             {t('dingtalk.bindings.open')}
                           </button>

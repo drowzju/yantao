@@ -250,8 +250,8 @@ export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.ins
   readonly loadWorkspaceCliConfig: () => Promise<WorkspaceCliConfigView>
   /** Commit a CLI dialog draft; the result separates conflict from refusal. */
   readonly saveWorkspaceCliConfig: (draft: WorkspaceCliConfigDraft) => Promise<WorkspaceCliSaveResult>
-  /** Fire one bounded probe call — the CLI dialog's 测试连接 gesture. */
-  readonly testWorkspaceCli: () => Promise<WorkspaceCliTestResult>
+  /** Fire one bounded probe call against the dialog's draft — the 测试连接 gesture. */
+  readonly testWorkspaceCli: (draft: WorkspaceCliConfigDraft) => Promise<WorkspaceCliTestResult>
   /** Read every conversation→session binding — the 钉钉 dialog's 绑定会话 list (ADR-0061 决定 2). */
   readonly loadDingTalkBindings: () => Promise<readonly KbDingtalkBindingRow[]>
   /** Rewire one conversation's binding — merge into / sever from a session (ADR-0062 决定 3). */
@@ -315,6 +315,15 @@ const footerStripStyle = {
     此前是裸 UA 按钮，页脚与暖纸界面像两个软件）。 */
 const footerButtonStyle = { ...toolButtonStyle, padding: 'var(--yt-space-1) var(--yt-space-3)' } as const
 
+/** 页脚开关的激活面（2026-10-23 评审 P1-4）：四个开关与中栏页签同目的地，
+    此前点已激活的那个毫无反馈、读屏也听不出「当前在哪」——§5 要求全工作台
+    只有一种「当前在哪」的说法，页脚这处现在也给出同一句话（accent 底 + 字）。 */
+function footerSwitchFace(active: boolean): React.CSSProperties {
+  return active
+    ? { ...footerButtonStyle, background: 'var(--yt-accent-bg)', color: 'var(--yt-accent-text)' }
+    : footerButtonStyle
+}
+
 /** The footer switches' counter pill (2026-10-15): same cut as the 任务 hub's
     sub-tab badges — accent ground, on-accent ink — so one number reads the
     same everywhere. */
@@ -368,7 +377,9 @@ const handleStyle = {
 /** The one-line notice a capability run (or its confirmed writes) reports. */
 const noticeStyle = {
   position: 'absolute',
-  bottom: 10,
+  // 抬到页脚工具条之上（2026-10-23 评审）：此前 bottom:10 压在页脚导航上，
+  // 通知出现的 8 秒里页脚中段点不到。页脚 = space-1 内边距 ×2 + 28px 控件 + 1px 边。
+  bottom: 'calc(var(--yt-space-6) + var(--yt-space-2))',
   left: '50%',
   transform: 'translateX(-50%)',
   maxWidth: '80%',
@@ -1100,23 +1111,6 @@ export function Frame({
 
   useEffect(() => { reloadGraph() }, [reloadGraph])
 
-  const discardInboxEntry = useCallback((entry: KbQueuedProposal): void => {
-    setInboxBusyId(entry.id)
-    void proposalInboxResolve({ id: entry.id, status: 'discarded' }).then(
-      (result) => {
-        setInboxBusyId(null)
-        setInboxEntries(result.proposals)
-        // 丢弃也算看过 (the manual dismiss's own sense, ADR-0047 验收修正 2).
-        moveMailCursor(proposalOfPayload(entry.proposal)?.mails)
-        setCapabilityNotice(`已丢弃提议「${entry.title}」。`, { severity: 'info' })
-      },
-      (failure: unknown) => {
-        setInboxBusyId(null)
-        setCapabilityNotice(`提议处置失败：${remoteMessage(failure)}`, { severity: 'error' })
-      },
-    )
-  }, [proposalInboxResolve, moveMailCursor])
-
   // 重新入队（2026-10-14 丢弃后悔药）：误丢弃的恢复不是撤销旧决策（决策
   // 终态不可改，入库闸门单向），而是把条目内容原样投回队列——新 id、新
   // 时间戳、pending 等待重新裁决；旧的已丢弃条目留在列表里当痕迹。
@@ -1140,6 +1134,29 @@ export function Frame({
       },
     )
   }, [proposalInboxEnqueue])
+
+  const discardInboxEntry = useCallback((entry: KbQueuedProposal): void => {
+    setInboxBusyId(entry.id)
+    void proposalInboxResolve({ id: entry.id, status: 'discarded' }).then(
+      (result) => {
+        setInboxBusyId(null)
+        setInboxEntries(result.proposals)
+        // 丢弃也算看过 (the manual dismiss's own sense, ADR-0047 验收修正 2).
+        moveMailCursor(proposalOfPayload(entry.proposal)?.mails)
+        // 2026-10-23 评审：丢弃和写入都是「可恢复的轻裁决」，恢复动作就该同样
+        // 挂在通知条上——此前写入有 90 秒撤销芯片，丢弃只有一句「已丢弃」，
+        // 后悔药藏在行尾的「重新入队」里。
+        setCapabilityNotice(`已丢弃提议「${entry.title}」。`, {
+          severity: 'undo',
+          action: { label: '重新入队', run: () => { reenqueueInboxEntry(entry) } },
+        })
+      },
+      (failure: unknown) => {
+        setInboxBusyId(null)
+        setCapabilityNotice(`提议处置失败：${remoteMessage(failure)}`, { severity: 'error' })
+      },
+    )
+  }, [proposalInboxResolve, moveMailCursor, reenqueueInboxEntry])
 
   // 批准: the whole thing is one server RPC now (ADR-0060 决定 7) — the
   // controller binds the KB seams itself, applies, and settles the row in
@@ -2386,18 +2403,42 @@ export function Frame({
           开关戴计数胶囊（任务=运行中，提议=待批提议+待批记忆），洞察关闭时
           压力点随钮走，警报不失明。 */}
       <div style={footerStripStyle}>
-        <button style={footerButtonStyle} data-footer-tasks="true" data-hover="true" onClick={() => { activate(TASKS_TAB) }}>
+        <button
+          style={footerSwitchFace(tabs.active === TASKS_TAB)}
+          aria-current={tabs.active === TASKS_TAB ? 'page' : undefined}
+          data-footer-tasks="true"
+          data-hover="true"
+          onClick={() => { activate(TASKS_TAB) }}
+        >
           {t('footer.tasks')}
           {runningTasks > 0 && <span data-footer-badge="tasks" style={footerBadgeStyle}>{runningTasks}</span>}
         </button>
-        <button style={footerButtonStyle} data-footer-inbox="true" data-hover="true" onClick={() => { activate(INBOX_TAB) }}>
+        <button
+          style={footerSwitchFace(tabs.active === INBOX_TAB)}
+          aria-current={tabs.active === INBOX_TAB ? 'page' : undefined}
+          data-footer-inbox="true"
+          data-hover="true"
+          onClick={() => { activate(INBOX_TAB) }}
+        >
           {t('footer.inbox')}
           {pendingProposals + pendingMemories > 0 && <span data-footer-badge="inbox" style={footerBadgeStyle}>{pendingProposals + pendingMemories}</span>}
         </button>
-        <button style={footerButtonStyle} data-footer-schedule="true" data-hover="true" onClick={() => { activate(SCHEDULE_TAB) }}>
+        <button
+          style={footerSwitchFace(tabs.active === SCHEDULE_TAB)}
+          aria-current={tabs.active === SCHEDULE_TAB ? 'page' : undefined}
+          data-footer-schedule="true"
+          data-hover="true"
+          onClick={() => { activate(SCHEDULE_TAB) }}
+        >
           {t('footer.schedule')}
         </button>
-        <button style={footerButtonStyle} data-footer-insights="true" data-hover="true" onClick={() => { activate(INSIGHTS_TAB) }}>
+        <button
+          style={footerSwitchFace(tabs.active === INSIGHTS_TAB)}
+          aria-current={tabs.active === INSIGHTS_TAB ? 'page' : undefined}
+          data-footer-insights="true"
+          data-hover="true"
+          onClick={() => { activate(INSIGHTS_TAB) }}
+        >
           {t('footer.insights')}
           {/* The pressure alarm rides the tab label while the tab is open;
               once it closes, the footer switch is its only home — the alarm

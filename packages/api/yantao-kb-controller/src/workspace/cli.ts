@@ -44,6 +44,38 @@ export interface WorkspaceCliOptions {
 }
 
 /**
+ * The effective options for one probe (2026-10-23): 测试连接 must test the
+ * dialog's current draft, not the last saved configuration — otherwise an
+ * unsaved model or endpoint reports on a configuration the human is no longer
+ * looking at.
+ *
+ * Semantics per field: absent = keep the stored value; empty string = clear
+ * it (the CLI decides). The key is the exception — an empty key draft means
+ * "probe with the stored credential", since the form never shows the stored
+ * value and blank therefore cannot mean "delete it".
+ * @param draft - the dialog's current fields.
+ * @param stored - what the settings/credentials store already holds.
+ * @returns the options the probe should run with.
+ */
+export function probeOptions(
+  draft: { readonly model?: string; readonly internetEnvironment?: string; readonly apiKey?: string },
+  stored: WorkspaceCliOptions,
+): WorkspaceCliOptions {
+  const pick = (draftValue: string | undefined, storedValue: string | undefined): string | undefined => {
+    if (draftValue === undefined) return storedValue
+    return draftValue === '' ? undefined : draftValue
+  }
+  const apiKey = draft.apiKey !== undefined && draft.apiKey !== '' ? draft.apiKey : stored.apiKey
+  const model = pick(draft.model, stored.model)
+  const internetEnvironment = pick(draft.internetEnvironment, stored.internetEnvironment)
+  return {
+    ...(model !== undefined ? { model } : {}),
+    ...(internetEnvironment !== undefined ? { internetEnvironment } : {}),
+    ...(apiKey !== undefined ? { apiKey } : {}),
+  }
+}
+
+/**
  * Layer the CLI options onto a stripped environment. Values win over the
  * inherited environment by construction — the stripper already removed every
  * CODEBUDDY_* variable, so these two names cannot collide with the parent

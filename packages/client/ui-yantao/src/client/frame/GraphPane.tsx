@@ -41,18 +41,25 @@ const FOCUS_ANIM_MS = 300
 /** Non-neighbour dimming while focused. */
 const DIM_OPACITY = 0.15
 
-/** Node fill/stroke per entity kind, from the yt-tokens palette. */
-const FILL: Record<'project' | 'person' | 'area', string> = {
-  project: 'var(--yt-accent)',
-  person: 'var(--yt-success)',
-  area: 'var(--yt-warning)',
+/** 节点一律中性面（2026-10-23 评审 P2）：DESIGN.md §1 的颜色只在承载语义
+    时使用，成功/警告/错误是状态色，拿来当实体分类色会让「绿=好、黄=警告」
+    的误读凭空生长。类别本来就由形状与标签说清——项目=圆、人=圆角方块、
+    领域=菱形；唯一的蓝只标「当前聚焦」。 */
+const NODE_FILL = 'var(--yt-surface-raised)'
+const NODE_STROKE = 'var(--yt-border-strong)'
+
+/** Edge stroke per relation kind — 一律中性墨色，类别由线型承担。 */
+const EDGE_STROKE: Record<KbWireRelationEdge['kind'], string> = {
+  'person-project': 'var(--yt-text-muted)',
+  'area-project': 'var(--yt-text-muted)',
+  'person-person': 'var(--yt-text-muted)',
 }
 
-/** Edge stroke per relation kind. */
-const EDGE_STROKE: Record<KbWireRelationEdge['kind'], string> = {
-  'person-project': 'var(--yt-accent)',
-  'area-project': 'var(--yt-success)',
-  'person-person': 'var(--yt-border-strong)',
+/** Edge dash per relation kind: 实线 / 长虚线 / 点线，不靠颜色分类。 */
+const EDGE_DASH: Record<KbWireRelationEdge['kind'], string | undefined> = {
+  'person-project': undefined,
+  'area-project': '7 4',
+  'person-person': '2 3',
 }
 
 /** The viewport transform: scale about the origin, then translate. */
@@ -108,17 +115,28 @@ function degreesOf(edges: readonly KbWireRelationEdge[]): Map<string, number> {
   return degree
 }
 
-/** One node's shape, centred on its position. */
-function NodeShape({ kind, isolated }: { kind: 'project' | 'person' | 'area'; isolated: boolean }): ReactElement {
-  const fill = isolated ? 'var(--yt-surface-raised)' : FILL[kind]
-  const stroke = isolated ? 'var(--yt-border-strong)' : 'none'
+/** One node's shape, centred on its position. 聚焦的节点换 accent 描边——
+    全图唯一的彩色信号，就是「我现在看的是它」。孤立节点改虚线描边。 */
+function NodeShape({ kind, isolated, focused }: {
+  kind: 'project' | 'person' | 'area'
+  isolated: boolean
+  focused: boolean
+}): ReactElement {
+  const stroke = focused ? 'var(--yt-accent)' : NODE_STROKE
+  const dash = isolated ? '3 3' : undefined
+  const common = {
+    fill: NODE_FILL,
+    stroke,
+    strokeWidth: focused ? 2 : 1.5,
+    ...(dash === undefined ? {} : { strokeDasharray: dash }),
+  } as const
   if (kind === 'project') {
-    return <circle r={11} fill={fill} stroke={stroke} strokeWidth={1.5} />
+    return <circle r={11} {...common} />
   }
   if (kind === 'person') {
-    return <rect x={-12} y={-9} width={24} height={18} rx={7} fill={fill} stroke={stroke} strokeWidth={1.5} />
+    return <rect x={-12} y={-9} width={24} height={18} rx={7} {...common} />
   }
-  return <polygon points="0,-13 13,0 0,13 -13,0" fill={fill} stroke={stroke} strokeWidth={1.5} />
+  return <polygon points="0,-13 13,0 0,13 -13,0" {...common} />
 }
 
 /** Graph pane props. */
@@ -500,7 +518,7 @@ export function GraphPane({ data, onOpen, onReload, t }: GraphPaneProps): ReactE
                   stroke={EDGE_STROKE[kind]}
                   strokeWidth={highlighted ? 3 : 1.5}
                   strokeOpacity={neighbours === null ? 0.75 : (highlighted ? 1 : DIM_OPACITY)}
-                  {...(kind === 'person-person' ? { strokeDasharray: '5 4' } : {})}
+                  strokeDasharray={EDGE_DASH[kind]}
                 />
               )
             })}
@@ -521,7 +539,7 @@ export function GraphPane({ data, onOpen, onReload, t }: GraphPaneProps): ReactE
                   onDoubleClick={(event) => { onNodeDoubleClick(event, node.id) }}
                 >
                   <title>{node.id}</title>
-                  {kind !== null && <NodeShape kind={kind} isolated={isolated} />}
+                  {kind !== null && <NodeShape kind={kind} isolated={isolated} focused={focused} />}
                   <text
                     y={kind === 'person' ? 23 : 26}
                     textAnchor="middle"
@@ -566,7 +584,7 @@ export function GraphPane({ data, onOpen, onReload, t }: GraphPaneProps): ReactE
                 x1={0} y1={4} x2={22} y2={4}
                 stroke={EDGE_STROKE[kind]}
                 strokeWidth={1.5}
-                {...(kind === 'person-person' ? { strokeDasharray: '5 4' } : {})}
+                strokeDasharray={EDGE_DASH[kind]}
               />
             </svg>
           )
@@ -600,7 +618,7 @@ export function GraphPane({ data, onOpen, onReload, t }: GraphPaneProps): ReactE
                 style={{
                   width: 11, height: 11, borderRadius: 3, flexShrink: 0,
                   border: '1px solid var(--yt-border-strong)',
-                  background: on ? EDGE_STROKE[kind] : 'transparent',
+                  background: on ? 'var(--yt-accent)' : 'transparent',
                 }}
               />
               {chip}

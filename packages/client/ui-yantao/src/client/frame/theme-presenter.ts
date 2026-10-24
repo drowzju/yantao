@@ -53,7 +53,11 @@ const FOCUS_RING_CSS = `
   color: var(--yt-text-muted, #726c5e);
   opacity: 1;
 }
-.PNvALW_placeholder {
+/* 2026-10-23 评审 B：上游的模拟占位符是 CSS-modules 哈希类（PNvALW_placeholder），
+   上游一改名这条规则就静默失效、占位符对比度掉回 2.1:1，而且没有测试会发现。
+   第二个选择器按上游的命名约定（<hash>_placeholder）兜底，改名不再等于失效。 */
+.PNvALW_placeholder,
+[class*="_placeholder"] {
   color: var(--yt-text-muted, #726c5e) !important;
 }
 body {

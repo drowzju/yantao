@@ -26,6 +26,8 @@ _Avoid_: 会议记录（那说的是内容，不是实体）
 
 _Avoid_: 任务清单、TODO.md
 
+**待办与记忆 (Todo & Memory)**: 采集栏里把「待办板」与「记忆视图」合成的一页（2026-10-11 整合裁决）；上半是待办板，下半是记忆视图，各自可折叠。旧名「省得」已退役——字面推不出里面装的是什么（2026-10-23 评审 P1-4）。_Avoid_: 省得、备忘
+
 **能力 (Capability)**: 一个注册进中央路由 `<kbRoot>/.dsh/skills/yantao.json` 的 dsh skill 目录——路由条目 `{path, invocation, appliesTo}`（可达性：human/agent 调用、资源右键、选区右键）是唯一的能力配置，技能目录一个字节都不为我们改（ADR-0052）。执行只有一条语义：`kb_run_capability` 返回 SKILL.md 指令正文，脚本步骤走 `kb_exec_capability_script`（cwd 锁技能目录、KB_ROOT 经环境变量送达）；运行记账（runCount/lastFailAt/lastRunAt）存根存储 state.json，不进 tree。agent 提名改写技能文件走 `kb_propose_skill_rewrite`（ADR-0054），人批准才落笔。
 
 _Avoid_: 连接（旧称，已被能力取代，见 ADR-0021）、集成、插件、sidecar（ADR-0052 废除）、脚本型/指令型（形态维度随声明蒸发）

@@ -44,7 +44,9 @@ export const zh = {
   'section.project': '项目',
   'section.memory': '记忆',
   'section.workspace': '工作空间',
-  'section.shengde': '省得',
+  // 2026-10-23 评审 P1-4：「省得」是 2026-10-11 合并待办+记忆时自造的名，字面
+  // 推不出里面装的是什么，而 PRODUCT.md 一直写的是「待办、记忆」。改回可猜的词。
+  'section.shengde': '待办与记忆',
 
   // Person relations
   'relation.self': '自己',
@@ -88,8 +90,8 @@ export const zh = {
 
   // 配置对话框（右下角「模型配置」按钮，2026-10-15 从左下角迁来并改名；
   // v1 仅模型一节）
-  'config.open': '模型配置',
-  'config.title': '配置',
+  'config.open': '模型网关',
+  'config.title': '模型网关',
   'config.close': '关闭',
   'config.loading': '读取配置中…',
   'config.loadFailed': '配置读取失败',
@@ -159,7 +161,7 @@ export const zh = {
   'dingtalk.bindings.employee': '数字员工',
   // 并入手势（ADR-0062 决定 4）：把钉钉会话接进当前打开的会话流
   'dingtalk.mergeFollow': '钉钉消息并入工作台会话',
-  'dingtalk.mergeFollowHint': '勾选后，钉钉里的消息直接进你当前打开的会话，换了会话自动跟上；取消勾选则各自独立。',
+  'dingtalk.mergeFollowHint': '勾选后，钉钉里的消息直接进你当前打开的会话，换了会话自动跟上；取消勾选则各自独立。这一项勾上即时生效，不用等保存。',
   'dingtalk.bindings.merged': '已并入当前会话——钉钉消息会直接出现在那边。',
   'dingtalk.bindings.restored': '已还原为独立会话。',
   'dingtalk.bindings.noTarget': '先在左侧打开一个会话，再回来点「并入当前会话」。',
@@ -180,7 +182,8 @@ export const zh = {
   'wscli.apiKeyHint': '调度与手动运行改用这把 key 免登录鉴权，不再依赖本机登录态；只进凭据存储，不进配置文档。',
   'wscli.keyStored': '已配置（留空保持不变）',
   'wscli.keyPlaceholder': '粘贴 codebuddy 的 API Key',
-  'wscli.model': '默认模型',
+  // 2026-10-23 评审 P1-4：与模型网关面的「默认模型」同名，两个框靠标题猜。
+  'wscli.model': '工作空间默认模型',
   'wscli.modelHint': '工作空间自带模型绑定时以其为准；此处是其余情况的兜底。列表来自本机 codebuddy --help。',
   'wscli.modelDefault': '跟随 CLI 默认',
   'wscli.internetEnv': '网络环境',
@@ -276,6 +279,7 @@ export const zh = {
   'memory.description': '行为记忆：跨会话生效的纠正与偏好，按作用域分文件存放（全局、邮件、各能力）。这里可以新增和删除。',
   'memory.scope.global': '全局',
   'memory.scope.mail': '邮件',
+  'memory.scopeLabel': '记忆作用域',
   'memory.empty': '还没有记忆。',
   'memory.loading': '载入中…',
   'memory.addPlaceholder': '要记住的纠正或偏好（一句话）',
@@ -546,7 +550,7 @@ export const zh = {
   'proposal.instructionSend': '发送',
   'proposal.empty': '这次没有发现值得进入知识库的内容。',
   'proposal.acceptAll': '全部接受',
-  'proposal.ignoreAll': '全部忽略',
+  'proposal.clearAll': '全部取消勾选',
   'proposal.confirmWrite': '确认写入（{count}）',
   'proposal.escArm': '已勾选 {count} 项——再按一次 Esc 才会丢弃这份裁决',
   // 裁决卡底栏上方的键帽提示（2026-10-14 可发现性修复）：热键在用得着的地方可见。
@@ -609,7 +613,7 @@ export const en = {
   'section.project': 'Projects',
   'section.memory': 'Memory',
   'section.workspace': 'Workspaces',
-  'section.shengde': 'Memo',
+  'section.shengde': 'Todo & memory',
 
   // Person relations
   'relation.self': 'Self',
@@ -653,8 +657,8 @@ export const en = {
 
   // 配置对话框 (bottom-right 模型配置 button since 2026-10-15, renamed from
   // 配置; v1 ships the models section only)
-  'config.open': 'Model Config',
-  'config.title': 'Settings',
+  'config.open': 'Model gateway',
+  'config.title': 'Model gateway',
   'config.close': 'Close',
   'config.loading': 'Loading configuration…',
   'config.loadFailed': 'Failed to load the configuration',
@@ -725,7 +729,7 @@ export const en = {
   'dingtalk.bindings.employee': 'Digital employee',
   // The merge gesture (ADR-0062 决定 4): pipe the DingTalk thread into the open session
   'dingtalk.mergeFollow': 'Merge DingTalk messages into the open workbench session',
-  'dingtalk.mergeFollowHint': 'When checked, DingTalk messages land in the session you have open and follow you when you switch; uncheck to keep them separate.',
+  'dingtalk.mergeFollowHint': 'When checked, DingTalk messages land in the session you have open and follow you when you switch; uncheck to keep them separate. This switch takes effect at once — no save needed.',
   'dingtalk.bindings.merged': 'Merged — DingTalk messages now land in the open session.',
   'dingtalk.bindings.restored': 'Restored to a separate session.',
   'dingtalk.bindings.noTarget': 'Open a session on the left first, then come back and merge.',
@@ -747,7 +751,7 @@ export const en = {
   'wscli.apiKeyHint': 'Scheduled and manual runs authenticate with this key instead of relying on this machine\'s login state; it goes only to the credentials store, never into the settings document.',
   'wscli.keyStored': 'Configured (leave blank to keep)',
   'wscli.keyPlaceholder': 'Paste the codebuddy API key',
-  'wscli.model': 'Default model',
+  'wscli.model': 'Workspace default model',
   'wscli.modelHint': 'A workspace\'s own model binding wins; this is the fallback for the rest. The list comes from the local codebuddy --help.',
   'wscli.modelDefault': 'Follow the CLI default',
   'wscli.internetEnv': 'Network environment',
@@ -845,6 +849,7 @@ export const en = {
   'memory.description': 'Behavior memory: corrections and preferences that outlive a session, stored per scope (global, mail, each capability). Add and delete here.',
   'memory.scope.global': 'Global',
   'memory.scope.mail': 'Mail',
+  'memory.scopeLabel': 'Memory scope',
   'memory.empty': 'No memories yet.',
   'memory.loading': 'Loading…',
   'memory.addPlaceholder': 'A correction or preference to remember (one sentence)',
@@ -1115,7 +1120,7 @@ export const en = {
   'proposal.instructionSend': 'Send',
   'proposal.empty': 'Nothing worth recording in the KB this time.',
   'proposal.acceptAll': 'Accept all',
-  'proposal.ignoreAll': 'Ignore all',
+  'proposal.clearAll': 'Clear selection',
   'proposal.confirmWrite': 'Confirm write ({count})',
   'proposal.escArm': '{count} rows ticked — press Esc again to discard this verdict',
   // The keycap hint above the verdict card's footer (2026-10-14 discoverability fix).

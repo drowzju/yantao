@@ -192,7 +192,7 @@ describe('WorkbenchLayout', () => {
 describe('IntakeRail', () => {
   it('shows the four intake tabs and the 资源 tab first', async () => {
     render(<IntakeRail {...railProps()} />)
-    for (const label of ['资源', '省得', '工作空间', '能力']) {
+    for (const label of ['资源', '待办与记忆', '工作空间', '能力']) {
       expect(screen.getByText(label)).toBeTruthy()
     }
     expect(await screen.findByText('周报.eml')).toBeTruthy()
@@ -216,10 +216,10 @@ describe('IntakeRail', () => {
     expect(onOpenFile).toHaveBeenCalledWith('resources/周报.eml', 'read')
   })
 
-  it('renders 省得 as the merged board: TODO open, DONE folded until wanted', async () => {
+  it('renders 待办与记忆 as the merged board: TODO open, DONE folded until wanted', async () => {
     const loadTodos = vi.fn(() => Promise.resolve(TODOS))
     const { container } = render(<IntakeRail {...railProps({ loadTodos })} />)
-    fireEvent.click(screen.getByText('省得'))
+    fireEvent.click(screen.getByText('待办与记忆'))
     // The DONE pane starts collapsed (the sediment layer), so its rows are
     // not in the DOM until the toggle opens it.
     await waitFor(() => {
@@ -236,7 +236,7 @@ describe('IntakeRail', () => {
   it('opens the todo singleton in an editable tab through 打开全文', async () => {
     const onOpenFile = vi.fn()
     render(<IntakeRail {...railProps({ onOpenFile })} />)
-    fireEvent.click(screen.getByText('省得'))
+    fireEvent.click(screen.getByText('待办与记忆'))
     fireEvent.click(await screen.findByText('打开全文'))
     expect(onOpenFile).toHaveBeenCalledWith('entities/todos.md', 'edit')
   })

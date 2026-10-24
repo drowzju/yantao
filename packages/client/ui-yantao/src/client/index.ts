@@ -495,7 +495,7 @@ export function apply(ctx: Context): void {
       // 列表与测试连接经控制器的 remote（渲染进程永不 spawn）。
       loadWorkspaceCliConfig: () => loadWorkspaceCliConfig(ctx),
       saveWorkspaceCliConfig: (draft: WorkspaceCliConfigDraft) => saveWorkspaceCliConfig(ctx, draft),
-      testWorkspaceCli: () => testWorkspaceCli(ctx),
+      testWorkspaceCli: (draft: WorkspaceCliConfigDraft) => testWorkspaceCli(ctx, draft),
       // 绑定会话（ADR-0061 决定 2）：钉钉群聊 ↔ 会话的对应表读面，以及
       // 从对话框一键跳进某个会话的手势（与总览卡片同一 uiWorkspace 通路）。
       loadDingTalkBindings: () => loadDingtalkBindings(ctx),

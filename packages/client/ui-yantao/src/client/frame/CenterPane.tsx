@@ -12,7 +12,7 @@
  * fixed tabs' bodies arrive pre-assembled from the frame (ADR-0057, flattened
  * 2026-10-15).
  */
-import { Fragment, type CSSProperties, type ReactElement, type ReactNode } from 'react'
+import type { CSSProperties, ReactElement, ReactNode } from 'react'
 import {
   CONVERSATION_TAB, INBOX_TAB, INSIGHTS_TAB, SCHEDULE_TAB, TASKS_TAB,
   type ClosableFixedTab, type FileTab, type FixedTabsOpen, type TabState,
@@ -107,6 +107,17 @@ const closeButtonStyle = {
   minHeight: 'var(--yt-control-min-h)',
   boxSizing: 'border-box',
 } as const
+
+/** 页签与它的关闭钮同住一个 presentation 壳（2026-10-23 评审 P2）：tablist
+    的直接子元素只该是 tab，此前关闭钮/保存状态点混居其中，读屏把它们当成
+    页签朗读。壳在无障碍树里透明，display:contents 让布局与原先的 Fragment
+    逐像素一致。 */
+const groupStyle = { display: 'contents' } as const
+
+/** One tab panel's DOM id, derived from the tab key (file paths included). */
+function panelId(key: string): string {
+  return `yt-tabpanel-${key.replace(/[^\w-]/g, '_')}`
+}
 
 const bodyStyle = { position: 'relative', flex: 1, minHeight: 0, display: 'flex' } as const
 
@@ -209,6 +220,7 @@ export function CenterPane({
           type="button"
           role="tab"
           aria-selected={conversationActive}
+          aria-controls={panelId(CONVERSATION_TAB)}
           style={tabFace(conversationActive)}
           data-hover="tab"
           /* data-selected 是激活页签的 hover 豁免凭证（2026-10-12 截图评审）：
@@ -221,11 +233,12 @@ export function CenterPane({
           {t('center.conversation')}
         </button>
         {fixedOpen.tasks && (
-          <Fragment>
+          <span style={groupStyle} role="presentation">
             <button
               type="button"
               role="tab"
               aria-selected={tasksActive}
+              aria-controls={panelId(TASKS_TAB)}
               style={tabFace(tasksActive)}
               data-hover="tab"
               data-selected={tasksActive ? '' : undefined}
@@ -249,7 +262,7 @@ export function CenterPane({
             >
               ×
             </button>
-          </Fragment>
+          </span>
         )}
         {/* 提议 is pinned: open by default, no close button (2026-10-15 平铺化
             用户裁决) — the one fixed landing page beside 对话. */}
@@ -257,6 +270,7 @@ export function CenterPane({
           type="button"
           role="tab"
           aria-selected={inboxActive}
+          aria-controls={panelId(INBOX_TAB)}
           style={tabFace(inboxActive)}
           data-hover="tab"
           data-selected={inboxActive ? '' : undefined}
@@ -268,11 +282,12 @@ export function CenterPane({
           {inboxPending > 0 && <SignalDot />}
         </button>
         {fixedOpen.schedule && (
-          <Fragment>
+          <span style={groupStyle} role="presentation">
             <button
               type="button"
               role="tab"
               aria-selected={scheduleActive}
+              aria-controls={panelId(SCHEDULE_TAB)}
               style={tabFace(scheduleActive)}
               data-hover="tab"
               data-selected={scheduleActive ? '' : undefined}
@@ -292,14 +307,15 @@ export function CenterPane({
             >
               ×
             </button>
-          </Fragment>
+          </span>
         )}
         {fixedOpen.insights && (
-          <Fragment>
+          <span style={groupStyle} role="presentation">
             <button
               type="button"
               role="tab"
               aria-selected={insightsActive}
+              aria-controls={panelId(INSIGHTS_TAB)}
               style={tabFace(insightsActive)}
               data-hover="tab"
               data-selected={insightsActive ? '' : undefined}
@@ -324,17 +340,18 @@ export function CenterPane({
             >
               ×
             </button>
-          </Fragment>
+          </span>
         )}
         {tabs.files.map((tab) => {
           const status = statuses[tab.path]
           return (
-            <Fragment key={tab.path}>
+            <span key={tab.path} style={groupStyle} role="presentation">
               {status !== undefined && <StatusDot status={status} t={t} />}
               <button
                 type="button"
                 role="tab"
                 aria-selected={tabs.active === tab.path}
+                aria-controls={panelId(tab.path)}
                 style={tabFace(tabs.active === tab.path)}
                 title={tab.path}
                 data-tab-button={tab.path}
@@ -354,29 +371,62 @@ export function CenterPane({
               >
                 ×
               </button>
-            </Fragment>
+            </span>
           )
         })}
       </div>
       <div style={bodyStyle}>
-        <div style={{ ...pageStyle, display: conversationActive ? 'flex' : 'none' }} data-tab={CONVERSATION_TAB}>
+        <div
+          role="tabpanel"
+          id={panelId(CONVERSATION_TAB)}
+          aria-label={t('center.conversation')}
+          style={{ ...pageStyle, display: conversationActive ? 'flex' : 'none' }}
+          data-tab={CONVERSATION_TAB}
+        >
           {renderConversation()}
         </div>
-        <div style={{ ...pageStyle, display: tasksActive ? 'flex' : 'none' }} data-tab={TASKS_TAB}>
+        <div
+          role="tabpanel"
+          id={panelId(TASKS_TAB)}
+          aria-label={t('center.tasks')}
+          style={{ ...pageStyle, display: tasksActive ? 'flex' : 'none' }}
+          data-tab={TASKS_TAB}
+        >
           {tasksPane}
         </div>
-        <div style={{ ...pageStyle, display: inboxActive ? 'flex' : 'none' }} data-tab={INBOX_TAB}>
+        <div
+          role="tabpanel"
+          id={panelId(INBOX_TAB)}
+          aria-label={t('center.inbox')}
+          style={{ ...pageStyle, display: inboxActive ? 'flex' : 'none' }}
+          data-tab={INBOX_TAB}
+        >
           {inboxPane}
         </div>
-        <div style={{ ...pageStyle, display: scheduleActive ? 'flex' : 'none' }} data-tab={SCHEDULE_TAB}>
+        <div
+          role="tabpanel"
+          id={panelId(SCHEDULE_TAB)}
+          aria-label={t('center.schedule')}
+          style={{ ...pageStyle, display: scheduleActive ? 'flex' : 'none' }}
+          data-tab={SCHEDULE_TAB}
+        >
           {schedulePane}
         </div>
-        <div style={{ ...pageStyle, display: insightsActive ? 'flex' : 'none' }} data-tab={INSIGHTS_TAB}>
+        <div
+          role="tabpanel"
+          id={panelId(INSIGHTS_TAB)}
+          aria-label={t('center.insights')}
+          style={{ ...pageStyle, display: insightsActive ? 'flex' : 'none' }}
+          data-tab={INSIGHTS_TAB}
+        >
           {insightsPane}
         </div>
         {tabs.files.map(tab => (
           <div
             key={tab.path}
+            role="tabpanel"
+            id={panelId(tab.path)}
+            aria-label={tab.title}
             data-tab={tab.path}
             style={{ ...pageStyle, display: tabs.active === tab.path ? 'flex' : 'none' }}
           >

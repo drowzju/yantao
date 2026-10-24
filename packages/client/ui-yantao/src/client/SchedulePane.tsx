@@ -74,6 +74,19 @@ function cronOfRule(rule: RuleDraft): string {
     : `${minute} ${hour} * * ${rule.weekday}`
 }
 
+/**
+ * 切换触发规则时保留人已经填过的时间（2026-10-23 评审 P2）：此前切到
+ * 每天/每周一律写回 09:00，把「18:30 改成每周」的意图悄悄抹成 09:00。
+ * 只有当前规则本就没有时间（如 interval/cron）时才回落到 09:00。
+ */
+function ruleInMode(mode: RuleDraft['mode'], current: RuleDraft): RuleDraft {
+  const time = 'time' in current ? current.time : '09:00'
+  if (mode === 'daily') return { mode, time }
+  if (mode === 'weekly') return { mode, weekday: current.mode === 'weekly' ? current.weekday : 1, time }
+  if (mode === 'interval') return { mode, minutes: current.mode === 'interval' ? current.minutes : 30 }
+  return { mode, cron: cronOfRule(current) }
+}
+
 /** `HH:MM` out of two capture groups, or null when either is missing. */
 function timeOf(hour: string | undefined, minute: string | undefined): string | null {
   return hour === undefined || minute === undefined ? null : `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
@@ -785,15 +798,7 @@ export function SchedulePane({
                   style={inputStyle}
                   value={draft.rule.mode}
                   onChange={(event) => {
-                    const mode = event.target.value as RuleDraft['mode']
-                    const cron = cronOfRule(draft.rule)
-                    setDraft({
-                      ...draft,
-                      rule: mode === 'daily' ? { mode, time: '09:00' }
-                        : mode === 'weekly' ? { mode, weekday: 1, time: '09:00' }
-                          : mode === 'interval' ? { mode, minutes: 30 }
-                            : { mode, cron },
-                    })
+                    setDraft({ ...draft, rule: ruleInMode(event.target.value as RuleDraft['mode'], draft.rule) })
                   }}
                 >
                   <option value="daily">每天</option>

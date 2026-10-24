@@ -1,7 +1,9 @@
 /**
  * The one confirmation window every agent judgement ends with (ADR-0021
  * 决定 4): a proposal's actions, grouped by kind, each row ticked separately,
- * with 全部接受 and 全部忽略 for the whole verdict. The mail analysis's four
+ * with 全部接受 and 全部取消勾选 for the whole verdict (2026-10-23 P1-1: the second
+ * button used to read 全部忽略, which sounded like the verdict 丢弃 — it only
+ * ever cleared the ticks). The mail analysis's four
  * blocks render here; the validate card renders grouped by target entity,
  * prescan folded into a summary, with a free-input box for revisions.
  *
@@ -9,7 +11,8 @@
  * chose; the caller does the writing once, after confirmation — through
  * {@link ./proposal-apply.ts} `applyProposal`'s direct RPCs.
  */
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactElement } from 'react'
+import { createPortal } from 'react-dom'
 import type { Proposal, ProposalAction } from './proposal.ts'
 import { allProposalActions, GROUP_KEYS } from './proposal.ts'
 import { lineDiff, type DiffRow } from './diff.ts'
@@ -21,7 +24,11 @@ import { PROPOSAL_MODAL_ID, proposalVerdictSeat, type ProposalVerdictHandler } f
 import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 
 const panelStyle = {
-  position: 'absolute',
+  // 2026-10-23 评审 P1-2：裁决卡挂在 document.body 上（见组件尾部的 createPortal），
+  // 幕布因此永远盖满窗口，而不是只盖住它所在的那一栏；中栏切页签只切 display，
+  // 挂在中栏里的卡会被连带藏起来，portal 让它脱离那棵子树。fixed 而非 absolute：
+  // 祖先再出现定位上下文也不会改写幕布范围。
+  position: 'fixed',
   inset: 0,
   // 幕布随主题取色（--yt-scrim，2026-10-09）——见 ConfigDialog 同款注释。
   background: 'var(--yt-scrim)',
@@ -94,6 +101,10 @@ const focusRowStyle = {
 } as const
 
 const rowStyle = { display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'flex-start', padding: 'var(--yt-space-1) 0' } as const
+
+/** The tick target (2026-10-23 P1-3): the row's text block is a real label. */
+const tickLabelStyle = { minWidth: 0, cursor: 'pointer' } as const
+const tickLabelStaticStyle = { minWidth: 0 } as const
 
 const detailStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
 
@@ -435,6 +446,9 @@ export function ProposalCard(props: {
 }): ReactElement {
   const { proposal, t } = props
   const readOnly = props.readOnly === true
+  // 行内勾选框的 id 前缀（2026-10-23 P1-3）：行的文字块是 <label htmlFor>，
+  // 命中区从 13px 的方块扩到整行文字。
+  const tickId = useId()
   // Nothing is ticked to begin with: writing into a knowledge base is the one
   // action here that cannot be undone by looking again.
   const [ticked, setTicked] = useState<readonly number[]>([])
@@ -698,16 +712,20 @@ export function ProposalCard(props: {
           >
             {!readOnly && (
               <input
+                id={`${tickId}-entity-${row.indices.at(0)}`}
                 type="checkbox"
                 aria-label={row.label}
                 checked={row.indices.every(index => ticked.includes(index))}
                 onChange={() => { toggleRow(row.indices) }}
               />
             )}
-            <div style={{ minWidth: 0 }}>
+            <label
+              htmlFor={readOnly ? undefined : `${tickId}-entity-${row.indices.at(0)}`}
+              style={readOnly ? tickLabelStaticStyle : tickLabelStyle}
+            >
               <div>{row.label}</div>
               {row.detail !== '' && <div style={detailStyle}>{row.detail}</div>}
-            </div>
+            </label>
           </div>
         ))}
       </div>
@@ -775,6 +793,7 @@ export function ProposalCard(props: {
             {/* 决定 10: three-state select-all over the whole group. */}
             {!readOnly && (
               <input
+                id={`${tickId}-group-${kind}-${base}`}
                 type="checkbox"
                 aria-label={t(GROUP_KEYS[kind])}
                 checked={allOn}
@@ -782,7 +801,12 @@ export function ProposalCard(props: {
                 onChange={() => { toggleRow(groupIndices) }}
               />
             )}
-            {t(GROUP_KEYS[kind])}
+            <label
+              htmlFor={readOnly ? undefined : `${tickId}-group-${kind}-${base}`}
+              style={readOnly ? tickLabelStaticStyle : tickLabelStyle}
+            >
+              {t(GROUP_KEYS[kind])}
+            </label>
           </div>
           {layers.map((layer, layerAt) => {
             const linesOf = (row: { readonly index: number }): readonly number[] =>
@@ -796,6 +820,7 @@ export function ProposalCard(props: {
                   <div style={subHeaderStyle} data-proposal-mail-layer={layer.subject} title={layer.subject}>
                     {!readOnly && (
                       <input
+                        id={`${tickId}-layer-${base}-${layerAt}`}
                         type="checkbox"
                         aria-label={layer.subject}
                         checked={layerAllOn}
@@ -803,7 +828,12 @@ export function ProposalCard(props: {
                         onChange={() => { toggleRow(layerIndices) }}
                       />
                     )}
-                    <span style={subHeaderTextStyle}>{bareSubject(layer.subject) || layer.subject}</span>
+                    <label
+                      htmlFor={readOnly ? undefined : `${tickId}-layer-${base}-${layerAt}`}
+                      style={{ ...(readOnly ? tickLabelStaticStyle : tickLabelStyle), ...subHeaderTextStyle }}
+                    >
+                      {bareSubject(layer.subject) || layer.subject}
+                    </label>
                   </div>
                 )}
                 <div style={layer.subject !== undefined ? layerRowsStyle : undefined}>
@@ -822,6 +852,7 @@ export function ProposalCard(props: {
                       >
                         {!readOnly && (
                           <input
+                            id={`${tickId}-row-${index}`}
                             type="checkbox"
                             aria-label={label}
                             checked={rowIndices.every(entry => ticked.includes(entry))}
@@ -829,8 +860,13 @@ export function ProposalCard(props: {
                           />
                         )}
                         <div style={{ minWidth: 0 }}>
-                          <div>{label}</div>
-                          {detail !== '' && <div style={detailStyle}>{detail}</div>}
+                          <label
+                            htmlFor={readOnly ? undefined : `${tickId}-row-${index}`}
+                            style={readOnly ? tickLabelStaticStyle : tickLabelStyle}
+                          >
+                            <div>{label}</div>
+                            {detail !== '' && <div style={detailStyle}>{detail}</div>}
+                          </label>
                           {/* 2026-10-10 分流提示：指向已注册能力的 add-memory 行
                             附一句改道建议——记忆是行为的兜底，能力自身文件的病
                             该由 skill-rewrite 治（当日晨间事故的教训）。 */}
@@ -894,7 +930,7 @@ export function ProposalCard(props: {
 
   const prescan = proposal.prescan
 
-  return (
+  return createPortal(
     <div style={panelStyle} data-proposal-card="true" onKeyDown={onPanelKeyDown}>
       <div
         style={cardStyle}
@@ -1097,7 +1133,7 @@ export function ProposalCard(props: {
               {t('proposal.acceptAll')}
             </button>
             <button type="button" style={ghostButtonStyle} data-hover="true" disabled={props.busy === true} onClick={none}>
-              {t('proposal.ignoreAll')}
+              {t('proposal.clearAll')}
             </button>
             <span style={{ flex: 1 }} />
             {/* ADR-0047 验收修正: with onDiscard the cancel ghost *becomes* the
@@ -1132,6 +1168,7 @@ export function ProposalCard(props: {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

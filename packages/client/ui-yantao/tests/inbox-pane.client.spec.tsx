@@ -88,20 +88,20 @@ describe('InboxPane', () => {
 
   it('closing the card without approving IS the discard (取消即丢弃，验收修正)', () => {
     const onDiscard = vi.fn<(called: KbQueuedProposal) => void>()
-    const { container } = renderPane([entry()], { onDiscard })
+    renderPane([entry()], { onDiscard })
     fireEvent.click(screen.getByText('调度「每日摘要」的提议'))
     // 取消 — the ghost that used to only close — now settles discarded.
-    // Scoped: the row-level 丢弃 sits behind the modal with the same label.
-    fireEvent.click(container.querySelector('[data-inbox-discard="true"]') as HTMLElement)
+    // The card's own 丢弃 lives in the body-level portal (2026-10-23 P1-2).
+    fireEvent.click(document.querySelector('[data-inbox-discard="true"]') as HTMLElement)
     expect(onDiscard).toHaveBeenCalledTimes(1)
     expect((onDiscard.mock.calls[0] as [KbQueuedProposal])[0].id).toBe('prp_1')
   })
 
   it('Esc on the card takes the same discard verdict', () => {
     const onDiscard = vi.fn<(called: KbQueuedProposal) => void>()
-    const { container } = renderPane([entry()], { onDiscard })
+    renderPane([entry()], { onDiscard })
     fireEvent.click(screen.getByText('调度「每日摘要」的提议'))
-    fireEvent.keyDown(container.querySelector('[data-proposal-card="true"]') as HTMLElement, { key: 'Escape' })
+    fireEvent.keyDown(document.querySelector('[data-proposal-card="true"]') as HTMLElement, { key: 'Escape' })
     expect(onDiscard).toHaveBeenCalledTimes(1)
   })
 
@@ -119,7 +119,7 @@ describe('InboxPane', () => {
 
   it('discards from the card — the explicit verdict beside the primary confirm', () => {
     const onDiscard = vi.fn<(called: KbQueuedProposal) => void>()
-    const { container } = render(<InboxPane
+    render(<InboxPane
       entries={[entry()]}
       busyId={null}
       onConfirm={() => {}}
@@ -129,7 +129,7 @@ describe('InboxPane', () => {
     />)
     fireEvent.click(screen.getByText('调度「每日摘要」的提议'))
     // The card's own 丢弃 (data-inbox-discard), not the row-level one behind it.
-    fireEvent.click(container.querySelector('[data-inbox-discard="true"]') as HTMLElement)
+    fireEvent.click(document.querySelector('[data-inbox-discard="true"]') as HTMLElement)
     expect(onDiscard).toHaveBeenCalledTimes(1)
     expect((onDiscard.mock.calls[0] as [KbQueuedProposal])[0].id).toBe('prp_1')
   })
@@ -154,11 +154,11 @@ describe('InboxPane', () => {
 
   it('opens a discarded row as a read-only audit card — look before you re-queue (2026-10-14)', () => {
     const onReenqueue = vi.fn()
-    const { container } = renderPane([entry({ status: 'discarded', decidedAt: '2026-10-05T09:30:00.000Z' })], { onReenqueue })
+    renderPane([entry({ status: 'discarded', decidedAt: '2026-10-05T09:30:00.000Z' })], { onReenqueue })
     fireEvent.click(screen.getByText('调度「每日摘要」的提议'))
     // 内容可读（不是墓碑），但没有任何裁决控件：勾选框、确认写入、键帽提示都不在。
     expect(screen.getByText('发周报')).toBeTruthy()
-    const card = container.querySelector('[data-proposal-card="true"]') as HTMLElement
+    const card = document.querySelector('[data-proposal-card="true"]') as HTMLElement
     expect(within(card).queryByRole('checkbox')).toBeNull()
     expect(within(card).queryByText(/确认写入/)).toBeNull()
     expect(within(card).queryByText(/J\/K 移动/)).toBeNull()
@@ -168,16 +168,16 @@ describe('InboxPane', () => {
   })
 
   it('closes the read-only audit card with Esc and the 关闭 button', () => {
-    const { container } = renderPane([entry({ status: 'approved', decidedAt: '2026-10-05T09:00:00.000Z' })])
+    renderPane([entry({ status: 'approved', decidedAt: '2026-10-05T09:00:00.000Z' })])
     fireEvent.click(screen.getByText('调度「每日摘要」的提议'))
-    const card = container.querySelector('[data-proposal-card="true"]') as HTMLElement
+    const card = document.querySelector('[data-proposal-card="true"]') as HTMLElement
     // 已批准的只读卡没有重新入队，只有关闭。
     expect(within(card).queryByText('重新入队')).toBeNull()
     fireEvent.keyDown(card, { key: 'Escape' })
-    expect(container.querySelector('[data-proposal-card="true"]')).toBeNull()
+    expect(document.querySelector('[data-proposal-card="true"]')).toBeNull()
     fireEvent.click(screen.getByText('调度「每日摘要」的提议'))
     fireEvent.click(screen.getByText('关闭'))
-    expect(container.querySelector('[data-proposal-card="true"]')).toBeNull()
+    expect(document.querySelector('[data-proposal-card="true"]')).toBeNull()
   })
 
   it('degrades an unparsable payload to a discard-only dialog', () => {

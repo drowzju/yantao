@@ -127,13 +127,22 @@ export async function saveWorkspaceCliConfig(ctx: Context, draft: WorkspaceCliCo
 }
 
 /**
- * Probe the configured CLI: one minimal headless call through the controller
- * (the renderer never spawns). The 测试连接 button's engine.
+ * Probe the CLI with the dialog's draft: one minimal headless call through the
+ * controller (the renderer never spawns). The 测试连接 button's engine.
+ *
+ * 2026-10-23 评审 P0：此前探测只认已存配置——改了模型或网络环境还没保存就点
+ * 测试，报的是另一套配置的结果，绿灯会替没生效的草稿背书。草稿随探测一起
+ * 上送，空密钥仍表示「用已存凭据」。
  * @param ctx - the client root context.
+ * @param draft - what the dialog currently holds.
  * @returns the probe outcome.
  */
-export async function testWorkspaceCli(ctx: Context): Promise<WorkspaceCliTestResult> {
-  const result = await ctx.remote.yantaoKb.workspaceCliTest()
+export async function testWorkspaceCli(ctx: Context, draft: WorkspaceCliConfigDraft): Promise<WorkspaceCliTestResult> {
+  const result = await ctx.remote.yantaoKb.workspaceCliTest({
+    model: draft.model,
+    internetEnvironment: draft.internetEnvironment,
+    apiKey: draft.apiKey,
+  })
   if (!result.ok) throw result.error
   return result.value
 }

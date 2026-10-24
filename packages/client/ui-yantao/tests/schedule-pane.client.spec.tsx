@@ -118,3 +118,14 @@ describe('SchedulePane 未保存确认条（脏态守卫收敛）', () => {
     expect(screen.queryByText('当前调度还没保存，放弃这些修改？')).toBeNull()
   })
 })
+
+describe('SchedulePane 触发规则切换（2026-10-23 评审 P2）', () => {
+  it('每天改成每周时保留人已经填过的时间，不悄悄回到 09:00', () => {
+    render(<SchedulePane {...props()} />)
+    fireEvent.click(screen.getByText('晚报'))
+    // 晚报存的是 0 18 * * *：每天 18:00。
+    expect((screen.getByDisplayValue('18:00') as HTMLInputElement).type).toBe('time')
+    fireEvent.change(screen.getByDisplayValue('每天'), { target: { value: 'weekly' } })
+    expect((screen.getByDisplayValue('18:00') as HTMLInputElement).type).toBe('time')
+  })
+})

@@ -44,6 +44,20 @@ export interface NewEntityRowProps {
 
 const rowStyle = { display: 'flex', gap: 'var(--yt-space-1)', margin: 'var(--yt-space-1) 0' } as const
 
+/** 行内输入框：与 SchedulePane / MemoryPanel 的输入同一副脸（边框、字阶、
+    命中高），不再让裸 UA 输入框与全站控件并排。 */
+const inputStyle = {
+  flex: 1,
+  minWidth: 0,
+  fontFamily: 'var(--yt-font-ui)',
+  fontSize: 'var(--yt-type-body)',
+  padding: 'var(--yt-space-1) var(--yt-space-2)',
+  border: '1px solid var(--yt-border-subtle)',
+  borderRadius: 4,
+  background: 'var(--yt-surface-raised)',
+  color: 'inherit',
+} as const
+
 // 错误行（2026-10-05 第三轮评审 P2#6）：正文字号 + role=alert，读屏必播报。
 const errorStyle = { color: 'var(--yt-error)', padding: '0 var(--yt-space-1)', fontSize: 'var(--yt-type-body)' } as const
 
@@ -96,7 +110,7 @@ export function NewEntityRow({ t, label, placeholder, submit, choice, trailing }
               value={name}
               placeholder={placeholder}
               disabled={busy}
-              style={{ flex: 1, minWidth: 0 }}
+              style={inputStyle}
               onChange={(event) => { setName(event.target.value) }}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter') return
@@ -120,6 +134,11 @@ export function NewEntityRow({ t, label, placeholder, submit, choice, trailing }
             {choice !== undefined && (
               <select
                 aria-label={t('relation.label')}
+                // 2026-10-23 评审 P2：裸原生 select 在 280px 栏里按最长选项取宽，
+                // 把同行主输入挤到约 170px，且字体/边框/高度与全站控件不是一套。
+                // §7：辅助控件显式紧凑定宽，长选项在收起态截断、下拉展开态完整。
+                style={{ ...inputStyle, flex: '0 0 auto', width: 96 }}
+                title={choice.value}
                 value={choice.value}
                 disabled={busy}
                 onChange={(event) => { choice.onChange(event.target.value) }}

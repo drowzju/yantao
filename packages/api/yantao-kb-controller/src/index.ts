@@ -65,7 +65,7 @@ import {
 import { spawn as nodeSpawn } from 'node:child_process'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-settings'
-import { WORKSPACE_CLI_KEY_REF, WORKSPACE_CLI_NAMESPACE, parseModelIds, probeCodebuddy, type WorkspaceCliOptions } from './workspace/cli.ts'
+import { WORKSPACE_CLI_KEY_REF, WORKSPACE_CLI_NAMESPACE, parseModelIds, probeCodebuddy, probeOptions, type WorkspaceCliOptions } from './workspace/cli.ts'
 import { pruneOrphanRunLogs } from './workspace/run-log.ts'
 import { DIGEST_CHAR_CAP, collectSessionEvents, digestOfEvents } from './session-log.ts'
 import type { EntityType, Schedule, TodoFile, WorkspaceDef } from '@deepseek-ai/dsh-yantao-kb'
@@ -142,6 +142,7 @@ import type {
   KbScheduleRunReportArgs,
   KbScheduleRunReportResult,
   KbWorkspaceCliModelsResult,
+  KbWorkspaceCliProbeDraft,
   KbWorkspaceCliTestResult,
   KbWorkspaceListResult,
   KbWorkspaceRunArgs,
@@ -3228,8 +3229,10 @@ export class YantaoKbController extends TypertRemoteService {
    * @returns the outcome — ok with the answer text, or the diagnostic.
    */
   @Remote('workspaceCliTest')
-  async workspaceCliTest(): Promise<KbWorkspaceCliTestResult> {
-    const options = await this.workspaceCliOptions()
+  async workspaceCliTest(draft: KbWorkspaceCliProbeDraft): Promise<KbWorkspaceCliTestResult> {
+    // 表单里的值压过已存值（2026-10-23 评审 P0）：草稿里的模型/网络环境即使
+    // 是空串也算数（= 用 CLI 默认），密钥留空才回落到已存凭据。
+    const options = probeOptions(draft, await this.workspaceCliOptions())
     const started = Date.now()
     const outcome = await probeCodebuddy(options, this.probeSpawnImpl)
     return { ok: outcome.ok, detail: outcome.detail, durationMs: Date.now() - started }

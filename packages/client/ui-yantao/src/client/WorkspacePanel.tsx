@@ -117,32 +117,26 @@ const spaceTitleStyle = { margin: 0, fontSize: 'var(--yt-type-label)', fontWeigh
 
 const metaStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
 
-/** The instruction table: one row per instruction, compact meta type.
-    Fixed layout (2026-10-15 截图评审)：auto 布局让不折行的元数据列把名称列
-    挤到三四个字符宽，词中间硬断（"ocr revi ew"）；定死后名称列独占余量。 */
-const tableStyle = { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', fontSize: 'var(--yt-type-label)' } as const
+/** 指令行改成两行堆叠（2026-10-23 评审 P2）：五列表塞进 360px 栏时，固定列吃掉
+    240px，名称列只剩约 100px——§6「五个及以上列的表不做窄分栏」，§7 也明说需要
+    给表格打定宽补丁就是该改成两行卡片的信号。第一行名称（单行省略，全名 title
+    兜底），第二行 meta（触发 · 步数 · 最近），动作钉在右侧首行。 */
+const instructionListStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-2)', marginTop: 'var(--yt-space-2)' } as const
 
-const thStyle = {
-  textAlign: 'left', padding: 'var(--yt-space-1) var(--yt-space-2) var(--yt-space-1) 0', borderBottom: '1px solid var(--yt-border-subtle)',
-  color: 'var(--yt-text-muted)', fontWeight: 500, whiteSpace: 'nowrap',
+const instructionRowStyle = { display: 'flex', alignItems: 'flex-start', gap: 'var(--yt-space-2)' } as const
+
+const instructionMainStyle = { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)' } as const
+
+const instructionNameLineStyle = { display: 'flex', alignItems: 'baseline', minWidth: 0, overflow: 'hidden' } as const
+
+const instructionMetaStyle = {
+  display: 'flex', alignItems: 'center', gap: 'var(--yt-space-2)', flexWrap: 'wrap',
+  color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)',
 } as const
-
-const tdStyle = {
-  padding: 'var(--yt-space-1) var(--yt-space-2) var(--yt-space-1) 0', borderBottom: '1px solid var(--yt-border-subtle)',
-  color: 'var(--yt-text-primary)', verticalAlign: 'top',
-} as const
-
-const tdMetaStyle = { ...tdStyle, color: 'var(--yt-text-secondary)', whiteSpace: 'nowrap' } as const
-
-/** The name cell: single-line ellipsis per the DESIGN canon (列表行一律
-    单行省略，全名由 title 兜底)，停用标签钉在行尾不参与挤压。 */
-const tdNameStyle = { ...tdStyle, display: 'flex', alignItems: 'baseline', minWidth: 0, overflow: 'hidden' } as const
 
 const nameTextStyle = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 } as const
 
 const disabledTagStyle = { ...mutedStyle, flexShrink: 0, marginLeft: 'var(--yt-space-2)', fontSize: 'var(--yt-type-label)' } as const
-
-const tdActionsStyle = { ...tdStyle, whiteSpace: 'nowrap', textAlign: 'right', width: 1 } as const
 
 const actionsStyle = { display: 'flex', gap: 'var(--yt-space-1)', flexShrink: 0, justifyContent: 'flex-end' } as const
 
@@ -162,7 +156,7 @@ const circledIconStyle = {
   ...iconButtonStyle,
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
   width: 18, height: 18, padding: 0, boxSizing: 'border-box',
-  border: '1px solid var(--yt-border-strong)', borderRadius: '50%',
+  border: '1px solid var(--yt-border-strong)', borderRadius: 6,
 } as const
 
 /** A per-row destructive action wears the ghost cut; armed, danger on the raised surface. */
@@ -183,9 +177,13 @@ const armedDeleteStyle = {
   whiteSpace: 'nowrap',
 } as const
 
+/** 卡内分区不穿第二张卡皮（2026-10-23 评审 P2）：表单此前是 surface-raised +
+    边框 + 圆角，与外面那张空间卡同款，边界只剩 4px 间距——§5 禁止卡片套卡片。
+    改用一条分隔线 + 上间距表达「卡内分区」。 */
 const formStyle = {
-  display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-2)', padding: 'var(--yt-space-2)',
-  background: 'var(--yt-surface-raised)', border: '1px solid var(--yt-border-subtle)', borderRadius: 8,
+  display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-2)',
+  marginTop: 'var(--yt-space-2)', paddingTop: 'var(--yt-space-2)',
+  borderTop: '1px solid var(--yt-border-subtle)',
 } as const
 
 const inputStyle = { padding: 'var(--yt-space-1) var(--yt-space-2)', width: '100%', boxSizing: 'border-box' } as const
@@ -593,7 +591,7 @@ export function WorkspacePanel(
       {spaces?.map(space => (
         <div key={space.id} style={spaceCardStyle} data-workspace-space={space.id}>
           <div style={{ display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'baseline' }}>
-            <div style={{ ...spaceTitleStyle, minWidth: 0, flex: 1 }}>{space.name}</div>
+            <div style={{ ...spaceTitleStyle, minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={space.name}>{space.name}</div>
             <div style={actionsStyle}>
               <button data-hover="true" type="button" style={iconButtonStyle} disabled={busy}
                 title={t('workspace.edit')}
@@ -616,30 +614,21 @@ export function WorkspacePanel(
           </div>
           <div style={metaStyle}>{space.directory}{space.model !== undefined ? ` · ${space.model}` : ''}</div>
           {space.instructions.length > 0 && (
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  <th style={thStyle}>{t('common.name')}</th>
-                  <th style={{ ...thStyle, width: 40 }}>{t('workspace.colTrigger')}</th>
-                  <th style={{ ...thStyle, width: 40 }}>{t('workspace.colSteps')}</th>
-                  <th style={{ ...thStyle, width: 88 }}>{t('workspace.colLast')}</th>
-                  <th style={{ ...thStyle, width: 72 }}>{t('workspace.colActions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {space.instructions.map(instruction => (
-                  <tr key={instruction.id} data-workspace-instruction={instruction.id}>
-                    <td style={tdNameStyle} title={instruction.name}>
+            <div style={instructionListStyle}>
+              {space.instructions.map(instruction => (
+                <div key={instruction.id} style={instructionRowStyle} data-workspace-instruction={instruction.id}>
+                  <div style={instructionMainStyle}>
+                    <div style={instructionNameLineStyle} title={instruction.name}>
                       <span style={nameTextStyle}>{instruction.name}</span>
                       {!instruction.enabled && <span style={disabledTagStyle}>{t('workspace.disabledTag')}</span>}
-                    </td>
-                    <td style={tdMetaStyle}>
+                    </div>
+                    <div style={instructionMetaStyle}>
                       {/* cron 表达式收进 tooltip（2026-10-12 截图评审）：原始
                           五段式把窄栏的名称列挤到硬折行；单元格只答「怎么触发」。
                           ADR-0064：定时一格是只读徽标，点击跳「调度」页——规则的
                           编辑家在那里，这里不再藏着第二份编辑入口。 */}
                       {instruction.cron === undefined
-                        ? t('workspace.triggerManual')
+                        ? <span>{t('workspace.triggerManual')}</span>
                         : (
                           <button data-hover="true" type="button" style={iconButtonStyle}
                             title={`${t('workspace.triggerCron')}：${instruction.cron}（点击到「调度」页修改）`}
@@ -649,56 +638,54 @@ export function WorkspacePanel(
                             {t('workspace.triggerCron')}
                           </button>
                         )}
-                    </td>
-                    <td style={tdMetaStyle}>{t('workspace.stepsCount', { count: instruction.steps.length })}</td>
-                    <td style={tdMetaStyle}
-                      title={[
-                        instruction.lastFiredAt !== undefined ? `${t('workspace.lastFired')} ${stamp(instruction.lastFiredAt)}` : '',
-                        instruction.lastMissedAt !== undefined ? `${t('workspace.lastMissed')} ${stamp(instruction.lastMissedAt)}` : '',
-                      ].filter(entry => entry !== '').join('\n') || undefined}>
-                      {instruction.lastFiredAt !== undefined && stampShort(instruction.lastFiredAt)}
-                      {instruction.lastFiredAt !== undefined && instruction.lastMissedAt !== undefined && ' · '}
-                      {instruction.lastMissedAt !== undefined && `${t('workspace.lastMissed')} ${stampShort(instruction.lastMissedAt)}`}
-                      {instruction.lastFiredAt === undefined && instruction.lastMissedAt === undefined && '—'}
-                    </td>
-                    <td style={tdActionsStyle}>
-                      <div style={actionsStyle}>
-                        <button data-hover="true" type="button" style={iconButtonStyle} disabled={busy}
-                          title={t('workspace.run')}
-                          aria-label={t('workspace.run')}
-                          data-workspace-run={instruction.id}
-                          onClick={() => { void trigger(space, instruction) }}>
-                          ▶
-                        </button>
-                        <button data-hover="true" type="button" style={iconButtonStyle} disabled={busy}
-                          title={t('workspace.edit')}
-                          aria-label={t('workspace.edit')}
-                          data-workspace-instruction-edit={instruction.id}
-                          onClick={() => {
-                            setInstructionDraft({
-                              spaceId: space.id, id: instruction.id, name: instruction.name,
-                              cron: instruction.cron ?? '', enabled: instruction.enabled,
-                              steps: [...instruction.steps],
-                            })
-                          }}>
-                          ✎
-                        </button>
-                        <button data-hover="true" type="button"
-                          style={armedDelete === `i:${instruction.id}` ? armedDeleteStyle : deleteStyle}
-                          disabled={busy}
-                          title={armedDelete === `i:${instruction.id}` ? undefined : t('workspace.delete')}
-                          aria-label={t('workspace.delete')}
-                          data-armed={armedDelete === `i:${instruction.id}` || undefined}
-                          data-workspace-instruction-delete={instruction.id}
-                          onClick={() => { attemptDelete(`i:${instruction.id}`, () => { void deleteInstruction(space, instruction) }) }}>
-                          {armedDelete === `i:${instruction.id}` ? t('workbench.deleteArm') : '−'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <span>{t('workspace.stepsCount', { count: instruction.steps.length })}</span>
+                      <span
+                        title={[
+                          instruction.lastFiredAt !== undefined ? `${t('workspace.lastFired')} ${stamp(instruction.lastFiredAt)}` : '',
+                          instruction.lastMissedAt !== undefined ? `${t('workspace.lastMissed')} ${stamp(instruction.lastMissedAt)}` : '',
+                        ].filter(entry => entry !== '').join('\n') || undefined}>
+                        {instruction.lastFiredAt !== undefined && stampShort(instruction.lastFiredAt)}
+                        {instruction.lastFiredAt !== undefined && instruction.lastMissedAt !== undefined && ' · '}
+                        {instruction.lastMissedAt !== undefined && `${t('workspace.lastMissed')} ${stampShort(instruction.lastMissedAt)}`}
+                        {instruction.lastFiredAt === undefined && instruction.lastMissedAt === undefined && '—'}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={actionsStyle}>
+                    <button data-hover="true" type="button" style={iconButtonStyle} disabled={busy}
+                      title={t('workspace.run')}
+                      aria-label={t('workspace.run')}
+                      data-workspace-run={instruction.id}
+                      onClick={() => { void trigger(space, instruction) }}>
+                      ▶
+                    </button>
+                    <button data-hover="true" type="button" style={iconButtonStyle} disabled={busy}
+                      title={t('workspace.edit')}
+                      aria-label={t('workspace.edit')}
+                      data-workspace-instruction-edit={instruction.id}
+                      onClick={() => {
+                        setInstructionDraft({
+                          spaceId: space.id, id: instruction.id, name: instruction.name,
+                          cron: instruction.cron ?? '', enabled: instruction.enabled,
+                          steps: [...instruction.steps],
+                        })
+                      }}>
+                      ✎
+                    </button>
+                    <button data-hover="true" type="button"
+                      style={armedDelete === `i:${instruction.id}` ? armedDeleteStyle : deleteStyle}
+                      disabled={busy}
+                      title={armedDelete === `i:${instruction.id}` ? undefined : t('workspace.delete')}
+                      aria-label={t('workspace.delete')}
+                      data-armed={armedDelete === `i:${instruction.id}` || undefined}
+                      data-workspace-instruction-delete={instruction.id}
+                      onClick={() => { attemptDelete(`i:${instruction.id}`, () => { void deleteInstruction(space, instruction) }) }}>
+                      {armedDelete === `i:${instruction.id}` ? t('workbench.deleteArm') : '−'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
           {instructionDraft !== null && instructionDraft.spaceId === space.id && (
             <InstructionForm

@@ -45,7 +45,7 @@ describe('ProposalCard', () => {
     expect(screen.getByText('确认写入（1）')).toBeTruthy()
     fireEvent.click(screen.getByText('全部接受'))
     expect(screen.getByText('确认写入（4）')).toBeTruthy()
-    fireEvent.click(screen.getByText('全部忽略'))
+    fireEvent.click(screen.getByText('全部取消勾选'))
     expect(screen.getByText('确认写入（0）')).toBeTruthy()
   })
 
@@ -262,7 +262,7 @@ describe('ProposalCard 双区块 (ADR-0036 决定 6)', () => {
 
   it('folds the prescan into a summary, and opens the detail on demand (2026-09-30)', () => {
     const onConfirm = vi.fn()
-    const { container } = render(
+    render(
       <ProposalCard
         proposal={{
           title: 't',
@@ -280,13 +280,13 @@ describe('ProposalCard 双区块 (ADR-0036 决定 6)', () => {
     )
     // Folded: the summary line stands, the detail rows are not in the DOM.
     expect(screen.getByText('系统预扫（确定性）')).toBeTruthy()
-    expect(container.querySelector('[data-proposal-prescan-summary]')?.textContent).toContain('孤岛 1 个 · 死链 1 条 · 可勾选修复 1 条')
+    expect(document.querySelector('[data-proposal-prescan-summary]')?.textContent).toContain('孤岛 1 个 · 死链 1 条 · 可勾选修复 1 条')
     expect(screen.queryByText('孤岛（person，入链 0）')).toBeNull()
     expect(screen.queryByText('[[坏名]] — 无可信修复候选')).toBeNull()
     expect(screen.queryByText('模型发现')).toBeNull()
     // Expanding reveals the orphans, the findings and the tickable fix row,
     // with the same partial-approval semantics as any action.
-    fireEvent.click(container.querySelector('[data-proposal-prescan-toggle]')!)
+    fireEvent.click(document.querySelector('[data-proposal-prescan-toggle]')!)
     expect(screen.getByText('孤岛（person，入链 0）')).toBeTruthy()
     expect(screen.getByText('[[坏名]] — 无可信修复候选')).toBeTruthy()
     fireEvent.click(screen.getByLabelText('状态'))
@@ -325,7 +325,7 @@ describe('ProposalCard 双区块 (ADR-0036 决定 6)', () => {
   })
 
   it('orders the deterministic block above the model block when both exist', () => {
-    const { container } = render(
+    render(
       <ProposalCard
         proposal={{
           title: 't',
@@ -342,8 +342,8 @@ describe('ProposalCard 双区块 (ADR-0036 决定 6)', () => {
         t={t}
       />,
     )
-    const prescan = container.querySelector('[data-proposal-prescan]')
-    const model = container.querySelector('[data-proposal-findings]')
+    const prescan = document.querySelector('[data-proposal-prescan]')
+    const model = document.querySelector('[data-proposal-findings]')
     expect(prescan).not.toBeNull()
     expect(model).not.toBeNull()
     expect(model!.compareDocumentPosition(prescan!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
@@ -447,11 +447,11 @@ describe('ProposalCard 校验卡的实体分组与自由输入 (2026-09-30)', ()
 
   it('offers the free-input box only when the run can take instructions, and forwards the text', async () => {
     const onInstruction = vi.fn(async (_text: string) => {})
-    const { rerender, container } = render(
+    const { rerender } = render(
       <ProposalCard proposal={{ title: 't', actions: [] }} onConfirm={() => {}} onDismiss={() => {}} t={t} />,
     )
     // Without the continuation the box does not exist at all.
-    expect(container.querySelector('[data-validate-instruction]')).toBeNull()
+    expect(document.querySelector('[data-validate-instruction]')).toBeNull()
     rerender(
       <ProposalCard
         proposal={{ title: 't', actions: [] }}
@@ -461,14 +461,14 @@ describe('ProposalCard 校验卡的实体分组与自由输入 (2026-09-30)', ()
         t={t}
       />,
     )
-    const input = container.querySelector('[data-validate-instruction-input]') as HTMLInputElement
+    const input = document.querySelector('[data-validate-instruction-input]') as HTMLInputElement
     fireEvent.change(input, { target: { value: '以后别推荐没有新信息的提炼' } })
     fireEvent.click(screen.getByText('发送'))
     await vi.waitFor(() => { expect(onInstruction).toHaveBeenCalledWith('以后别推荐没有新信息的提炼') })
   })
 
   it('disables 发送 while the draft is blank or a round is in flight', () => {
-    const { container } = render(
+    render(
       <ProposalCard
         proposal={{ title: 't', actions: [] }}
         onConfirm={() => {}}
@@ -479,7 +479,7 @@ describe('ProposalCard 校验卡的实体分组与自由输入 (2026-09-30)', ()
     )
     const send = screen.getByText('发送') as HTMLButtonElement
     expect(send.disabled).toBe(true)
-    const input = container.querySelector('[data-validate-instruction-input]') as HTMLInputElement
+    const input = document.querySelector('[data-validate-instruction-input]') as HTMLInputElement
     fireEvent.change(input, { target: { value: '意见' } })
     expect(send.disabled).toBe(false)
   })
@@ -511,7 +511,7 @@ describe('ProposalCard 校验卡的实体分组与自由输入 (2026-09-30)', ()
 
   it('ignores Enter while the IME is still composing (2026-09-30 review)', async () => {
     const onInstruction = vi.fn(async (_text: string) => {})
-    const { container } = render(
+    render(
       <ProposalCard
         proposal={{ title: 't', actions: [] }}
         onConfirm={() => {}}
@@ -520,7 +520,7 @@ describe('ProposalCard 校验卡的实体分组与自由输入 (2026-09-30)', ()
         t={t}
       />,
     )
-    const input = container.querySelector('[data-validate-instruction-input]') as HTMLInputElement
+    const input = document.querySelector('[data-validate-instruction-input]') as HTMLInputElement
     fireEvent.change(input, { target: { value: '意见' } })
     // 选字确认的那次回车：组合未结束，不能当作发送。
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
@@ -531,7 +531,7 @@ describe('ProposalCard 校验卡的实体分组与自由输入 (2026-09-30)', ()
 
   it('keeps the draft in the box when the revision round fails (2026-09-30 review)', async () => {
     const onInstruction = vi.fn(async () => { throw new Error('网关超时') })
-    const { container } = render(
+    render(
       <ProposalCard
         proposal={{ title: 't', actions: [] }}
         onConfirm={() => {}}
@@ -540,7 +540,7 @@ describe('ProposalCard 校验卡的实体分组与自由输入 (2026-09-30)', ()
         t={t}
       />,
     )
-    const input = container.querySelector('[data-validate-instruction-input]') as HTMLInputElement
+    const input = document.querySelector('[data-validate-instruction-input]') as HTMLInputElement
     fireEvent.change(input, { target: { value: '意见' } })
     fireEvent.click(screen.getByText('发送'))
     await vi.waitFor(() => { expect(onInstruction).toHaveBeenCalledWith('意见') })
@@ -562,7 +562,7 @@ describe('ProposalCard add-memory 分流提示 (2026-10-10)', () => {
   }
 
   it('scope 指向已注册能力的行附改道提示，global 行不附', () => {
-    const { container } = render(
+    render(
       <ProposalCard
         proposal={MEMORY_PROPOSAL}
         onConfirm={() => {}}
@@ -572,14 +572,14 @@ describe('ProposalCard add-memory 分流提示 (2026-10-10)', () => {
       />,
     )
     expect(screen.getByText(/改提技能改写/)).toBeTruthy()
-    expect(container.querySelectorAll('[data-proposal-memory-hint]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-proposal-memory-hint]')).toHaveLength(1)
   })
 
   it('不传能力清单时整卡无提示', () => {
-    const { container } = render(
+    render(
       <ProposalCard proposal={MEMORY_PROPOSAL} onConfirm={() => {}} onDismiss={() => {}} t={t} />,
     )
-    expect(container.querySelector('[data-proposal-memory-hint]')).toBeNull()
+    expect(document.querySelector('[data-proposal-memory-hint]')).toBeNull()
   })
 })
 
@@ -624,9 +624,9 @@ describe('ProposalCard 邮件卡可用性 (ADR-0038)', () => {
 
   it('merges an afterCreate supplement into its creation row, one checkbox ticking both (ADR-0038 决定 8)', () => {
     const onConfirm = vi.fn()
-    const { container } = render(<ProposalCard proposal={MAIL_PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} t={t} />)
+    render(<ProposalCard proposal={MAIL_PROPOSAL} onConfirm={onConfirm} onDismiss={() => {}} t={t} />)
     // The section name rides as a chip ahead of the text, not a「并补充…」sentence.
-    const supplement = container.querySelector('[data-proposal-supplement="决议"]')
+    const supplement = document.querySelector('[data-proposal-supplement="决议"]')
     expect(supplement?.textContent).toBe('决议通过立项')
     fireEvent.click(screen.getByLabelText('评审会'))
     fireEvent.click(screen.getByText('确认写入（2）'))

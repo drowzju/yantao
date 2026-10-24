@@ -39,14 +39,15 @@ const paneStyle = {
 
 const emptyStyle = { color: 'var(--yt-text-muted)', padding: 'var(--yt-space-5) 0', textAlign: 'center' } as const
 
+/** 与 调度 tab 的列表行同一副脸（2026-10-23 评审 P2）：行之间用间距分界，
+    不各裹一层卡片皮——DESIGN.md §7「分组能用间距表达就不用边框」；行内含
+    按钮，故对齐取 center 而非 baseline（§7 禁止 baseline 让动作钮下沉）。 */
 const rowStyle = {
   display: 'flex',
-  alignItems: 'baseline',
+  alignItems: 'center',
   gap: 'var(--yt-space-2)',
-  padding: 'var(--yt-space-1) var(--yt-space-2)',
-  border: '1px solid var(--yt-border-subtle)',
-  borderRadius: 6,
-  background: 'var(--yt-surface-raised)',
+  padding: 'var(--yt-space-2)',
+  borderRadius: 4,
 } as const
 
 const titleStyle = { fontWeight: 600, whiteSpace: 'nowrap' } as const
