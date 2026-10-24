@@ -153,11 +153,29 @@ function nodeProgram(): string {
  * @returns when the home is ready for the host.
  */
 function ensurePackagedHome(): void {
+  const template = join(process.resourcesPath, 'dsh-home-template')
   const seeded = join(PACKAGED_HOME, 'profiles', PROFILE, 'package.json')
   if (!existsSync(seeded)) {
     mkdirSync(PACKAGED_HOME, { recursive: true })
-    cpSync(join(process.resourcesPath, 'dsh-home-template'), PACKAGED_HOME, { recursive: true })
+    cpSync(template, PACKAGED_HOME, { recursive: true })
     console.log(`yantao: seeded packaged home at ${PACKAGED_HOME}`)
+  }
+
+  // 配置镜像（2026-10-24 用户裁决，ADR-0067 修订）：home 的分离只为代码冻结
+  // （junction 墙指进 resources/runtime），配置的权威永远是开发侧的 yantao-web。
+  // 每次启动：patch 以开发侧活文件优先（模板副本兜底），manifest/基础设施跟
+  // 随本 exe 的模板刷新——陈年首启快照不再能压过新组合层。源全缺失则保留
+  // 上次镜像，安装仍可启动。
+  const devPatch = join(homedir(), '.dsh', 'profiles', 'yantao-web', 'cordis.patch.yml')
+  const packagedPatch = join(PACKAGED_HOME, 'profiles', PROFILE, 'cordis.patch.yml')
+  if (existsSync(devPatch)) {
+    copyFileSync(devPatch, packagedPatch)
+  } else if (existsSync(join(template, 'profiles', PROFILE, 'cordis.patch.yml'))) {
+    copyFileSync(join(template, 'profiles', PROFILE, 'cordis.patch.yml'), packagedPatch)
+  }
+  const templateManifest = join(template, 'link-manifest.json')
+  if (existsSync(templateManifest)) {
+    copyFileSync(templateManifest, join(PACKAGED_HOME, 'link-manifest.json'))
   }
 
   // Secrets: copied once, never overwritten — a rotated key in ~/.dsh must not
@@ -195,16 +213,6 @@ function ensurePackagedHome(): void {
     repaired += 1
   }
   if (repaired > 0) console.log(`yantao: repaired ${repaired} profile link${repaired === 1 ? '' : 's'}`)
-
-  // 配置镜像（2026-10-24 用户裁决）：packaged profile 的 cordis.patch.yml 每次
-  // 启动都从开发 profile 覆盖——home 的分离只为代码冻结（junction 墙指进
-  // resources/runtime），配置的权威永远是开发侧的 yantao-web。源缺失（exe 被
-  // 挪到无 ~/.dsh 的机器）则保留上次镜像，安装仍可启动。
-  const devPatch = join(homedir(), '.dsh', 'profiles', 'yantao-web', 'cordis.patch.yml')
-  const packagedPatch = join(PACKAGED_HOME, 'profiles', PROFILE, 'cordis.patch.yml')
-  if (existsSync(devPatch)) {
-    copyFileSync(devPatch, packagedPatch)
-  }
 }
 
 /**

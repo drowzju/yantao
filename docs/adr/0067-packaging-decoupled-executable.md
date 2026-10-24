@@ -35,7 +35,7 @@ status: accepted
    - 目标在仓库外（pnpm store 的绝对路径）→ 原样保留 junction。
 4. **断链门禁**：复制完成后遍历整棵运行树，任何链接（含悬空链接）解析结果落在仓库内即
    **构建失败**。这是「已出包实例不受仓库影响」的机器保证，而不是口头承诺。
-5. **打包实例有自己的 dsh home**：`%APPDATA%\yantao-workbench\dsh-home`，经 `DSH_HOME`
+5. **打包实例有自己的 dsh home**：`%APPDATA%\@deepseek-ai\dsh-yantao-desktop\dsh-home`（Electron userData，随 appId），经 `DSH_HOME`
    注入宿主子进程（`packages/util/home-paths` 原生支持）。首启时：
    - 从 `resources/dsh-home-template` 播种 profile `yantao-packaged`（同一组 bundles、
      同一份 `cordis.patch.yml`，**没有 `patchReload`**）；
