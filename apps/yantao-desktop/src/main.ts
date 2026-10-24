@@ -17,8 +17,9 @@
  * The window appears immediately with a "启动中" page rather than after boot:
  * the boot is slow (see ADR-0016) and a blank desktop reads as a crash.
  *
- * What it deliberately does not do: no hotkeys, no auto-start, no signing, no
- * auto-update, no installer.
+ * What it deliberately does not do: no hotkeys beyond the reload chord
+ * (Ctrl+Shift+R, the escape hatch for a wedged page), no auto-start, no signing,
+ * no auto-update, no installer.
  * @module @deepseek-ai/dsh-yantao-desktop/main
  */
 
@@ -26,7 +27,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, session, Tray } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, Tray } from 'electron'
 
 /** This file's own directory (`…/apps/yantao-desktop/src/`; packaged: `…/dist/`). */
 const HERE = fileURLToPath(new URL('.', import.meta.url))
@@ -56,21 +57,20 @@ function resolveRepo(): string {
 const REPO = resolveRepo()
 
 /**
- * Whether this process is the packaged build (`win-unpacked/yantao-workbench.exe`)
- * or an `electron .` launch from the repository.
- *
- * The packaged build must never read code from the repository it was built in:
- * decoupling the shipped instance from in-progress edits is the entire point of
- * packing (a `live` patch reload would otherwise inject every save).
+ * The dsh launcher the shell spawns — the repository's source, through tsx, for
+ * the packaged exe exactly as for `electron .`. The exe is a frozen Electron
+ * shell around a live checkout (ADR-0067 废弃段, 2026-10-24 裁决), so its
+ * `repo-path.txt` above is the whole coupling: no runtime copy, no frozen
+ * profile. The accepted cost is that the exe needs the checkout to exist.
  */
-/** The dsh launcher the shell spawns — 与 dev 同一份仓库源码，经 tsx 直跑。 */
 const CLI = join(REPO, 'apps', 'cli', 'src', 'bin.ts')
 
 /**
- * Which profile the host runs. Development keeps `yantao-web` (live patch
- * reload); the packaged build gets its own `yantao-packaged` profile so the two
- * instances never share a session store, a scheduler roster or a patch layer.
- * The knowledge base itself is shared on purpose (`D:\yantao-data`).
+ * Which profile the host runs. One world with the development instance: the
+ * same `~/.dsh`, the same `yantao-web` profile (live patch reload), the same
+ * knowledge base (`D:\yantao-data`). The packaged build no longer gets a
+ * separate `yantao-packaged` profile — that separation was deleted together
+ * with the decoupled runtime (ADR-0067 废弃段).
  */
 const PROFILE = 'yantao-web'
 
@@ -91,12 +91,40 @@ const TRAY_ICON_16 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYA
 const TRAY_ICON_32 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB/klEQVR42mNgGKxAT1uNSU9bTVBPW01BT1tNmUysADWDiSSLW5sbbC5fvrT63du3z//+/fv3P5kApBdkBsgskJkEHaKnrca+b+/u1l+/fv38T2UAMhNkNsgOnD4HKfhPYwB1BGZIgIKIFj7HFhIguzB8D4qn/3QCILtQQgGUUkGJhV4OANkFshPZAQqUpHZycgfITmQHKMMkp0+b/N/G0uT/iRPHcBrw6uXL/96erv/TUxPJdgTITqwOqCgrBkn+d7C1/P/y5QsMjX/+/PkfHxsJVuPmbP//w4cP/2Ojwv57uDnixZ5uTv9XLF9K2AGvX7/+7+xoA7YAZNHv379RHNDb3QGWM9TT/H/m9Kn/N29cB/OJwYX5OYQdAAJnzpwCWwDS1NPVDhffu2fXf30ddbD4vDmz4OIXzp8D5W84BoUeSE1HWzNcbP++PeDQIsoBIDB/7mywISALQRY/evTwv7WFCVgsLyfj/79//3DGLyjIQeo2blhHehqAAZAFeTmZYIOszI3/B/l7g9mguPz48SPeBEYVB4AAyCIvd2d4HJoY6vy/evUKwRRONQeAAMhCmAOWLFpAVBajqgOgisH49KmTow4YdcDAOCArPeW/t4cLSkmGD7S1NIFLw4cPHhDtgAGvjge8QTKwTbIBb5QOimb5gHdMBkXXbFB0TukNAN3I9GAvXknOAAAAAElFTkSuQmCC'
 const TRAY_ICON_64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAD0ElEQVR42u2b208TQRSHgfjmX9BHQlI1CwUF5SpVYghGTb2ERES5iIJUUBOjJiqB4C0SQAlKEXwwKuqDQoX4YhSEclVBuemTscAD1CJyNQgtx5wNIu2UUrrbsu3OL5kHmNmZc765ndnOenhQUVHZIxkj9ZQx0rUyRiqRMVJvGSP1cXLynm8bbfB0mtPyiGDJq5rq1N7eHvXQ4OC331NTk7BKwrbRBrQFbULbHAJDxkg9FHtiJM1NjfnjY2N6EKjQNrQRbUWb+XLeq7xMtffn8HAfuIjQVrQZbefq/JqaavX5mZmZP+BiQpvRdvTB7p7HCgwGgwFcVGj7PASvFc95HEKu2POWRsL8dLAdAC4irjTnbVkT0CebtzpcScHNhD7ZtEXiXirkrY7LFom+LQsAAwpwU6Fvyw5/jKrcFQD6ZnUaYFyNoaW7AkDf0EdrACSrGds74+yAPloD4A1uLvTRGgAf8weMRgNczc2GyPAtEB8XC31aLScD7hYXwbatobBfsQu6uzpXA4DPigC8VFfiQwtJsTsGJiftmyXPnlYQdQkeQHlZqYnRmM6dPbPihnu6uyBoo69JPZs3+S3kV1U+h9SUJDiadJhzwnrUVS/4AaDVfofgIH8CwpOKRzY7Pzo6Cjujo4g6rl3JYfMb6uuIPD5So6aBOwBUTbWaqDwwgLFpDs/NzUGGMpV4PvaAAqanp9kyqpJihwDAenkBgMrNySIaiN4hZ3vXmu6Xk1MoLDgQ+vv/n7U62j+Cv+86Xp0P8FsPnzra+QOAvXUwdh/RkDLtGNvLlvThfRsE+G0wKY+Ovn3zmiir0dRDdtZFuHzpgsWEsM3hL1UW62lq1PCzBizWwEA/RIQGERDKSkuIsnq9HqLkYUTZ/Lwbdq3epzOVJvXg307ZBcxVV/uGGK7Yy62tzSaxQ3JiPOF84pE4mJ2ddW0AqMKCPMK57ZGh8EOnY/NvF+YT+Rj86HRDdu/fggKArwmTE8geTko4xM5vSyOkpaWJUwAjKAAo7G1LcxxXX/P/larucI7gBAcA1dbaQqzy5ik9LQWMRqN7AmBD5XuqJZ3HrerXyAgvMbxgAWAMoDxx3GKk2Nn5mbdDjGAB/Iv18WCz2EDcCfiUoAGgwkNMA6THDx9QABQABUABUAAUAAVAAVAAogCAb3kXG/iurpZXAHk3r/Pyas1hAL5+6WUhyCNCoOhWwZIvSu0VnjcyT6axI+1URjpMTIw7BIDofxwV/c/jor8gIe4rMqK/JEWvydGLkvSqLL0sTa/L0w8m6Ccz9KMp+tkc/XCSikos+gvFQCwQM3DWiAAAAABJRU5ErkJggg=='
 
-/** The page shown while the host boots. */
-const LOADING_PAGE = 'data:text/html;charset=utf-8,' + encodeURIComponent(
-  '<html><body style="margin:0;display:flex;align-items:center;justify-content:center;'
-  + 'height:100vh;background:#fbfaf7;color:#6b6455;font:14px system-ui,\'Microsoft YaHei\',sans-serif">'
-  + '正在启动 yantao 工作台…</body></html>',
-)
+/**
+ * The page shown while the host boots — 20 s and up, measured.
+ *
+ * Two things a static line cannot get right:
+ *
+ * - **Scheme.** The window is up before the workbench's theme snapshot exists,
+ *   so this page cannot read the app's CSS variables: the four colours below
+ *   are copies of `--yt-surface-primary`, `--yt-text-secondary`,
+ *   `--yt-border-subtle` and `--yt-accent` from
+ *   `packages/client/ui-yantao/src/client/frame/yt-tokens.ts`. Keep them equal
+ *   by hand — this page is the one surface outside the token system, and a
+ *   dark-theme boot that flashes warm white is exactly what that costs.
+ * - **Liveness.** A frozen line reads as a hang. The bar is deliberately
+ *   indeterminate: the host reports no progress, so a percentage would be a
+ *   lie, but standing still is a worse one.
+ * @returns the `data:` URL to load.
+ */
+function loadingPage(): string {
+  const dark = nativeTheme.shouldUseDarkColors
+  const surface = dark ? '#1b1916' : '#fbfaf7'
+  const ink = dark ? '#a8a296' : '#6b6455'
+  const track = dark ? '#35322d' : '#e6e2d8'
+  const bar = dark ? '#7ba3e0' : '#4a7fd4'
+  const html = `<html><head><meta charset="utf-8"><style>
+html,body{margin:0;height:100%}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+background:${surface};color:${ink};font:14px system-ui,'Microsoft YaHei',sans-serif}
+.track{width:180px;height:2px;border-radius:2px;background:${track};overflow:hidden}
+.bar{width:40%;height:100%;border-radius:2px;background:${bar};animation:slide 1.4s ease-in-out infinite}
+@keyframes slide{from{transform:translateX(-100%)}to{transform:translateX(350%)}}
+@media (prefers-reduced-motion: reduce){.bar{animation:none;width:100%;opacity:.5}}
+</style></head><body><div>正在启动 yantao 工作台…</div><div class="track"><div class="bar"></div></div></body></html>`
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(html)
+}
 
 let tray: Tray | undefined
 let window: BrowserWindow | undefined
@@ -303,6 +331,9 @@ function buildTray(onRestart: () => void): void {
   tray.setToolTip('yantao')
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '打开', click: () => { window?.show() } },
+    // A wedged page needs a reload, not a host restart (2026-10-24 评审 P2):
+    // the host is fine, and restarting it costs a 20 s boot.
+    { label: '重新加载页面', click: () => { reloadWorkbench('托盘') } },
     // Editing the host (or rebuilding client bundles) needs a host restart;
     // doing it here keeps the window and the tray alive.
     { label: '重启宿主', click: onRestart },
@@ -349,6 +380,7 @@ function ensureWindow(): BrowserWindow {
   })
   window.once('ready-to-show', () => { window?.show() })
   armRendererRecovery(window)
+  armManualReload(window)
   return window
 }
 
@@ -407,11 +439,52 @@ function armRendererRecovery(target: BrowserWindow): void {
   })
 }
 
+/**
+ * The human's escape hatch (2026-10-24 评审 P2).
+ *
+ * Self-healing covers a renderer that died and a main frame that failed to
+ * navigate. It does not cover a page that is alive but wedged — a React tree
+ * that never settles, an await that never resolves — because neither event
+ * fires. Before this, the only door was the tray's 重启宿主, which also kills
+ * the host and costs a 20 s boot; a reload costs nothing.
+ *
+ * Skipped while the host is down: the reload would land on a 404 and turn a
+ * recoverable window into a white one. The tray's 重启宿主 is the move there.
+ * @param reason - who asked (keystroke or tray), for the log line.
+ */
+function reloadWorkbench(reason: string): void {
+  if (window === undefined || quitting) return
+  if (host === undefined || host.exitCode !== null) {
+    console.warn(`yantao: reload requested (${reason}) but the host is down — use the tray's 重启宿主`)
+    return
+  }
+  console.log(`yantao: reloading the workbench (${reason})`)
+  window.webContents.reload()
+}
+
+/**
+ * Bind Ctrl+Shift+R (Cmd+Shift+R) to that reload.
+ *
+ * `Menu.setApplicationMenu(null)` removed the menu accelerators, and with them
+ * Ctrl+R and F12; the shell has to carry the one that matters itself. Match on
+ * `code`, not `key`: with Shift held, `key` is an uppercase R on some layouts
+ * and a different letter entirely on others.
+ * @param target - the window whose web contents to watch.
+ */
+function armManualReload(target: BrowserWindow): void {
+  target.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return
+    if (!(input.control || input.meta) || !input.shift || input.code !== 'KeyR') return
+    event.preventDefault()
+    reloadWorkbench('Ctrl+Shift+R')
+  })
+}
+
 /** Boot the host again and point the existing window at the new URL. */
 async function restartHost(): Promise<void> {
   stopHost()
   const target = ensureWindow()
-  await target.loadURL(LOADING_PAGE)
+  await target.loadURL(loadingPage())
   const started = bootHost()
   host = started.child
   armHostDeathWatch(started)
@@ -458,7 +531,7 @@ async function main(): Promise<void> {
   })
 
   const target = ensureWindow()
-  await target.loadURL(LOADING_PAGE)
+  await target.loadURL(loadingPage())
   target.show()
 
   buildTray(() => {

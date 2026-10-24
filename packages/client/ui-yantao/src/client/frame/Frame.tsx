@@ -8,11 +8,11 @@
  * Panel actions reach `ctx.layout` through the `panels` seat: the frame owns
  * the state, the service face is a thin forwarder.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TreeLoader } from '../Workbench.tsx'
 import { IntakeRail, WorkspaceRail } from '../Workbench.tsx'
-import { tabItemActiveStyle, tabItemStyle, toolButtonStyle } from '../buttons.ts'
+import { tabItemActiveStyle, tabItemStyle } from '../buttons.ts'
 import type {
   CapabilityAdopter, CapabilityCreator, CapabilityLoader, CapabilityRegistrar, CapabilityRouteUpdater,
   CapabilityUnregisterer,
@@ -30,37 +30,31 @@ import type {
   Archiver, SkillRewriteApplier,
   SessionPrompter, TodoLoader, TodoWriter,
 } from '../remote.ts'
-import type { AnalysisStage, MailAnalyser } from '../mail-analysis.ts'
-import { createMailRun, useMailRun } from '../mail-run.ts'
+import type { MailAnalyser } from '../mail-analysis.ts'
 import type { RefineGesture, RefineRosterEntry, RefineRunner, RefineRun } from '../refine.ts'
 import type { ValidateRun, ValidateRunner, ValidateScope, ValidateStage } from '../validate.ts'
 import { formatElapsed, runningCount, type TaskKind, type TaskRow, type TaskStatus } from '../task-view.ts'
 import type { SessionDetailLoader } from '../session-detail.ts'
 import { SessionDetailDrawer } from '../SessionDetailDrawer.tsx'
-import type { Proposal, ProposalMailRange } from '../proposal.ts'
-import { applyProposal, runUndo, type ProposalApplyResult, type ProposalUndo } from '../proposal-apply.ts'
-import { proposalOfPayload } from '../capability-match.ts'
+import type { Proposal } from '../proposal.ts'
 import { capabilityGestureMessage } from '../capability-gesture.ts'
 import { ProposalCard } from '../ProposalCard.tsx'
 import { QuestionDialog } from '../QuestionDialog.tsx'
-import { ConfigDialog } from '../ConfigDialog.tsx'
 import type { ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from '../model-config.ts'
-import { DingTalkDialog } from '../DingTalkDialog.tsx'
 import type { DingTalkConfigDraft, DingTalkConfigView, DingTalkSaveResult } from '../dingtalk-config.ts'
-import { WorkspaceCliDialog } from '../WorkspaceCliDialog.tsx'
 import type { WorkspaceCliConfigDraft, WorkspaceCliConfigView, WorkspaceCliSaveResult, WorkspaceCliTestResult } from '../workspace-cli-config.ts'
 import type { KbDingtalkBindingRow } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { CapabilityMenu, SelectionMenu } from '../SelectionMenu.tsx'
 import { obsidianUri, remoteMessage, type ResourceViewReader } from '../remote.ts'
 import { notifySchedule, scheduleScan, formatRunStats, type ScheduleRunner } from '../scheduler.ts'
 import { SchedulePane } from '../SchedulePane.tsx'
-import type { KbCapabilitySummary, KbDeleteResourceResult, KbLinksResult, KbMailFetchArgs, KbMailFetchResult, KbQueuedProposal, KbRelationGraphResult, KbSchedule, KbScheduleRunReportArgs, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId, KbWorkspace, KbWorkspaceInstructionScheduleSetArgs } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
+import type { KbCapabilitySummary, KbDeleteResourceResult, KbLinksResult, KbRelationGraphResult, KbSchedule, KbScheduleRunReportArgs, KbSetEntityArchivedResult, KbTreeSection, KbTreeSectionId, KbWorkspace, KbWorkspaceInstructionScheduleSetArgs } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { FileEditor, type FileEditorApi, type SaveStatus } from '../editor/FileEditor.tsx'
 import { MarkdownView } from '../editor/MarkdownView.tsx'
 import { ReadOnlyFile } from '../editor/ReadOnlyFile.tsx'
 import { Onboarding } from '../Onboarding.tsx'
 import {
-  CONVERSATION_TAB, INBOX_TAB, INSIGHTS_TAB, SCHEDULE_TAB, TASKS_TAB,
+  CONVERSATION_TAB, INSIGHTS_TAB, SCHEDULE_TAB, TASKS_TAB,
   activateTab, activeFile, closeTab, emptyTabs, openTab,
   persistFixedTabs, persistTabs,
   readOnlyPath,
@@ -69,6 +63,10 @@ import {
   type ClosableFixedTab, type FixedTabsOpen, type TabMode, type TabState,
 } from '../tabs.ts'
 import { CenterPane, type ViewMode } from './CenterPane.tsx'
+import { FrameFooter } from './FrameFooter.tsx'
+import { FrameDialogs } from './FrameDialogs.tsx'
+import { useMailRunWiring } from './use-mail-run.ts'
+import { useProposalPipeline } from './use-proposal-pipeline.ts'
 import { GraphPane } from './GraphPane.tsx'
 import { InboxPane } from './InboxPane.tsx'
 import { MemoryProposalZone } from '../MemoryProposalZone.tsx'
@@ -79,7 +77,7 @@ import type { SidebarRightFileSeat } from '../sidebar-right.ts'
 import { NARROW, RAIL_DEFAULT, clampRail, solveColumns } from './columns.ts'
 import { comfortWidth, persistRailWidths, readRailWidths, type RailWidthPrefs } from './rail-widths.ts'
 import type { WorkbenchT } from '../locales.ts'
-import { ShortcutsDialog, type ShortcutCatalogFace, type ShortcutFixedCatalogFace } from '../ShortcutsDialog.tsx'
+import type { ShortcutCatalogFace, ShortcutFixedCatalogFace } from '../ShortcutsDialog.tsx'
 
 /** Full props: the render share for the four seats this frame declares, plus the panel-action seat. */
 export type FrameProps = PropsRenderSlots<'main' | 'shell.overlay' | 'center.insights' | 'center.insights.pressure'> & {
@@ -299,43 +297,6 @@ const colStyle = { minWidth: 0, overflow: 'hidden' } as const
 const railColStyle = { ...colStyle, background: 'var(--yt-surface-primary)' } as const
 
 const overlayStyle = { position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' } as const
-
-/** The grid's reserved second row: a slim utility strip, button left-aligned. */
-const footerStripStyle = {
-  gridColumn: '1 / -1',
-  display: 'flex',
-  alignItems: 'center',
-  padding: 'var(--yt-space-1) var(--yt-space-3)',
-  borderTop: '1px solid var(--yt-border-subtle)',
-  background: 'var(--yt-surface-primary)',
-} as const
-
-/** 页脚「配置」「快捷键」是常驻低频入口：穿共享 tool 面（无边框、label
-    字号、弱墨），只保留比行内工具宽一档的内边距（2026-10-14 复评 B：
-    此前是裸 UA 按钮，页脚与暖纸界面像两个软件）。 */
-const footerButtonStyle = { ...toolButtonStyle, padding: 'var(--yt-space-1) var(--yt-space-3)' } as const
-
-/** 页脚开关的激活面（2026-10-23 评审 P1-4）：四个开关与中栏页签同目的地，
-    此前点已激活的那个毫无反馈、读屏也听不出「当前在哪」——§5 要求全工作台
-    只有一种「当前在哪」的说法，页脚这处现在也给出同一句话（accent 底 + 字）。 */
-function footerSwitchFace(active: boolean): React.CSSProperties {
-  return active
-    ? { ...footerButtonStyle, background: 'var(--yt-accent-bg)', color: 'var(--yt-accent-text)' }
-    : footerButtonStyle
-}
-
-/** The footer switches' counter pill (2026-10-15): same cut as the 任务 hub's
-    sub-tab badges — accent ground, on-accent ink — so one number reads the
-    same everywhere. */
-const footerBadgeStyle = {
-  borderRadius: 8,
-  background: 'var(--yt-accent)',
-  color: 'var(--yt-on-accent)',
-  fontSize: 'var(--yt-type-label)',
-  lineHeight: '16px',
-  padding: '0 var(--yt-space-2)',
-  marginLeft: 'var(--yt-space-1)',
-} as const
 
 /** The stack holding one file's two views; both stay mounted, one is shown. */
 const bothPanesStyle = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } as const
@@ -813,34 +774,6 @@ export function Frame({
     setTabs(state => openTab(state, path, mode))
   }, [])
 
-  // ADR-0021 决定 4: the confirmed proposal lands through the shared applier's
-  // direct RPCs — the frame owns the KB seams, the task owns the state machine.
-  // ADR-0032 批次③: the card's 记忆 rows go through the same memoryAdd. The
-  // three undo-only verbs ride along so the written report can offer 撤销.
-  // The mail verbs and the skill writeback ride along too (their absence made
-  // inbox-approved 删除/归档/下载 rows skip honestly — the inbox IS their
-  // decision surface, so the knives belong here), each only when the host
-  // supplied the face.
-  const applyConfirmed = useCallback(
-    (options: { proposal: Proposal; ticked: readonly number[] }): Promise<ProposalApplyResult> =>
-      applyProposal({
-        ...options,
-        target: {
-          createEntity, read, write, todos, writeTodos, memoryAdd, archiveEntity, memoryDelete, deleteResource,
-          resolveEntity,
-          ...(mailDelete !== undefined ? { deleteMails: mailDelete } : {}),
-          ...(mailArchive !== undefined ? { archiveMails: mailArchive } : {}),
-          ...(skillRewriteApply !== undefined ? { skillRewrite: skillRewriteApply } : {}),
-        },
-      }),
-    [createEntity, read, write, todos, writeTodos, memoryAdd, archiveEntity, memoryDelete, deleteResource,
-      resolveEntity, mailDelete, mailArchive, skillRewriteApply],
-  )
-
-  // The one confirm path every proposal card shares (capability runs'
-  // ADR-0021 决定 4, refine's ADR-0029 决定 3): apply, reload the trees, and
-  // report the writes — or the failure — in the foot notice.
-
   // ── the 任务 tab's rows (ADR-0031) ────────────────────────────────────────
   // One row per execution the workbench itself started — refine gestures,
   // mail analyses, script capability runs — this session only, frontend
@@ -945,51 +878,6 @@ export function Frame({
   // card callback's undo rides the same stash. The report accepts either
   // the card flow's full result or the inbox RPC's wire-safe trail (its
   // undo carries the irreversible names only — the steps never left home).
-  type ConfirmWrittenResult = Omit<ProposalApplyResult, 'undo'> & { undo?: Pick<ProposalUndo, 'irreversible'> }
-  const confirmWritten = (result: ConfirmWrittenResult, entryId?: string): void => {
-    const text = [...result.written, ...result.skipped].join('；') || '没有写入任何内容。'
-    const undo = result.undo
-    if (undo === undefined) {
-      setCapabilityNotice(text, { severity: 'info' })
-      return
-    }
-    const suffix = undo.irreversible.length > 0 ? `（其中 ${undo.irreversible.length} 项不可撤销）` : ''
-    setCapabilityNotice(text + suffix, {
-      severity: 'undo',
-      action: {
-        label: '撤销',
-        run: () => {
-          setCapabilityNotice(null)
-          if (entryId !== undefined) {
-            void proposalInboxUndo({ id: entryId }).then(({ failed }) => {
-              setTreeKey(key => key + 1)
-              setCapabilityNotice(failed.length === 0 ? '已撤销刚才的写入。' : `撤销失败：${failed.join('；')}`,
-                { severity: failed.length === 0 ? 'info' : 'error' })
-            }, (failure: unknown) => {
-              setCapabilityNotice(`撤销失败：${remoteMessage(failure)}`, { severity: 'error' })
-            })
-            return
-          }
-          // Card flow only: this branch never runs for an inbox row, whose
-          // trail carries no steps — the cast restores the full undo shape.
-          void runUndo(undo as ProposalUndo).then(({ failed }) => {
-            setTreeKey(key => key + 1)
-            setCapabilityNotice(failed.length === 0 ? '已撤销刚才的写入。' : `撤销失败：${failed.join('；')}`,
-              { severity: failed.length === 0 ? 'info' : 'error' })
-          })
-        },
-      },
-    })
-  }
-
-  const confirmProposal = useCallback((proposal: Proposal, ticked: readonly number[]): void => {
-    void applyConfirmed({ proposal, ticked }).then((result) => {
-      setTreeKey(key => key + 1)
-      confirmWritten(result)
-    }, (failure: unknown) => {
-      setCapabilityNotice(`写入失败：${remoteMessage(failure)}`, { severity: 'error' })
-    })
-  }, [applyConfirmed])
 
   // ── the 调度 tab and its scheduler (ADR-0045) ────────────────────────────
   // Definitions persist in the KB store; instances are ordinary task rows.
@@ -1037,63 +925,19 @@ export function Frame({
     return () => { stale = true }
   }, [workspaceList])
 
-  // ── the 提议 tab and its inbox (ADR-0047) ────────────────────────────────
-  // The scheduler's proposals wait here for the human's verdict: 批准
-  // applies through the same human-channel seams as every other card and
-  // only then settles the row approved; 丢弃 settles it without writing;
-  // closing the card decides nothing. The read rides the scheduler's scan
-  // (declared below), so a fired run's proposal surfaces without a remount.
-  const [inboxEntries, setInboxEntries] = useState<readonly KbQueuedProposal[]>([])
-  const [inboxLoaded, setInboxLoaded] = useState(false)
-  const [inboxBusyId, setInboxBusyId] = useState<string | null>(null)
-
-  // ADR-0047 验收修正 2: settling a mail-covering entry moves the mail
-  // watermark past the envelope's range — the same "seen and judged" sense
-  // the manual panel's confirm/dismiss carries, so the next read never
-  // re-offers the batch. A failed cursor move stays silent, exactly like the
-  // manual path's: the host answers from its watermark on the next read.
-  const moveMailCursor = useCallback((range: ProposalMailRange | undefined): void => {
-    if (range === undefined) return
-    void mailMarkRead({
-      lastReadAt: range.lastReadAt,
-      ...(range.firstReadAt !== undefined ? { firstReadAt: range.firstReadAt } : {}),
-    }).catch(() => { /* the next read re-derives from the host's watermark */ })
-  }, [mailMarkRead])
-
-  const loadInboxTick = useRef(0)
-  const loadInbox = useCallback((): void => {
-    // Stale-response guard (the schedule-scan and relation-graph effects'
-    // pattern): mount, the 30s scan and the post-run refresh overlap, and a
-    // slower older answer must not land last over a fresher one.
-    const at = ++loadInboxTick.current
-    void proposalInboxList().then(
-      (result) => {
-        if (at !== loadInboxTick.current) return
-        setInboxEntries(result.proposals)
-        setInboxLoaded(true)
-      },
-      (failure: unknown) => {
-        if (at !== loadInboxTick.current) return
-        setCapabilityNotice(`提议读取失败：${remoteMessage(failure)}`, { severity: 'error' })
-      },
-    )
-  }, [proposalInboxList])
-
-  // 2026-10-10 分流提示：提议卡里指向已注册能力的 add-memory 行要附一句
-  // 「考虑改提技能改写」——能力名清单挂载时读一次即可，读失败只是没提示。
-  const [capabilityScopes, setCapabilityScopes] = useState<readonly string[]>([])
-  useEffect(() => {
-    let gone = false
-    void capabilityList().then(
-      (result) => {
-        if (!gone) setCapabilityScopes(result.capabilities.map(row => row.name))
-      },
-      () => { /* 提示是装饰，读取失败不值得打扰 */ },
-    )
-    return () => { gone = true }
-  }, [capabilityList])
-
-  useEffect(() => { loadInbox() }, [loadInbox])
+  const {
+    confirmProposal, inboxEntries, inboxLoaded, inboxBusyId,
+    confirmInboxEntry, discardInboxEntry, reenqueueInboxEntry, loadInbox, capabilityScopes,
+  } = useProposalPipeline({
+    createEntity, read, write, todos, writeTodos, memoryAdd, archiveEntity, memoryDelete, deleteResource,
+    resolveEntity,
+    ...(mailDelete !== undefined ? { mailDelete } : {}),
+    ...(mailArchive !== undefined ? { mailArchive } : {}),
+    ...(skillRewriteApply !== undefined ? { skillRewriteApply } : {}),
+    mailMarkRead, proposalInboxList, proposalInboxApply, proposalInboxResolve, proposalInboxEnqueue,
+    proposalInboxUndo, capabilityList, notice: setCapabilityNotice,
+    refreshTrees: () => { setTreeKey(key => key + 1) },
+  })
 
   // ── the 图谱 tab and its relation graph (ADR-0049) ───────────────────────
   // One read at mount: the graph is a browsing overview, not a live monitor —
@@ -1110,95 +954,6 @@ export function Frame({
   }, [relationGraph])
 
   useEffect(() => { reloadGraph() }, [reloadGraph])
-
-  // 重新入队（2026-10-14 丢弃后悔药）：误丢弃的恢复不是撤销旧决策（决策
-  // 终态不可改，入库闸门单向），而是把条目内容原样投回队列——新 id、新
-  // 时间戳、pending 等待重新裁决；旧的已丢弃条目留在列表里当痕迹。
-  const reenqueueInboxEntry = useCallback((entry: KbQueuedProposal): void => {
-    setInboxBusyId(entry.id)
-    void proposalInboxEnqueue({
-      source: entry.source,
-      sourceName: entry.sourceName,
-      title: entry.title,
-      ...(entry.note !== undefined ? { note: entry.note } : {}),
-      proposal: entry.proposal,
-    }).then(
-      (result) => {
-        setInboxBusyId(null)
-        setInboxEntries(result.proposals)
-        setCapabilityNotice(`已重新入队提议「${entry.title}」，等待重新裁决。`, { severity: 'info' })
-      },
-      (failure: unknown) => {
-        setInboxBusyId(null)
-        setCapabilityNotice(`重新入队失败：${remoteMessage(failure)}`, { severity: 'error' })
-      },
-    )
-  }, [proposalInboxEnqueue])
-
-  const discardInboxEntry = useCallback((entry: KbQueuedProposal): void => {
-    setInboxBusyId(entry.id)
-    void proposalInboxResolve({ id: entry.id, status: 'discarded' }).then(
-      (result) => {
-        setInboxBusyId(null)
-        setInboxEntries(result.proposals)
-        // 丢弃也算看过 (the manual dismiss's own sense, ADR-0047 验收修正 2).
-        moveMailCursor(proposalOfPayload(entry.proposal)?.mails)
-        // 2026-10-23 评审：丢弃和写入都是「可恢复的轻裁决」，恢复动作就该同样
-        // 挂在通知条上——此前写入有 90 秒撤销芯片，丢弃只有一句「已丢弃」，
-        // 后悔药藏在行尾的「重新入队」里。
-        setCapabilityNotice(`已丢弃提议「${entry.title}」。`, {
-          severity: 'undo',
-          action: { label: '重新入队', run: () => { reenqueueInboxEntry(entry) } },
-        })
-      },
-      (failure: unknown) => {
-        setInboxBusyId(null)
-        setCapabilityNotice(`提议处置失败：${remoteMessage(failure)}`, { severity: 'error' })
-      },
-    )
-  }, [proposalInboxResolve, moveMailCursor, reenqueueInboxEntry])
-
-  // 批准: the whole thing is one server RPC now (ADR-0060 决定 7) — the
-  // controller binds the KB seams itself, applies, and settles the row in
-  // the SAME call, so the client no longer choreographs apply → settle or
-  // compensates a failed settle (the server's discard re-push covers that).
-  // The result is a three-way verdict: applied (with the settlement status),
-  // preflight-blocked (nothing written, the row stays pending — the remedy
-  // is a restart, not a re-ask), already-decided (a repeated card callback
-  // or double-click — idempotent no-op, the list refreshes to what's stored).
-  // Something landed → the covered mails count as processed (ADR-0047
-  // 验收修正 2); a zero-write apply leaves the mails unprocessed so the
-  // nomination can come again.
-  const confirmInboxEntry = useCallback((entry: KbQueuedProposal, ticked: readonly number[]): void => {
-    setInboxBusyId(entry.id)
-    void proposalInboxApply({ id: entry.id, ticked }).then((outcome) => {
-      setInboxBusyId(null)
-      if (outcome.kind === 'already-decided') {
-        void proposalInboxList().then(list => setInboxEntries(list.proposals))
-        setCapabilityNotice(`提议「${entry.title}」已被处理过（${outcome.status}），无需重复操作。`, { severity: 'info' })
-        return
-      }
-      if (outcome.kind === 'preflight-blocked') {
-        setCapabilityNotice(outcome.message, { severity: 'error' })
-        return
-      }
-      const result = outcome.apply
-      const proposal = proposalOfPayload(entry.proposal)
-      if (proposal !== null && result.perAction.some(row => row.ok)) moveMailCursor(proposal.mails)
-      setInboxEntries(outcome.proposals)
-      if (outcome.status === 'failed') {
-        const detail = result.perAction.filter(row => !row.ok).map(row => row.error).join('；')
-        setCapabilityNotice(`提议「${entry.title}」零写入，已记为失败：${detail}`, { severity: 'error' })
-        return
-      }
-      setTreeKey(key => key + 1)
-      confirmWritten(result, entry.id)
-    }, (failure: unknown) => {
-      setInboxBusyId(null)
-      // An apply-level surprise — the row stays pending on disk either way.
-      setCapabilityNotice(`写入失败：${remoteMessage(failure)}`, { severity: 'error' })
-    })
-  }, [proposalInboxApply, proposalInboxList, confirmWritten, moveMailCursor])
 
   // One serialized write channel for every schedule write (OCR 2026-10-03):
   // the pane's full-list saves and the scheduler's stamp patches tail-chain
@@ -1729,83 +1484,9 @@ export function Frame({
     validateAbort.current?.abort()
   }, [taskEnd, validateQuestion])
 
-  // ── the mail run (ADR-0031) ──────────────────────────────────────────────
-  // The frame owns the mail run store now: the 任务 tab mirrors every
-  // analysis as a row, so the store must live where the frame can watch it.
-  // It already outlived the panel; now it outlives the rail's tab strip too.
-  const mailRun = useMemo(() => createMailRun(), [])
-  const mailState = useMailRun(mailRun)
-  // The analysis's row, from `analysing` through the proposal card to the
-  // write (or the dismiss) — the store's phase transitions drive it.
-  const mailTaskId = useRef<string | null>(null)
-  useEffect(() => {
-    const stageOf = (stage: AnalysisStage): string =>
-      stage === 'session' ? '创建会话' : stage === 'prompt' ? '准备分析' : '分批判定'
-    if (mailState.phase === 'analysing') {
-      const id = mailTaskId.current ?? taskBegin('mail', `邮件分析（${mailState.mails.length} 封）`, '创建会话', 'mail')
-      mailTaskId.current = id
-      const progress = mailState.progress
-      const detail = progress !== null && progress.done !== undefined && progress.total !== undefined
-        ? `已判 ${progress.done}/${progress.total} 封`
-        : null
-      taskPatch(id, {
-        stage: progress === null ? '创建会话' : stageOf(progress.stage),
-        ...(detail !== null ? { detail } : {}),
-        // Anchor the row's 「详情」 entry once the run's session exists (ADR-0033).
-        ...(mailState.sessionId !== null ? { sessionId: mailState.sessionId } : {}),
-      })
-      return
-    }
-    if (mailState.phase === 'applying') {
-      if (mailTaskId.current !== null) taskPatch(mailTaskId.current, { status: 'running', stage: '正在写入' })
-      return
-    }
-    if (mailTaskId.current === null) return
-    const id = mailTaskId.current
-    if (mailState.review !== null) {
-      // 待确认不是这条行的终点：确认后的写入、或关掉卡片，都是同一行的
-      // 后续阶段 —— 所以这里只挂起行，id 必须留着（清了它，确认写入后
-      // 的 applying/idle 两拍都会因拿不到 id 而 return，行永远停在待确认）。
-      taskPatch(id, { status: 'waiting', stage: '提议待确认' })
-      return
-    }
-    mailTaskId.current = null
-    if (mailState.cancelled) taskEnd(id, 'cancelled', '已取消，已完成的判定保留')
-    else if (mailState.error !== null) taskEnd(id, 'failed', mailState.error)
-    else if (mailState.summary.length > 0) taskEnd(id, 'done', `已写入 ${mailState.summary.length} 项`)
-    else taskEnd(id, 'done', '已忽略')
-  }, [mailState, taskBegin, taskPatch, taskEnd])
-
-  // The fetch is an execution the workbench started too (ADR-0031 落地注记二):
-  // the panel's 读取 buttons go through this wrapper, so the read shows as a
-  // row of its own — 「读取邮件」 — with the same cancel line as any
-  // capability run: the signal rides the RPC and an abort kills the reader
-  // subprocess server-side. Its row is watched by id, not by the analysis's
-  // store — the two lifecycles never overlap (the analysis starts from the
-  // fetch's result).
-  const mailFetchTaskId = useRef<string | null>(null)
-  const mailFetchAbort = useRef<AbortController | null>(null)
-  const bookedMailFetch = useCallback(async (args: KbMailFetchArgs): Promise<KbMailFetchResult> => {
-    const taskId = taskBegin('mail', '读取邮件', '读取中', 'mail')
-    mailFetchTaskId.current = taskId
-    const aborter = new AbortController()
-    mailFetchAbort.current = aborter
-    try {
-      const result = await mailFetch(args, aborter.signal)
-      // An empty read is a no-op (the watermark already covers the range) —
-      // it leaves no row behind instead of a done-line that says nothing.
-      if (result.messages.length === 0) taskDrop(taskId)
-      else taskEnd(taskId, 'done', `已读 ${result.messages.length} 封`)
-      return result
-    } catch (failure: unknown) {
-      if (aborter.signal.aborted) taskEnd(taskId, 'cancelled', '已取消')
-      else taskEnd(taskId, 'failed', `失败：${remoteMessage(failure)}`)
-      throw failure
-    } finally {
-      mailFetchTaskId.current = null
-      mailFetchAbort.current = null
-    }
-  }, [mailFetch, taskBegin, taskEnd, taskDrop])
+  const { mailRun, bookedMailFetch, cancelMailRow } = useMailRunWiring({
+    mailFetch, taskBegin, taskPatch, taskEnd, taskDrop,
+  })
 
   // ADR-0033: the 任务 row's 「详情」 — a read-only drawer over the run's
   // session log. The row anchors to a session only when its run made one
@@ -1842,11 +1523,10 @@ export function Frame({
     if (row.kind === 'refine') cancelRefine()
     else if (row.kind === 'validate') cancelValidate()
     else if (row.kind === 'schedule') scheduleAborts.current.get(row.id)?.abort()
-    else if (row.kind === 'mail' && row.id === mailFetchTaskId.current) mailFetchAbort.current?.abort()
-    else if (row.kind === 'mail') mailRun.cancel()
+    else if (row.kind === 'mail') cancelMailRow(row.id)
     // ADR-0052 决定 3 retired the generic capability run, so no 'capability'
     // task row is minted any more — nothing to cancel here.
-  }, [cancelRefine, cancelValidate, mailRun])
+  }, [cancelMailRow, cancelRefine, cancelValidate])
 
   // ADR-0017: editing belongs to Obsidian, so this only hands the file over.
   // Without a root we still open the KB-relative path and let the host resolve
@@ -2396,112 +2076,48 @@ export function Frame({
           t={t}
         />
       </div>
-      {/* The reserved grid row: the four fixed-tab switches (任务/提议/调度/
-          洞察) live at the window's bottom-left (2026-10-15 截图评审)；配置
-          与快捷键是低频入口，沉到右下角（同日用户裁决，配置改名模型配置）。
-          点击开关直达各自的平铺 tab（任务 hub 的子页壳同日拆除）；有信号的
-          开关戴计数胶囊（任务=运行中，提议=待批提议+待批记忆），洞察关闭时
-          压力点随钮走，警报不失明。 */}
-      <div style={footerStripStyle}>
-        <button
-          style={footerSwitchFace(tabs.active === TASKS_TAB)}
-          aria-current={tabs.active === TASKS_TAB ? 'page' : undefined}
-          data-footer-tasks="true"
-          data-hover="true"
-          onClick={() => { activate(TASKS_TAB) }}
-        >
-          {t('footer.tasks')}
-          {runningTasks > 0 && <span data-footer-badge="tasks" style={footerBadgeStyle}>{runningTasks}</span>}
-        </button>
-        <button
-          style={footerSwitchFace(tabs.active === INBOX_TAB)}
-          aria-current={tabs.active === INBOX_TAB ? 'page' : undefined}
-          data-footer-inbox="true"
-          data-hover="true"
-          onClick={() => { activate(INBOX_TAB) }}
-        >
-          {t('footer.inbox')}
-          {pendingProposals + pendingMemories > 0 && <span data-footer-badge="inbox" style={footerBadgeStyle}>{pendingProposals + pendingMemories}</span>}
-        </button>
-        <button
-          style={footerSwitchFace(tabs.active === SCHEDULE_TAB)}
-          aria-current={tabs.active === SCHEDULE_TAB ? 'page' : undefined}
-          data-footer-schedule="true"
-          data-hover="true"
-          onClick={() => { activate(SCHEDULE_TAB) }}
-        >
-          {t('footer.schedule')}
-        </button>
-        <button
-          style={footerSwitchFace(tabs.active === INSIGHTS_TAB)}
-          aria-current={tabs.active === INSIGHTS_TAB ? 'page' : undefined}
-          data-footer-insights="true"
-          data-hover="true"
-          onClick={() => { activate(INSIGHTS_TAB) }}
-        >
-          {t('footer.insights')}
-          {/* The pressure alarm rides the tab label while the tab is open;
-              once it closes, the footer switch is its only home — the alarm
-              must stay globally visible (ADR-0057). */}
-          {!fixedOpen.insights && insightsPressure}
-        </button>
-        {/* 右侧四个对话框入口（2026-10-24 用户反馈）：点开后模态会把焦点还给
-            按钮，程序化聚焦触发 ：focus-visible 蓝框，与左侧四个 tab 开关
-            （焦点随即走进内容区）观感不一致——开对话框前主动交还焦点。 */}
-        <button style={{ ...footerButtonStyle, marginLeft: 'auto' }} data-config-button="true" data-hover="true" onClick={(event) => { event.currentTarget.blur(); setConfigOpen(true) }}>
-          {t('config.open')}
-        </button>
-        {/* 2026-10-23：工作空间无头 CLI 的 key/模型配置，独立低频入口。 */}
-        <button style={footerButtonStyle} data-wscli-button="true" data-hover="true" onClick={(event) => { event.currentTarget.blur(); setWsCliOpen(true) }}>
-          {t('wscli.open')}
-        </button>
-        {/* ADR-0060 决定 2：底部状态条的钉钉入口，配置对话框沿模型配置范式。 */}
-        <button style={footerButtonStyle} data-dingtalk-button="true" data-hover="true" onClick={(event) => { event.currentTarget.blur(); setDingtalkOpen(true) }}>
-          {t('dingtalk.open')}
-        </button>
-        {/* 2026-10-09 第四轮评审 P1：8 条热键注册后无处可见——这个只读目录
-            是它们的展示面，键帽实时读注册表 catalog（改键/平台差异自动跟随）。 */}
-        <button style={footerButtonStyle} data-shortcuts-button="true" data-hover="true" onClick={(event) => { event.currentTarget.blur(); setShortcutsOpen(true) }}>
-          {t('shortcuts.open')}
-        </button>
-      </div>
+      <FrameFooter
+        t={t}
+        activeTab={tabs.active}
+        insightsClosed={!fixedOpen.insights}
+        runningTasks={runningTasks}
+        pendingInbox={pendingProposals + pendingMemories}
+        insightsPressure={insightsPressure}
+        onActivate={activate}
+        onOpenConfig={() => { setConfigOpen(true) }}
+        onOpenWsCli={() => { setWsCliOpen(true) }}
+        onOpenDingtalk={() => { setDingtalkOpen(true) }}
+        onOpenShortcuts={() => { setShortcutsOpen(true) }}
+      />
       <div style={overlayStyle}>{renderSlot('shell.overlay', {})}</div>
       {needsRoot && (
         <Onboarding setRoot={setRoot} pickDirectory={pickDirectory} onConfigured={onConfigured} t={t} />
       )}
-      {configOpen && (
-        <ConfigDialog
-          t={t}
-          load={loadModelsConfig}
-          save={saveModelsConfig}
-          onClose={() => { setConfigOpen(false) }}
-        />
-      )}
-      {wsCliOpen && (
-        <WorkspaceCliDialog
-          t={t}
-          load={loadWorkspaceCliConfig}
-          save={saveWorkspaceCliConfig}
-          test={testWorkspaceCli}
-          onClose={() => { setWsCliOpen(false) }}
-        />
-      )}
-      {dingtalkOpen && (
-        <DingTalkDialog
-          t={t}
-          load={loadDingTalkConfig}
-          save={saveDingTalkConfig}
-          loadBindings={loadDingTalkBindings}
-          mergeBinding={setDingTalkBinding}
-          mergeTarget={currentDingtalkMergeTarget}
-          openSession={openDingtalkSession}
-          loadTranscript={sessionDetail}
-          onClose={() => { setDingtalkOpen(false) }}
-        />
-      )}
-      {shortcutsOpen && (
-        <ShortcutsDialog t={t} catalog={shortcutCatalog} fixedCatalog={shortcutFixedCatalog} onClose={() => { setShortcutsOpen(false) }} />
-      )}
+      <FrameDialogs
+        t={t}
+        configOpen={configOpen}
+        loadModelsConfig={loadModelsConfig}
+        saveModelsConfig={saveModelsConfig}
+        onCloseConfig={() => { setConfigOpen(false) }}
+        wsCliOpen={wsCliOpen}
+        loadWorkspaceCliConfig={loadWorkspaceCliConfig}
+        saveWorkspaceCliConfig={saveWorkspaceCliConfig}
+        testWorkspaceCli={testWorkspaceCli}
+        onCloseWsCli={() => { setWsCliOpen(false) }}
+        dingtalkOpen={dingtalkOpen}
+        loadDingTalkConfig={loadDingTalkConfig}
+        saveDingTalkConfig={saveDingTalkConfig}
+        loadDingTalkBindings={loadDingTalkBindings}
+        setDingTalkBinding={setDingTalkBinding}
+        currentDingtalkMergeTarget={currentDingtalkMergeTarget}
+        openDingtalkSession={openDingtalkSession}
+        sessionDetail={sessionDetail}
+        onCloseDingtalk={() => { setDingtalkOpen(false) }}
+        shortcutsOpen={shortcutsOpen}
+        shortcutCatalog={shortcutCatalog}
+        shortcutFixedCatalog={shortcutFixedCatalog}
+        onCloseShortcuts={() => { setShortcutsOpen(false) }}
+      />
       {refineProposal !== null && (
         <ProposalCard
           proposal={refineProposal}

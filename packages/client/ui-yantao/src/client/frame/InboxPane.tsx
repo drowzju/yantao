@@ -13,7 +13,7 @@
  * colors and metrics ride the `--yt-*` tokens. Pure presentation: the rows
  * and the two verdicts arrive as props.
  */
-import { useState, type ReactElement } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import type { KbQueuedProposal } from '@deepseek-ai/dsh-api-yantao-kb-controller/types'
 import { proposalOfPayload } from '../capability-match.ts'
 import type { WorkbenchT } from '../locales.ts'
@@ -21,6 +21,7 @@ import { ProposalCard } from '../ProposalCard.tsx'
 import { ghostButtonStyle, toolButtonStyle } from '../buttons.ts'
 import { activatable } from '../activatable.ts'
 import { formatStamp } from '../stamp.ts'
+import { inboxSeat } from '../inbox-seat.ts'
 
 /** The pane's props: the inbox's rows, the in-flight decision, the two verdicts. */
 export interface InboxPaneProps {
@@ -192,6 +193,21 @@ export function InboxPane({ entries, busyId, onConfirm, onDiscard, onReenqueue, 
   const openCard = (entry: KbQueuedProposal): void => { setOpenId(entry.id) }
   const openEntry = openId === null ? undefined : entries.find(entry => entry.id === openId)
   const openProposal = openEntry === undefined ? null : proposalOfPayload(openEntry.proposal)
+  // 「下一条未决」座位（2026-10-24 评审 P2）：命令在插件层，哪张卡开着只有本
+  // pane 知道，所以挂载即占座、卸载让位。没有未决条目时按一下什么都不做；
+  // 已有卡开着则循环到下一条，走完一轮回到第一条。
+  useEffect(() => {
+    inboxSeat.current = () => {
+      // 一次只裁一条：写还在飞的时候再开一张卡，等于给自己留了两条确认路。
+      if (busyId !== null) return
+      const pending = ordered(entries).filter(entry => entry.status === 'pending')
+      if (pending.length === 0) return
+      const at = pending.findIndex(entry => entry.id === openId)
+      const next = pending[(at + 1) % pending.length]
+      if (next !== undefined) setOpenId(next.id)
+    }
+    return () => { inboxSeat.current = null }
+  }, [entries, openId, busyId])
   return (
     <div style={paneStyle} data-inbox-pane="true">
       {entries.length === 0 ? (

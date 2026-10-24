@@ -2,8 +2,9 @@
  * Workbench keyboard commands (batch one of the keyboard-efficiency pass):
  * four centre-tab jumps (ADR-0057 collapsed the six-tab strip to three, then
  * 2026-10-23 added 提议 on the vacant Digit4 — Digit5-6 stay vacant rather
- * than carrying two-step sub-region semantics)
- * and the config dialog — registered through the shared shortcuts framework
+ * than carrying two-step sub-region semantics), the config dialog, and the
+ * inbox's next-undecided jump (2026-10-24 评审 P2) — registered through the
+ * shared shortcuts framework
  * (the same registry ui-workspace contributes to), never a bespoke keydown
  * listener. The proposal card's verdict keys (J/K/Space/Enter, 2026-10-12
  * 评审 P2-1) ride the same framework's fixed-command path: bare keys the web
@@ -30,6 +31,7 @@ import type { WorkbenchLocaleKey, WorkbenchT } from './locales.ts'
 import type { PanelToggles } from './frame/layout.ts'
 import { CONVERSATION_TAB, INBOX_TAB, INSIGHTS_TAB, TASKS_TAB } from './tabs.ts'
 import { PROPOSAL_MODAL_ID, proposalVerdictSeat, type ProposalVerdictHandler } from './proposal-verdict-seat.ts'
+import { inboxSeat } from './inbox-seat.ts'
 
 /** One centre-tab jump: the registry row and the tab it activates. */
 export interface WorkbenchTabJump {
@@ -111,6 +113,19 @@ export function installWorkbenchShortcuts(ctx: Context, panels: PanelToggles, t:
   }
   register('yantao.config.open', () => t('shortcut.configOpen'), ['open settings', 'config'], 'Comma',
     ['primary', 'shift'], () => ({ status: 'handled', run: () => { panels.setConfigOpen(true) } }))
+
+  // 「下一条未决提议」（2026-10-24 评审 P2）：最高频的动作此前没有键——得先
+  // Ctrl+4 进提议页、点开某一次运行的卡、再 J 逐行挪。这一条把收件箱切到前台
+  // 并打开下一条未决；卡已开着时由卡内的 J/K/Space/Enter 接管（模态挡住本
+  // 命令）。Period 是浏览器白名单里明列的一档，web 运行时同样可用。
+  register('yantao.inbox.next', () => t('shortcut.inboxNext'), ['next proposal', 'next pending'], 'Period',
+    ['primary', 'shift'], () => ({
+      status: 'handled',
+      run: () => {
+        panels.activateTab(INBOX_TAB)
+        inboxSeat.current?.()
+      },
+    }))
 
   // 提案裁决键（批次一）：固定键走 approval 组注册并预约占位；真正的裁决
   // 动作由挂载中的提案卡通过座位应答——卡片不在，键就是哑弹。只认提案卡

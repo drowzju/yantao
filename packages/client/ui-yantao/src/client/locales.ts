@@ -587,6 +587,7 @@ export const zh = {
 
   // Keyboard shortcuts (tab labels reuse the center.* keys)
   'shortcut.configOpen': '打开配置',
+  'shortcut.inboxNext': '跳到下一条未决提议',
   'shortcut.proposalCursorDown': '提案卡：光标下移一行',
   'shortcut.proposalCursorUp': '提案卡：光标上移一行',
   'shortcut.proposalTick': '提案卡：勾选／取消当前行',
@@ -1157,6 +1158,7 @@ export const en = {
 
   // Keyboard shortcuts (tab labels reuse the center.* keys)
   'shortcut.configOpen': 'Open settings',
+  'shortcut.inboxNext': 'Jump to the next undecided proposal',
   'shortcut.proposalCursorDown': 'Proposal card: cursor down one row',
   'shortcut.proposalCursorUp': 'Proposal card: cursor up one row',
   'shortcut.proposalTick': 'Proposal card: tick or untick the current row',

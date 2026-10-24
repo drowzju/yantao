@@ -90,6 +90,9 @@ export const YT_STATIC_TOKENS: Record<string, string> = {
   '--yt-font-code': 'var(--ds-font-family-code, ui-monospace, Consolas, monospace)',
   '--yt-type-label': '12px',
   '--yt-type-body': '13px',
+  // 阅读面单占一档（2026-10-24 评审 P2）：§6 的阅读型表面（proposal 卡、
+  // 实体阅读视图）用它，chrome 仍是 body 13——放大的是论证，不是整个界面。
+  '--yt-type-read': '14px',
   '--yt-type-section': '14px',
   '--yt-type-title': '16px',
   '--yt-type-display': '20px',

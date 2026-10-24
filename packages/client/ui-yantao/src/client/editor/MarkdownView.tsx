@@ -61,7 +61,8 @@ const wrapStyle = {
   minHeight: 0,
   height: '100%',
   fontFamily: 'var(--yt-font-ui)',
-  fontSize: 'var(--yt-type-body)',
+  // 阅读型表面（DESIGN §3 read 档，2026-10-24 评审 P2）：文档正文是给人读的。
+  fontSize: 'var(--yt-type-read)',
   overflowY: 'auto',
 } as const
 

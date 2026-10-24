@@ -10,6 +10,7 @@ import type { ShortcutCommand, ShortcutFixedInput, ShortcutGesture, ShortcutPlat
 import { ShortcutRegistry } from '../../shortcuts/src/client/registry.ts'
 import { PROPOSAL_VERDICT_KEYS, WORKBENCH_TAB_JUMPS, installWorkbenchShortcuts } from '../src/client/shortcuts.ts'
 import { proposalVerdictSeat } from '../src/client/proposal-verdict-seat.ts'
+import { inboxSeat } from '../src/client/inbox-seat.ts'
 import { type PanelToggles } from '../src/client/frame/layout.ts'
 import { WORKBENCH_NS, en, zh } from '../src/client/locales.ts'
 
@@ -67,11 +68,12 @@ async function bench(runtime: 'web' | 'desktop' = 'web', platform: ShortcutPlatf
 afterEach(() => { vi.restoreAllMocks() })
 
 describe('workbench keyboard commands', () => {
-  it('registers the five commands in table order, each with a binding', async () => {
+  it('registers the six commands in table order, each with a binding', async () => {
     const b = await bench()
     expect(b.registry.catalog.getSnapshot().map(row => row.id)).toEqual([
       ...WORKBENCH_TAB_JUMPS.map(jump => `yantao.tab.${jump.tail}`),
       'yantao.config.open',
+      'yantao.inbox.next',
     ])
     expect(b.registry.catalog.getSnapshot().every(row => row.keys.length > 0)).toBe(true)
   })
@@ -79,11 +81,11 @@ describe('workbench keyboard commands', () => {
   it('binds Ctrl+digit jumps and Ctrl+Shift config on web/windows, Cmd+Opt chords on desktop/macos', async () => {
     const b = await bench()
     expect(b.registry.catalog.getSnapshot().map(row => row.aria)).toEqual([
-      'Control+1', 'Control+2', 'Control+3', 'Control+4', 'Control+Shift+,',
+      'Control+1', 'Control+2', 'Control+3', 'Control+4', 'Control+Shift+,', 'Control+Shift+.',
     ])
     const mac = await bench('desktop', 'macos')
     expect(mac.registry.catalog.getSnapshot().map(row => row.keys)).toEqual([
-      ['⌥', '⌘', '1'], ['⌥', '⌘', '2'], ['⌥', '⌘', '3'], ['⌥', '⌘', '4'], ['⌥', '⌘', ','],
+      ['⌥', '⌘', '1'], ['⌥', '⌘', '2'], ['⌥', '⌘', '3'], ['⌥', '⌘', '4'], ['⌥', '⌘', ','], ['⌥', '⌘', '.'],
     ])
   })
 
@@ -98,6 +100,18 @@ describe('workbench keyboard commands', () => {
     expect(b.tabs).toEqual(['conversation', 'insights', 'inbox'])
     expect(b.registry.dispatch(key('Comma', { shift: true }), context, consume).commandId).toBe('yantao.config.open')
     expect(b.config).toEqual([true])
+  })
+
+  it('jumps to the next undecided proposal: inbox first, then the pane seat', async () => {
+    const b = await bench()
+    const next = vi.fn()
+    inboxSeat.current = next
+    onTestFinished(() => { inboxSeat.current = null })
+    const consume = vi.fn()
+    expect(b.registry.dispatch(key('Period', { shift: true }), context, consume))
+      .toMatchObject({ status: 'handled', commandId: 'yantao.inbox.next' })
+    expect(b.tabs).toEqual(['inbox'])
+    expect(next).toHaveBeenCalledOnce()
   })
 
   it('blocks while a modal is open and passes composed input through', async () => {
@@ -121,6 +135,7 @@ describe('workbench keyboard commands', () => {
     expect(b.registry.catalog.getSnapshot().map(row => row.id)).toEqual([
       ...WORKBENCH_TAB_JUMPS.map(jump => `yantao.tab.${jump.tail}`),
       'yantao.config.open',
+      'yantao.inbox.next',
     ])
     expect(b.registry.catalog.getSnapshot().every(row => row.keys.length === 0 && row.aria === undefined)).toBe(true)
   })

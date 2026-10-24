@@ -43,6 +43,9 @@ const cardStyle = {
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 10,
   padding: 'var(--yt-space-4)',
+  // 阅读型表面（DESIGN §3 read 档，2026-10-24 评审 P2）：卡里是给人读的论证，
+  // 不是 chrome；从属证据由 detailStyle 退到 body 13，标签仍是 label 12。
+  fontSize: 'var(--yt-type-read)',
   width: 'min(560px, 92vw)',
   maxHeight: '80vh',
   // 头底固定、仅中段滚动（2026-10-09 评审 P2）：此前整卡 overflow:auto，
@@ -106,11 +109,11 @@ const rowStyle = { display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'flex-
 const tickLabelStyle = { minWidth: 0, cursor: 'pointer' } as const
 const tickLabelStaticStyle = { minWidth: 0 } as const
 
-const detailStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
+const detailStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-body)' } as const
 
 const summaryRowStyle = { display: 'flex', gap: 'var(--yt-space-2)', alignItems: 'center', padding: 'var(--yt-space-1) 0' } as const
 
-const summaryTextStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-label)' } as const
+const summaryTextStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-body)' } as const
 
 const toggleStyle = {
   padding: '0 var(--yt-space-2)',
