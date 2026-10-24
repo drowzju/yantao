@@ -120,9 +120,15 @@
         surfaceContext: true
         trustedHosts: !!js ctx.webStartup.trustedHosts
 
-    # The client-plugin reload chain (idle unless pnpm run dev:web rebuilds).
+    # The client-plugin reload chain (idle unless a client bundle is rebuilt).
+    # 2026-10-24：轮询从默认 500ms 放宽到 3000ms。重建与热替换是竞态关系——
+    # 宿主在轮询命中的瞬间直接 readFileSync 取新字节，若正撞上半写文件，浏览器
+    # 拿到半截 JS，而 entries.replace 是「先拆旧 UI 再 import」，失败即整页空白。
+    # 放宽 6 倍把撞上半写的概率压到可忽略，热更新最多晚 3 秒。
     - id: client-hmr
       name: '@deepseek-ai/dsh-client-hmr'
+      config:
+        pollIntervalMs: 3000
 
     # ── browser plugin roster (dsh.client rows) ────────────────────────────────
     #

@@ -81,9 +81,7 @@ status: deprecated
 - 源缺失（exe 被挪到无 `~/.dsh` 的机器）则保留上次镜像，安装仍可启动。
 - `.env` / `.credentials.yaml` 同样改为**每次启动镜像**（用户裁决：环境与配置一致，
   密钥轮换自动跟随；源缺失保留上次镜像）。「拷贝一次、独立演进」的旧语义废止。
-- `cordis.yml` / `package.json` / link-manifest 属播种基础设施，维持自愈逻辑不变。
-
-## 废弃（2026-10-24）
+- `cordis.yml` / `package.json` / link-manifest 属播种基础设施，维持自愈逻辑不变。\n\n## 废弃（2026-10-24）
 
 本文描述的「与源码解耦」形态已废弃：正文决定 2/3/4/5 与修订节的配置镜像均不再成立
 （runtime 物化、断链门禁、私有 home 播种、patch 镜像已在代码中删除）。
@@ -94,9 +92,23 @@ status: deprecated
   （`node --import tsx/esm <repo>/apps/cli/src/bin.ts`），仓库路径由打包时写入的
   `dist/repo-path.txt` 提供，`YANTAO_REPO` 环境变量可覆盖。
 - 配置与开发实例同一世界：共用 `~/.dsh` 与 `yantao-web` profile。
-- 代价（已知情接受）：exe 依赖仓库存在；代码改动在 exe **下次启动**时生效，
-  运行中的实例不受磁盘变化影响（`cordis.patch.yml` 例外，热生效）。
+- 代价（已知情接受）：exe 依赖仓库存在。
 - 单实例守卫保留（共享 KB/会话存储/钉钉 Stream）。
 
+### 哪些磁盘变化会影响运行中的实例（2026-10-24 实测修正）
+
+「运行中不受影响」只对**源码**成立（模块已装入内存）。三处实时耦合：
+
+| 耦合 | 机制 |
+|---|---|
+| 前端 dist | 宿主按请求 `readFile`（frontend-static），构建期间资源可能缺失 |
+| 客户端 bundle | `client-hmr` 轮询 + `rebuilt()` 即时读字节，浏览器原地热替换 UI |
+| `cordis.patch.yml` | `patchReload: live`，保存即热注入 |
+
+由此产生过白屏：`vite build` 默认清空 dist（已改 `emptyOutDir: false`），以及
+热替换读到半写文件后「先拆旧 UI 再 import」失败（轮询 500ms → 3000ms；外壳
+补 `render-process-gone` / `did-fail-load` 自动重载）。
+
 依据：`apps/yantao-desktop/src/main.ts`、`scripts/pack-win.mjs`、
-`electron-builder.config.mjs` 的实际实现。
+`electron-builder.config.mjs`、`apps/yantao/vite.config.ts`、
+`packages/bundle/yantao-web-app/cordis.patch.yml` 的实际实现。

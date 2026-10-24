@@ -348,7 +348,63 @@ function ensureWindow(): BrowserWindow {
     window?.hide()
   })
   window.once('ready-to-show', () => { window?.show() })
+  armRendererRecovery(window)
   return window
+}
+
+/**
+ * Reload budget for the renderer self-heal below: at most two reloads per
+ * minute, so a genuinely broken page (a torn client bundle, a missing dist)
+ * fails loudly instead of spinning in a reload loop.
+ */
+const RECOVERY_LIMIT = 2
+const RECOVERY_WINDOW_MS = 60_000
+let recoveryReloads = 0
+let recoveryWindowStart = 0
+
+/**
+ * Heal a renderer that died or failed its main-frame navigation (2026-10-24).
+ *
+ * The packaged shell runs the repository's source and serves the repository's
+ * built artifacts from disk, so a rebuild happening under a live window can
+ * kill the renderer process or 404 the page mid-navigation — both used to end
+ * as a white window with no way back (the app menu, and with it Ctrl+R, is
+ * removed). Recovery is a plain reload, skipped while the host is down (a
+ * reload would just 404 again) and bounded by {@link RECOVERY_LIMIT}.
+ * @param target - the window whose web contents to watch.
+ */
+function armRendererRecovery(target: BrowserWindow): void {
+  const reload = (reason: string): void => {
+    if (quitting) return
+    if (host === undefined || host.exitCode !== null) return
+    const now = Date.now()
+    if (now - recoveryWindowStart > RECOVERY_WINDOW_MS) {
+      recoveryWindowStart = now
+      recoveryReloads = 0
+    }
+    if (recoveryReloads >= RECOVERY_LIMIT) {
+      console.error(`yantao: renderer recovery gave up after ${RECOVERY_LIMIT} reloads (${reason}) — use the tray's 重启宿主`)
+      return
+    }
+    recoveryReloads += 1
+    console.warn(`yantao: renderer recovery #${recoveryReloads} (${reason}) — reloading`)
+    target.webContents.reload()
+  }
+
+  target.webContents.on('render-process-gone', (_event, details) => {
+    reload(`renderer gone: ${details.reason}`)
+  })
+  target.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    // -3 is ERR_ABORTED: a superseded navigation (a reload racing a redirect),
+    // not a failure worth healing.
+    if (!isMainFrame || code === -3) return
+    reload(`main frame failed: ${String(code)} ${description} (${url})`)
+  })
+  // A page that finished loading is healthy again: refund the budget.
+  target.webContents.on('did-finish-load', () => {
+    recoveryReloads = 0
+    recoveryWindowStart = 0
+  })
 }
 
 /** Boot the host again and point the existing window at the new URL. */
