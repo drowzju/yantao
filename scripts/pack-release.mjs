@@ -38,6 +38,7 @@
  *
  * Usage:
  *   node scripts/pack-release.mjs [--reuse-runtime] [--no-smoke] [--strip-links]
+ *                                 [--with-shell] [--zip] [--skip-rebuild]
  */
 import { spawnSync } from 'node:child_process'
 import {
@@ -349,6 +350,24 @@ function stripLinks(root) {
   return removed
 }
 
+/**
+ * Rebuild every stale artifact before materializing.
+ *
+ * This is the same freshness pass `dev-yantao.ps1` runs — one build
+ * implementation, so a release can never ship a `lib/` that predates its
+ * `src/`. It also inherits that script's single-instance guard: packing over a
+ * live workbench would trip on file locks anyway.
+ */
+function rebuildArtifacts() {
+  const script = join(REPO, 'scripts', 'dev-yantao.ps1')
+  if (!existsSync(script)) fail('scripts/dev-yantao.ps1 is missing — cannot rebuild artifacts')
+  console.log('pack-release: rebuilding stale artifacts (dev-yantao -NoStart)…')
+  const result = spawnSync('powershell', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-NoStart',
+  ], { cwd: REPO, stdio: 'inherit', windowsHide: true, timeout: 1_800_000 })
+  if (result.status !== 0) fail(`dev-yantao -NoStart exited ${result.status ?? result.signal}`)
+}
+
 /** Name the command that produces each missing artifact. */
 function preflight() {
   const required = [
@@ -461,10 +480,12 @@ function flags(argv) {
     strip: argv.includes('--strip-links'),
     shell: argv.includes('--with-shell'),
     zip: argv.includes('--zip'),
+    skipRebuild: argv.includes('--skip-rebuild'),
   }
 }
 
 const options = flags(process.argv.slice(2))
+if (!options.skipRebuild) rebuildArtifacts()
 preflight()
 if (options.reuse && existsSync(RUNTIME)) {
   console.log('pack-release: reusing the materialized runtime')

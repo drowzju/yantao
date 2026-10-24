@@ -49,20 +49,18 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"     # headless:
 
 两条路,目的不同。
 
-### 开发出包(依赖仓库,自己用)
+### 日常开发
 
-```bash
-# 前置:前端与 client bundle 是最新的(否则脚本会报缺哪个工件、该跑哪条命令)
-pnpm --filter @deepseek-ai/dsh-client-ui-yantao run bundle
-pnpm --filter @deepseek-ai/dsh-yantao-frontend run build
-pnpm --filter @deepseek-ai/dsh-yantao-desktop run build:win:dir
-.\apps\yantao-desktop\.package-build\artifacts\win-unpacked\yantao-workbench.exe
+```powershell
+powershell -File scripts\dev-yantao.ps1            # 按新鲜度重建 + 启动
+powershell -File scripts\dev-yantao.ps1 -NoStart   # 只重建(发布打包也走这一条)
 ```
 
-- 壳是冻结的,宿主跑**仓库源码**(tsx 直跑),所以 exe 依赖仓库存在;共用 `~/.dsh`、`yantao-web`
-  profile 与 KB 根。
-- 改 `src` 不影响运行中的实例,但重建 client bundle / 前端 dist 会热替换到正在跑的窗口上——
-  白屏时按 Ctrl+Shift+R 或托盘「重新加载页面」。
+- 宿主跑**仓库源码**(tsx 直跑),跨包引用吃各包 `lib/` 产物——改了 A 就要重建 A,脚本按
+  `src` 与 `lib` 的新鲜度判断,不重建没动过的包。
+- 重建 client bundle / 前端 dist 会热替换到正在跑的窗口上;白屏时按 Ctrl+Shift+R 或托盘
+  「重新加载页面」。
+- 启动前会检查有没有工作台进程在跑(共享 KB/调度名册/钉钉 Stream,双实例互抢)。
 
 ### 发布出包(给别人,不带源码)
 
@@ -71,6 +69,9 @@ node scripts/pack-release.mjs --reuse-runtime --strip-links --with-shell --zip
 # 产出 .package-build/release/yantao-workbench-<version>-win-x64.zip
 ```
 
+- 脚本第一步调 `dev-yantao.ps1 -NoStart` 重建过期产物——构建逻辑只有一份,发布包不会带上
+  比 `src/` 还旧的 `lib/`。`--skip-rebuild` 可以跳过(只在你确认产物是新的时用)。
+- 出包前先从托盘退出工作台:重建 `lib/` 和 electron-builder 都会撞上文件锁。
 - runtime 只含构建产物(`lib/`、`dist/`),没有 `src/`、没有 tsx;宿主用普通 node 跑
   `apps/cli/lib/bin.js`。
 - 归档里**没有任何链接**:8835 个 junction 以 `link-manifest.json` 记录,壳首启按当前路径重建。

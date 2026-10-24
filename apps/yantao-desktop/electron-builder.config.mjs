@@ -6,14 +6,12 @@
  * download — `electronDist` points at the Electron the workspace already
  * installed, so packing works offline.
  *
- * The app bundle (asar) carries exactly the precompiled main process; the host
- * and its dependencies travel as `extraResources/runtime`, a materialized copy
- * of the repository assembled by `scripts/pack-win.mjs`. `dsh-home-template`
- * seeds the packaged instance's harness home on first launch.
- *
- * electron-builder drops a source directory's root `node_modules` when copying
- * `extraResources`; the runtime's root `node_modules` therefore needs its own
- * entry (the same workaround apps/desktop uses).
+ * The app bundle (asar) carries exactly the precompiled main process. The host
+ * runtime is NOT an `extraResources` entry: electron-builder's file matcher
+ * drops every `node_modules` subtree it copies, which emptied pnpm's virtual
+ * store and produced a runtime that could not boot (2026-10-24).
+ * `scripts/pack-release.mjs` copies the tree into
+ * `win-unpacked/resources/runtime` after electron-builder finishes.
  */
 
 import { join } from 'node:path'
