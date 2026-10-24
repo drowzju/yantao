@@ -14,6 +14,7 @@ import type {
   WorkspaceCliConfigDraft, WorkspaceCliConfigView, WorkspaceCliSaveResult, WorkspaceCliTestResult,
 } from './workspace-cli-config.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
+import { SettingsSummary, apiKeyFieldLabel, diffLabels } from './settings-summary.tsx'
 import { primaryButtonStyle } from './buttons.ts'
 import type { WorkbenchT } from './locales.ts'
 import { remoteMessage } from './remote.ts'
@@ -170,6 +171,16 @@ export function WorkspaceCliDialog(props: WorkspaceCliDialogProps): ReactElement
     }
   }
 
+  // 改动摘要（2026-10-23 评审裁决 ②）：落盘前把将要改变的字段报出来。空密钥
+  // 表示「保持已存」，不算改动。
+  const changedFields = view === null
+    ? []
+    : diffLabels([
+      keyDraft === '' ? null : apiKeyFieldLabel(t, view.keyConfigured),
+      model !== view.model ? t('wscli.model') : null,
+      internetEnvironment !== view.internetEnvironment ? t('wscli.internetEnv') : null,
+    ])
+
   const runProbe = async (): Promise<void> => {
     if (probing) return
     setProbing(true)
@@ -227,6 +238,7 @@ export function WorkspaceCliDialog(props: WorkspaceCliDialogProps): ReactElement
                 ? <p style={okStyle}>{t('wscli.testOk')}（{probe.durationMs} ms）</p>
                 : <p style={errorStyle} role="alert">{t('wscli.testFailed')}：{probe.detail}</p>
             ) : null}
+            <SettingsSummary t={t} fields={changedFields} />
             <footer style={footerStyle}>
               <button data-hover="true" style={ghostStyle} disabled={busy || probing} onClick={() => { void runProbe() }}>
                 {probing ? t('wscli.testing') : t('wscli.test')}

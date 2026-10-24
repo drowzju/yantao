@@ -14,6 +14,7 @@ import type { KbDingtalkBindingRow } from '@deepseek-ai/dsh-api-yantao-kb-contro
 import type { DingTalkConfigDraft, DingTalkConfigView, DingTalkSaveResult } from './dingtalk-config.ts'
 import type { DetailItem, SessionDetailLoader } from './session-detail.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
+import { SettingsSummary, apiKeyFieldLabel, diffLabels } from './settings-summary.tsx'
 import { primaryButtonStyle } from './buttons.ts'
 import type { WorkbenchT } from './locales.ts'
 import { remoteMessage } from './remote.ts'
@@ -311,6 +312,19 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
   }, [mergeBusy, view, mergeInto, mergeTarget, save, enabled, clientId, robotName, proxy, debug,
     secretDraft, bindings, loadBindings, mergeBinding, load, t])
 
+  // 改动摘要（2026-10-23 评审裁决 ②）：只列「落盘才生效」的字段。「并入工作台
+  // 会话」勾选即时提交（toggleMergeFollow 直接 save），不属于草稿，故不进摘要。
+  const changedFields = view === null
+    ? []
+    : diffLabels([
+      enabled !== view.enabled ? t('dingtalk.enabled') : null,
+      clientId !== view.clientId ? t('dingtalk.clientId') : null,
+      secretDraft === '' ? null : apiKeyFieldLabel(t, view.secretConfigured),
+      robotName !== view.robotName ? t('dingtalk.robotName') : null,
+      proxy !== view.proxy ? t('dingtalk.proxy') : null,
+      debug !== view.debug ? t('dingtalk.debug') : null,
+    ])
+
   const saveDraft = async (): Promise<void> => {
     if (view === null || busy) return
     setBusy(true)
@@ -462,6 +476,7 @@ export function DingTalkDialog(props: DingTalkDialogProps): ReactElement {
                 )}
               </div>
             </details>
+            <SettingsSummary t={t} fields={changedFields} />
             <footer style={footerStyle}>
               <button style={primaryButtonStyle} data-hover="primary" disabled={busy} onClick={() => { void saveDraft() }}>
                 {busy ? t('dingtalk.saving') : t('dingtalk.save')}

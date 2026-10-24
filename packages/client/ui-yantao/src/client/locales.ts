@@ -114,6 +114,12 @@ export const zh = {
   'config.modelIdRequired': '模型 ID 不能为空',
   'config.defaultMissing': '默认模型必须是模型列表中的一行',
 
+  // 设置面改动摘要（2026-10-23 评审裁决 ②）：三个设置对话框落盘前报出将要
+  // 改变的字段；无改动时不渲染。
+  'settings.summary': '将改 {count} 处：{fields}',
+  'settings.field.apiKey': 'API 密钥',
+  'settings.field.apiKeyReplace': 'API 密钥（替换已存）',
+
   // 钉钉配置对话框（右下角「钉钉」按钮，ADR-0060 决定 2；基础区四项 +
   // 高级折叠区；扫码经核实不可行，凭据下发即引导式手填——决定 4 兜底路径）
   'dingtalk.open': '钉钉',
@@ -668,6 +674,12 @@ export const en = {
   'config.conflict': 'The configuration changed elsewhere; reloaded — please retry',
   'config.modelIdRequired': 'A model ID cannot be empty',
   'config.defaultMissing': 'The default model must be one of the listed rows',
+
+  // Settings change summary (2026-10-23 critique verdict ②): the three settings
+  // dialogs list the fields a save would change; nothing renders when clean.
+  'settings.summary': 'Will change {count} field(s): {fields}',
+  'settings.field.apiKey': 'API key',
+  'settings.field.apiKeyReplace': 'API key (replaces the stored one)',
 
   // 钉钉配置对话框 (the bottom-right 钉钉 button, ADR-0060 决定 2; four basic
   // fields plus an advanced fold; QR-scan proved infeasible so credential

@@ -105,6 +105,34 @@ describe('ConfigDialog', () => {
     expect(screen.getByDisplayValue('内网模型网关')).toBeTruthy()
   })
 
+  it('lists what a save would change and stays silent while clean', async () => {
+    const load = vi.fn<Loader>().mockResolvedValue(VIEW)
+    renderDialog(load, vi.fn<Saver>())
+    const endpoint = await screen.findByDisplayValue('https://gateway.internal/v1')
+    // Nothing to report on a clean draft.
+    expect(document.querySelector('[data-settings-summary]')).toBeNull()
+    fireEvent.change(endpoint, { target: { value: 'https://other.internal/v1' } })
+    await waitFor(() => { expect(screen.getByText('将改 1 处：接口地址')).toBeTruthy() })
+    // Several fields at once keep the form's order.
+    fireEvent.change(screen.getByDisplayValue('内网模型网关'), { target: { value: '备用网关' } })
+    await waitFor(() => { expect(screen.getByText('将改 2 处：显示名 · 接口地址')).toBeTruthy() })
+    // Reverting drops the line instead of leaving a "no changes" stub.
+    fireEvent.change(endpoint, { target: { value: 'https://gateway.internal/v1' } })
+    fireEvent.change(screen.getByDisplayValue('备用网关'), { target: { value: '内网模型网关' } })
+    await waitFor(() => { expect(document.querySelector('[data-settings-summary]')).toBeNull() })
+  })
+
+  it('reports a typed key as a replacement, never as a first-time key', async () => {
+    const load = vi.fn<Loader>().mockResolvedValue(VIEW)
+    renderDialog(load, vi.fn<Saver>())
+    const keyInput = await screen.findByPlaceholderText('已配置（留空保持不变）')
+    fireEvent.change(keyInput, { target: { value: 'r92c-secret' } })
+    await waitFor(() => { expect(screen.getByText('将改 1 处：API 密钥（替换已存）')).toBeTruthy() })
+    // Clearing the field means "keep the stored key", so the change disappears.
+    fireEvent.change(keyInput, { target: { value: '' } })
+    await waitFor(() => { expect(document.querySelector('[data-settings-summary]')).toBeNull() })
+  })
+
   it('closes from the backdrop but not from a click inside the card', async () => {
     const load = vi.fn<Loader>().mockResolvedValue(VIEW)
     const onClose = vi.fn()

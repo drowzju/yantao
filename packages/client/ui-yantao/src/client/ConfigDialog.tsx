@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import type { ModelRow, ModelsConfigDraft, ModelsConfigSaveResult, ModelsConfigView } from './model-config.ts'
 import { apiKeyIssue, draftIssue } from './model-config.ts'
 import { useDialogModal } from './use-dialog-modal.ts'
+import { SettingsSummary, apiKeyFieldLabel, diffLabels } from './settings-summary.tsx'
 import { primaryButtonStyle } from './buttons.ts'
 import type { WorkbenchT } from './locales.ts'
 import { remoteMessage } from './remote.ts'
@@ -101,6 +102,15 @@ const footerStyle = {
 const buttonStyle = { padding: 'var(--yt-space-1) var(--yt-space-3)', minHeight: 'var(--yt-control-min-h)' } as const
 
 const ghostStyle = { ...buttonStyle, background: 'transparent', border: '1px solid var(--yt-border-subtle)' } as const
+
+/** Whether the draft's model rows differ from the stored ones (order and labels count). */
+function modelsChanged(draft: readonly ModelRow[], stored: readonly ModelRow[]): boolean {
+  return draft.length !== stored.length
+    || draft.some((row, at) => {
+      const storedRow = stored[at]
+      return storedRow === undefined || row.id !== storedRow.id || row.name !== storedRow.name
+    })
+}
 
 export interface ConfigDialogProps {
   /** The bound dictionary, threaded from the frame. */
@@ -197,6 +207,19 @@ export function ConfigDialog(props: ConfigDialogProps): ReactElement {
 
   const modelOption = (row: ModelRow): string => row.name === '' || row.name === row.id ? row.id : `${row.id}（${row.name}）`
 
+  // 改动摘要（2026-10-23 评审裁决 ②）：落盘前把将要改变的字段报出来。空密钥
+  // 表示「保持已存」，不算改动；清空显示名/接口地址表示回落到合成基值，与已
+  // 解析值不同即算改动。
+  const changedFields = view === null
+    ? []
+    : diffLabels([
+      displayName !== view.displayName ? t('config.displayName') : null,
+      baseURL !== view.baseURL ? t('config.baseUrl') : null,
+      keyDraft === '' ? null : apiKeyFieldLabel(t, view.keyConfigured),
+      modelsChanged(rows, view.models) ? t('config.models') : null,
+      defaultModel !== view.defaultModel ? t('config.defaultModel') : null,
+    ])
+
   return (
     <div style={backdropStyle} onClick={onClose} data-config-backdrop="true" onKeyDown={onPanelKeyDown}>
       <div style={cardStyle} role="dialog" aria-modal="true" aria-label={t('config.title')} tabIndex={-1} ref={cardRef} onClick={(event) => { event.stopPropagation() }}>
@@ -257,6 +280,7 @@ export function ConfigDialog(props: ConfigDialogProps): ReactElement {
                 {rows.map(row => <option key={row.id} value={row.id}>{modelOption(row)}</option>)}
               </select>
             </label>
+            <SettingsSummary t={t} fields={changedFields} />
             <footer style={footerStyle}>
               <button style={primaryButtonStyle} data-hover="primary" disabled={busy} onClick={() => { void saveDraft() }}>
                 {busy ? t('config.saving') : t('config.save')}
