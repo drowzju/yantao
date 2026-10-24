@@ -14,7 +14,7 @@ function view(overrides: Partial<ModelsConfigView> = {}): ModelsConfigView {
     apiKeyEnv: 'MODEL_GATEWAY_API_KEY',
     keyConfigured: true,
     keyWritable: true,
-    models: [{ id: 'GLM5.1', name: 'inner-glm5.1' }],
+    models: [{ id: 'GLM5.1', name: 'inner-glm5.1', contextWindow: 131072 }],
     defaultModel: 'GLM5.1',
     profileRevision: 7,
     defaultRevision: 3,
@@ -28,7 +28,7 @@ function draft(overrides: Partial<ModelsConfigDraft> = {}): ModelsConfigDraft {
     displayName: '内网模型网关',
     baseURL: 'https://gateway.internal/v1',
     apiKey: '',
-    models: [{ id: 'GLM5.1', name: 'inner-glm5.1' }],
+    models: [{ id: 'GLM5.1', name: 'inner-glm5.1', contextWindow: 131072 }],
     defaultModel: 'GLM5.1',
     ...overrides,
   }
@@ -93,6 +93,15 @@ describe('draftIssue', () => {
     expect(draftIssue(draft({ defaultModel: 'missing' }))).toBe('defaultMissing')
     expect(draftIssue(draft({ defaultModel: '' }))).toBe('defaultMissing')
   })
+
+  it('accepts positive-integer capacities and refuses the rest', () => {
+    expect(draftIssue(draft({ models: [{ id: 'GLM5.1', name: '', contextWindow: 786432, maxTokens: 32768 }] })))
+      .toBeUndefined()
+    expect(draftIssue(draft({ models: [{ id: 'GLM5.1', name: '', contextWindow: 0 }] }))).toBe('modelNumbersInvalid')
+    expect(draftIssue(draft({ models: [{ id: 'GLM5.1', name: '', maxTokens: -1 }] }))).toBe('modelNumbersInvalid')
+    expect(draftIssue(draft({ models: [{ id: 'GLM5.1', name: '', contextWindow: 131072.5 }] })))
+      .toBe('modelNumbersInvalid')
+  })
 })
 
 describe('profileOps', () => {
@@ -127,6 +136,36 @@ describe('profileOps', () => {
     const op = ops[0]
     if (op === undefined || op.op !== 'set') throw new Error('expected a set op')
     expect(op.path).toEqual(['providers', 'model-gateway', 'models'])
-    expect(op.value).toContainEqual({ id: 'GLM5.1', name: 'GLM 5.1 内网', contextWindow: 131072 })
+    expect(op.value).toContainEqual({ id: 'GLM5.1', name: 'GLM 5.1 内网' })
+    expect(op.value).toContainEqual({ id: 'GLM-Air', name: 'air' })
+  })
+
+  it('overwrites a dialog-owned capacity with the drafted number', () => {
+    const ops = profileOps(view(), draft({
+      models: [{ id: 'GLM5.1', name: 'inner-glm5.1', contextWindow: 786432 }],
+    }))
+    expect(ops).toHaveLength(1)
+    const op = ops[0]
+    if (op === undefined || op.op !== 'set') throw new Error('expected a set op')
+    expect(op.value).toContainEqual({ id: 'GLM5.1', name: 'inner-glm5.1', contextWindow: 786432 })
+  })
+
+  it('drops the stored capacity when the field is blank, reverting to the base', () => {
+    const ops = profileOps(view(), draft({ models: [{ id: 'GLM5.1', name: 'inner-glm5.1' }] }))
+    expect(ops).toHaveLength(1)
+    const op = ops[0]
+    if (op === undefined || op.op !== 'set') throw new Error('expected a set op')
+    expect(op.value).toContainEqual({ id: 'GLM5.1', name: 'inner-glm5.1' })
+  })
+
+  it('leaves untouched extras like compat in place while rewriting rows', () => {
+    const ops = profileOps(view({
+      rawModels: [{ id: 'GLM5.1', name: 'inner-glm5.1', compat: { chatTemplateKwargs: {} } }],
+    }), draft({
+      models: [{ id: 'GLM5.1', name: 'renamed', maxTokens: 16384 }],
+    }))
+    const op = ops[0]
+    if (op === undefined || op.op !== 'set') throw new Error('expected a set op')
+    expect(op.value).toContainEqual({ id: 'GLM5.1', name: 'renamed', compat: { chatTemplateKwargs: {} }, maxTokens: 16384 })
   })
 })

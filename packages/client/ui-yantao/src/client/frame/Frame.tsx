@@ -2404,20 +2404,23 @@ export function Frame({
               must stay globally visible (ADR-0057). */}
           {!fixedOpen.insights && insightsPressure}
         </button>
-        <button style={{ ...footerButtonStyle, marginLeft: 'auto' }} data-config-button="true" data-hover="true" onClick={() => { setConfigOpen(true) }}>
+        {/* 右侧四个对话框入口（2026-10-24 用户反馈）：点开后模态会把焦点还给
+            按钮，程序化聚焦触发 ：focus-visible 蓝框，与左侧四个 tab 开关
+            （焦点随即走进内容区）观感不一致——开对话框前主动交还焦点。 */}
+        <button style={{ ...footerButtonStyle, marginLeft: 'auto' }} data-config-button="true" data-hover="true" onClick={(event) => { event.currentTarget.blur(); setConfigOpen(true) }}>
           {t('config.open')}
         </button>
         {/* 2026-10-23：工作空间无头 CLI 的 key/模型配置，独立低频入口。 */}
-        <button style={footerButtonStyle} data-wscli-button="true" data-hover="true" onClick={() => { setWsCliOpen(true) }}>
+        <button style={footerButtonStyle} data-wscli-button="true" data-hover="true" onClick={(event) => { event.currentTarget.blur(); setWsCliOpen(true) }}>
           {t('wscli.open')}
         </button>
         {/* ADR-0060 决定 2：底部状态条的钉钉入口，配置对话框沿模型配置范式。 */}
-        <button style={footerButtonStyle} data-dingtalk-button="true" data-hover="true" onClick={() => { setDingtalkOpen(true) }}>
+        <button style={footerButtonStyle} data-dingtalk-button="true" data-hover="true" onClick={(event) => { event.currentTarget.blur(); setDingtalkOpen(true) }}>
           {t('dingtalk.open')}
         </button>
         {/* 2026-10-09 第四轮评审 P1：8 条热键注册后无处可见——这个只读目录
             是它们的展示面，键帽实时读注册表 catalog（改键/平台差异自动跟随）。 */}
-        <button style={footerButtonStyle} data-shortcuts-button="true" data-hover="true" onClick={() => { setShortcutsOpen(true) }}>
+        <button style={footerButtonStyle} data-shortcuts-button="true" data-hover="true" onClick={(event) => { event.currentTarget.blur(); setShortcutsOpen(true) }}>
           {t('shortcuts.open')}
         </button>
       </div>

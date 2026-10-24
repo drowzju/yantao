@@ -35,8 +35,10 @@ const cardStyle = {
   border: '1px solid var(--yt-border-subtle)',
   borderRadius: 10,
   padding: 'var(--yt-space-4)',
-  width: 'min(520px, 92vw)',
-  maxHeight: '80vh',
+  // 2026-10-24 用户反馈：模型行扩到四格后 520px 太挤、纵向溢出要滚动——
+  // 加宽到 720px 并收紧间距，常规窗口整卡放下，不再依赖滚动条。
+  width: 'min(720px, 94vw)',
+  maxHeight: '86vh',
   overflow: 'auto',
   boxShadow: 'var(--yt-shadow-overlay)',
   display: 'flex',
@@ -79,6 +81,18 @@ const hintStyle = { color: 'var(--yt-text-secondary)', fontSize: 'var(--yt-type-
 
 const rowStyle = { display: 'flex', gap: 'var(--yt-space-1)', alignItems: 'center' } as const
 
+/** 两列并排的字段对（2026-10-24）：纵向省两行，整卡免滚动。 */
+const pairStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--yt-space-2)' } as const
+
+/** 模型表的列头行：与下方输入行同宽分布，标签用次要文字色。 */
+const columnHeaderStyle = {
+  display: 'flex',
+  gap: 'var(--yt-space-1)',
+  alignItems: 'center',
+  color: 'var(--yt-text-secondary)',
+  fontSize: 'var(--yt-type-label)',
+} as const
+
 const listStyle = { display: 'flex', flexDirection: 'column', gap: 'var(--yt-space-1)' } as const
 
 const errorStyle = {
@@ -103,13 +117,31 @@ const buttonStyle = { padding: 'var(--yt-space-1) var(--yt-space-3)', minHeight:
 
 const ghostStyle = { ...buttonStyle, background: 'transparent', border: '1px solid var(--yt-border-subtle)' } as const
 
-/** Whether the draft's model rows differ from the stored ones (order and labels count). */
+/** Whether the draft's model rows differ from the stored ones (order, labels, capacities). */
 function modelsChanged(draft: readonly ModelRow[], stored: readonly ModelRow[]): boolean {
   return draft.length !== stored.length
     || draft.some((row, at) => {
       const storedRow = stored[at]
       return storedRow === undefined || row.id !== storedRow.id || row.name !== storedRow.name
+        || row.contextWindow !== storedRow.contextWindow || row.maxTokens !== storedRow.maxTokens
     })
+}
+
+/**
+ * One capacity keystroke: a number parses in, an emptied field drops the
+ * override (reverting to the composition base's declaration). Rebuilds the
+ * row object without the key rather than holding `undefined` — keeps the
+ * draft honest for the diff and the ops.
+ */
+function withCapacity(
+  rows: readonly ModelRow[], index: number,
+  key: 'contextWindow' | 'maxTokens', raw: string,
+): ModelRow[] {
+  return rows.map((candidate, at) => {
+    if (at !== index) return candidate
+    const { [key]: _dropped, ...rest } = candidate
+    return raw === '' ? rest : { ...rest, [key]: Number(raw) }
+  })
 }
 
 export interface ConfigDialogProps {
@@ -183,6 +215,7 @@ export function ConfigDialog(props: ConfigDialogProps): ReactElement {
     const problem = draftIssue(draft)
     if (problem === 'modelIdRequired') { setError(t('config.modelIdRequired')); return }
     if (problem === 'defaultMissing') { setError(t('config.defaultMissing')); return }
+    if (problem === 'modelNumbersInvalid') { setError(t('config.modelNumbersInvalid')); return }
     setBusy(true)
     setError(null)
     setSaved(false)
@@ -233,53 +266,75 @@ export function ConfigDialog(props: ConfigDialogProps): ReactElement {
         {view === null
           ? <p style={hintStyle}>{t('config.loading')}</p>
           : <>
-            <label style={fieldStyle}>
-              {t('config.displayName')}
-              <input style={inputStyle} value={displayName} placeholder={view.baseDisplayName}
-                disabled={busy} onChange={(event) => { setDisplayName(event.target.value); setSaved(false) }} />
-            </label>
-            <label style={fieldStyle}>
-              {t('config.baseUrl')}
-              <input style={inputStyle} value={baseURL} placeholder={view.baseBaseURL}
-                disabled={busy} onChange={(event) => { setBaseURL(event.target.value); setSaved(false) }} />
-              <span style={hintStyle}>{t('config.baseUrlHint')}</span>
-            </label>
-            <label style={fieldStyle}>
-              {t('config.apiKey')}
-              <input style={inputStyle} type="password" autoComplete="off" value={keyDraft}
-                disabled={busy || !view.keyWritable}
-                placeholder={view.keyConfigured ? t('config.keyStored') : t('config.keyPlaceholder')}
-                onChange={(event) => { setKeyDraft(event.target.value); setSaved(false) }} />
-            </label>
+            <div style={pairStyle}>
+              <label style={fieldStyle}>
+                {t('config.displayName')}
+                <input style={inputStyle} value={displayName} placeholder={view.baseDisplayName}
+                  disabled={busy} onChange={(event) => { setDisplayName(event.target.value); setSaved(false) }} />
+              </label>
+              <label style={fieldStyle}>
+                {t('config.baseUrl')}
+                <input style={inputStyle} value={baseURL} placeholder={view.baseBaseURL}
+                  disabled={busy} onChange={(event) => { setBaseURL(event.target.value); setSaved(false) }} />
+                <span style={hintStyle}>{t('config.baseUrlHint')}</span>
+              </label>
+            </div>
+            <div style={pairStyle}>
+              <label style={fieldStyle}>
+                {t('config.apiKey')}
+                <input style={inputStyle} type="password" autoComplete="off" value={keyDraft}
+                  disabled={busy || !view.keyWritable}
+                  placeholder={view.keyConfigured ? t('config.keyStored') : t('config.keyPlaceholder')}
+                  onChange={(event) => { setKeyDraft(event.target.value); setSaved(false) }} />
+              </label>
+              <label style={fieldStyle}>
+                {t('config.defaultModel')}
+                <select style={inputStyle} value={defaultModel} disabled={busy}
+                  onChange={(event) => { setDefaultModel(event.target.value); setSaved(false) }}>
+                  {defaultModel === '' ? <option value=""></option> : null}
+                  {rows.map(row => <option key={row.id} value={row.id}>{modelOption(row)}</option>)}
+                </select>
+              </label>
+            </div>
             <fieldset style={{ ...listStyle, border: 'none', padding: 0, margin: 0 }}>
               <legend style={sectionStyle}>{t('config.models')}</legend>
+              {/* 列头行（2026-10-24 用户反馈）：四格各自是什么，一眼可读。 */}
+              <div style={columnHeaderStyle} aria-hidden="true">
+                <span style={{ flex: 1 }}>{t('config.modelId')}</span>
+                <span style={{ flex: 1 }}>{t('config.modelName')}</span>
+                <span style={{ width: '6.5em', flexShrink: 0 }}>{t('config.modelContextWindow')}</span>
+                <span style={{ width: '6.5em', flexShrink: 0 }}>{t('config.modelMaxTokens')}</span>
+                <span style={{ width: '2.6em', flexShrink: 0 }} />
+              </div>
               {rows.map((row, index) => (
                 <div key={`${row.id}-${index}`} style={rowStyle}>
-                  <input style={{ ...inputStyle, flex: 1 }} value={row.id} placeholder={t('config.modelId')}
+                  <input style={{ ...inputStyle, flex: 1 }} value={row.id}
                     aria-label={t('config.modelId')} disabled={busy}
                     onChange={(event) => { setRows(rows.map((candidate, at) => at === index
                       ? { ...candidate, id: event.target.value }
                       : candidate)) }} />
-                  <input style={{ ...inputStyle, flex: 1 }} value={row.name} placeholder={t('config.modelName')}
+                  <input style={{ ...inputStyle, flex: 1 }} value={row.name}
                     aria-label={t('config.modelName')} disabled={busy}
                     onChange={(event) => { setRows(rows.map((candidate, at) => at === index
                       ? { ...candidate, name: event.target.value }
                       : candidate)) }} />
+                  {/* 容量两格（2026-10-24）：数字留空 = 回落组合层声明；改动热生效。 */}
+                  <input style={{ ...inputStyle, width: '6.5em', flexShrink: 0 }} type="number" min={1} step={1}
+                    value={row.contextWindow ?? ''}
+                    aria-label={t('config.modelContextWindow')} disabled={busy}
+                    onChange={(event) => { setRows(withCapacity(rows, index, 'contextWindow', event.target.value)); setSaved(false) }} />
+                  <input style={{ ...inputStyle, width: '6.5em', flexShrink: 0 }} type="number" min={1} step={1}
+                    value={row.maxTokens ?? ''}
+                    aria-label={t('config.modelMaxTokens')} disabled={busy}
+                    onChange={(event) => { setRows(withCapacity(rows, index, 'maxTokens', event.target.value)); setSaved(false) }} />
                   <button data-hover="true" style={ghostStyle} disabled={busy} aria-label={t('config.modelRemove')}
                     onClick={() => { setRows(rows.filter((_, at) => at !== index)) }}>{t('config.modelRemove')}</button>
                 </div>
               ))}
               <button data-hover="true" style={ghostStyle} disabled={busy}
                 onClick={() => { setRows([...rows, { id: '', name: '' }]) }}>{t('config.modelAdd')}</button>
+              <span style={hintStyle}>{t('config.modelLimitsHint')}</span>
             </fieldset>
-            <label style={fieldStyle}>
-              {t('config.defaultModel')}
-              <select style={inputStyle} value={defaultModel} disabled={busy}
-                onChange={(event) => { setDefaultModel(event.target.value); setSaved(false) }}>
-                {defaultModel === '' ? <option value=""></option> : null}
-                {rows.map(row => <option key={row.id} value={row.id}>{modelOption(row)}</option>)}
-              </select>
-            </label>
             <SettingsSummary t={t} fields={changedFields} />
             <footer style={footerStyle}>
               <button style={primaryButtonStyle} data-hover="primary" disabled={busy} onClick={() => { void saveDraft() }}>

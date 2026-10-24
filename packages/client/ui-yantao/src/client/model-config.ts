@@ -27,10 +27,17 @@ export const PROFILE_NAMESPACE = 'llm-pi-ai'
 /** The settings namespace carrying the agent's default model choice. */
 export const DEFAULT_MODEL_NAMESPACE = 'agent-default-model'
 
-/** One editable model row: the identity the gateway answers to plus a label. */
+/**
+ * One editable model row: the identity the gateway answers to, a label, and
+ * the two capacity numbers the dialog owns (2026-10-24). Both are optional —
+ * absent means «follow the composition base's declaration»; the adapter's
+ * compaction budget and the request cap both read them.
+ */
 export interface ModelRow {
   readonly id: string
   readonly name: string
+  readonly contextWindow?: number
+  readonly maxTokens?: number
 }
 
 /** What the dialog opens on: the gateway's current config, joined with the key's state. */
@@ -144,7 +151,12 @@ export function apiKeyIssue(draft: string): ApiKeyIssue | undefined {
 }
 
 /** Copy keys naming why a draft cannot be submitted. */
-export type DraftIssue = 'modelIdRequired' | 'defaultMissing'
+export type DraftIssue = 'modelIdRequired' | 'defaultMissing' | 'modelNumbersInvalid'
+
+/** A dialog-owned capacity number: present means a positive integer. */
+function capacityIssue(value: number | undefined): boolean {
+  return value !== undefined && (!Number.isInteger(value) || value <= 0)
+}
 
 /**
  * Judge the dialog's draft as a whole.
@@ -155,6 +167,9 @@ export function draftIssue(draft: ModelsConfigDraft): DraftIssue | undefined {
   if (draft.models.some(row => row.id.trim() === '')) return 'modelIdRequired'
   if (draft.defaultModel === '' || !draft.models.some(row => row.id === draft.defaultModel)) {
     return 'defaultMissing'
+  }
+  if (draft.models.some(row => capacityIssue(row.contextWindow) || capacityIssue(row.maxTokens))) {
+    return 'modelNumbersInvalid'
   }
   return undefined
 }
@@ -171,8 +186,10 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
  * them. Clearing a field unsets it, reverting to the composition base.
  *
  * The `models` op writes the rows as `{id, name}` merged over each matching
- * stored row, so seed-carried extras (`contextWindow`, `compat`, …) survive a
- * name edit; brand-new rows carry only the two dialog fields.
+ * stored row, so seed-carried extras (`compat`, …) survive a name edit. The
+ * two capacity numbers are dialog-owned: a number in the draft overwrites the
+ * stored one, and a blank field drops the stored key — reverting to the
+ * composition base's declaration. Brand-new rows carry only the dialog fields.
  * @param view - the freshly loaded view (baseline for the diff).
  * @param draft - what the dialog holds.
  * @returns the ordered ops, `[]` when the draft changes nothing.
@@ -193,8 +210,18 @@ export function profileOps(view: ModelsConfigView, draft: ModelsConfigDraft): Se
     ops.push({ op: 'set', path: [...root, 'baseURL'], value: baseURL })
   }
   const models = draft.models.map((row) => {
+    // Dialog-owned capacities: strip the stored pair, then lay the drafted
+    // numbers back — a number wins, blank reverts to the base.
     const stored = view.rawModels.find(entry => isJsonObject(entry) && entry.id === row.id)
-    return { ...(stored !== undefined ? stored : {}), id: row.id, name: row.name }
+    const source: Record<string, unknown> = isJsonObject(stored) ? stored : {}
+    const { contextWindow: _cw, maxTokens: _mt, ...extras } = source
+    return {
+      ...extras,
+      id: row.id,
+      name: row.name,
+      ...(row.contextWindow !== undefined ? { contextWindow: row.contextWindow } : {}),
+      ...(row.maxTokens !== undefined ? { maxTokens: row.maxTokens } : {}),
+    }
   })
   if (JSON.stringify(models) !== JSON.stringify(view.rawModels)) {
     ops.push({ op: 'set', path: [...root, 'models'], value: models })
@@ -216,11 +243,27 @@ function stringAt(source: Record<string, unknown>, key: string): string {
   return typeof value === 'string' ? value : ''
 }
 
+function capacityOf(row: Record<string, unknown>, key: string): number | undefined {
+  const value = row[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+/** Pick the two dialog-owned capacity fields off a stored row, if numeric. */
+function capacityFields(row: Record<string, unknown>): Partial<ModelRow> {
+  const contextWindow = capacityOf(row, 'contextWindow')
+  const maxTokens = capacityOf(row, 'maxTokens')
+  return {
+    ...(contextWindow !== undefined ? { contextWindow } : {}),
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
+  }
+}
+
 function rowsOf(source: Record<string, unknown>): { rows: ModelRow[]; raw: unknown[] } {
   const raw = Array.isArray(source.models) ? source.models : []
   const rows = raw.filter(isJsonObject).map(row => ({
     id: typeof row.id === 'string' ? row.id : '',
     name: typeof row.name === 'string' ? row.name : '',
+    ...capacityFields(row),
   }))
   return { rows, raw }
 }
