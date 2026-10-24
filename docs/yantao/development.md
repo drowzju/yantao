@@ -45,27 +45,40 @@ pnpm dsh --profile yantao "用一句话回答：1+1等于几？"     # headless:
 # workbench: open the printed URL; the probe line shows `tree() ok: …`
 ```
 
-## 出包(与源码解耦的运行实例)
+## 出包
 
-改代码会影响正在运行的实例(热注入、共享 `lib/`、Windows 文件锁),要一个「改代码时也能稳定跑」
-的实例就出包(ADR-0067):
+两条路,目的不同。
+
+### 开发出包(依赖仓库,自己用)
 
 ```bash
 # 前置:前端与 client bundle 是最新的(否则脚本会报缺哪个工件、该跑哪条命令)
 pnpm --filter @deepseek-ai/dsh-client-ui-yantao run bundle
 pnpm --filter @deepseek-ai/dsh-yantao-frontend run build
-# 出包(约数分钟,产出 GB 级目录)
 pnpm --filter @deepseek-ai/dsh-yantao-desktop run build:win:dir
-# 运行
 .\apps\yantao-desktop\.package-build\artifacts\win-unpacked\yantao-workbench.exe
 ```
 
-- 打包实例读 `resources/runtime` 下的仓库副本,**任何链接指回仓库都会让构建失败**(断链门禁);
-  出包后改代码、重建 `lib/` 对它毫无影响。
-- 打包实例有自己的 home:`%APPDATA%\yantao-workbench\dsh-home`(首启播种 profile、拷贝 `.env`
-  与 `.credentials.yaml`),与开发实例的 `~/.dsh` 隔离;KB 根共享 `D:\yantao-data`,调度名册也跟着共享。
-- **同一时刻只开一个实例**:两个实例同时在线会双触发调度、抢钉钉消息。
-- 轮换秘钥后删掉打包 home 里的 `.env`,下次启动会从 `~/.dsh` 重拷。
+- 壳是冻结的,宿主跑**仓库源码**(tsx 直跑),所以 exe 依赖仓库存在;共用 `~/.dsh`、`yantao-web`
+  profile 与 KB 根。
+- 改 `src` 不影响运行中的实例,但重建 client bundle / 前端 dist 会热替换到正在跑的窗口上——
+  白屏时按 Ctrl+Shift+R 或托盘「重新加载页面」。
+
+### 发布出包(给别人,不带源码)
+
+```bash
+node scripts/pack-release.mjs --reuse-runtime --strip-links --with-shell --zip
+# 产出 .package-build/release/yantao-workbench-<version>-win-x64.zip
+```
+
+- runtime 只含构建产物(`lib/`、`dist/`),没有 `src/`、没有 tsx;宿主用普通 node 跑
+  `apps/cli/lib/bin.js`。
+- 归档里**没有任何链接**:8835 个 junction 以 `link-manifest.json` 记录,壳首启按当前路径重建。
+- 私有 home `%APPDATA%\yantao-workbench\dsh-home`:首启自动从模板建 `yantao-web` profile,
+  KB 根走 onboarding,模型 key 由使用者自己填。
+- 目标机器需要 Node 20+;壳启动时检查,缺了会显示安装页而不是白窗。
+- 首次全量物化约 10 分钟(整仓复制 + 断链门禁 + 冒烟);之后 `--reuse-runtime` 是秒级。
+- **同一时刻只开一个实例**:两个实例共享 KB 时会双触发调度、抢钉钉消息。
 
 ## 离线双机同步(A 外网 ↔ B 内网)
 

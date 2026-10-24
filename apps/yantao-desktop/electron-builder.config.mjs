@@ -37,6 +37,9 @@ export default {
   icon: join(app, 'build/icon.ico'),
   extraMetadata: { main: 'dist/main.js' },
   files: ['dist/main.js', 'dist/preload.cjs', 'dist/repo-path.txt', 'package.json'],
-  // 2026-10-24 合一裁决：runtime 物化副本与 dsh-home-template 废除——宿主以
-  // 仓库源码运行，配置走 ~/.dsh，壳里不再携带任何 extraResources。
+  // The host's runtime is NOT an extraResource: electron-builder's file
+  // matcher drops every `node_modules` subtree it copies, which silently
+  // emptied pnpm's virtual store and left the runtime unable to boot
+  // (2026-10-24). scripts/pack-release.mjs copies the tree into
+  // `win-unpacked/resources/runtime` after electron-builder finishes.
 };

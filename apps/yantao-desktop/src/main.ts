@@ -23,25 +23,52 @@
  * @module @deepseek-ai/dsh-yantao-desktop/main
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { appendFileSync, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, readFileSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, Tray } from 'electron'
+
+/**
+ * The user-data folder is named after the app, and the scoped package name
+ * would bury it under `@deepseek-ai/`. Set it before anything asks for a path.
+ */
+app.setName('yantao-workbench')
 
 /** This file's own directory (`…/apps/yantao-desktop/src/`; packaged: `…/dist/`). */
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 
 /**
- * Repository root — the packaged shell runs the repository's source (ADR-0067
- * 2026-10-24 修订), so it must know where the checkout lives. Three sources,
- * first match wins:
+ * Write one line to the shell's own log beside the app's data, and to stdout.
+ *
+ * A packaged Electron app has no console — a GUI subsystem process writes its
+ * `console.log` into nothing — so a boot that fails before the host is up
+ * leaves no trace at all. This file is what the human can send back.
+ * @param line - what happened, in one line.
+ */
+function log(line: string): void {
+  console.log(line)
+  try {
+    const directory = app.getPath('userData')
+    mkdirSync(directory, { recursive: true })
+    appendFileSync(join(directory, 'shell.log'), `${new Date().toISOString()} ${line}\n`)
+  } catch {
+    // Logging must never be the reason a boot fails.
+  }
+}
+
+/**
+ * Repository root — for the development build this is the checkout the shell
+ * was started from. Three sources, first match wins:
  *
  * 1. `YANTAO_REPO` environment override (a moved checkout);
  * 2. `repo-path.txt` beside this module — written by pack-win at pack time,
  *    because an asar has no repository three levels above it;
  * 3. three levels up from this file — the development layout
  *    (`apps/yantao-desktop/src/main.ts` → repo root).
+ *
+ * The release build never calls this: it ships its own runtime tree and
+ * `REPO` resolves to that instead (see {@link PACKAGED}).
  */
 function resolveRepo(): string {
   const override = process.env.YANTAO_REPO
@@ -54,25 +81,55 @@ function resolveRepo(): string {
   return fileURLToPath(new URL('../../..', import.meta.url))
 }
 
-const REPO = resolveRepo()
-
 /**
- * The dsh launcher the shell spawns — the repository's source, through tsx, for
- * the packaged exe exactly as for `electron .`. The exe is a frozen Electron
- * shell around a live checkout (ADR-0067 废弃段, 2026-10-24 裁决), so its
- * `repo-path.txt` above is the whole coupling: no runtime copy, no frozen
- * profile. The accepted cost is that the exe needs the checkout to exist.
+ * The runtime tree a release build ships beside the exe.
+ *
+ * `electron .` from the checkout has no such tree; the release archive has
+ * `resources/runtime`, materialized by `scripts/pack-release.mjs`. Its
+ * presence — not `app.isPackaged` alone — decides the mode, so a development
+ * launch of a packed shell still behaves like development.
  */
-const CLI = join(REPO, 'apps', 'cli', 'src', 'bin.ts')
+const RUNTIME = join(process.resourcesPath, 'runtime')
+
+/** Whether this process runs the shipped runtime instead of the checkout. */
+const PACKAGED = app.isPackaged && existsSync(join(RUNTIME, 'apps', 'cli', 'lib', 'bin.js'))
+
+/** Where the host's code lives: the shipped tree, or the checkout. */
+const REPO = PACKAGED ? RUNTIME : resolveRepo()
 
 /**
- * Which profile the host runs. One world with the development instance: the
- * same `~/.dsh`, the same `yantao-web` profile (live patch reload), the same
- * knowledge base (`D:\yantao-data`). The packaged build no longer gets a
- * separate `yantao-packaged` profile — that separation was deleted together
- * with the decoupled runtime (ADR-0067 废弃段).
+ * The dsh launcher the shell spawns.
+ *
+ * Development runs the TypeScript entry through tsx (live patch reload, HMR).
+ * The release build runs the compiled entry with plain node — no tsx in the
+ * archive and no `.ts` sources — so the tree it boots is exactly what was
+ * packed.
+ */
+const CLI = PACKAGED ? join(RUNTIME, 'apps', 'cli', 'lib', 'bin.js') : join(REPO, 'apps', 'cli', 'src', 'bin.ts')
+
+/** tsx is a development loader; the compiled entry needs no import hook. */
+const CLI_LOADER = PACKAGED ? [] : ['--import', 'tsx/esm']
+
+/**
+ * Which profile the host runs. `yantao-web` in both modes: the profile
+ * template is compiled into app-boot, so a fresh home initializes it on first
+ * launch. What differs is the home itself — see {@link hostEnv}.
  */
 const PROFILE = 'yantao-web'
+
+/**
+ * The host child's environment.
+ *
+ * Development shares `~/.dsh` with everything else on the machine. A release
+ * build keeps its own home under the app's userData: the profile, the session
+ * store and the credentials belong to the human who installed it, never to the
+ * builder.
+ * @returns the environment to spawn the host with.
+ */
+function hostEnv(): NodeJS.ProcessEnv {
+  if (!PACKAGED) return process.env
+  return { ...process.env, DSH_HOME: join(app.getPath('userData'), 'dsh-home') }
+}
 
 /** How long to wait for the host to print its URL before giving up. */
 const HOST_BOOT_TIMEOUT_MS = 180_000
@@ -177,11 +234,11 @@ function bootHost(): { child: ChildProcess; url: Promise<string> } {
     nodeProgram(),
     // `--expose-internals` is what lets the profile's HMR row load; without it
     // the host fails with "--expose-internals is required for HMR service".
-    ['--import', 'tsx/esm', '--expose-internals', CLI, '--profile', PROFILE, '--port', '0', '--no-open'],
+    [...CLI_LOADER, '--expose-internals', CLI, '--profile', PROFILE, '--port', '0', '--no-open'],
     {
       cwd: REPO,
-      // 与 dev 完全同一世界：~/.dsh、yantao-web、仓库源码（2026-10-24 合一裁决）。
-      env: process.env,
+      // Dev shares ~/.dsh; the release build gets its own home under userData.
+      env: hostEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     },
@@ -318,6 +375,164 @@ async function loadWorkbench(target: BrowserWindow, url: string): Promise<void> 
       (error: unknown) => { clearTimeout(timer); reject(error instanceof Error ? error : new Error(String(error))) },
     )
   })
+}
+
+/**
+ * Whether a usable `node` answers on PATH.
+ *
+ * The release build deliberately does not carry a Node runtime (the installer
+ * is a zip, the dependency is common, and the native modules bind to the
+ * system ABI). Failing here is a first-launch condition, not a bug — it gets
+ * its own page rather than a dead window.
+ * @returns whether the host has a runtime to spawn.
+ */
+function nodeAvailable(): boolean {
+  const result = spawnSync(nodeProgram(), ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 10_000 })
+  return result.status === 0 && /^v\d+\./u.test((result.stdout ?? '').trim())
+}
+
+/**
+ * The page shown when Node is missing — the one failure the human can fix
+ * without touching the app.
+ * @returns the `data:` URL to load.
+ */
+function missingNodePage(): string {
+  const dark = nativeTheme.shouldUseDarkColors
+  const surface = dark ? '#1b1916' : '#fbfaf7'
+  const ink = dark ? '#e8e4dc' : '#2e2b26'
+  const muted = dark ? '#a8a296' : '#6b6455'
+  const accent = dark ? '#7ba3e0' : '#4a7fd4'
+  const html = `<html><head><meta charset="utf-8"><style>
+html,body{margin:0;height:100%}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+background:${surface};color:${ink};font:14px system-ui,'Microsoft YaHei',sans-serif;text-align:center;padding:32px}
+h1{font-size:16px;font-weight:600;margin:0}
+p{margin:0;color:${muted};line-height:1.7;max-width:34em}
+a{color:${accent}}
+</style></head><body>
+<h1>缺少 Node.js</h1>
+<p>工作台的后端需要一个 Node.js 运行时。请安装 Node.js 20 或更高版本（<a href="https://nodejs.org">nodejs.org</a>），
+安装完成后关闭这个窗口再重新打开。</p>
+<p>如果已经装过，先在命令行里跑一次 node --version：装完没重启的话，PATH 可能还没生效。</p>
+</body></html>`
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(html)
+}
+
+/**
+ * Replay the runtime's link manifest (release builds only).
+ *
+ * The archive carries no links: a zip cannot hold a junction, and every
+ * recorded target is an absolute path. `scripts/pack-release.mjs` writes
+ * `link-manifest.json` with runtime-relative paths; this rebuilds them under
+ * whatever directory the exe was extracted to. Idempotent — a stamp beside the
+ * app records the root it was built for, and a matching stamp plus one working
+ * probe link skips the whole pass (every launch but the first, and after a
+ * move).
+ */
+function restoreRuntimeLinks(): void {
+  if (!PACKAGED) return
+  const manifestPath = join(RUNTIME, 'link-manifest.json')
+  if (!existsSync(manifestPath)) return
+  const { links } = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    links: { path: string; target: string; directory: boolean }[]
+  }
+  if (links.length === 0) return
+  const first = links[0]
+  if (first === undefined) return
+  const probe = join(RUNTIME, ...first.path.split('/'))
+  const stamp = `${RUNTIME}\n${links.length}`
+  const stampPath = join(app.getPath('userData'), 'runtime-links.json')
+  if (existsSync(stampPath) && readFileSync(stampPath, 'utf8') === stamp) {
+    try {
+      realpathSync(probe)
+      return
+    } catch {
+      // The tree moved or was replaced: fall through and rebuild.
+    }
+  }
+  /**
+   * Create one link.
+   *
+   * `retry` is not a failure: pnpm nests links (a package link points through
+   * another link into the virtual store), so a target may not exist until the
+   * pass that creates it. `failed` means the destination is a real directory
+   * we must not delete.
+   */
+  const ensure = (link: { path: string; target: string; directory: boolean }): 'done' | 'retry' | 'failed' => {
+    const destination = join(RUNTIME, ...link.path.split('/'))
+    const target = join(RUNTIME, ...link.target.split('/'))
+    let present = false
+    try {
+      // lstat, not exists: a dangling junction must still be replaced.
+      lstatSync(destination)
+      present = true
+    } catch {
+      present = false
+    }
+    if (present) {
+      try {
+        if (realpathSync(destination) === target) return 'done'
+      } catch {
+        // Dangling or unreadable: fall through and replace it.
+      }
+      try {
+        unlinkSync(destination)
+      } catch {
+        return 'failed'
+      }
+    }
+    // A junction needs its target to exist; a link through another link needs
+    // that link first. Defer and come back after the next pass.
+    if (!existsSync(target)) return 'retry'
+    mkdirSync(dirname(destination), { recursive: true })
+    try {
+      if (link.directory) {
+        // Junctions need no privilege on Windows; file symlinks do.
+        symlinkSync(target, destination, 'junction')
+      } else {
+        // A hard link is a real file with no elevation and no second copy.
+        linkSync(target, destination)
+      }
+      return 'done'
+    } catch {
+      try {
+        copyFileSync(target, destination)
+        return 'done'
+      } catch {
+        return 'retry'
+      }
+    }
+  }
+
+  let made = 0
+  let pending = links
+  for (let pass = 0; pass < 6 && pending.length > 0; pass += 1) {
+    const deferred = []
+    const failed = []
+    for (const link of pending) {
+      const outcome = ensure(link)
+      if (outcome === 'done') made += 1
+      else if (outcome === 'retry') deferred.push(link)
+      else failed.push(link)
+    }
+    if (failed.length > 0) log(`yantao: ${failed.length} link(s) could not be replaced (a real directory sits in the way)`)
+    if (deferred.length === pending.length) break
+    pending = deferred
+  }
+  if (pending.length > 0) {
+    // An incomplete farm must be retried on the next launch: leaving the stamp
+    // would let the probe link (which does exist) short-circuit the rebuild.
+    log(`yantao: ${pending.length} link(s) still unresolved — the host will report what is missing`)
+    try {
+      unlinkSync(stampPath)
+    } catch {
+      // No stamp yet is the normal case for a first launch.
+    }
+  } else {
+    mkdirSync(dirname(stampPath), { recursive: true })
+    writeFileSync(stampPath, stamp)
+  }
+  log(`yantao: restored ${made} runtime link(s) under ${RUNTIME}`)
 }
 
 function buildTray(onRestart: () => void): void {
@@ -491,7 +706,7 @@ async function restartHost(): Promise<void> {
   await purgeStaleAuthCookies()
   try {
     await loadWorkbench(target, await started.url)
-    console.log('yantao: host restarted')
+    log('yantao: host restarted')
   } catch (error: unknown) {
     console.error('yantao: host restart failed', error)
   }
@@ -534,6 +749,20 @@ async function main(): Promise<void> {
   await target.loadURL(loadingPage())
   target.show()
 
+  // A release build restores its link farm before anything can import from it;
+  // the loading page is already up, so the first launch's few seconds of
+  // junction creation look like booting rather than like nothing happening.
+  restoreRuntimeLinks()
+
+  // The one first-launch condition the human can fix without the app.
+  if (PACKAGED && !nodeAvailable()) {
+    log('yantao: no node on PATH — showing the install page')
+    await target.loadURL(missingNodePage())
+    return
+  }
+
+  log(`yantao: booting host (${PACKAGED ? 'packaged runtime' : 'checkout'}) — ${CLI}`)
+
   buildTray(() => {
     void restartHost()
   })
@@ -543,7 +772,7 @@ async function main(): Promise<void> {
   armHostDeathWatch(started)
   await purgeStaleAuthCookies()
   await loadWorkbench(target, await started.url)
-  console.log('yantao: workbench ready')
+  log('yantao: workbench ready')
 }
 
 app.on('before-quit', () => {
@@ -552,6 +781,6 @@ app.on('before-quit', () => {
 })
 
 void main().catch((error: unknown) => {
-  console.error('yantao: desktop shell failed to start', error)
+  log(`yantao: desktop shell failed to start — ${error instanceof Error ? error.message : String(error)}`)
   app.quit()
 })
