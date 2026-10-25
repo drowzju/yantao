@@ -26,10 +26,19 @@
 cp .env.example .env            # then fill in MODEL_GATEWAY_API_KEY
 pnpm install
 
-pnpm --filter @deepseek-ai/dsh-yantao-desktop start   # workbench: Electron window + tray (ADR-0016)
+powershell -File scripts\dev-yantao.ps1               # 重建过期产物 + 启动工作台（Electron 窗口 + 托盘）
 
 pnpm dsh --profile yantao "用一句话回答：1+1等于几？"   # headless smoke test
 ```
+
+出包（给别人用，不带源码）：
+
+```powershell
+node scripts/pack-release.mjs --reuse-runtime --strip-links --with-shell --zip
+# → apps/yantao-desktop/.package-build/release/yantao-workbench-<version>-win-x64.zip
+```
+
+两条路的区别见 [docs/yantao/development.md](docs/yantao/development.md) 的「出包」一节。
 
 ## 哪些是我们的
 

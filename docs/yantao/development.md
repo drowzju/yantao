@@ -80,6 +80,9 @@ node scripts/pack-release.mjs --reuse-runtime --strip-links --with-shell --zip
 - 归档里**没有任何链接**:8835 个 junction 以 `link-manifest.json` 记录,壳首启按当前路径重建。
 - 私有 home `%APPDATA%\yantao-workbench\dsh-home`:首启自动从模板建 `yantao-web` profile,
   KB 根走 onboarding,模型 key 由使用者自己填。
+- 打包实例**不读**开发机的 `~/.dsh`。想复用现有数据,把 `~/.dsh` 整个拷成那个 dsh-home
+  即可——profile、sessions、`settings.yaml`(KB 根的绝对路径就在里面)会一起带过去;换机器
+  还要把 KB 目录一并拷走并重新指路径。
 - 目标机器需要 Node 20+;壳启动时检查,缺了会显示安装页而不是白窗。
 - 首次全量物化约 10 分钟(整仓复制 + 断链门禁 + 冒烟);之后 `--reuse-runtime` 是秒级。
 - **同一时刻只开一个实例**:两个实例共享 KB 时会双触发调度、抢钉钉消息。
