@@ -673,8 +673,10 @@ function reloadWorkbench(reason: string): void {
     console.warn(`yantao: reload requested (${reason}) but the host is down — use the tray's 重启宿主`)
     return
   }
-  console.log(`yantao: reloading the workbench (${reason})`)
-  window.webContents.reload()
+  log(`yantao: reloading the workbench (${reason})`)
+  // A hard reload: the gesture is Ctrl+Shift+R, and a plain reload may reuse a
+  // cached index.html whose hashed assets no longer match the build on disk.
+  window.webContents.reloadIgnoringCache()
 }
 
 /**
