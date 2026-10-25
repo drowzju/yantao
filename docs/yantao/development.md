@@ -74,6 +74,9 @@ node scripts/pack-release.mjs --reuse-runtime --strip-links --with-shell --zip
 - 出包前先从托盘退出工作台:重建 `lib/` 和 electron-builder 都会撞上文件锁。
 - runtime 只含构建产物(`lib/`、`dist/`),没有 `src/`、没有 tsx;宿主用普通 node 跑
   `apps/cli/lib/bin.js`。
+- 依赖按可达性裁剪:从 profile 的插件表加 CLI 出发,沿 `dependencies/optionalDependencies/
+  peerDependencies` 求闭包,闭包外的包整包删除;source map 与 `.d.ts` 也一并剔除。当前
+  runtime 0.50GB、zip 0.85GB——其中 Electron 壳约 0.33GB 是下限,换壳才能去掉。
 - 归档里**没有任何链接**:8835 个 junction 以 `link-manifest.json` 记录,壳首启按当前路径重建。
 - 私有 home `%APPDATA%\yantao-workbench\dsh-home`:首启自动从模板建 `yantao-web` profile,
   KB 根走 onboarding,模型 key 由使用者自己填。

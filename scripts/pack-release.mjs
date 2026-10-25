@@ -27,20 +27,24 @@
  *    pnpm store) stay as they are.
  * 3. Strip sources — `src/` and `tests/` leave the copy. Any package whose
  *    entry points at `src/` fails the build instead of shipping broken.
- * 4. Decoupling gate — walk the copy and fail if any link resolves back into
+ * 4. Trim — delete every package unreachable from the profile's plugin list
+ *    plus the CLI. The checkout carries its devDependencies (Electron,
+ *    TypeScript, the test runners, three agent CLIs); none of them belong in
+ *    a runtime.
+ * 5. Decoupling gate — walk the copy and fail if any link resolves back into
  *    the repository.
- * 5. Smoke — boot the copied CLI against a throwaway DSH_HOME and compose the
- *    yantao-web profile. This proves the tree is complete enough to start and
- *    that the profile template self-initializes on a fresh home.
- * 6. Manifest — record every link as runtime-relative destination + target.
- * 7. `--strip-links` — delete the links so the archive carries none, and
+ * 6. Boot smoke — start the copied host on a throwaway DSH_HOME and wait for
+ *    its URL line. A dump-config pass would not import a single plugin, so it
+ *    could not catch a package the trim removed by mistake.
+ * 7. Manifest — record every link as runtime-relative destination + target.
+ * 8. `--strip-links` — delete the links so the archive carries none, and
  *    prove the manifest covers every one of them.
  *
  * Usage:
  *   node scripts/pack-release.mjs [--reuse-runtime] [--no-smoke] [--strip-links]
  *                                 [--with-shell] [--zip] [--skip-rebuild]
  */
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import {
   copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync,
   statSync, symlinkSync, unlinkSync, writeFileSync,
@@ -81,6 +85,17 @@ const EXCLUDED = [
   // runtime ever imports it.
   'apps/yantao-desktop',
   'node_modules/.cache',
+  // Repository furniture the host never reads: agent notes, recorded
+  // snapshots, benchmarks, the Linux-only native packages.
+  '.agents',
+  '.claude',
+  '.impeccable',
+  '.playwright-cli',
+  'benchmarks',
+  'native',
+  'python',
+  'snapshots',
+  'temp',
 ]
 
 /** @param {string} message */
@@ -163,21 +178,37 @@ function copyTree(from, to, links) {
  */
 function stripSources(root) {
   let removed = 0
-  /** @param {string} directory */
-  const walk = (directory) => {
+  // Files no runtime ever reads: source maps (310 MB), type declarations
+  // (86 MB) and incremental build state. Deleting them cannot change what the
+  // host executes — nothing imports a `.d.ts` or a `.map`.
+  const deadExtensions = ['.map', '.d.ts', '.d.mts', '.d.cts', '.tsbuildinfo']
+  /**
+   * @param {string} directory
+   * @param {boolean} vendored inside a package's own tree — only dead files are
+   *   removed there, never `src/`: some published packages import from their
+   *   own sources.
+   */
+  const walk = (directory, vendored) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue
       const path = join(directory, entry.name)
-      if (entry.name === 'node_modules' || entry.name === '.git') continue
-      if (entry.name === 'src' || entry.name === 'tests') {
+      if (!entry.isDirectory()) {
+        if (deadExtensions.some(extension => entry.name.endsWith(extension))) unlinkSync(path)
+        continue
+      }
+      if (entry.name === '.git') continue
+      if (entry.name === 'node_modules') {
+        walk(path, true)
+        continue
+      }
+      if (!vendored && (entry.name === 'src' || entry.name === 'tests')) {
         rmSync(path, { recursive: true, force: true })
         removed += 1
         continue
       }
-      walk(path)
+      walk(path, vendored)
     }
   }
-  walk(root)
+  walk(root, false)
   console.log(`pack-release: stripped ${removed} source/test directories`)
 
   const broken = []
@@ -368,6 +399,201 @@ function rebuildArtifacts() {
   if (result.status !== 0) fail(`dev-yantao -NoStart exited ${result.status ?? result.signal}`)
 }
 
+/** Read one package.json, tolerating absence and malformed files. */
+function readManifest(directory) {
+  const file = join(directory, 'package.json')
+  if (!existsSync(file)) return null
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/** The install name inside a specifier (`@a/b/c` → `@a/b`). */
+function packageNameOf(spec) {
+  const parts = spec.split('/')
+  return spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
+}
+
+/**
+ * Index every package the runtime can resolve a name to: workspace members
+ * under `packages/` and `apps/`, plus every entry in pnpm's virtual store.
+ * @param {string} root runtime tree.
+ * @returns {Map<string, { dir: string, manifest: any }>}
+ */
+function packageIndex(root) {
+  const index = new Map()
+  const add = (directory) => {
+    const manifest = readManifest(directory)
+    if (manifest === null || typeof manifest.name !== 'string') return
+    if (!index.has(manifest.name)) index.set(manifest.name, { dir: directory, manifest })
+  }
+  const walk = (directory, depth) => {
+    if (depth > 4) return
+    add(directory)
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      if (['node_modules', 'lib', 'dist', 'src', 'tests'].includes(entry.name)) continue
+      walk(join(directory, entry.name), depth + 1)
+    }
+  }
+  // `vendor/` holds workspace members too (cordis, the loader, cosmokit), and
+  // the loader is what pulls in the native require-builtin chain — leaving it
+  // out of the index made its platform binary look unreachable and pruned it.
+  for (const top of ['packages', 'apps', 'vendor']) {
+    const directory = join(root, top)
+    if (existsSync(directory)) walk(directory, 0)
+  }
+  const store = join(root, 'node_modules', '.pnpm')
+  if (!existsSync(store)) return index
+  for (const entry of readdirSync(store, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const modules = join(store, entry.name, 'node_modules')
+    if (!existsSync(modules)) continue
+    for (const child of readdirSync(modules, { withFileTypes: true })) {
+      if (child.name.startsWith('@')) {
+        const scope = join(modules, child.name)
+        for (const scoped of readdirSync(scope, { withFileTypes: true })) add(join(scope, scoped.name))
+        continue
+      }
+      add(join(modules, child.name))
+    }
+  }
+  return index
+}
+
+/**
+ * Every package name the profile's bundle patches mention.
+ *
+ * A patch row is loaded by name at boot; those rows are normally dependencies
+ * of the bundle, but a peer that the bundle does not depend on would otherwise
+ * look unreachable and get pruned.
+ * @param {string} root runtime tree.
+ * @returns {Set<string>}
+ */
+function profilePackageNames(root) {
+  const names = new Set()
+  for (const bundle of ['base', 'yantao', 'yantao-web-app']) {
+    const file = join(root, 'packages', 'bundle', bundle, 'cordis.patch.yml')
+    if (!existsSync(file)) continue
+    for (const match of readFileSync(file, 'utf8').matchAll(/name:\s*['"]?(@?[\w./-]+)/gu)) {
+      if (match[1] !== undefined) names.add(packageNameOf(match[1]))
+    }
+  }
+  return names
+}
+
+/**
+ * Delete everything the runtime never loads.
+ *
+ * The copy is a whole checkout, so it carries the workspace's devDependencies
+ * too — Electron, TypeScript, the test runners, three agent CLIs and a
+ * LibreOffice bundle were ~1.3 GB of it. Reachability is computed from the
+ * profile's own plugin list plus each package's dependency fields, so a package
+ * the host can actually import survives even when nothing declares it as a
+ * direct dependency of the CLI.
+ * @param {string} root runtime tree.
+ * @returns {{ kept: number, removed: number }}
+ */
+function trimRuntime(root) {
+  const index = packageIndex(root)
+  // The three bundles are roots by identity — they are what the profile names
+  // in its `dsh.profile.bundles`, and no patch row ever mentions them.
+  const queue = [
+    ...profilePackageNames(root),
+    '@deepseek-ai/dsh',
+    '@deepseek-ai/dsh-base',
+    '@deepseek-ai/dsh-yantao',
+    '@deepseek-ai/dsh-yantao-web-app',
+  ].filter(name => index.has(name))
+  const keep = new Set()
+  while (queue.length > 0) {
+    const name = queue.pop()
+    if (keep.has(name)) continue
+    keep.add(name)
+    const { manifest } = index.get(name)
+    for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
+      for (const dependency of Object.keys(manifest[field] ?? {})) {
+        const dependencyName = packageNameOf(dependency)
+        if (index.has(dependencyName) && !keep.has(dependencyName)) queue.push(dependencyName)
+      }
+    }
+  }
+
+  let removed = 0
+  const workspaceRoots = [join(root, 'packages'), join(root, 'apps')]
+  for (const [name, { dir }] of index) {
+    if (keep.has(name)) continue
+    if (!workspaceRoots.some(base => dir.startsWith(base))) continue
+    rmSync(dir, { recursive: true, force: true })
+    removed += 1
+  }
+  const store = join(root, 'node_modules', '.pnpm')
+  if (existsSync(store)) {
+    /** A package slot is a link or a directory; either way it goes whole. */
+    const drop = (path) => {
+      let stat
+      try {
+        stat = lstatSync(path)
+      } catch {
+        return
+      }
+      if (stat.isSymbolicLink()) unlinkSync(path)
+      else rmSync(path, { recursive: true, force: true })
+    }
+    for (const entry of readdirSync(store, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      // pnpm's hidden hoist: a directory of links, not a package entry. Wiping
+      // it breaks resolution for anything that leans on hoisting — the native
+      // platform binaries among them.
+      if (entry.name === 'node_modules') continue
+      const entryDir = join(store, entry.name)
+      const modules = join(entryDir, 'node_modules')
+      if (!existsSync(modules)) {
+        rmSync(entryDir, { recursive: true, force: true })
+        removed += 1
+        continue
+      }
+      // An entry is a package *and* its dependencies. Deleting by entry kept
+      // Electron alive for 325 MB because a shared `@types` row was reachable;
+      // delete per package instead.
+      let remaining = 0
+      for (const child of readdirSync(modules, { withFileTypes: true })) {
+        if (child.name === '.bin') continue
+        const childPath = join(modules, child.name)
+        if (child.name.startsWith('@')) {
+          for (const scoped of readdirSync(childPath, { withFileTypes: true })) {
+            const packageName = `${child.name}/${scoped.name}`
+            if (keep.has(packageName)) {
+              remaining += 1
+              continue
+            }
+            drop(join(childPath, scoped.name))
+          }
+          try {
+            if (readdirSync(childPath).length === 0) rmSync(childPath, { recursive: true, force: true })
+          } catch {
+            // A scope directory that vanished with its last package.
+          }
+          continue
+        }
+        if (keep.has(child.name)) {
+          remaining += 1
+          continue
+        }
+        drop(childPath)
+      }
+      if (remaining === 0) {
+        rmSync(entryDir, { recursive: true, force: true })
+        removed += 1
+      }
+    }
+  }
+  console.log(`pack-release: trimmed ${removed} package(s) — ${keep.size} stay reachable from the profile`)
+  return { kept: keep.size, removed }
+}
+
 /** Name the command that produces each missing artifact. */
 function preflight() {
   const required = [
@@ -396,30 +622,50 @@ function materialize() {
 }
 
 /**
- * Boot the copied CLI against a throwaway home and compose the profile.
- * A failure here means the tree cannot start, which is the one thing the
- * gates above cannot see.
+ * Boot the copied host against a throwaway home and wait for its URL line.
+ *
+ * A dump-config pass would only compose the patch layers; it never imports a
+ * plugin, so a package this script wrongly pruned would sail through. Booting
+ * mounts the whole tree, which is exactly what trimming can break.
  */
-function smoke() {
+async function smoke() {
   rmSync(SMOKE_HOME, { recursive: true, force: true })
   const bin = join(RUNTIME, 'apps', 'cli', 'lib', 'bin.js')
-  const result = spawnSync(process.execPath, [bin, '--profile', PROFILE, '--dump-config'], {
-    cwd: RUNTIME,
-    env: { ...process.env, DSH_HOME: SMOKE_HOME },
-    encoding: 'utf8',
-    windowsHide: true,
-    timeout: 180_000,
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [bin, '--profile', PROFILE, '--port', '0', '--no-open'], {
+      cwd: RUNTIME,
+      env: { ...process.env, DSH_HOME: SMOKE_HOME },
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let out = ''
+    let err = ''
+    let settled = false
+    const finish = (failure) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      child.kill()
+      if (failure === null) resolve()
+      else reject(failure)
+    }
+    const timer = setTimeout(() => {
+      finish(new Error(`boot smoke timed out\n${out.slice(-2000)}\n${err.slice(-2000)}`))
+    }, 180_000)
+    child.stdout.on('data', (chunk) => {
+      out += chunk.toString('utf8')
+      if (/^dsh web: http/mu.test(out)) finish(null)
+    })
+    child.stderr.on('data', (chunk) => { err += chunk.toString('utf8') })
+    child.on('error', (error) => { finish(new Error(`boot smoke could not spawn: ${error.message}`)) })
+    child.on('exit', (code) => {
+      finish(new Error(`boot smoke exited ${code ?? 'null'}\n${out.slice(-2000)}\n${err.slice(-2000)}`))
+    })
   })
-  if (result.status !== 0) {
-    console.error(result.stdout?.slice(-2000) ?? '')
-    console.error(result.stderr?.slice(-2000) ?? '')
-    fail(`smoke failed: the copied CLI exited ${result.status ?? result.signal}`)
-  }
   if (!existsSync(join(SMOKE_HOME, 'profiles', PROFILE, 'package.json'))) {
     fail('smoke failed: the profile template did not initialize on the throwaway home')
   }
-  const lines = (result.stdout ?? '').split('\n').length
-  console.log(`pack-release: smoke passed — profile composed (${lines} lines), template initialized`)
+  console.log('pack-release: boot smoke passed — the host came up on the copied tree')
 }
 
 /**
@@ -481,6 +727,7 @@ function flags(argv) {
     shell: argv.includes('--with-shell'),
     zip: argv.includes('--zip'),
     skipRebuild: argv.includes('--skip-rebuild'),
+    noTrim: argv.includes('--no-trim'),
   }
 }
 
@@ -491,6 +738,8 @@ if (options.reuse && existsSync(RUNTIME)) {
   console.log('pack-release: reusing the materialized runtime')
 } else {
   materialize()
+  if (options.noTrim) console.log('pack-release: trimming skipped (--no-trim)')
+  else trimRuntime(RUNTIME)
 }
 const pruned = pruneDangling(RUNTIME)
 if (pruned > 0) console.log(`pack-release: pruned ${pruned} dangling link(s)`)
@@ -504,7 +753,7 @@ const canSmoke = options.smoke && audited.inside > 0
 if (options.smoke && !canSmoke) {
   console.log('pack-release: the tree is already stripped — smoke skipped (it ran before the strip)')
 }
-if (canSmoke) smoke()
+if (canSmoke) await smoke()
 
 // A tree that is already stripped keeps its manifest: re-running on it must
 // not overwrite the record with an empty one.
