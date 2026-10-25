@@ -68,6 +68,7 @@ import type {} from '@deepseek-ai/dsh-settings'
 import { WORKSPACE_CLI_KEY_REF, WORKSPACE_CLI_NAMESPACE, parseModelIds, probeCodebuddy, probeOptions, type WorkspaceCliOptions } from './workspace/cli.ts'
 import { pruneOrphanRunLogs } from './workspace/run-log.ts'
 import { DIGEST_CHAR_CAP, collectSessionEvents, digestOfEvents } from './session-log.ts'
+import { sweepTempDir } from './temp-sweep.ts'
 import type { EntityType, Schedule, TodoFile, WorkspaceDef } from '@deepseek-ai/dsh-yantao-kb'
 import { ensureBuiltinCapabilities, seedBuiltinRoutes } from './capability/builtin.ts'
 import { applySkillRewrite } from './capability/rewrite.ts'
@@ -488,6 +489,11 @@ export class YantaoKbController extends TypertRemoteService {
       }).catch((error: unknown) => {
         console.warn('workspace run healing failed:', error)
       })
+      // resources/temp/ is scratch by contract — the capability environment
+      // note has told every capability "用完即弃，无人清理" since 2026-10-09, and
+      // the second half was literally true: it held 23MB of weekly-run working
+      // files by 2026-10-25. Best-effort and silent; boot never waits on it.
+      void sweepTempDir(join(this.kbRoot, 'resources', 'temp')).catch(() => undefined)
       const timer = setInterval(() => { void this.workspaceTick() }, YantaoKbController.WORKSPACE_TICK_INTERVAL_MS)
       return () => { clearInterval(timer) }
     })
@@ -1469,7 +1475,7 @@ export class YantaoKbController extends TypertRemoteService {
       parameters: {
         sessionId: { type: 'string', required: true, description: '会话 id（session-… 或裸 uuid），取自 kb_list_workspace_runs 的行' },
         mode: { type: 'string', description: 'digest（默认，全程浓缩）/ tail（末尾窗口，较详细）' },
-        maxChars: { type: 'integer', description: '输出字符上限，默认 12000，上限 30000' },
+        maxChars: { type: 'integer', description: '输出字符上限，默认 40000，上限 80000' },
       },
       output: {
         schema: {
@@ -1491,7 +1497,7 @@ export class YantaoKbController extends TypertRemoteService {
           throw new Error('sessionId 不能为空——先在 kb_list_workspace_runs 的行里找到它。')
         }
         const id = sessionId.trim().startsWith('session-') ? sessionId.trim().slice('session-'.length) : sessionId.trim()
-        const cap = Math.max(1_000, Math.min(maxChars ?? 12_000, DIGEST_CHAR_CAP))
+        const cap = Math.max(1_000, Math.min(maxChars ?? 40_000, DIGEST_CHAR_CAP))
         const events = await collectSessionEvents(this.ctx.sessionController, id)
         if (events.length === 0) {
           throw new Error('会话「' + sessionId + '」不存在，或它的日志还没有可读事件。')

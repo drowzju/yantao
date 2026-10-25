@@ -47,9 +47,23 @@
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'
 
+    # Budgets re-tuned 2026-10-25 for the 768K window this deployment runs on
+    # (2026-10-24 的上下文窗口对齐). The upstream defaults (8K/4K/1K) were sized
+    # for a coding agent on a ~128K window; here they were 1% of the window and
+    # clipped every tool result — including the newest one the agent is reasoning
+    # over — to head-4K + tail-1K the moment pressure qualified. A 218KB entity
+    # read came back as 5KB of it. The pruner fires only past the pressure
+    # threshold, so this is not a per-turn cost; it decides how much survives when
+    # it does fire.
+    #
+    # KNOWN LIMIT: the pruner clips every over-budget result in one pass, so a
+    # few-thousand-token overshoot still costs every result its middle. Making it
+    # incremental (oldest first, stop when under budget) means editing the
+    # upstream package, which is outside our merge surface — recorded as a debt
+    # item instead of done here.
     - id: tool-result-pruner
       name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
       config:
-        thresholdChars: 8192
-        headChars: 4096
-        tailChars: 1024
+        thresholdChars: 65536
+        headChars: 49152
+        tailChars: 8192

@@ -53,8 +53,14 @@ const ARGS_CLIP = 200
 const RESULT_CLIP = 300
 /** Backwards page budget per page call (session-detail's pace). */
 const PAGE_MESSAGES = 200
-/** Whole-digest ceiling: past it the oldest lines fall off with a marker. */
-export const DIGEST_CHAR_CAP = 24_000
+/**
+ * Whole-digest ceiling: past it the oldest lines fall off with a marker.
+ *
+ * Raised 24K → 80K on 2026-10-25. A forensic read of a failed scheduled run is
+ * exactly the case where the middle of the session is the evidence, and 24K
+ * was a 128K-window number: it clipped long runs down to their head and tail.
+ */
+export const DIGEST_CHAR_CAP = 80_000
 
 /** Clip one string to `max` code units, marking the cut. */
 function clip(text: string, max: number): string {

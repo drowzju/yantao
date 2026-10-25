@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_DIR_ENTRIES, MAX_MENTIONS, MAX_MENTION_CHARS, kbMentions, renderKbMentions,
+  MAX_DIR_ENTRIES, MAX_MENTIONS, MAX_MENTION_CHARS, MAX_MENTION_TOTAL_CHARS, kbMentions, renderKbMentions,
 } from '../src/mentions.ts'
 
 describe('kbMentions', () => {
@@ -54,6 +54,16 @@ describe('renderKbMentions', () => {
     const text = renderKbMentions([{ kind: 'file', path: 'entities/areas/健康.md', content: 'x'.repeat(MAX_MENTION_CHARS + 10) }])
     expect(text).toContain('已截断')
     expect(text.length).toBeLessThan(MAX_MENTION_CHARS + 200)
+  })
+
+  it('stops at the turn-wide budget and placeholders the files past it', () => {
+    const big = 'x'.repeat(MAX_MENTION_CHARS)
+    const entries = [0, 1, 2, 3].map(i => ({ kind: 'file' as const, path: `entities/areas/a${i}.md`, content: big }))
+    const text = renderKbMentions(entries)
+    // Four full files would be 384K; the turn budget is 256K, so the last one
+    // arrives as a placeholder instead of quietly shrinking the first three.
+    expect(text).toContain('超出本轮引用总预算')
+    expect(text.length).toBeLessThan(MAX_MENTION_TOTAL_CHARS + 400)
   })
 
   it('renders a cited binary file as a placeholder carrying its size', () => {

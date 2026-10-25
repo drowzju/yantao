@@ -19,8 +19,26 @@ const KB_PREFIXES = ['entities/', 'resources/'] as const
 /** Most mentions one turn may cite — a transcript is not a dump. */
 export const MAX_MENTIONS = 8
 
-/** Characters of one cited file kept in the context message. */
-export const MAX_MENTION_CHARS = 32_000
+/**
+ * Characters of one cited file kept in the context message.
+ *
+ * Raised 32K → 96K on 2026-10-25, after the window was aligned to 768K
+ * (2026-10-24). The old number dated from a ~128K window, where one mention
+ * was already a quarter of the budget; here it clipped the largest entity
+ * (218KB) to its first seventh.
+ */
+export const MAX_MENTION_CHARS = 96_000
+
+/**
+ * Characters all cited files may carry in one turn, across mentions.
+ *
+ * Raising the per-file cap alone would have multiplied the worst case by
+ * three (eight mentions × 96K = 768K characters — a whole window in one
+ * message). This budget keeps the ceiling where it already was (eight × 32K)
+ * while letting a single large citation through whole. Past it, later files
+ * arrive as placeholders instead of silently shrinking the earlier ones.
+ */
+export const MAX_MENTION_TOTAL_CHARS = 256_000
 
 /** Most files one cited directory may expand to — a directory is not a dump either. */
 export const MAX_DIR_ENTRIES = 100
@@ -75,21 +93,32 @@ export type CitedEntry =
   | { kind: 'binary'; path: string; size: number }
   | { kind: 'dir'; path: string; files: readonly CitedDirFile[]; truncated?: boolean }
 
-/** Render one file block, truncating over-long content. */
-function renderFile(path: string, content: string): string {
-  const body = content.length > MAX_MENTION_CHARS
-    ? `${content.slice(0, MAX_MENTION_CHARS)}\n…（已截断）`
+/** Render one file block, truncating over-long content to `limit` characters. */
+function renderFile(path: string, content: string, limit: number = MAX_MENTION_CHARS): string {
+  if (limit <= 0) return renderPlaceholder(path, '超出本轮引用总预算，未注入内容')
+  const body = content.length > limit
+    ? `${content.slice(0, limit)}\n…（已截断）`
     : content
   return `<kb-file path="${path}">\n${body}\n</kb-file>`
 }
 
-/** Render a cited directory: its text files inline, placeholders for the rest. */
-function renderDir(entry: Extract<CitedEntry, { kind: 'dir' }>): string {
+/** Render one file block that stands in for content the renderer withheld. */
+function renderPlaceholder(path: string, why: string, size?: number): string {
+  const tail = size !== undefined ? `；大小 ${size} 字节` : ''
+  return `<kb-file path="${path}">\n（${why}${tail}）\n</kb-file>`
+}
+
+/**
+ * Render a cited directory: its text files inline, placeholders for the rest.
+ * @param entry - the cited directory.
+ * @param take - how many characters of the running turn budget a file of the
+ * given length may claim; returns what is left for it.
+ */
+function renderDir(entry: Extract<CitedEntry, { kind: 'dir' }>, take: (length: number) => number): string {
   const inner = entry.files.map((file) => {
-    if (file.content !== null) return renderFile(file.path, file.content)
+    if (file.content !== null) return renderFile(file.path, file.content, take(file.content.length))
     const why = file.reason === 'binary' ? '二进制文件，未注入内容' : '超出目录内容预算，未注入内容'
-    const size = file.size !== undefined ? `；大小 ${file.size} 字节` : ''
-    return `<kb-file path="${file.path}">\n（${why}${size}）\n</kb-file>`
+    return renderPlaceholder(file.path, why, file.size)
   })
   const note = entry.truncated === true ? `\n（目录条目超过 ${MAX_DIR_ENTRIES} 个，已截断）` : ''
   return `<kb-dir path="${entry.path}" files="${entry.files.length}">\n${inner.join('\n')}${note}\n</kb-dir>`
@@ -102,12 +131,18 @@ function renderDir(entry: Extract<CitedEntry, { kind: 'dir' }>): string {
  */
 export function renderKbMentions(entries: readonly CitedEntry[]): string {
   if (entries.length === 0) return ''
+  let remaining = MAX_MENTION_TOTAL_CHARS
+  const take = (length: number): number => {
+    const cap = Math.max(0, Math.min(MAX_MENTION_CHARS, remaining))
+    remaining -= Math.min(length, cap)
+    return cap
+  }
   const blocks = entries.map((entry) => {
-    if (entry.kind === 'dir') return renderDir(entry)
+    if (entry.kind === 'dir') return renderDir(entry, take)
     if (entry.kind === 'binary') {
-      return `<kb-file path="${entry.path}">\n（二进制文件，未注入内容；大小 ${entry.size} 字节）\n</kb-file>`
+      return renderPlaceholder(entry.path, '二进制文件，未注入内容', entry.size)
     }
-    return renderFile(entry.path, entry.content)
+    return renderFile(entry.path, entry.content, take(entry.content.length))
   })
   return [
     `以下是本轮用 @ 引用的知识库内容（共 ${entries.length} 项），直接引用它们回答，不要猜测文件内容：`,
