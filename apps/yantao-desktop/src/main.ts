@@ -25,6 +25,7 @@
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { appendFileSync, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, readFileSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, Tray } from 'electron'
@@ -128,6 +129,18 @@ const PROFILE = 'yantao-web'
  */
 function hostEnv(): NodeJS.ProcessEnv {
   if (!PACKAGED) return process.env
+  // `YANTAO_DSH_HOME` pins the home for one machine: set it to the development
+  // home (`%USERPROFILE%\.dsh`) and the release build shares that world —
+  // profile, sessions, settings, credentials — instead of starting empty. It is
+  // opt-in on purpose: a colleague who merely has a `.dsh` on disk must not
+  // silently inherit it.
+  const override = process.env.YANTAO_DSH_HOME?.trim()
+  if (override !== undefined && override !== '') {
+    const expanded = override.startsWith('~/') || override.startsWith('~\\')
+      ? join(homedir(), override.slice(2))
+      : override
+    return { ...process.env, DSH_HOME: expanded }
+  }
   return { ...process.env, DSH_HOME: join(app.getPath('userData'), 'dsh-home') }
 }
 
